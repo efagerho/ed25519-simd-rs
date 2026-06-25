@@ -1224,9 +1224,9 @@ pub(crate) mod avx512ifma {
             let g = d.add_loose(&c);
 
             self.x = e.multiply(&f);
+            self.t = e.multiply(&h);
             self.z = f.multiply(&g);
             self.y = g.multiply(&h);
-            self.t = e.multiply(&h);
         }
         fn subtract(&self, rhs: &Self) -> Self {
             self.add(&rhs.negate())
