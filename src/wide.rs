@@ -123,6 +123,15 @@ pub(crate) mod avx512ifma {
         core::array::from_fn(|lane| recomputed[lane] == r_bytes[lane])
     }
 
+    pub(crate) fn verify_prepared8_dalek_projective(
+        prepared: &PreparedVerificationBatch8WithoutR<'_>,
+        r: &WideRPoints8,
+        base_table: &BasepointTable,
+    ) -> [bool; LANES] {
+        let combined = mul_base_minus_public8_without_r(base_table, prepared);
+        combined.equals_affine_lanes(&r.0)
+    }
+
     /// Pre-`pow` state of a decompression: everything needed to finish once the
     /// inverse-square-root exponent has been raised. Splitting decompression into
     /// setup → pow → finish lets two independent decodes share one interleaved
@@ -1178,6 +1187,13 @@ pub(crate) mod avx512ifma {
                 bytes[31] |= (xs[lane].is_odd() as u8) << 7;
                 bytes
             })
+        }
+        fn equals_affine_lanes(&self, affine: &Self) -> [bool; LANES] {
+            let x = affine.x.multiply(&self.z);
+            let y = affine.y.multiply(&self.z);
+            let x_equal = self.x.equals_lanes(&x);
+            let y_equal = self.y.equals_lanes(&y);
+            core::array::from_fn(|lane| x_equal[lane] && y_equal[lane])
         }
         fn add(&self, rhs: &Self) -> Self {
             let a = self.y.subtract(&self.x).multiply(&rhs.y.subtract(&rhs.x));

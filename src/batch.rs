@@ -76,9 +76,29 @@ const LEGACY_EXCLUDED_R_ENCODINGS: [[u8; 32]; 11] = [
         0xff, 0xff,
     ],
 ];
+const FIELD_P_BYTES: [u8; 32] = [
+    0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f,
+];
 
 pub(crate) fn r_encoding_is_legacy_excluded(r_bytes: &[u8; 32]) -> bool {
     LEGACY_EXCLUDED_R_ENCODINGS.contains(r_bytes)
+}
+
+pub(crate) fn r_encoding_has_canonical_y(r_bytes: &[u8; 32]) -> bool {
+    let mut y = *r_bytes;
+    y[31] &= 0x7f;
+    let mut i = 32;
+    while i > 0 {
+        i -= 1;
+        if y[i] < FIELD_P_BYTES[i] {
+            return true;
+        }
+        if y[i] > FIELD_P_BYTES[i] {
+            return false;
+        }
+    }
+    false
 }
 
 /// Decode eight public keys and return a per-lane validity mask.
@@ -131,4 +151,12 @@ pub(crate) fn verify_prepared_batch8_dalek_simd(
     base_table: &BasepointTable,
 ) -> [bool; SIMD_LANES] {
     wide::avx512ifma::verify_prepared8_dalek(prepared, r_bytes, base_table)
+}
+
+pub(crate) fn verify_prepared_batch8_dalek_projective_simd(
+    prepared: &PreparedVerificationBatch8WithoutR<'_>,
+    r: &DecompressedRBatch8,
+    base_table: &BasepointTable,
+) -> [bool; SIMD_LANES] {
+    wide::avx512ifma::verify_prepared8_dalek_projective(prepared, &r.inner, base_table)
 }
