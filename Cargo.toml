@@ -1,0 +1,27 @@
+[package]
+name = "ed25519-simd"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+[dev-dependencies]
+criterion = "0.8"
+curve25519 = { git = "https://github.com/anza-xyz/cryptography", package = "solana-ed25519" }
+rand = "0.8"
+
+[profile.release]
+lto = true
+codegen-units = 1
+
+[profile.bench]
+lto = true
+codegen-units = 1
+
+[[bench]]
+name = "anza_compare"
+harness = false
+
+[[bench]]
+name = "cold_profile"
+harness = false
