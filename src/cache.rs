@@ -1,7 +1,8 @@
 use crate::batch::{
     DecompressedRBatch8, PreparedVerificationBatch8WithoutR, VerifyInput, VerifyPolicy,
     decode_and_build_tables8_wide, decode_keys_and_decompress_r8_wide,
-    decompress_r_batch_wide_simd, r_encoding_is_legacy_excluded, verify_prepared_batch8_dalek_simd,
+    decompress_r_batch_wide_simd, r_encoding_has_canonical_y, r_encoding_is_legacy_excluded,
+    verify_prepared_batch8_dalek_projective_simd, verify_prepared_batch8_dalek_simd,
     verify_prepared_batch8_zip215_simd,
 };
 use crate::edwards::{BasepointTable, EdwardsPoint, PointTable};
@@ -568,15 +569,10 @@ impl<C: KeyCache> Verifier<C> {
             lane += 1;
         }
 
-        // Decode keys (and, for ZIP-215 with uncached keys, fuse the key and R
-        // square-root chains into one interleaved decode to hide IFMA latency).
-        // `zip_r` carries the R points when they were decoded here.
-        let mut zip_r: Option<(DecompressedRBatch8, u8)> = None;
+        let mut decoded_r: Option<(DecompressedRBatch8, u8)> = None;
         if uniform_public_key {
             self.cache.prepare(first_public_key);
-        } else if policy == VerifyPolicy::Zip215
-            && !public_keys.iter().all(|key| self.cache.get(key).is_some())
-        {
+        } else if !public_keys.iter().all(|key| self.cache.get(key).is_some()) {
             let (tables, key_mask, r_points, r_mask) =
                 decode_keys_and_decompress_r8_wide(&public_keys, &r_bytes);
             for (l, table) in tables.into_iter().enumerate() {
@@ -585,7 +581,7 @@ impl<C: KeyCache> Verifier<C> {
                         .store(CachedPublicKey::from_table(public_keys[l], table));
                 }
             }
-            zip_r = Some((r_points, r_mask));
+            decoded_r = Some((r_points, r_mask));
         } else {
             self.cache.prepare_batch8(&public_keys);
         }
@@ -623,7 +619,7 @@ impl<C: KeyCache> Verifier<C> {
 
         match policy {
             VerifyPolicy::Zip215 => {
-                let (r_points, r_mask) = match zip_r {
+                let (r_points, r_mask) = match decoded_r {
                     Some(decoded) => decoded,
                     None => decompress_r_batch_wide_simd(&r_bytes),
                 };
@@ -636,13 +632,33 @@ impl<C: KeyCache> Verifier<C> {
                 }
             }
             VerifyPolicy::Dalek => {
-                let simd = verify_prepared_batch8_dalek_simd(&prepared, &r_bytes, &self.base_table);
-                lane = 0;
-                while lane < SIMD_LANES {
-                    let legacy_excluded = public_keys[lane] == [0u8; 32]
-                        || r_encoding_is_legacy_excluded(&r_bytes[lane]);
-                    out[lane] = simd[lane] && valid[lane] && !legacy_excluded;
-                    lane += 1;
+                if let Some((r_points, r_mask)) = decoded_r {
+                    let simd = verify_prepared_batch8_dalek_projective_simd(
+                        &prepared,
+                        &r_points,
+                        &self.base_table,
+                    );
+                    lane = 0;
+                    while lane < SIMD_LANES {
+                        let legacy_excluded = public_keys[lane] == [0u8; 32]
+                            || r_encoding_is_legacy_excluded(&r_bytes[lane]);
+                        out[lane] = simd[lane]
+                            && valid[lane]
+                            && (r_mask & (1 << lane) != 0)
+                            && r_encoding_has_canonical_y(&r_bytes[lane])
+                            && !legacy_excluded;
+                        lane += 1;
+                    }
+                } else {
+                    let simd =
+                        verify_prepared_batch8_dalek_simd(&prepared, &r_bytes, &self.base_table);
+                    lane = 0;
+                    while lane < SIMD_LANES {
+                        let legacy_excluded = public_keys[lane] == [0u8; 32]
+                            || r_encoding_is_legacy_excluded(&r_bytes[lane]);
+                        out[lane] = simd[lane] && valid[lane] && !legacy_excluded;
+                        lane += 1;
+                    }
                 }
             }
         }
