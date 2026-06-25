@@ -22,12 +22,38 @@ pub(crate) mod avx512ifma {
     /// Decode eight public keys and build cached tables with per-lane validity.
     pub(crate) fn decode_and_build_tables8(bytes: &[[u8; 32]; LANES]) -> ([PointTable; LANES], u8) {
         let (p, valid_mask) = decompress_points8_wide(bytes);
-        let mut mult = [p; LANES];
-        let mut i = 1;
-        while i < LANES {
-            mult[i] = mult[i - 1].add(&p);
-            i += 1;
-        }
+        (build_tables8_from_point(p), valid_mask)
+    }
+
+    /// Decode eight public keys and eight `R` points together, interleaving the
+    /// two inverse-square-root chains (the latency-bound part of decompression).
+    /// Returns the key tables + validity and the decompressed `R` + validity.
+    pub(crate) fn decode_keys_and_decompress_r8(
+        keys: &[[u8; 32]; LANES],
+        r_bytes: &[[u8; 32]; LANES],
+    ) -> ([PointTable; LANES], u8, WideRPoints8, u8) {
+        let ((kp, kmask), (rp, rmask)) = decompress_points8_wide_x2(keys, r_bytes);
+        (build_tables8_from_point(kp), kmask, WideRPoints8(rp), rmask)
+    }
+
+    /// Build the eight radix-16 cached tables from an already-decompressed
+    /// 8-wide point (one base point per lane).
+    fn build_tables8_from_point(p: WidePoint) -> [PointTable; LANES] {
+        // Tree-balanced multiples (P..8P): critical path ~4 deep instead of the
+        // serial 7, with independent adds at each level to expose ILP.
+        let p2 = p.add(&p);
+        let p4 = p2.add(&p2);
+        let p3 = p2.add(&p);
+        let mult = [
+            p,
+            p2,
+            p3,
+            p4,
+            p4.add(&p),  // 5P
+            p3.add(&p3), // 6P
+            p4.add(&p3), // 7P
+            p4.add(&p4), // 8P
+        ];
 
         let two_d = WideFe::two_d();
         type Lane8 = [Fe51; LANES];
@@ -48,7 +74,7 @@ pub(crate) mod avx512ifma {
         });
 
         let identity = CachedPoint::identity();
-        let tables = core::array::from_fn(|k| {
+        core::array::from_fn(|k| {
             let cached = core::array::from_fn(|i| {
                 let (ypx, ymx, z2, t2d, _) = &fields[i];
                 CachedPoint::from_fields(
@@ -69,8 +95,7 @@ pub(crate) mod avx512ifma {
                 )
             });
             PointTable::from_cached(cached, negative, identity.clone())
-        });
-        (tables, valid_mask)
+        })
     }
 
     // ZIP-215 cofactored verification: [8](sB - kA - R) == identity.
@@ -98,8 +123,20 @@ pub(crate) mod avx512ifma {
         core::array::from_fn(|lane| recomputed[lane] == r_bytes[lane])
     }
 
-    /// Decompress eight compressed Edwards points with per-lane validity.
-    fn decompress_points8_wide(bytes: &[[u8; 32]; LANES]) -> (WidePoint, u8) {
+    /// Pre-`pow` state of a decompression: everything needed to finish once the
+    /// inverse-square-root exponent has been raised. Splitting decompression into
+    /// setup → pow → finish lets two independent decodes share one interleaved
+    /// `pow_x2` (the latency-bound chain), hiding each chain's IFMA latency.
+    struct DecompressSetup {
+        u: WideFe,
+        v: WideFe,
+        base: WideFe, // u * v^3
+        exp: WideFe,  // u * v^7  (raised to (p-5)/8)
+        y: WideFe,
+        x_signs: [bool; LANES],
+    }
+
+    fn decompress_setup8(bytes: &[[u8; 32]; LANES]) -> DecompressSetup {
         let mut y_fields = core::array::from_fn(|_| Fe51::zero());
         let mut x_signs = [false; LANES];
 
@@ -120,20 +157,31 @@ pub(crate) mod avx512ifma {
         let v2 = v.square();
         let v3 = v2.multiply(&v);
         let v7 = v3.square().multiply(&v);
-        let mut x = u
-            .multiply(&v3)
-            .multiply(&u.multiply(&v7).pow_p_minus_5_over_8());
+        let base = u.multiply(&v3);
+        let exp = u.multiply(&v7);
+        DecompressSetup {
+            u,
+            v,
+            base,
+            exp,
+            y,
+            x_signs,
+        }
+    }
 
-        let vx2 = v.multiply(&x.square());
-        let first_ok = vx2.equals_lanes(&u);
+    fn decompress_finish8(s: DecompressSetup, pow: WideFe) -> (WidePoint, u8) {
+        let mut x = s.base.multiply(&pow);
+
+        let vx2 = s.v.multiply(&x.square());
+        let first_ok = vx2.equals_lanes(&s.u);
 
         let x_alt = x.multiply(&WideFe::sqrt_m1());
-        let vx_alt2 = v.multiply(&x_alt.square());
-        let second_ok = vx_alt2.equals_lanes(&u);
+        let vx_alt2 = s.v.multiply(&x_alt.square());
+        let second_ok = vx_alt2.equals_lanes(&s.u);
 
         let mut alt_mask = 0u8;
         let mut valid_mask = 0u8;
-        lane = 0;
+        let mut lane = 0;
         while lane < LANES {
             if first_ok[lane] {
                 valid_mask |= 1 << lane;
@@ -151,23 +199,42 @@ pub(crate) mod avx512ifma {
         let mut negate_mask = 0u8;
         lane = 0;
         while lane < LANES {
-            if x_odd[lane] != x_signs[lane] {
+            if x_odd[lane] != s.x_signs[lane] {
                 negate_mask |= 1 << lane;
             }
             lane += 1;
         }
         x = x.blend(negate_mask, &x_neg);
 
-        let t = x.multiply(&y);
+        let t = x.multiply(&s.y);
         (
             WidePoint {
                 x,
-                y,
+                y: s.y,
                 z: WideFe::one(),
                 t,
             },
             valid_mask,
         )
+    }
+
+    /// Decompress eight compressed Edwards points with per-lane validity.
+    fn decompress_points8_wide(bytes: &[[u8; 32]; LANES]) -> (WidePoint, u8) {
+        let s = decompress_setup8(bytes);
+        let pow = s.exp.pow_p_minus_5_over_8();
+        decompress_finish8(s, pow)
+    }
+
+    /// Decompress two independent groups of eight points, interleaving the two
+    /// inverse-square-root chains so each fills the other's IFMA latency gaps.
+    fn decompress_points8_wide_x2(
+        a_bytes: &[[u8; 32]; LANES],
+        b_bytes: &[[u8; 32]; LANES],
+    ) -> ((WidePoint, u8), (WidePoint, u8)) {
+        let sa = decompress_setup8(a_bytes);
+        let sb = decompress_setup8(b_bytes);
+        let (pa, pb) = WideFe::pow_p_minus_5_over_8_x2(&sa.exp, &sb.exp);
+        (decompress_finish8(sa, pa), decompress_finish8(sb, pb))
     }
     fn mul_base_minus_public8_without_r(
         base_table: &BasepointTable,
@@ -854,6 +921,45 @@ pub(crate) mod avx512ifma {
             }
             out
         }
+
+        // --- interleaved two-input variants: run two independent field-exp
+        // chains in lockstep so each fills the other's IFMA latency gaps. Used to
+        // fuse the key-decode and R-decode square roots (latency-bound chains). ---
+        fn square_repeat_x2<const N: usize>(a: &Self, b: &Self) -> (Self, Self) {
+            let (mut x, mut y) = (*a, *b);
+            let mut i = 0;
+            while i < N {
+                x = x.square();
+                y = y.square();
+                i += 1;
+            }
+            (x, y)
+        }
+
+        fn pow_p_minus_5_over_8_x2(a: &Self, b: &Self) -> (Self, Self) {
+            let (t0a, t0b) = (a.square(), b.square());
+            let (sa, sb) = Self::square_repeat_x2::<2>(&t0a, &t0b);
+            let (t1a, t1b) = (sa.multiply(a), sb.multiply(b));
+            let (t0a, t0b) = (t0a.multiply(&t1a), t0b.multiply(&t1b));
+            let (qa, qb) = (t0a.square(), t0b.square());
+            let (t0a, t0b) = (qa.multiply(&t1a), qb.multiply(&t1b));
+            let (t1a, t1b) = Self::square_repeat_x2::<5>(&t0a, &t0b);
+            let (t0a, t0b) = (t1a.multiply(&t0a), t1b.multiply(&t0b));
+            let (ra, rb) = Self::square_repeat_x2::<10>(&t0a, &t0b);
+            let (t1a, t1b) = (ra.multiply(&t0a), rb.multiply(&t0b));
+            let (t2a, t2b) = Self::square_repeat_x2::<20>(&t1a, &t1b);
+            let (t1a, t1b) = (t2a.multiply(&t1a), t2b.multiply(&t1b));
+            let (t1a, t1b) = Self::square_repeat_x2::<10>(&t1a, &t1b);
+            let (t0a, t0b) = (t1a.multiply(&t0a), t1b.multiply(&t0b));
+            let (ra, rb) = Self::square_repeat_x2::<50>(&t0a, &t0b);
+            let (t1a, t1b) = (ra.multiply(&t0a), rb.multiply(&t0b));
+            let (t2a, t2b) = Self::square_repeat_x2::<100>(&t1a, &t1b);
+            let (t1a, t1b) = (t2a.multiply(&t1a), t2b.multiply(&t1b));
+            let (t1a, t1b) = Self::square_repeat_x2::<50>(&t1a, &t1b);
+            let (t0a, t0b) = (t1a.multiply(&t0a), t1b.multiply(&t0b));
+            let (fa, fb) = Self::square_repeat_x2::<2>(&t0a, &t0b);
+            (fa.multiply(a), fb.multiply(b))
+        }
         fn equals_lanes(self, rhs: &Self) -> [bool; LANES] {
             self.subtract(rhs).is_zero_lanes()
         }
@@ -1285,6 +1391,25 @@ pub(crate) mod avx512ifma {
     #[cfg(test)]
     mod simd_torsion_tests {
         use super::*;
+
+        #[test]
+        fn pow_x2_matches_sequential() {
+            // The interleaved two-input exponentiation must be bit-identical to
+            // two independent sequential pows on every lane.
+            let a = WideFe::constant(crate::field::D_LIMBS);
+            let b = WideFe::constant(crate::field::SQRT_M1_LIMBS);
+            let (xa, xb) = WideFe::pow_p_minus_5_over_8_x2(&a, &b);
+            assert!(
+                xa.equals_lanes(&a.pow_p_minus_5_over_8())
+                    .iter()
+                    .all(|&v| v)
+            );
+            assert!(
+                xb.equals_lanes(&b.pow_p_minus_5_over_8())
+                    .iter()
+                    .all(|&v| v)
+            );
+        }
 
         fn ord8a() -> EdwardsPoint {
             let bytes = [

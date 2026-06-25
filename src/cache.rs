@@ -1,5 +1,6 @@
 use crate::batch::{
-    PreparedVerificationBatch8WithoutR, VerifyInput, VerifyPolicy, decode_and_build_tables8_wide,
+    DecompressedRBatch8, PreparedVerificationBatch8WithoutR, VerifyInput, VerifyPolicy,
+    decode_and_build_tables8_wide, decode_keys_and_decompress_r8_wide,
     decompress_r_batch_wide_simd, r_encoding_is_legacy_excluded, verify_prepared_batch8_dalek_simd,
     verify_prepared_batch8_zip215_simd,
 };
@@ -91,6 +92,11 @@ impl CachedPublicKey {
         &self.table
     }
 
+    /// Wrap an already-built table (e.g. from a fused 8-wide decode).
+    pub(crate) fn from_table(encoded: [u8; 32], table: PointTable) -> Self {
+        Self { encoded, table }
+    }
+
     /// Decode eight keys 8-wide and return a per-lane validity mask.
     pub(crate) fn decode_batch8(encoded: &[[u8; 32]; SIMD_LANES]) -> ([Self; SIMD_LANES], u8) {
         let (tables, valid_mask) = decode_and_build_tables8_wide(encoded);
@@ -124,6 +130,14 @@ pub trait KeyCache {
             ok &= self.prepare(*key);
         }
         ok
+    }
+
+    /// Store an already-decoded key so a later [`get`](Self::get) can borrow it.
+    /// The verifier uses this to feed back tables built by a fused 8-wide decode.
+    /// The default re-decodes from the encoding (correct, just not fused); the
+    /// built-in caches override it to store the prebuilt table directly.
+    fn store(&mut self, key: CachedPublicKey) {
+        self.prepare(key.encoded);
     }
 
     /// Called by [`Verifier::verify_batch`] after each batch completes.
@@ -347,6 +361,18 @@ impl KeyCache for LruKeyCache {
         ok
     }
 
+    fn store(&mut self, key: CachedPublicKey) {
+        self.clock = self.clock.wrapping_add(1);
+        let last_used = self.clock;
+        if let Some(entry) = self.keys.get_mut(&key.encoded) {
+            entry.hits = entry.hits.wrapping_add(1);
+            entry.last_used = last_used;
+        } else {
+            self.misses = self.misses.wrapping_add(1);
+            self.insert_cached(key, false, last_used);
+        }
+    }
+
     #[inline]
     fn end_batch(&mut self) {
         self.evict_to_capacity(None);
@@ -394,6 +420,11 @@ impl KeyCache for NullKeyCache {
     #[inline]
     fn get(&self, encoded: &[u8; 32]) -> Option<&CachedPublicKey> {
         self.scratch.get(encoded)
+    }
+
+    #[inline]
+    fn store(&mut self, key: CachedPublicKey) {
+        self.scratch.insert(key.encoded, key);
     }
 
     fn prepare_batch8(&mut self, keys: &[[u8; 32]; 8]) -> bool {
@@ -517,18 +548,7 @@ impl<C: KeyCache> Verifier<C> {
             .iter()
             .all(|input| input.public_key == first_public_key);
 
-        if uniform_public_key {
-            self.cache.prepare(first_public_key);
-        } else {
-            let mut keys = [[0u8; 32]; SIMD_LANES];
-            let mut lane = 0;
-            while lane < SIMD_LANES {
-                keys[lane] = inputs[lane].public_key;
-                lane += 1;
-            }
-            self.cache.prepare_batch8(&keys);
-        }
-
+        // Parse R, public keys, and s (per-lane validity for non-canonical s).
         let mut valid = [true; SIMD_LANES];
         let mut r_bytes = [[0u8; 32]; SIMD_LANES];
         let mut public_keys = [[0u8; 32]; SIMD_LANES];
@@ -546,6 +566,28 @@ impl<C: KeyCache> Verifier<C> {
             }
             public_keys[lane] = inputs[lane].public_key;
             lane += 1;
+        }
+
+        // Decode keys (and, for ZIP-215 with uncached keys, fuse the key and R
+        // square-root chains into one interleaved decode to hide IFMA latency).
+        // `zip_r` carries the R points when they were decoded here.
+        let mut zip_r: Option<(DecompressedRBatch8, u8)> = None;
+        if uniform_public_key {
+            self.cache.prepare(first_public_key);
+        } else if policy == VerifyPolicy::Zip215
+            && !public_keys.iter().all(|key| self.cache.get(key).is_some())
+        {
+            let (tables, key_mask, r_points, r_mask) =
+                decode_keys_and_decompress_r8_wide(&public_keys, &r_bytes);
+            for (l, table) in tables.into_iter().enumerate() {
+                if key_mask & (1 << l) != 0 {
+                    self.cache
+                        .store(CachedPublicKey::from_table(public_keys[l], table));
+                }
+            }
+            zip_r = Some((r_points, r_mask));
+        } else {
+            self.cache.prepare_batch8(&public_keys);
         }
 
         let mut messages = [inputs[0].message; SIMD_LANES];
@@ -581,7 +623,10 @@ impl<C: KeyCache> Verifier<C> {
 
         match policy {
             VerifyPolicy::Zip215 => {
-                let (r_points, r_mask) = decompress_r_batch_wide_simd(&r_bytes);
+                let (r_points, r_mask) = match zip_r {
+                    Some(decoded) => decoded,
+                    None => decompress_r_batch_wide_simd(&r_bytes),
+                };
                 let simd =
                     verify_prepared_batch8_zip215_simd(&prepared, &r_points, &self.base_table);
                 lane = 0;

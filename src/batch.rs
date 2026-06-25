@@ -106,6 +106,17 @@ pub(crate) fn decompress_r_batch_wide_simd(
     (DecompressedRBatch8 { inner }, mask)
 }
 
+/// Decode eight keys and decompress eight `R` points together, interleaving the
+/// two square-root chains. Returns key tables + validity and `R` + validity.
+pub(crate) fn decode_keys_and_decompress_r8_wide(
+    keys: &[[u8; 32]; SIMD_LANES],
+    r_bytes: &[[u8; 32]; SIMD_LANES],
+) -> ([PointTable; SIMD_LANES], u8, DecompressedRBatch8, u8) {
+    let (tables, kmask, inner, rmask) =
+        wide::avx512ifma::decode_keys_and_decompress_r8(keys, r_bytes);
+    (tables, kmask, DecompressedRBatch8 { inner }, rmask)
+}
+
 pub(crate) fn verify_prepared_batch8_zip215_simd(
     prepared: &PreparedVerificationBatch8WithoutR<'_>,
     r: &DecompressedRBatch8,
