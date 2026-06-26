@@ -622,27 +622,72 @@ mod avx512 {
         length_starts: &[usize; LANES],
         block_index: usize,
     ) -> [__m512i; 16] {
+        let block_start = block_index * 128;
         core::array::from_fn(|word| {
             let mut lanes = [0u64; LANES];
+            let word_offset = block_start + word * 8;
             let mut lane = 0;
             while lane < LANES {
-                let mut bytes = [0u8; 8];
                 let padding = Padding {
                     total_len: total_lens[lane],
                     bit_len: bit_lens[lane],
                     length_start: length_starts[lane],
                 };
-                let mut j = 0;
-                while j < 8 {
-                    let offset = block_index * 128 + word * 8 + j;
-                    bytes[j] = message_byte(r_bytes, public_keys, messages, lane, offset, padding);
-                    j += 1;
-                }
-                lanes[lane] = u64::from_be_bytes(bytes);
+                lanes[lane] =
+                    mixed_block_word(r_bytes, public_keys, messages, lane, word_offset, padding);
                 lane += 1;
             }
             loadu(lanes)
         })
+    }
+
+    fn mixed_block_word(
+        r_bytes: &[[u8; 32]; LANES],
+        public_keys: &[[u8; 32]; LANES],
+        messages: [&[u8]; LANES],
+        lane: usize,
+        word_offset: usize,
+        padding: Padding,
+    ) -> u64 {
+        let word_end = word_offset + 8;
+        if word_end <= 32 {
+            return read_be_u64(r_bytes[lane].as_ptr(), word_offset);
+        }
+        if word_offset >= 32 && word_end <= 64 {
+            return read_be_u64(public_keys[lane].as_ptr(), word_offset - 32);
+        }
+        if word_offset >= 64 && word_end <= padding.total_len {
+            return read_be_u64(messages[lane].as_ptr(), word_offset - 64);
+        }
+        if word_offset == padding.length_start {
+            return (padding.bit_len >> 64) as u64;
+        }
+        if word_offset == padding.length_start + 8 {
+            return padding.bit_len as u64;
+        }
+        if word_offset > padding.total_len && word_end <= padding.length_start {
+            return 0;
+        }
+
+        mixed_message_tail_word(messages[lane], word_offset, padding)
+    }
+
+    fn mixed_message_tail_word(message: &[u8], word_offset: usize, padding: Padding) -> u64 {
+        debug_assert!(word_offset >= 64);
+        let mut bytes = [0u8; 8];
+        let mut j = 0;
+        while j < 8 {
+            let offset = word_offset + j;
+            bytes[j] = if offset < padding.total_len {
+                message[offset - 64]
+            } else if offset == padding.total_len {
+                0x80
+            } else {
+                0
+            };
+            j += 1;
+        }
+        u64::from_be_bytes(bytes)
     }
     fn first_data_block_words8(
         r_bytes: &[[u8; 32]; LANES],
