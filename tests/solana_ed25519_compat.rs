@@ -1,4 +1,4 @@
-//! Acceptance-set differential tests against Anza's Ed25519 verifier.
+//! Acceptance-set differential tests against solana-ed25519's Ed25519 verifier.
 //!
 //! Covers ZIP-215 vs `verify_zebra`/`batch::Verifier` and Dalek vs `verify_dalek`.
 
@@ -14,7 +14,7 @@ fn ours_single(input: VerifyInput<'_>) -> bool {
     out[0]
 }
 
-fn anza_verify_zebra(public_key: [u8; 32], signature: [u8; 64], message: &[u8]) -> bool {
+fn solana_ed25519_verify_zebra(public_key: [u8; 32], signature: [u8; 64], message: &[u8]) -> bool {
     let vk_bytes = VerificationKeyBytes::from(public_key);
     let sig = Signature::from(signature);
     VerificationKey::try_from(vk_bytes)
@@ -22,7 +22,7 @@ fn anza_verify_zebra(public_key: [u8; 32], signature: [u8; 64], message: &[u8]) 
         .is_ok()
 }
 
-fn anza_verify_dalek(public_key: [u8; 32], signature: [u8; 64], message: &[u8]) -> bool {
+fn solana_ed25519_verify_dalek(public_key: [u8; 32], signature: [u8; 64], message: &[u8]) -> bool {
     let vk_bytes = VerificationKeyBytes::from(public_key);
     let sig = Signature::from(signature);
     VerificationKey::try_from(vk_bytes)
@@ -60,7 +60,7 @@ fn hx(s: &str) -> [u8; 32] {
     out
 }
 
-fn anza_verify_batch(inputs: &[VerifyInput<'_>]) -> bool {
+fn solana_ed25519_verify_batch(inputs: &[VerifyInput<'_>]) -> bool {
     let mut batch = batch::Verifier::new();
     for input in inputs {
         let vk_bytes = VerificationKeyBytes::from(input.public_key);
@@ -99,7 +99,7 @@ struct Case {
     message: Vec<u8>,
 }
 
-type AnzaVerifyFn = fn([u8; 32], [u8; 64], &[u8]) -> bool;
+type SolanaEd25519VerifyFn = fn([u8; 32], [u8; 64], &[u8]) -> bool;
 
 impl Case {
     fn input(&self) -> VerifyInput<'_> {
@@ -179,7 +179,7 @@ fn build_corpus(count: usize) -> Vec<Case> {
 }
 
 #[test]
-fn single_verify_matches_anza_on_canonical_corpus() {
+fn single_verify_matches_solana_ed25519_on_canonical_corpus() {
     let cases = build_corpus(4000);
 
     let mut verifier = Verifier::new();
@@ -192,14 +192,14 @@ fn single_verify_matches_anza_on_canonical_corpus() {
         let mut cached_out = [false];
         verifier.verify_batch(&[input], &mut cached_out);
         let ours_cached = cached_out[0];
-        let theirs = anza_verify_zebra(case.public_key, case.signature, &case.message);
+        let theirs = solana_ed25519_verify_zebra(case.public_key, case.signature, &case.message);
 
         assert_eq!(ours, ours_cached, "crate stateless vs cached disagree");
 
         if ours != theirs {
             disagreements += 1;
             eprintln!(
-                "DISAGREE pk={:02x?} sig0={:02x} msglen={} ours={} anza={}",
+                "DISAGREE pk={:02x?} sig0={:02x} msglen={} ours={} solana-ed25519={}",
                 &case.public_key[..4],
                 case.signature[0],
                 case.message.len(),
@@ -221,12 +221,12 @@ fn single_verify_matches_anza_on_canonical_corpus() {
     );
     assert_eq!(
         disagreements, 0,
-        "crate and anza disagreed on {disagreements} canonical inputs"
+        "crate and solana-ed25519 disagreed on {disagreements} canonical inputs"
     );
 }
 
 #[test]
-fn null_cache_matches_anza() {
+fn null_cache_matches_solana_ed25519() {
     for &size in &[8usize, 12, 16, 32] {
         for trial in 0..4u64 {
             let mut rng = Lcg(0xc01d_0000 + trial * 977 + size as u64);
@@ -251,19 +251,19 @@ fn null_cache_matches_anza() {
             }
             let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|c| c.input()).collect();
 
-            let policies: [(VerifyPolicy, AnzaVerifyFn); 2] = [
-                (VerifyPolicy::Zip215, anza_verify_zebra),
-                (VerifyPolicy::Dalek, anza_verify_dalek),
+            let policies: [(VerifyPolicy, SolanaEd25519VerifyFn); 2] = [
+                (VerifyPolicy::Zip215, solana_ed25519_verify_zebra),
+                (VerifyPolicy::Dalek, solana_ed25519_verify_dalek),
             ];
-            for (policy, anza) in policies {
+            for (policy, solana_ed25519) in policies {
                 let mut verifier = Verifier::with_cache(policy, NullKeyCache::new());
                 let mut out = vec![false; inputs.len()];
                 verifier.verify_batch(&inputs, &mut out);
                 for (idx, input) in inputs.iter().enumerate() {
-                    let theirs = anza(input.public_key, input.signature, input.message);
+                    let theirs = solana_ed25519(input.public_key, input.signature, input.message);
                     assert_eq!(
                         out[idx], theirs,
-                        "null-cache {policy:?} element {idx} (size={size}) disagrees with anza"
+                        "null-cache {policy:?} element {idx} (size={size}) disagrees with solana-ed25519"
                     );
                 }
                 assert!(verifier.cache().get(&inputs[0].public_key).is_none());
@@ -273,7 +273,7 @@ fn null_cache_matches_anza() {
 }
 
 #[test]
-fn block_count_bucketed_batches_match_anza() {
+fn block_count_bucketed_batches_match_solana_ed25519() {
     let lengths = [
         1usize, 2048, 64, 1024, 2, 1536, 128, 4096, 3, 512, 65, 2047, 4, 256, 112, 3072, 5, 1025,
         63, 2048, 6, 768, 127, 4095, 7, 1537, 48, 1024, 8, 511, 113, 2048, 9, 4096, 64, 1023, 10,
@@ -299,15 +299,15 @@ fn block_count_bucketed_batches_match_anza() {
     }
 
     let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|c| c.input()).collect();
-    let policies: [(VerifyPolicy, AnzaVerifyFn); 2] = [
-        (VerifyPolicy::Zip215, anza_verify_zebra),
-        (VerifyPolicy::Dalek, anza_verify_dalek),
+    let policies: [(VerifyPolicy, SolanaEd25519VerifyFn); 2] = [
+        (VerifyPolicy::Zip215, solana_ed25519_verify_zebra),
+        (VerifyPolicy::Dalek, solana_ed25519_verify_dalek),
     ];
 
-    for (policy, anza) in policies {
+    for (policy, solana_ed25519) in policies {
         let expected: Vec<bool> = inputs
             .iter()
-            .map(|input| anza(input.public_key, input.signature, input.message))
+            .map(|input| solana_ed25519(input.public_key, input.signature, input.message))
             .collect();
 
         let mut cached = Verifier::with_policy(policy);
@@ -322,7 +322,7 @@ fn block_count_bucketed_batches_match_anza() {
     }
 }
 
-/// Stresses the 8-wide distinct-key decode/table path against Anza.
+/// Stresses the 8-wide distinct-key decode/table path against solana-ed25519.
 #[test]
 fn null_cache_decode_build_stress() {
     let mut rng = Lcg(0x5151_5151_5151_5151);
@@ -358,7 +358,7 @@ fn null_cache_decode_build_stress() {
         for (i, input) in inputs.iter().enumerate() {
             assert_eq!(
                 out[i],
-                anza_verify_zebra(input.public_key, input.signature, input.message),
+                solana_ed25519_verify_zebra(input.public_key, input.signature, input.message),
                 "zip215 stress lane {i}"
             );
         }
@@ -366,7 +366,7 @@ fn null_cache_decode_build_stress() {
         for (i, input) in inputs.iter().enumerate() {
             assert_eq!(
                 out[i],
-                anza_verify_dalek(input.public_key, input.signature, input.message),
+                solana_ed25519_verify_dalek(input.public_key, input.signature, input.message),
                 "dalek stress lane {i}"
             );
         }
@@ -374,7 +374,7 @@ fn null_cache_decode_build_stress() {
 }
 
 #[test]
-fn batch_verify_matches_anza() {
+fn batch_verify_matches_solana_ed25519() {
     for &size in &[8usize, 9, 16, 31, 32] {
         for trial in 0..6u64 {
             let mut rng = Lcg(0xdead_0000 + trial * 911 + size as u64);
@@ -414,7 +414,8 @@ fn batch_verify_matches_anza() {
             verifier.verify_batch(&inputs, &mut out);
 
             for (idx, input) in inputs.iter().enumerate() {
-                let theirs = anza_verify_zebra(input.public_key, input.signature, input.message);
+                let theirs =
+                    solana_ed25519_verify_zebra(input.public_key, input.signature, input.message);
                 assert_eq!(
                     out[idx], theirs,
                     "batch element {idx} (size={size}, uniform={uniform}) disagrees"
@@ -422,9 +423,9 @@ fn batch_verify_matches_anza() {
             }
 
             let all_ok = out.iter().all(|&b| b);
-            let anza_all_ok = anza_verify_batch(&inputs);
+            let solana_ed25519_all_ok = solana_ed25519_verify_batch(&inputs);
             assert_eq!(
-                all_ok, anza_all_ok,
+                all_ok, solana_ed25519_all_ok,
                 "batch-level accept disagrees (size={size}, uniform={uniform})"
             );
         }
@@ -432,7 +433,7 @@ fn batch_verify_matches_anza() {
 }
 
 #[test]
-fn batch_dalek_matches_anza_simd() {
+fn batch_dalek_matches_solana_ed25519_simd() {
     use ed25519_simd::VerifyPolicy::Dalek;
 
     for &size in &[8usize, 16, 24, 31] {
@@ -480,7 +481,8 @@ fn batch_dalek_matches_anza_simd() {
             verifier.verify_batch(&inputs, &mut out);
 
             for (idx, input) in inputs.iter().enumerate() {
-                let theirs = anza_verify_dalek(input.public_key, input.signature, input.message);
+                let theirs =
+                    solana_ed25519_verify_dalek(input.public_key, input.signature, input.message);
                 assert_eq!(
                     out[idx], theirs,
                     "dalek batch element {idx} (size={size}, uniform={uniform}) disagrees"
@@ -517,7 +519,7 @@ fn lru_capacity_does_not_evict_current_simd_chunk() {
 
 /// Exercises per-lane validity masking across keys, `R`, and `s`.
 #[test]
-fn per_lane_masking_matches_anza_under_heavy_garbage() {
+fn per_lane_masking_matches_solana_ed25519_under_heavy_garbage() {
     use ed25519_simd::VerifyPolicy::{Dalek, Zip215};
 
     for &policy in &[Zip215, Dalek] {
@@ -556,11 +558,11 @@ fn per_lane_masking_matches_anza_under_heavy_garbage() {
                 }
 
                 let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|c| c.input()).collect();
-                let anza: Vec<bool> = inputs
+                let solana_ed25519: Vec<bool> = inputs
                     .iter()
                     .map(|i| match policy {
-                        Zip215 => anza_verify_zebra(i.public_key, i.signature, i.message),
-                        Dalek => anza_verify_dalek(i.public_key, i.signature, i.message),
+                        Zip215 => solana_ed25519_verify_zebra(i.public_key, i.signature, i.message),
+                        Dalek => solana_ed25519_verify_dalek(i.public_key, i.signature, i.message),
                     })
                     .collect();
 
@@ -569,7 +571,7 @@ fn per_lane_masking_matches_anza_under_heavy_garbage() {
                 verifier.verify_batch(&inputs, &mut out);
                 for idx in 0..inputs.len() {
                     assert_eq!(
-                        out[idx], anza[idx],
+                        out[idx], solana_ed25519[idx],
                         "lru lane {idx} (policy={policy:?}, size={size}, trial={trial}) disagrees"
                     );
                 }
@@ -579,7 +581,7 @@ fn per_lane_masking_matches_anza_under_heavy_garbage() {
                 cold.verify_batch(&inputs, &mut out_cold);
                 for idx in 0..inputs.len() {
                     assert_eq!(
-                        out_cold[idx], anza[idx],
+                        out_cold[idx], solana_ed25519[idx],
                         "null lane {idx} (policy={policy:?}, size={size}, trial={trial}) disagrees"
                     );
                 }
@@ -589,7 +591,7 @@ fn per_lane_masking_matches_anza_under_heavy_garbage() {
 }
 
 #[test]
-fn enumerate_divergences_vs_anza() {
+fn enumerate_divergences_vs_solana_ed25519() {
     use ed25519_simd::VerifyPolicy::{Dalek, Zip215};
 
     let points: [(&str, [u8; 32]); 14] = [
@@ -679,15 +681,15 @@ fn enumerate_divergences_vs_anza() {
                 total += 1;
 
                 let ours_cof = ours_policy(*a, sig, message, Zip215);
-                let anza_zebra = anza_verify_zebra(*a, sig, message);
-                if ours_cof != anza_zebra {
-                    zebra_div.push((a_name, r_name, s_name, ours_cof, anza_zebra));
+                let solana_ed25519_zebra = solana_ed25519_verify_zebra(*a, sig, message);
+                if ours_cof != solana_ed25519_zebra {
+                    zebra_div.push((a_name, r_name, s_name, ours_cof, solana_ed25519_zebra));
                 }
 
                 let ours_strict = ours_policy(*a, sig, message, Dalek);
-                let anza_dalek = anza_verify_dalek(*a, sig, message);
-                if ours_strict != anza_dalek {
-                    dalek_div.push((a_name, r_name, s_name, ours_strict, anza_dalek));
+                let solana_ed25519_dalek = solana_ed25519_verify_dalek(*a, sig, message);
+                if ours_strict != solana_ed25519_dalek {
+                    dalek_div.push((a_name, r_name, s_name, ours_strict, solana_ed25519_dalek));
                 }
             }
         }
@@ -695,18 +697,18 @@ fn enumerate_divergences_vs_anza() {
 
     eprintln!("\n=== {total} crafted cases ===");
     eprintln!(
-        "cofactored vs anza verify_zebra (ZIP-215): {} divergences",
+        "cofactored vs solana-ed25519 verify_zebra (ZIP-215): {} divergences",
         zebra_div.len()
     );
-    for (a, r, s, ours, anza) in zebra_div.iter().take(20) {
-        eprintln!("  A={a:18} R={r:18} {s:6} ours={ours} anza={anza}");
+    for (a, r, s, ours, solana_ed25519) in zebra_div.iter().take(20) {
+        eprintln!("  A={a:18} R={r:18} {s:6} ours={ours} solana-ed25519={solana_ed25519}");
     }
     eprintln!(
-        "strict vs anza verify_dalek: {} divergences",
+        "strict vs solana-ed25519 verify_dalek: {} divergences",
         dalek_div.len()
     );
-    for (a, r, s, ours, anza) in dalek_div.iter().take(20) {
-        eprintln!("  A={a:18} R={r:18} {s:6} ours={ours} anza={anza}");
+    for (a, r, s, ours, solana_ed25519) in dalek_div.iter().take(20) {
+        eprintln!("  A={a:18} R={r:18} {s:6} ours={ours} solana-ed25519={solana_ed25519}");
     }
     eprintln!(
         "\nSUMMARY: zebra_divergences={} dalek_divergences={}",
@@ -717,17 +719,17 @@ fn enumerate_divergences_vs_anza() {
     assert_eq!(
         zebra_div.len(),
         0,
-        "cofactored policy must match anza verify_zebra"
+        "cofactored policy must match solana-ed25519 verify_zebra"
     );
     assert_eq!(
         dalek_div.len(),
         0,
-        "strict policy must match anza verify_dalek"
+        "strict policy must match solana-ed25519 verify_dalek"
     );
 }
 
 #[test]
-fn noncanonical_encoding_now_matches_anza() {
+fn noncanonical_encoding_now_matches_solana_ed25519() {
     let mut public_key = [0xffu8; 32];
     public_key[0] = 0xee;
     public_key[31] = 0x7f;
@@ -742,14 +744,14 @@ fn noncanonical_encoding_now_matches_anza() {
         signature,
         message,
     });
-    let theirs = anza_verify_zebra(public_key, signature, message);
+    let theirs = solana_ed25519_verify_zebra(public_key, signature, message);
 
     assert!(
         theirs,
-        "anza ZIP-215 should accept the non-canonical encoding"
+        "solana-ed25519 ZIP-215 should accept the non-canonical encoding"
     );
     assert_eq!(
         ours, theirs,
-        "crate must match anza on non-canonical encoding"
+        "crate must match solana-ed25519 on non-canonical encoding"
     );
 }
