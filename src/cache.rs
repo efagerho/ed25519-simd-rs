@@ -11,6 +11,9 @@ use crate::sha512;
 use std::collections::HashMap;
 
 const SIMD_LANES: usize = crate::batch::SIMD_LANES;
+// TODO: Consider sparse bucketing for longer messages instead of falling back
+// to comparison sorting.
+const BUCKET_HISTOGRAM_BLOCKS: usize = 64;
 
 #[cold]
 #[inline(never)]
@@ -415,6 +418,7 @@ pub struct Verifier<C: KeyCache = LruKeyCache> {
     policy: VerifyPolicy,
     base_table: BasepointTable,
     identity_table: PointTable,
+    bucket_order: Vec<usize>,
     cache: C,
 }
 
@@ -453,6 +457,7 @@ impl<C: KeyCache> Verifier<C> {
             policy,
             base_table: BasepointTable::new(),
             identity_table: PointTable::new(&EdwardsPoint::identity()),
+            bucket_order: Vec::new(),
             cache,
         }
     }
@@ -479,6 +484,16 @@ impl<C: KeyCache> Verifier<C> {
 
     pub fn verify_batch(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
         assert_eq!(inputs.len(), out.len());
+        if should_bucket_by_block_count(inputs) {
+            self.verify_batch_block_bucketed(inputs, out);
+        } else {
+            self.verify_batch_in_order(inputs, out);
+        }
+
+        self.cache.end_batch();
+    }
+
+    fn verify_batch_in_order(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
         let mut i = 0;
         while i + SIMD_LANES <= inputs.len() {
             self.try_verify_chunk(&inputs[i..i + SIMD_LANES], &mut out[i..i + SIMD_LANES]);
@@ -493,8 +508,50 @@ impl<C: KeyCache> Verifier<C> {
             self.try_verify_chunk(&padded, &mut tmp);
             out[i..].copy_from_slice(&tmp[..rem]);
         }
+    }
 
-        self.cache.end_batch();
+    fn verify_batch_block_bucketed(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
+        build_block_bucket_order(inputs, &mut self.bucket_order);
+
+        let mut i = 0;
+        while i + SIMD_LANES <= self.bucket_order.len() {
+            let mut chunk = [inputs[self.bucket_order[i]]; SIMD_LANES];
+            let mut lane = 0;
+            while lane < SIMD_LANES {
+                chunk[lane] = inputs[self.bucket_order[i + lane]];
+                lane += 1;
+            }
+
+            let mut tmp = [false; SIMD_LANES];
+            self.try_verify_chunk(&chunk, &mut tmp);
+
+            lane = 0;
+            while lane < SIMD_LANES {
+                out[self.bucket_order[i + lane]] = tmp[lane];
+                lane += 1;
+            }
+            i += SIMD_LANES;
+        }
+
+        let rem = self.bucket_order.len() - i;
+        if rem > 0 {
+            let last = self.bucket_order[self.bucket_order.len() - 1];
+            let mut chunk = [inputs[last]; SIMD_LANES];
+            let mut lane = 0;
+            while lane < rem {
+                chunk[lane] = inputs[self.bucket_order[i + lane]];
+                lane += 1;
+            }
+
+            let mut tmp = [false; SIMD_LANES];
+            self.try_verify_chunk(&chunk, &mut tmp);
+
+            lane = 0;
+            while lane < rem {
+                out[self.bucket_order[i + lane]] = tmp[lane];
+                lane += 1;
+            }
+        }
     }
 
     fn try_verify_chunk(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
@@ -657,4 +714,67 @@ impl<C: KeyCache> Verifier<C> {
             }
         }
     }
+}
+
+fn should_bucket_by_block_count(inputs: &[VerifyInput<'_>]) -> bool {
+    if inputs.len() < SIMD_LANES * 2 {
+        return false;
+    }
+
+    let first = challenge_block_count(inputs[0].message.len());
+    let mut i = 1;
+    while i < inputs.len() {
+        if challenge_block_count(inputs[i].message.len()) != first {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+fn build_block_bucket_order(inputs: &[VerifyInput<'_>], order: &mut Vec<usize>) {
+    let mut max_block_count = 0usize;
+    let mut i = 0;
+    while i < inputs.len() {
+        max_block_count = max_block_count.max(challenge_block_count(inputs[i].message.len()));
+        i += 1;
+    }
+
+    order.clear();
+    if max_block_count > BUCKET_HISTOGRAM_BLOCKS {
+        order.extend(0..inputs.len());
+        order.sort_unstable_by_key(|&idx| challenge_block_count(inputs[idx].message.len()));
+        return;
+    }
+
+    let mut counts = [0usize; BUCKET_HISTOGRAM_BLOCKS + 1];
+    i = 0;
+    while i < inputs.len() {
+        counts[challenge_block_count(inputs[i].message.len())] += 1;
+        i += 1;
+    }
+
+    let mut next = [0usize; BUCKET_HISTOGRAM_BLOCKS + 1];
+    let mut total = 0usize;
+    i = 0;
+    while i < counts.len() {
+        next[i] = total;
+        total += counts[i];
+        i += 1;
+    }
+
+    order.resize(inputs.len(), 0);
+    i = 0;
+    while i < inputs.len() {
+        let block_count = challenge_block_count(inputs[i].message.len());
+        let pos = next[block_count];
+        next[block_count] += 1;
+        order[pos] = i;
+        i += 1;
+    }
+}
+
+#[inline]
+fn challenge_block_count(message_len: usize) -> usize {
+    (64 + message_len + 1 + 16).div_ceil(128)
 }
