@@ -269,6 +269,56 @@ fn null_cache_matches_anza() {
     }
 }
 
+#[test]
+fn block_count_bucketed_batches_match_anza() {
+    let lengths = [
+        1usize, 2048, 64, 1024, 2, 1536, 128, 4096, 3, 512, 65, 2047, 4, 256, 112, 3072, 5, 1025,
+        63, 2048, 6, 768, 127, 4095, 7, 1537, 48, 1024, 8, 511, 113, 2048, 9, 4096, 64, 1023, 10,
+        256, 129, 3071,
+    ];
+    let mut rng = Lcg(0xb0cc_e7ed_5eed);
+    let mut cases = Vec::with_capacity(lengths.len());
+
+    for (idx, &len) in lengths.iter().enumerate() {
+        let mut message = vec![0u8; len];
+        rng.fill(&mut message);
+        let signing_key = signing_key_from_index(idx as u64 + 10_000);
+        let public_key = <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key));
+        let mut signature = signing_key.sign(&message).to_bytes();
+        if idx % 7 == 3 {
+            signature[(idx * 11) % 64] ^= 0x40;
+        }
+        cases.push(Case {
+            public_key,
+            signature,
+            message,
+        });
+    }
+
+    let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|c| c.input()).collect();
+    let policies: [(VerifyPolicy, AnzaVerifyFn); 2] = [
+        (VerifyPolicy::Zip215, anza_verify_zebra),
+        (VerifyPolicy::Dalek, anza_verify_dalek),
+    ];
+
+    for (policy, anza) in policies {
+        let expected: Vec<bool> = inputs
+            .iter()
+            .map(|input| anza(input.public_key, input.signature, input.message))
+            .collect();
+
+        let mut cached = Verifier::with_policy(policy);
+        let mut cached_out = vec![false; inputs.len()];
+        cached.verify_batch(&inputs, &mut cached_out);
+        assert_eq!(cached_out, expected, "lru policy={policy:?}");
+
+        let mut cold = Verifier::with_cache(policy, NullKeyCache::new());
+        let mut cold_out = vec![false; inputs.len()];
+        cold.verify_batch(&inputs, &mut cold_out);
+        assert_eq!(cold_out, expected, "null-cache policy={policy:?}");
+    }
+}
+
 /// Stresses the 8-wide distinct-key decode/table path against Anza.
 #[test]
 fn null_cache_decode_build_stress() {
