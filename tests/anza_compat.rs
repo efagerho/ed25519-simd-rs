@@ -212,9 +212,12 @@ fn single_verify_matches_anza_on_canonical_corpus() {
         }
     }
 
+    // Only `kind == 0` (1/5 of the corpus) is always valid; the rest reject.
+    // The band catches both false-reject and over-accept regressions.
+    let valid_fraction = cases.len() / 5;
     assert!(
-        accepted > cases.len() / 10,
-        "corpus had too few accepts: {accepted}"
+        (valid_fraction..=valid_fraction + cases.len() / 50).contains(&accepted),
+        "expected about {valid_fraction} accepts, got {accepted}"
     );
     assert_eq!(
         disagreements, 0,
@@ -508,7 +511,8 @@ fn lru_capacity_does_not_evict_current_simd_chunk() {
     verifier.verify_batch(&inputs, &mut out);
 
     assert_eq!(out, vec![true; 8]);
-    assert!(verifier.cache().stats().keys <= 1);
+    // Exactly 1 (not `<= 1`) proves a key survived rather than nothing caching.
+    assert_eq!(verifier.cache().stats().keys, 1);
 }
 
 /// Exercises per-lane validity masking across keys, `R`, and `s`.

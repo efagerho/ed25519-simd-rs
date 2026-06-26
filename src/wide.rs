@@ -203,6 +203,8 @@ pub(crate) mod avx512ifma {
 
         x = x.blend(alt_mask, &x_alt);
 
+        // The point built for invalid lanes (not in `valid_mask`) is garbage;
+        // callers must gate on `valid_mask`.
         let x_odd = x.is_odd_lanes();
         let x_neg = x.negate();
         let mut negate_mask = 0u8;
@@ -1334,6 +1336,8 @@ pub(crate) mod avx512ifma {
     }
 
     fn canonicalize_field_limbs(limbs: [u64; 5]) -> [u64; 5] {
+        // The partial carry chain below relies on limbs already being < 2^52.
+        debug_assert!(limbs.iter().all(|&l| l < (1u64 << 52)));
         let mut h = [
             limbs[0] as u128,
             limbs[1] as u128,

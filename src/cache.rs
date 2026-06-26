@@ -494,12 +494,13 @@ impl<C: KeyCache> Verifier<C> {
     }
 
     fn verify_batch_in_order(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
-        let mut i = 0;
-        while i + SIMD_LANES <= inputs.len() {
-            self.try_verify_chunk(&inputs[i..i + SIMD_LANES], &mut out[i..i + SIMD_LANES]);
-            i += SIMD_LANES;
+        let (chunks, _) = inputs.as_chunks::<SIMD_LANES>();
+        let (out_chunks, _) = out.as_chunks_mut::<SIMD_LANES>();
+        for (chunk, out_chunk) in chunks.iter().zip(out_chunks) {
+            self.try_verify_chunk(chunk, out_chunk);
         }
 
+        let i = chunks.len() * SIMD_LANES;
         let rem = inputs.len() - i;
         if rem > 0 {
             let mut padded: [VerifyInput<'_>; SIMD_LANES] = [inputs[inputs.len() - 1]; SIMD_LANES];
@@ -554,9 +555,11 @@ impl<C: KeyCache> Verifier<C> {
         }
     }
 
-    fn try_verify_chunk(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
-        debug_assert_eq!(inputs.len(), SIMD_LANES);
-        debug_assert_eq!(out.len(), SIMD_LANES);
+    fn try_verify_chunk(
+        &mut self,
+        inputs: &[VerifyInput<'_>; SIMD_LANES],
+        out: &mut [bool; SIMD_LANES],
+    ) {
         let policy = self.policy;
 
         let first_public_key = inputs[0].public_key;
@@ -651,8 +654,6 @@ impl<C: KeyCache> Verifier<C> {
                 s_digits,
                 k_digits,
             };
-            let out: &mut [bool; SIMD_LANES] = out.try_into().expect("exact SIMD chunk");
-
             match policy {
                 VerifyPolicy::Zip215 => {
                     let (r_points, r_mask) = match decoded_r {
@@ -776,5 +777,5 @@ fn build_block_bucket_order(inputs: &[VerifyInput<'_>], order: &mut Vec<usize>) 
 
 #[inline]
 fn challenge_block_count(message_len: usize) -> usize {
-    (64 + message_len + 1 + 16).div_ceil(128)
+    message_len.saturating_add(64 + 1 + 16).div_ceil(128)
 }
