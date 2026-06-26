@@ -135,6 +135,15 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "cpufeatures"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "cpufeatures"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b2a41393f66f16b0823bb79094d54ac5fbd34ab292ddafb9a0456ac9f87d201"
@@ -253,6 +262,7 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "rand",
+ "serde_json",
  "solana-ed25519",
 ]
 
@@ -635,7 +645,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "446ba717509524cb3f22f17ecc096f10f4822d76ab5c0b9822c5f9c284e825f4"
 dependencies = [
  "cfg-if",
- "cpufeatures",
+ "cpufeatures 0.3.0",
  "digest",
 ]
 
@@ -660,10 +670,11 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 [[package]]
 name = "solana-ed25519"
 version = "0.1.0"
-source = "git+https://github.com/anza-xyz/cryptography#0a54ccaf0439dc2b5c8453b9fb10bfcd99a4b3e1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9a2c548ee176feb092cde8d27f83d79bf5a997fde2c3fe686b4e06fc19f6daa"
 dependencies = [
  "cfg-if",
- "cpufeatures",
+ "cpufeatures 0.2.17",
  "curve25519-dalek-derive",
  "digest",
  "ed25519",

@@ -87,7 +87,7 @@ fn distinct_keys(cases: &[Owned]) -> Vec<[u8; 32]> {
     cases.iter().map(|c| c.pk).collect()
 }
 
-fn anza_batch_zip215(inputs: &[VerifyInput<'_>]) -> bool {
+fn solana_ed25519_batch_zip215(inputs: &[VerifyInput<'_>]) -> bool {
     let mut batch = batch::Verifier::new();
     for input in inputs {
         let vk_bytes = VerificationKeyBytes::from(input.public_key);
@@ -97,7 +97,7 @@ fn anza_batch_zip215(inputs: &[VerifyInput<'_>]) -> bool {
     batch.verify(rand::thread_rng()).is_ok()
 }
 
-fn anza_dalek_loop(inputs: &[VerifyInput<'_>]) -> bool {
+fn solana_ed25519_dalek_loop(inputs: &[VerifyInput<'_>]) -> bool {
     inputs.iter().all(|input| {
         let vk_bytes = VerificationKeyBytes::from(input.public_key);
         let sig = Signature::from(input.signature);
@@ -160,9 +160,11 @@ fn bench_scenario(c: &mut Criterion, group_name: &str, msg_len: MsgLen) {
             &inputs,
             &preload,
         );
-        group.bench_with_input(BenchmarkId::new("anza/zip215_batch", n), &n, |b, _| {
-            b.iter(|| anza_batch_zip215(black_box(&inputs)))
-        });
+        group.bench_with_input(
+            BenchmarkId::new("solana_ed25519/zip215_batch", n),
+            &n,
+            |b, _| b.iter(|| solana_ed25519_batch_zip215(black_box(&inputs))),
+        );
 
         bench_ours(
             &mut group,
@@ -172,9 +174,11 @@ fn bench_scenario(c: &mut Criterion, group_name: &str, msg_len: MsgLen) {
             &inputs,
             &preload,
         );
-        group.bench_with_input(BenchmarkId::new("anza/dalek_loop", n), &n, |b, _| {
-            b.iter(|| anza_dalek_loop(black_box(&inputs)))
-        });
+        group.bench_with_input(
+            BenchmarkId::new("solana_ed25519/dalek_loop", n),
+            &n,
+            |b, _| b.iter(|| solana_ed25519_dalek_loop(black_box(&inputs))),
+        );
 
         bench_ours_nocache(
             &mut group,
@@ -233,9 +237,11 @@ fn bench_garbage_scenario(c: &mut Criterion, group_name: &str, invalid_pct: u64)
             n,
             &inputs,
         );
-        group.bench_with_input(BenchmarkId::new("anza/dalek_loop", n), &n, |b, _| {
-            b.iter(|| anza_dalek_loop(black_box(&inputs)))
-        });
+        group.bench_with_input(
+            BenchmarkId::new("solana_ed25519/dalek_loop", n),
+            &n,
+            |b, _| b.iter(|| solana_ed25519_dalek_loop(black_box(&inputs))),
+        );
     }
     group.finish();
 }

@@ -18,11 +18,11 @@ pub enum VerifyPolicy {
     /// ZIP-215 cofactored verification; accepts non-canonical point encodings.
     #[default]
     Zip215,
-    /// Dalek-style canonical-`R` verification with Anza legacy filters.
+    /// Dalek-style canonical-`R` verification with solana-ed25519 legacy filters.
     Dalek,
 }
 
-/// Anza `verify_dalek` legacy-excluded `R` encodings.
+/// solana-ed25519 `verify_dalek` legacy-excluded `R` encodings.
 const LEGACY_EXCLUDED_R_ENCODINGS: [[u8; 32]; 11] = [
     [0x00; 32],
     {

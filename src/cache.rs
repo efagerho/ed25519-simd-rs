@@ -474,14 +474,6 @@ impl<C: KeyCache> Verifier<C> {
         self.policy
     }
 
-    #[cfg(test)]
-    pub(crate) fn verify_one(&mut self, input: VerifyInput<'_>) -> bool {
-        let padded: [VerifyInput<'_>; SIMD_LANES] = [input; SIMD_LANES];
-        let mut out = [false; SIMD_LANES];
-        self.try_verify_chunk(&padded, &mut out);
-        out[0]
-    }
-
     pub fn verify_batch(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
         assert_eq!(inputs.len(), out.len());
         if should_bucket_by_block_count(inputs) {

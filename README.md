@@ -2,13 +2,13 @@
 
 `ed25519-simd` is a verification-only Ed25519 crate focused on high-throughput
 batch verification. It verifies signatures and reports the result for each input
-lane; it does not provide signing APIs or handle private key material.
+element; it does not provide signing APIs or handle private key material.
 
-The implementation is designed to be acceptance-compatible with the
-`solana-ed25519` crate from `anza-xyz/cryptography`. The tests include
-differential checks against the Anza verifier for both supported verification
-policies and for edge cases such as small-order points, non-canonical encodings,
-and scalar-boundary signatures.
+The implementation is designed to be acceptance-compatible with
+[`solana-ed25519`]. The tests include differential checks against
+`solana-ed25519` for both supported verification policies and for edge cases
+such as small-order points, non-canonical encodings, and scalar-boundary
+signatures.
 
 ## Requirements
 
@@ -34,9 +34,9 @@ Because the SIMD path is selected at compile time (there is no runtime feature
 gate on the hot path), **a binary built with `-C target-cpu=native` must run on
 the same CPU it was built for, or one that is at least as capable.** Running it on
 a CPU that lacks the required features would otherwise fault with an illegal
-instruction (`SIGILL`). As a guard, `Verifier` construction performs a one-time
-runtime feature check and panics with a clear message rather than faulting in the
-hot path. Build on the deployment host (or with an explicit
+instruction (`SIGILL`). As a guard, `Verifier` construction performs a runtime
+feature check and panics with a clear message rather than faulting in the hot
+path. Build on the deployment host (or with an explicit
 `-C target-feature=+avx512f,+avx512dq,+avx512ifma` matching the deployment CPU).
 
 ## Scope
@@ -52,12 +52,22 @@ which makes the crate a narrower and more auditable component.
 The verifier supports two policy modes:
 
 - `VerifyPolicy::Zip215` is the default. It performs the ZIP-215 cofactored
-  check and accepts non-canonical point encodings according to the Anza
+  check and accepts non-canonical point encodings according to the
   `verify_zebra` / batch verifier behavior.
 - `VerifyPolicy::Dalek` performs a stricter Dalek-style canonical-`R` check and
-  applies Anza's legacy excluded-encoding filters.
+  applies `solana-ed25519`'s legacy excluded-encoding filters.
 
 Both policies reject non-canonical `S` scalars (`S >= L`).
+
+The `Dalek` policy name means "match `solana-ed25519`'s `verify_dalek` entry
+point", not "match the `Dalek` row in ed25519-speccheck". Speccheck's Dalek row
+describes the acceptance set of the Dalek implementation it tested, which
+accepts some small-order and non-canonical edge cases. `solana-ed25519`'s
+`verify_dalek` behavior is stricter for this crate's compatibility target: it
+requires canonical `R` and applies legacy excluded-encoding filters. The
+speccheck fixtures in this repository therefore use speccheck's fixed
+expectations for `Zip215`, but use `solana-ed25519` itself as the oracle for
+`VerifyPolicy::Dalek`.
 
 ## Batch Verification
 
@@ -117,7 +127,9 @@ gate (see [Requirements](#requirements)).
 
 ## Compatibility Target
 
-Compatibility with the Solana/Anza cryptography implementation is a design
-constraint, not just a benchmark target. The benchmark compares throughput
-against `anza-xyz/cryptography`, while the tests compare accept/reject decisions
-against the matching Anza verifier entry points.
+Compatibility with [`solana-ed25519`] is a design constraint, not just a
+benchmark target. The benchmark compares throughput against `solana-ed25519`,
+while the tests compare accept/reject decisions against the matching verifier
+entry points.
+
+[`solana-ed25519`]: https://crates.io/crates/solana-ed25519
