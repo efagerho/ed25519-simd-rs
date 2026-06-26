@@ -95,10 +95,12 @@ retain that per-key state across batches:
 - `Verifier::new()` / `Verifier::with_policy(...)` use `LruKeyCache`.
 - `preload_public_keys(...)` decodes and pins known hot keys.
 - `with_policy_and_cache_capacity(...)` bounds the retained key set.
-- `cache_stats()` and `hot_public_keys(...)` expose cache behavior.
+- `verifier.cache()` returns `&LruKeyCache`, which exposes optional cache
+  stats and hot-key reporting.
 
-Cold workloads can choose `NullKeyCache`, which keeps only the in-flight batch's
-decoded keys and drops them at the end of `verify_batch`:
+Cold workloads can choose `NullKeyCache`, which retains no decoded keys and
+exposes no cache reports. The verifier keeps any per-chunk decoded tables in
+local scratch while a chunk is being verified:
 
 ```rust
 use ed25519_simd::{NullKeyCache, Verifier, VerifyPolicy};

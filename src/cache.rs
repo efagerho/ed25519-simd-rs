@@ -112,19 +112,18 @@ impl CachedPublicKey {
 
 /// Storage policy for decoded public keys.
 ///
-/// The default [`LruKeyCache`] retains keys across batches; [`NullKeyCache`]
-/// retains nothing beyond the in-flight batch and is meant for cold workloads
-/// where keys do not repeat.
+/// The default [`LruKeyCache`] retains keys across batches. [`NullKeyCache`]
+/// retains no decoded keys and is meant for cold workloads where keys do not
+/// repeat.
 pub trait KeyCache {
-    /// Ensure the key is decoded and retained so a subsequent [`get`](Self::get)
-    /// can borrow it. Returns `false` if the encoding is not a valid point.
+    /// Try to make the key available through [`get`](Self::get).
     fn prepare(&mut self, encoded: [u8; 32]) -> bool;
 
     /// Borrow a key prepared earlier in the same batch, or `None` if it is
     /// absent or invalid.
     fn get(&self, encoded: &[u8; 32]) -> Option<&CachedPublicKey>;
 
-    /// Prepare eight keys, caching the valid subset. Returns `true` if all are valid.
+    /// Try to make eight keys available through [`get`](Self::get).
     fn prepare_batch8(&mut self, keys: &[[u8; 32]; 8]) -> bool {
         let mut ok = true;
         for key in keys {
@@ -133,16 +132,12 @@ pub trait KeyCache {
         ok
     }
 
-    /// Store an already-decoded key so a later [`get`](Self::get) can borrow it.
-    /// The verifier uses this to feed back tables built by a fused 8-wide decode.
-    /// The default re-decodes from the encoding (correct, just not fused); the
-    /// built-in caches override it to store the prebuilt table directly.
+    /// Optionally retain an already-decoded key for later chunks or batches.
     fn store(&mut self, key: CachedPublicKey) {
         self.prepare(key.encoded);
     }
 
     /// Called by [`Verifier::verify_batch`] after each batch completes.
-    /// Implementations that only retain a batch's working set clear it here.
     fn end_batch(&mut self) {}
 }
 
@@ -385,63 +380,34 @@ impl KeyCache for LruKeyCache {
     }
 }
 
-/// A [`KeyCache`] that caches nothing across batches: keys are decoded into a
-/// per-batch scratch map (so a SIMD chunk can still borrow its eight tables) and
-/// dropped at the end of every batch. Use this for cold workloads where public
-/// keys do not repeat, to avoid the bookkeeping and unbounded growth of the LRU
-/// cache.
-#[derive(Debug, Default)]
-pub struct NullKeyCache {
-    scratch: HashMap<[u8; 32], CachedPublicKey>,
-}
+/// A [`KeyCache`] that retains no decoded keys.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NullKeyCache;
 
 impl NullKeyCache {
     pub fn new() -> Self {
-        Self {
-            scratch: HashMap::new(),
-        }
+        Self
     }
 }
 
 impl KeyCache for NullKeyCache {
     #[inline]
-    fn prepare(&mut self, encoded: [u8; 32]) -> bool {
-        if self.scratch.contains_key(&encoded) {
-            return true;
-        }
-        match CachedPublicKey::decode(encoded) {
-            Some(key) => {
-                self.scratch.insert(encoded, key);
-                true
-            }
-            None => false,
-        }
+    fn prepare(&mut self, _encoded: [u8; 32]) -> bool {
+        false
     }
 
     #[inline]
-    fn get(&self, encoded: &[u8; 32]) -> Option<&CachedPublicKey> {
-        self.scratch.get(encoded)
+    fn get(&self, _encoded: &[u8; 32]) -> Option<&CachedPublicKey> {
+        None
     }
 
     #[inline]
-    fn store(&mut self, key: CachedPublicKey) {
-        self.scratch.insert(key.encoded, key);
-    }
-
-    fn prepare_batch8(&mut self, keys: &[[u8; 32]; 8]) -> bool {
-        let (decoded, valid_mask) = CachedPublicKey::decode_batch8(keys);
-        for (lane, cached) in decoded.into_iter().enumerate() {
-            if valid_mask & (1 << lane) != 0 {
-                self.scratch.insert(cached.encoded, cached);
-            }
-        }
-        valid_mask == 0xff
+    fn prepare_batch8(&mut self, _keys: &[[u8; 32]; 8]) -> bool {
+        false
     }
 
     #[inline]
-    fn end_batch(&mut self) {
-        self.scratch.clear();
-    }
+    fn store(&mut self, _key: CachedPublicKey) {}
 }
 
 #[derive(Debug)]
@@ -473,14 +439,6 @@ impl Verifier<LruKeyCache> {
 
     pub fn set_cache_capacity(&mut self, max_cached_keys: Option<usize>) {
         self.cache.set_capacity(max_cached_keys);
-    }
-
-    pub fn cache_stats(&self) -> CacheStats {
-        self.cache.stats()
-    }
-
-    pub fn hot_public_keys(&self, limit: usize) -> Vec<[u8; 32]> {
-        self.cache.hot_public_keys(limit)
     }
 
     pub fn preload_public_keys(&mut self, keys: &[[u8; 32]]) {
@@ -570,17 +528,22 @@ impl<C: KeyCache> Verifier<C> {
         }
 
         let mut decoded_r: Option<(DecompressedRBatch8, u8)> = None;
+        let mut uniform_decoded_key: Option<CachedPublicKey> = None;
+        let mut decoded_keys: Option<([CachedPublicKey; SIMD_LANES], u8)> = None;
         if uniform_public_key {
-            self.cache.prepare(first_public_key);
+            if !self.cache.prepare(first_public_key) {
+                uniform_decoded_key = CachedPublicKey::decode(first_public_key);
+            }
         } else if !public_keys.iter().all(|key| self.cache.get(key).is_some()) {
             let (tables, key_mask, r_points, r_mask) =
                 decode_keys_and_decompress_r8_wide(&public_keys, &r_bytes);
-            for (l, table) in tables.into_iter().enumerate() {
-                if key_mask & (1 << l) != 0 {
-                    self.cache
-                        .store(CachedPublicKey::from_table(public_keys[l], table));
-                }
-            }
+            let mut tables = tables.into_iter();
+            decoded_keys = Some((
+                core::array::from_fn(|lane| {
+                    CachedPublicKey::from_table(public_keys[lane], tables.next().unwrap())
+                }),
+                key_mask,
+            ));
             decoded_r = Some((r_points, r_mask));
         } else {
             self.cache.prepare_batch8(&public_keys);
@@ -594,71 +557,102 @@ impl<C: KeyCache> Verifier<C> {
         }
         let digests = sha512::hash_ed25519_challenges8(&r_bytes, &public_keys, messages);
 
-        let mut public_key_tables: [&PointTable; SIMD_LANES] = [&self.identity_table; SIMD_LANES];
-        lane = 0;
-        while lane < SIMD_LANES {
-            match self.cache.get(&public_keys[lane]) {
-                Some(key) => public_key_tables[lane] = key.table(),
-                None => valid[lane] = false,
-            }
-            lane += 1;
-        }
-
         let mut k_digits: [Radix16; SIMD_LANES] = [[0i8; 65]; SIMD_LANES];
         lane = 0;
         while lane < SIMD_LANES {
             k_digits[lane] = Scalar::from_wide_bytes(digests[lane]).to_radix16();
             lane += 1;
         }
-        let prepared = PreparedVerificationBatch8WithoutR {
-            public_key_tables,
-            s_digits,
-            k_digits,
-        };
-        let out: &mut [bool; SIMD_LANES] = out.try_into().expect("exact SIMD chunk");
 
-        match policy {
-            VerifyPolicy::Zip215 => {
-                let (r_points, r_mask) = match decoded_r {
-                    Some(decoded) => decoded,
-                    None => decompress_r_batch_wide_simd(&r_bytes),
-                };
-                let simd =
-                    verify_prepared_batch8_zip215_simd(&prepared, &r_points, &self.base_table);
-                lane = 0;
-                while lane < SIMD_LANES {
-                    out[lane] = simd[lane] && valid[lane] && (r_mask & (1 << lane) != 0);
-                    lane += 1;
-                }
-            }
-            VerifyPolicy::Dalek => {
-                if let Some((r_points, r_mask)) = decoded_r {
-                    let simd = verify_prepared_batch8_dalek_projective_simd(
-                        &prepared,
-                        &r_points,
-                        &self.base_table,
-                    );
-                    lane = 0;
-                    while lane < SIMD_LANES {
-                        let legacy_excluded = public_keys[lane] == [0u8; 32]
-                            || r_encoding_is_legacy_excluded(&r_bytes[lane]);
-                        out[lane] = simd[lane]
-                            && valid[lane]
-                            && (r_mask & (1 << lane) != 0)
-                            && r_encoding_has_canonical_y(&r_bytes[lane])
-                            && !legacy_excluded;
-                        lane += 1;
+        {
+            let mut public_key_tables: [&PointTable; SIMD_LANES] =
+                [&self.identity_table; SIMD_LANES];
+            lane = 0;
+            while lane < SIMD_LANES {
+                if let Some(key) = self.cache.get(&public_keys[lane]) {
+                    public_key_tables[lane] = key.table();
+                } else if let Some(key) = &uniform_decoded_key {
+                    if key.encoded == public_keys[lane] {
+                        public_key_tables[lane] = key.table();
+                    } else {
+                        valid[lane] = false;
+                    }
+                } else if let Some((keys, key_mask)) = &decoded_keys {
+                    if key_mask & (1 << lane) != 0 {
+                        public_key_tables[lane] = keys[lane].table();
+                    } else {
+                        valid[lane] = false;
                     }
                 } else {
+                    valid[lane] = false;
+                }
+                lane += 1;
+            }
+
+            let prepared = PreparedVerificationBatch8WithoutR {
+                public_key_tables,
+                s_digits,
+                k_digits,
+            };
+            let out: &mut [bool; SIMD_LANES] = out.try_into().expect("exact SIMD chunk");
+
+            match policy {
+                VerifyPolicy::Zip215 => {
+                    let (r_points, r_mask) = match decoded_r {
+                        Some(decoded) => decoded,
+                        None => decompress_r_batch_wide_simd(&r_bytes),
+                    };
                     let simd =
-                        verify_prepared_batch8_dalek_simd(&prepared, &r_bytes, &self.base_table);
+                        verify_prepared_batch8_zip215_simd(&prepared, &r_points, &self.base_table);
                     lane = 0;
                     while lane < SIMD_LANES {
-                        let legacy_excluded = public_keys[lane] == [0u8; 32]
-                            || r_encoding_is_legacy_excluded(&r_bytes[lane]);
-                        out[lane] = simd[lane] && valid[lane] && !legacy_excluded;
+                        out[lane] = simd[lane] && valid[lane] && (r_mask & (1 << lane) != 0);
                         lane += 1;
                     }
+                }
+                VerifyPolicy::Dalek => {
+                    if let Some((r_points, r_mask)) = decoded_r {
+                        let simd = verify_prepared_batch8_dalek_projective_simd(
+                            &prepared,
+                            &r_points,
+                            &self.base_table,
+                        );
+                        lane = 0;
+                        while lane < SIMD_LANES {
+                            let legacy_excluded = public_keys[lane] == [0u8; 32]
+                                || r_encoding_is_legacy_excluded(&r_bytes[lane]);
+                            out[lane] = simd[lane]
+                                && valid[lane]
+                                && (r_mask & (1 << lane) != 0)
+                                && r_encoding_has_canonical_y(&r_bytes[lane])
+                                && !legacy_excluded;
+                            lane += 1;
+                        }
+                    } else {
+                        let simd = verify_prepared_batch8_dalek_simd(
+                            &prepared,
+                            &r_bytes,
+                            &self.base_table,
+                        );
+                        lane = 0;
+                        while lane < SIMD_LANES {
+                            let legacy_excluded = public_keys[lane] == [0u8; 32]
+                                || r_encoding_is_legacy_excluded(&r_bytes[lane]);
+                            out[lane] = simd[lane] && valid[lane] && !legacy_excluded;
+                            lane += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(key) = uniform_decoded_key {
+            self.cache.store(key);
+        }
+        if let Some((keys, key_mask)) = decoded_keys {
+            for (lane, key) in keys.into_iter().enumerate() {
+                if key_mask & (1 << lane) != 0 {
+                    self.cache.store(key);
                 }
             }
         }
