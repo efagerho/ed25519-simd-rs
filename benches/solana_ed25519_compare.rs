@@ -7,7 +7,7 @@ use criterion::{
 };
 use curve25519::ed_sigs::{Signature, SigningKey, VerificationKey, VerificationKeyBytes, batch};
 use ed25519_dalek::{
-    Signature as DalekSignature, VerifyingKey as DalekVerifyingKey,
+    Signature as DalekSignature, Verifier as DalekVerifier, VerifyingKey as DalekVerifyingKey,
     verify_batch as dalek_verify_batch,
 };
 use ed25519_simd::{NullKeyCache, Verifier, VerifyInput, VerifyPolicy};
@@ -139,6 +139,17 @@ fn dalek_batch_inputs<'msg>(inputs: &[VerifyInput<'msg>]) -> DalekBatchInputs<'m
 
 fn dalek_batch(batch: &DalekBatchInputs<'_>) -> bool {
     dalek_verify_batch(&batch.messages, &batch.signatures, &batch.verifying_keys).is_ok()
+}
+
+fn dalek_loop(batch: &DalekBatchInputs<'_>) -> bool {
+    batch
+        .messages
+        .iter()
+        .zip(&batch.signatures)
+        .zip(&batch.verifying_keys)
+        .all(|((message, signature), verifying_key)| {
+            DalekVerifier::verify(verifying_key, message, signature).is_ok()
+        })
 }
 
 fn aws_lc_keys(inputs: &[VerifyInput<'_>]) -> Vec<aws_lc_rs::signature::ParsedPublicKey> {
@@ -276,6 +287,9 @@ fn bench_scenario(c: &mut Criterion, group_name: &str, msg_len: MsgLen) {
         group.bench_with_input(BenchmarkId::new("ed25519_dalek/batch", n), &n, |b, _| {
             b.iter(|| dalek_batch(black_box(&dalek_batch_inputs)))
         });
+        group.bench_with_input(BenchmarkId::new("ed25519_dalek/loop", n), &n, |b, _| {
+            b.iter(|| dalek_loop(black_box(&dalek_batch_inputs)))
+        });
 
         let aws_lc_keys = aws_lc_keys(&inputs);
         group.bench_with_input(BenchmarkId::new("aws_lc_rs/parsed_loop", n), &n, |b, _| {
@@ -337,6 +351,9 @@ fn bench_garbage_scenario(c: &mut Criterion, group_name: &str, invalid_pct: u64)
         let dalek_batch_inputs = dalek_batch_inputs(&inputs);
         group.bench_with_input(BenchmarkId::new("ed25519_dalek/batch", n), &n, |b, _| {
             b.iter(|| dalek_batch(black_box(&dalek_batch_inputs)))
+        });
+        group.bench_with_input(BenchmarkId::new("ed25519_dalek/loop", n), &n, |b, _| {
+            b.iter(|| dalek_loop(black_box(&dalek_batch_inputs)))
         });
         group.bench_with_input(
             BenchmarkId::new("solana_ed25519/dalek_loop", n),
