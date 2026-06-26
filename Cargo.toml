@@ -6,10 +6,15 @@ edition = "2024"
 [dependencies]
 
 [dev-dependencies]
+aws-lc-rs = "1.17"
 criterion = "0.8"
 curve25519 = { package = "solana-ed25519", version = "0.1.0" }
+ed25519-dalek = { version = "2.2", features = ["batch"] }
+openssl = "0.10"
 rand = "0.8"
+ring = "0.17"
 serde_json = "1"
+sodiumoxide = "0.2"
 
 [profile.release]
 lto = true
