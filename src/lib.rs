@@ -184,7 +184,7 @@ mod tests {
     }
 
     #[test]
-    fn verifier_tracks_hot_keys_and_cache_capacity() {
+    fn lru_cache_tracks_hot_keys_and_capacity() {
         let public_key0 = hex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a");
         let signature0 = hex(
             "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e06522490155\
@@ -208,15 +208,20 @@ mod tests {
             message: &[0x72],
         }));
 
-        let stats = verifier.cache_stats();
+        let stats = verifier.cache().stats();
         assert_eq!(stats.keys, 1);
         assert_eq!(stats.evictions, 1);
-        assert_eq!(verifier.hot_public_keys(1), [public_key1]);
+        assert_eq!(verifier.cache().hot_public_keys(1), [public_key1]);
 
         verifier.preload_public_keys(&[public_key0]);
-        let stats = verifier.cache_stats();
+        let stats = verifier.cache().stats();
         assert_eq!(stats.keys, 1);
         assert_eq!(stats.pinned_keys, 1);
-        assert_eq!(verifier.hot_public_keys(1), [public_key0]);
+        assert_eq!(verifier.cache().hot_public_keys(1), [public_key0]);
+    }
+
+    #[test]
+    fn null_key_cache_is_stateless() {
+        assert_eq!(core::mem::size_of::<NullKeyCache>(), 0);
     }
 }

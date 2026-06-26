@@ -458,7 +458,7 @@ fn lru_capacity_does_not_evict_current_simd_chunk() {
     verifier.verify_batch(&inputs, &mut out);
 
     assert_eq!(out, vec![true; 8]);
-    assert!(verifier.cache_stats().keys <= 1);
+    assert!(verifier.cache().stats().keys <= 1);
 }
 
 /// Exercises per-lane validity masking across keys, `R`, and `s`.
