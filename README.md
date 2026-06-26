@@ -148,6 +148,7 @@ Message length 1:
 | solana-ed25519 Zip215 batch[^batch-api] | 14.02 | 13.01 | 12.47 | 12.24 |
 | solana-ed25519 Dalek loop | 22.47 | 22.49 | 22.38 | 22.39 |
 | ed25519-dalek batch[^batch-api] | 11.54 | 10.46 | 9.92 | 9.68 |
+| ed25519-dalek loop | 17.51 | 17.42 | 17.40 | 17.45 |
 | aws-lc-rs parsed loop | 22.55 | 22.56 | 22.55 | 22.55 |
 | ring loop | 30.64 | 30.56 | 30.55 | 31.69 |
 | sodiumoxide loop | 35.60 | 35.53 | 35.52 | 35.58 |
@@ -162,6 +163,7 @@ Message length 1024:
 | solana-ed25519 Zip215 batch[^batch-api] | 14.91 | 13.98 | 13.47 | 13.33 |
 | solana-ed25519 Dalek loop | 23.45 | 23.45 | 23.42 | 23.50 |
 | ed25519-dalek batch[^batch-api] | 12.56 | 11.50 | 10.92 | 10.63 |
+| ed25519-dalek loop | 18.44 | 18.44 | 18.41 | 18.41 |
 | aws-lc-rs parsed loop | 23.66 | 23.78 | 23.66 | 23.65 |
 | ring loop | 31.70 | 31.72 | 31.67 | 32.85 |
 | sodiumoxide loop | 36.74 | 36.99 | 36.79 | 36.88 |
@@ -176,6 +178,7 @@ Mixed message lengths:
 | solana-ed25519 Zip215 batch[^batch-api] | 14.09 | 13.09 | 12.64 | 12.48 |
 | solana-ed25519 Dalek loop | 22.65 | 22.55 | 22.67 | 22.58 |
 | ed25519-dalek batch[^batch-api] | 11.63 | 10.64 | 10.14 | 9.82 |
+| ed25519-dalek loop | 17.56 | 17.55 | 17.59 | 17.59 |
 | aws-lc-rs parsed loop | 22.70 | 22.74 | 22.85 | 22.73 |
 | ring loop | 30.68 | 30.76 | 30.94 | 31.88 |
 | sodiumoxide loop | 35.71 | 35.72 | 35.88 | 35.82 |
