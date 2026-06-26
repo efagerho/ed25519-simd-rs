@@ -334,15 +334,8 @@ mod avx512 {
 
             let bit_len = (total_len as u128) << 3;
             if block_count == 1 {
-                let words = generic_block_words8(
-                    r_bytes,
-                    public_keys,
-                    messages,
-                    total_len,
-                    bit_len,
-                    0,
-                    block_count,
-                );
+                let words =
+                    single_block_words8(r_bytes, public_keys, messages, message_len, bit_len);
                 compress8(&mut state, words);
                 return digests_from_state(state);
             }
@@ -440,6 +433,61 @@ mod avx512 {
         }
         mask as __mmask8
     }
+    #[inline(never)]
+    fn single_block_words8(
+        r_bytes: &[[u8; 32]; LANES],
+        public_keys: &[[u8; 32]; LANES],
+        messages: [&[u8]; LANES],
+        message_len: usize,
+        bit_len: u128,
+    ) -> [__m512i; 16] {
+        debug_assert!(64 + message_len + 1 + 16 <= 128);
+        core::array::from_fn(|word| {
+            if word == 14 {
+                return loadu([0; LANES]);
+            }
+            if word == 15 {
+                return loadu([bit_len as u64; LANES]);
+            }
+
+            let mut lanes = [0u64; LANES];
+            let mut lane = 0;
+            while lane < LANES {
+                lanes[lane] = if word < 4 {
+                    read_be_u64(r_bytes[lane].as_ptr(), word * 8)
+                } else if word < 8 {
+                    read_be_u64(public_keys[lane].as_ptr(), (word - 4) * 8)
+                } else {
+                    let message_offset = (word - 8) * 8;
+                    if message_offset + 8 <= message_len {
+                        read_be_u64(messages[lane].as_ptr(), message_offset)
+                    } else {
+                        single_block_tail_word(messages[lane], message_len, message_offset)
+                    }
+                };
+                lane += 1;
+            }
+            loadu(lanes)
+        })
+    }
+
+    fn single_block_tail_word(message: &[u8], message_len: usize, word_offset: usize) -> u64 {
+        let mut bytes = [0u8; 8];
+        let mut j = 0;
+        while j < 8 {
+            let offset = word_offset + j;
+            bytes[j] = if offset < message_len {
+                message[offset]
+            } else if offset == message_len {
+                0x80
+            } else {
+                0
+            };
+            j += 1;
+        }
+        u64::from_be_bytes(bytes)
+    }
+
     fn block_words8(
         r_bytes: &[[u8; 32]; LANES],
         public_keys: &[[u8; 32]; LANES],
@@ -458,6 +506,15 @@ mod avx512 {
             return message_data_block_words8(messages, block_start - 64);
         }
 
+        if block_start >= 64 && block_start < total_len && block_index + 1 == block_count {
+            return final_message_block_words8(
+                messages,
+                block_start - 64,
+                total_len - block_start,
+                bit_len,
+            );
+        }
+
         generic_block_words8(
             r_bytes,
             public_keys,
@@ -468,6 +525,7 @@ mod avx512 {
             block_count,
         )
     }
+    #[inline(never)]
     fn generic_block_words8(
         r_bytes: &[[u8; 32]; LANES],
         public_keys: &[[u8; 32]; LANES],
@@ -499,6 +557,61 @@ mod avx512 {
             }
             loadu(lanes)
         })
+    }
+    #[inline(never)]
+    fn final_message_block_words8(
+        messages: [&[u8]; LANES],
+        message_offset: usize,
+        tail_len: usize,
+        bit_len: u128,
+    ) -> [__m512i; 16] {
+        debug_assert!(tail_len <= 111);
+        core::array::from_fn(|word| {
+            if word == 14 {
+                return loadu([(bit_len >> 64) as u64; LANES]);
+            }
+            if word == 15 {
+                return loadu([bit_len as u64; LANES]);
+            }
+
+            let word_offset = word * 8;
+            if word_offset > tail_len {
+                return loadu([0; LANES]);
+            }
+
+            let mut lanes = [0u64; LANES];
+            let mut lane = 0;
+            while lane < LANES {
+                lanes[lane] = if word_offset + 8 <= tail_len {
+                    read_be_u64(messages[lane].as_ptr(), message_offset + word_offset)
+                } else {
+                    final_message_tail_word(messages[lane], message_offset, tail_len, word_offset)
+                };
+                lane += 1;
+            }
+            loadu(lanes)
+        })
+    }
+    fn final_message_tail_word(
+        message: &[u8],
+        message_offset: usize,
+        tail_len: usize,
+        word_offset: usize,
+    ) -> u64 {
+        let mut bytes = [0u8; 8];
+        let mut j = 0;
+        while j < 8 {
+            let offset = word_offset + j;
+            bytes[j] = if offset < tail_len {
+                message[message_offset + offset]
+            } else if offset == tail_len {
+                0x80
+            } else {
+                0
+            };
+            j += 1;
+        }
+        u64::from_be_bytes(bytes)
     }
     fn generic_block_words8_mixed(
         r_bytes: &[[u8; 32]; LANES],
