@@ -361,6 +361,13 @@ mod avx512 {
         }
     }
 
+    /// Mixed message lengths, possibly with different SHA-512 block counts.
+    /// Blocks that lie entirely within `min_total` (the shortest lane) hold
+    /// real data in every lane, so they're bulk-read with no per-lane
+    /// branching and no state blending. Once a block runs past the shortest
+    /// lane's data, lanes diverge (padding, finalization, or already-finished
+    /// lanes holding their digest) and are assembled per-lane, blending
+    /// finished lanes' state back in via `active_mask`.
     #[inline(never)]
     pub(super) fn hash_ed25519_challenges_mixed(
         r_bytes: &[[u8; 32]; LANES],
@@ -373,6 +380,7 @@ mod avx512 {
             let mut length_starts = [0usize; LANES];
             let mut block_counts = [0usize; LANES];
             let mut max_block_count = 0usize;
+            let mut min_total = usize::MAX;
             let mut lane = 0;
             while lane < LANES {
                 let total_len = 64 + messages[lane].len();
@@ -382,6 +390,7 @@ mod avx512 {
                 length_starts[lane] = block_count * 128 - 16;
                 block_counts[lane] = block_count;
                 max_block_count = core::cmp::max(max_block_count, block_count);
+                min_total = core::cmp::min(min_total, total_len);
                 lane += 1;
             }
 
@@ -398,23 +407,35 @@ mod avx512 {
 
             let mut block_index = 0;
             while block_index < max_block_count {
-                let active = active_mask(&block_counts, block_index);
-                let old_state = state;
-                let words = generic_block_words_mixed(
-                    r_bytes,
-                    public_keys,
-                    messages,
-                    &total_lens,
-                    &bit_lens,
-                    &length_starts,
-                    block_index,
-                );
-                compress_block(&mut state, words);
-                if active != 0xff {
-                    let mut word = 0;
-                    while word < 8 {
-                        state[word] = _mm512_mask_blend_epi64(active, old_state[word], state[word]);
-                        word += 1;
+                let block_start = block_index * 128;
+                // Every lane's data covers this whole block, so every lane is
+                // active here (block_index < block_counts[lane] follows from
+                // total_lens[lane] >= min_total >= block_start + 128); skip
+                // the mask/blend work that active_mask would otherwise do.
+                if block_start == 0 && min_total >= 128 {
+                    compress_block(&mut state, first_data_block_words(r_bytes, public_keys, messages));
+                } else if block_start >= 128 && block_start + 128 <= min_total {
+                    compress_block(&mut state, message_data_block_words(messages, block_start - 64));
+                } else {
+                    let active = active_mask(&block_counts, block_index);
+                    let old_state = state;
+                    let words = generic_block_words_mixed(
+                        r_bytes,
+                        public_keys,
+                        messages,
+                        &total_lens,
+                        &bit_lens,
+                        &length_starts,
+                        block_index,
+                    );
+                    compress_block(&mut state, words);
+                    if active != 0xff {
+                        let mut word = 0;
+                        while word < 8 {
+                            state[word] =
+                                _mm512_mask_blend_epi64(active, old_state[word], state[word]);
+                            word += 1;
+                        }
                     }
                 }
                 block_index += 1;
@@ -500,61 +521,113 @@ mod avx512 {
         block_count: usize,
     ) -> [__m512i; 16] {
         let block_start = block_index * 128;
-        if block_start == 0 && total_len >= 128 {
-            return first_data_block_words(r_bytes, public_keys, messages);
+        let is_final = block_index + 1 == block_count;
+
+        if block_start >= total_len {
+            debug_assert!(is_final);
+            return padding_only_block_words(total_len, bit_len, block_start);
         }
 
-        if block_start >= 64 && block_start + 128 <= total_len {
+        if block_start == 0 {
+            if total_len >= 128 {
+                return first_data_block_words(r_bytes, public_keys, messages);
+            }
+            // Block 0 of a two-block hash: R || A || M || 0x80 || zeros; the
+            // length words are in the final block.
+            return first_block_tail_words(r_bytes, public_keys, messages, total_len - 64);
+        }
+
+        // block_start is a multiple of 128 and nonzero, so from here on the
+        // block holds only message bytes (message starts at offset 64).
+        if block_start + 128 <= total_len {
             return message_data_block_words(messages, block_start - 64);
         }
 
-        if block_start >= 64 && block_start < total_len && block_index + 1 == block_count {
-            return final_message_block_words(
-                messages,
-                block_start - 64,
-                total_len - block_start,
-                bit_len,
-            );
+        let tail_len = total_len - block_start;
+        if is_final {
+            return final_message_block_words(messages, block_start - 64, tail_len, bit_len);
         }
 
-        generic_block_words(
-            r_bytes,
-            public_keys,
-            messages,
-            total_len,
-            bit_len,
-            block_index,
-            block_count,
-        )
+        // Non-final block where the message ends (tail_len in 112..=127):
+        // message tail, 0x80, zeros; the length words are in the next block.
+        message_tail_block_words(messages, block_start - 64, tail_len)
     }
+
+    /// Final block containing no message data: zeros, the 0x80 marker when the
+    /// data ends exactly at the block boundary, and the length words. The
+    /// contents are identical in every lane.
+    fn padding_only_block_words(total_len: usize, bit_len: u128, block_start: usize) -> [__m512i; 16] {
+        let marker = if block_start == total_len {
+            0x80u64 << 56
+        } else {
+            0
+        };
+        core::array::from_fn(|word| {
+            let value = match word {
+                0 => marker,
+                14 => (bit_len >> 64) as u64,
+                15 => bit_len as u64,
+                _ => 0,
+            };
+            unsafe { _mm512_set1_epi64(value as i64) }
+        })
+    }
+
+    /// Block 0 when `total_len < 128` (message lengths 48..=63): R and A words
+    /// plus the message tail with its 0x80 marker; no length words.
     #[inline(never)]
-    fn generic_block_words(
+    fn first_block_tail_words(
         r_bytes: &[[u8; 32]; LANES],
         public_keys: &[[u8; 32]; LANES],
         messages: [&[u8]; LANES],
-        total_len: usize,
-        bit_len: u128,
-        block_index: usize,
-        block_count: usize,
+        message_len: usize,
     ) -> [__m512i; 16] {
-        let length_start = block_count * 128 - 16;
-        let padding = Padding {
-            total_len,
-            bit_len,
-            length_start,
-        };
+        debug_assert!(message_len < 64);
         core::array::from_fn(|word| {
             let mut lanes = [0u64; LANES];
             let mut lane = 0;
             while lane < LANES {
-                let mut bytes = [0u8; 8];
-                let mut j = 0;
-                while j < 8 {
-                    let offset = block_index * 128 + word * 8 + j;
-                    bytes[j] = message_byte(r_bytes, public_keys, messages, lane, offset, padding);
-                    j += 1;
-                }
-                lanes[lane] = u64::from_be_bytes(bytes);
+                lanes[lane] = if word < 4 {
+                    read_be_u64(r_bytes[lane].as_ptr(), word * 8)
+                } else if word < 8 {
+                    read_be_u64(public_keys[lane].as_ptr(), (word - 4) * 8)
+                } else {
+                    let message_offset = (word - 8) * 8;
+                    if message_offset + 8 <= message_len {
+                        read_be_u64(messages[lane].as_ptr(), message_offset)
+                    } else {
+                        single_block_tail_word(messages[lane], message_len, message_offset)
+                    }
+                };
+                lane += 1;
+            }
+            loadu(lanes)
+        })
+    }
+
+    /// Non-final block where the message data ends (`tail_len` in 112..=127):
+    /// message bytes, the 0x80 marker, then zeros to the end of the block.
+    #[inline(never)]
+    fn message_tail_block_words(
+        messages: [&[u8]; LANES],
+        message_offset: usize,
+        tail_len: usize,
+    ) -> [__m512i; 16] {
+        debug_assert!((112..128).contains(&tail_len));
+        core::array::from_fn(|word| {
+            let word_offset = word * 8;
+            if word_offset > tail_len {
+                return loadu([0; LANES]);
+            }
+
+            let mut lanes = [0u64; LANES];
+            let mut lane = 0;
+            while lane < LANES {
+                lanes[lane] = if word_offset + 8 <= tail_len {
+                    read_be_u64(messages[lane].as_ptr(), message_offset + word_offset)
+                } else {
+                    final_message_tail_word(messages[lane], message_offset, tail_len, word_offset)
+                };
                 lane += 1;
             }
             loadu(lanes)
@@ -730,29 +803,6 @@ mod avx512 {
         unsafe { u64::from_be(core::ptr::read_unaligned(bytes.add(offset) as *const u64)) }
     }
 
-    fn message_byte(
-        r_bytes: &[[u8; 32]; LANES],
-        public_keys: &[[u8; 32]; LANES],
-        messages: [&[u8]; LANES],
-        lane: usize,
-        offset: usize,
-        padding: Padding,
-    ) -> u8 {
-        if offset < 32 {
-            r_bytes[lane][offset]
-        } else if offset < 64 {
-            public_keys[lane][offset - 32]
-        } else if offset < padding.total_len {
-            messages[lane][offset - 64]
-        } else if offset == padding.total_len {
-            0x80
-        } else if offset >= padding.length_start && offset < padding.length_start + 16 {
-            let length_bytes = padding.bit_len.to_be_bytes();
-            length_bytes[offset - padding.length_start]
-        } else {
-            0
-        }
-    }
     fn compress_block(state: &mut [__m512i; 8], block_words: [__m512i; 16]) {
         unsafe {
             let mut w: [MaybeUninit<__m512i>; 80] = MaybeUninit::uninit().assume_init();
@@ -1023,6 +1073,82 @@ mod tests {
                 &public_keys[lane],
                 messages_storage[lane].as_slice(),
             ])
+        });
+        assert_eq!(wide, scalar);
+    }
+
+    #[test]
+    fn avx512_challenge_hash_matches_scalar_at_boundary_lengths() {
+        // One uniform-length hash per length, covering every block-builder
+        // branch: single block (47), block 0 with tail (48, 55, 63), padding-only
+        // final block with the 0x80 marker at the boundary (64, 192), final
+        // message tails (111, 112, 127, 128, 175), and a non-final block where
+        // the message ends (176, 191).
+        let lengths = [47usize, 48, 55, 63, 64, 111, 112, 127, 128, 175, 176, 191, 192];
+        let storage: [[u8; 192]; 8] = core::array::from_fn(|lane| {
+            core::array::from_fn(|i| (lane as u8).wrapping_mul(31).wrapping_add(i as u8))
+        });
+
+        for len in lengths {
+            let r = core::array::from_fn(|lane| [(lane as u8).wrapping_add(len as u8); 32]);
+            let public_keys = core::array::from_fn(|lane| [(lane as u8).wrapping_mul(37); 32]);
+            let messages = core::array::from_fn(|lane| &storage[lane][..len]);
+
+            let wide = hash_ed25519_challenges(&r, &public_keys, messages);
+            let scalar = core::array::from_fn(|lane| {
+                hash_slices(&[&r[lane], &public_keys[lane], &storage[lane][..len]])
+            });
+            assert_eq!(wide, scalar, "length {len}");
+        }
+    }
+
+    #[test]
+    fn avx512_challenge_hash_matches_scalar_with_uniform_block_counts() {
+        // Mixed lengths that share one block count, per count 1..=3 and a
+        // larger one with bulk interior blocks; exercises the shared-prefix
+        // bulk read (min_total reaches every lane's final block) including
+        // divergent block 0 (two-block hashes) and tails.
+        let length_sets: [[usize; 8]; 4] = [
+            [0, 1, 7, 19, 30, 40, 46, 47],          // 1 block
+            [48, 55, 63, 64, 90, 128, 170, 175],    // 2 blocks
+            [176, 180, 200, 220, 230, 240, 250, 255], // 3 blocks
+            [496, 500, 510, 520, 530, 540, 550, 558], // 5 blocks
+        ];
+        let storage: [[u8; 558]; 8] = core::array::from_fn(|lane| {
+            core::array::from_fn(|i| (lane as u8).wrapping_mul(41).wrapping_add(i as u8))
+        });
+
+        for lengths in length_sets {
+            let r = core::array::from_fn(|lane| [(lane as u8).wrapping_add(51); 32]);
+            let public_keys = core::array::from_fn(|lane| [(lane as u8).wrapping_mul(53); 32]);
+            let messages = core::array::from_fn(|lane| &storage[lane][..lengths[lane]]);
+
+            let wide = hash_ed25519_challenges(&r, &public_keys, messages);
+            let scalar = core::array::from_fn(|lane| {
+                hash_slices(&[&r[lane], &public_keys[lane], &storage[lane][..lengths[lane]]])
+            });
+            assert_eq!(wide, scalar, "lengths {lengths:?}");
+        }
+    }
+
+    #[test]
+    fn avx512_challenge_hash_matches_scalar_with_shared_prefix_and_different_block_counts() {
+        // Lengths spanning several distinct block counts but with a long
+        // common prefix, so min_total reaches well past block 0: this is the
+        // case a same-block-count bucketing pass cannot help with, but the
+        // shared-prefix bulk read still applies to the blocks before the
+        // shortest lane's data ends.
+        let lengths = [200usize, 200, 250, 300, 400, 500, 600, 900];
+        let storage: [[u8; 900]; 8] = core::array::from_fn(|lane| {
+            core::array::from_fn(|i| (lane as u8).wrapping_mul(43).wrapping_add(i as u8))
+        });
+        let r = core::array::from_fn(|lane| [(lane as u8).wrapping_add(61); 32]);
+        let public_keys = core::array::from_fn(|lane| [(lane as u8).wrapping_mul(67); 32]);
+        let messages = core::array::from_fn(|lane| &storage[lane][..lengths[lane]]);
+
+        let wide = hash_ed25519_challenges(&r, &public_keys, messages);
+        let scalar = core::array::from_fn(|lane| {
+            hash_slices(&[&r[lane], &public_keys[lane], &storage[lane][..lengths[lane]]])
         });
         assert_eq!(wide, scalar);
     }
