@@ -1,14 +1,14 @@
 mod support;
 
 use curve25519::ed_sigs::VerificationKeyBytes;
-use ed25519_simd::{NullKeyCache, Verifier, VerifyInput, VerifyPolicy};
+use ed25519_simd::{LruKeyCache, NullKeyCache, Verifier, VerifyInput, VerifyPolicy};
 use support::{
     Case, signing_key_from_index, solana_ed25519_verify_dalek, solana_ed25519_verify_zebra,
     verify_batch,
 };
 
 #[test]
-fn long_message_bucket_fallback_matches_solana_ed25519() {
+fn long_message_sparse_buckets_match_solana_ed25519() {
     let lengths = [
         1usize, 8111, 128, 8112, 4096, 8113, 8191, 8192, 8193, 9000, 16384, 127, 65, 12288, 2048,
         10000, 63, 20000, 112, 24576, 113, 32768, 1024, 12000,
@@ -51,7 +51,7 @@ fn long_message_bucket_fallback_matches_solana_ed25519() {
             "null-cache {policy:?}"
         );
 
-        let mut verifier = Verifier::with_policy(policy);
+        let mut verifier = Verifier::with_cache(policy, LruKeyCache::new());
         let mut out = vec![false; inputs.len()];
         verifier.verify_batch(&inputs, &mut out);
         assert_eq!(out, expected, "lru-cache {policy:?}");

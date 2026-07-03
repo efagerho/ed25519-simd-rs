@@ -13,9 +13,9 @@ signatures.
 ## Requirements
 
 **This crate requires `x86_64` with AVX-512 (F, DQ, IFMA) and has no scalar
-fallback.** All verification — including single-signature checks and the tails of
-non-multiple-of-eight batches — runs through the 8-wide AVX-512 IFMA path. The
-crate fails at compile time unless the required target features are enabled.
+fallback.** All verification — including single-signature checks and partial
+batches — runs through the AVX-512 IFMA SIMD path. The crate fails at compile
+time unless the required target features are enabled.
 Build with the target CPU enabled, e.g.:
 
 ```sh
@@ -80,7 +80,6 @@ repeatedly:
 use ed25519_simd::{Verifier, VerifyInput, VerifyPolicy};
 
 let mut verifier = Verifier::with_policy(VerifyPolicy::Zip215);
-verifier.preload_public_keys(&hot_keys);
 
 let inputs = [VerifyInput {
     public_key,
@@ -99,23 +98,30 @@ which signatures passed or failed.
 ## Key Caching
 
 Verification repeatedly needs a decoded public key and a precomputed
-variable-base multiplication table. The default verifier uses `LruKeyCache` to
-retain that per-key state across batches:
+variable-base multiplication table. `Verifier::new()` and
+`Verifier::with_policy(...)` use `NullKeyCache`, so decoded keys are not retained
+across batches by default. This keeps cold or mostly-distinct workloads from
+paying for cache bookkeeping they do not use.
 
-- `Verifier::new()` / `Verifier::with_policy(...)` use `LruKeyCache`.
+Use `LruKeyCache` when a workload has a hot key set worth retaining:
+
+- `with_cache_capacity(...)` bounds the retained key set.
 - `preload_public_keys(...)` decodes and pins known hot keys.
-- `with_policy_and_cache_capacity(...)` bounds the retained key set.
 - `verifier.cache()` returns `&LruKeyCache`, which exposes optional cache
   stats and hot-key reporting.
 
-Cold workloads can choose `NullKeyCache`, which retains no decoded keys and
-exposes no cache reports. The verifier keeps any per-chunk decoded tables in
-local scratch while a chunk is being verified:
+Applications that already manage their own small hot set can provide a custom
+`KeyCache` to `Verifier::with_cache(...)`; the cache stores `CachedPublicKey`
+values, so misses decoded by the verifier can be retained without re-decoding.
+
+The verifier keeps any per-chunk decoded tables in local scratch while a chunk
+is being verified, even with `NullKeyCache`:
 
 ```rust
-use ed25519_simd::{NullKeyCache, Verifier, VerifyPolicy};
+use ed25519_simd::{LruKeyCache, Verifier, VerifyPolicy};
 
-let verifier = Verifier::with_cache(VerifyPolicy::Zip215, NullKeyCache::new());
+let mut verifier = Verifier::with_cache(VerifyPolicy::Zip215, LruKeyCache::new());
+verifier.preload_public_keys(&hot_keys);
 ```
 
 ## SIMD Path

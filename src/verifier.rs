@@ -1,0 +1,302 @@
+use crate::batch::{self, PreparedBatch};
+use crate::cache::{CachedPublicKey, KeyCache, NullKeyCache};
+use crate::cpuid;
+use crate::edwards::{BasepointTable, EdwardsPoint, PointTable};
+use crate::lru_cache::LruKeyCache;
+use crate::policy::{VerifyPolicy, r_encoding_has_canonical_y, r_encoding_is_legacy_excluded};
+use crate::scalar::{self, Radix16, Scalar};
+use crate::sha512;
+use crate::wide::avx512ifma;
+
+#[derive(Clone, Copy, Debug)]
+pub struct VerifyInput<'a> {
+    pub public_key: [u8; batch::PUBLIC_KEY_LEN],
+    pub signature: [u8; batch::SIGNATURE_LEN],
+    pub message: &'a [u8],
+}
+
+const SIMD_LANES: usize = batch::SIMD_LANES;
+
+#[derive(Debug)]
+pub struct Verifier<C: KeyCache = NullKeyCache> {
+    policy: VerifyPolicy,
+    base_table: BasepointTable,
+    identity_table: PointTable,
+    bucket_order: Vec<usize>,
+    cache: C,
+}
+
+impl Default for Verifier<NullKeyCache> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Verifier<NullKeyCache> {
+    /// Create a verifier with the default policy and no retained-key cache.
+    pub fn new() -> Self {
+        Self::with_policy(VerifyPolicy::default())
+    }
+
+    /// Create a verifier with a specific policy and no retained-key cache.
+    pub fn with_policy(policy: VerifyPolicy) -> Self {
+        Self::with_cache(policy, NullKeyCache::new())
+    }
+}
+
+impl Verifier<LruKeyCache> {
+    /// Create a verifier with a specific policy and bounded LRU cache.
+    pub fn with_cache_capacity(policy: VerifyPolicy, max_cached_keys: usize) -> Self {
+        Self::with_cache(policy, LruKeyCache::with_capacity(max_cached_keys))
+    }
+
+    /// Decode and pin keys in the LRU cache.
+    pub fn preload_public_keys(&mut self, keys: &[[u8; 32]]) {
+        self.cache.preload(keys);
+    }
+}
+
+impl<C: KeyCache> Verifier<C> {
+    /// Create a verifier backed by a caller-provided cache.
+    pub fn with_cache(policy: VerifyPolicy, cache: C) -> Self {
+        cpuid::assert_required_avx512_runtime_support();
+        Self {
+            policy,
+            base_table: BasepointTable::new(),
+            identity_table: PointTable::new(&EdwardsPoint::identity()),
+            bucket_order: Vec::new(),
+            cache,
+        }
+    }
+
+    /// Borrow the configured cache.
+    pub fn cache(&self) -> &C {
+        &self.cache
+    }
+
+    /// Mutably borrow the configured cache.
+    pub fn cache_mut(&mut self) -> &mut C {
+        &mut self.cache
+    }
+
+    /// Return the verifier policy.
+    pub fn policy(&self) -> VerifyPolicy {
+        self.policy
+    }
+
+    /// Verify a batch and write one boolean result per input.
+    pub fn verify_batch(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
+        assert_eq!(inputs.len(), out.len());
+        let mut bucket_order = core::mem::take(&mut self.bucket_order);
+        batch::for_each_simd_chunk(inputs, &mut bucket_order, |chunk, output_indices, lanes| {
+            let mut tmp = [false; SIMD_LANES];
+            self.try_verify_chunk(chunk, &mut tmp);
+
+            let mut lane = 0;
+            while lane < lanes {
+                out[output_indices[lane]] = tmp[lane];
+                lane += 1;
+            }
+        });
+        self.bucket_order = bucket_order;
+    }
+
+    fn try_verify_chunk(
+        &mut self,
+        inputs: &[VerifyInput<'_>; SIMD_LANES],
+        out: &mut [bool; SIMD_LANES],
+    ) {
+        let policy = self.policy;
+
+        let first_public_key = inputs[0].public_key;
+        let uniform_public_key = inputs[1..]
+            .iter()
+            .all(|input| input.public_key == first_public_key);
+
+        // Parse R, public keys, and s (per-lane validity for non-canonical s).
+        let mut valid = [true; SIMD_LANES];
+        let mut r_bytes = [[0u8; 32]; SIMD_LANES];
+        let mut public_keys = [[0u8; 32]; SIMD_LANES];
+        let mut s_digits = [[0i8; 65]; SIMD_LANES];
+        let mut lane = 0;
+        while lane < SIMD_LANES {
+            r_bytes[lane].copy_from_slice(&inputs[lane].signature[..32]);
+
+            let mut s_bytes = [0u8; 32];
+            s_bytes.copy_from_slice(&inputs[lane].signature[32..]);
+            if scalar::is_canonical(&s_bytes) {
+                s_digits[lane] = Scalar::from_canonical_bytes(s_bytes).to_radix16();
+            } else {
+                valid[lane] = false;
+            }
+            public_keys[lane] = inputs[lane].public_key;
+            lane += 1;
+        }
+
+        let mut decoded_r: Option<(avx512ifma::WideRPoints, [bool; SIMD_LANES])> = None;
+        let mut uniform_cached_key: Option<&CachedPublicKey> = None;
+        let mut uniform_decoded_key: Option<CachedPublicKey> = None;
+        let mut cached_keys: Option<[Option<&CachedPublicKey>; SIMD_LANES]> = None;
+        let mut decoded_keys: Option<([CachedPublicKey; SIMD_LANES], [bool; SIMD_LANES])> = None;
+        let mut missing_key_lanes = [false; SIMD_LANES];
+        if uniform_public_key {
+            uniform_cached_key = self.cache.get(&first_public_key);
+            if uniform_cached_key.is_none() {
+                missing_key_lanes = [true; SIMD_LANES];
+                uniform_decoded_key = CachedPublicKey::from_encoded(first_public_key);
+            }
+        } else {
+            let chunk_cached_keys = self.cache.get_batch(&public_keys);
+            lane = 0;
+            while lane < SIMD_LANES {
+                if chunk_cached_keys[lane].is_none() {
+                    missing_key_lanes[lane] = true;
+                }
+                lane += 1;
+            }
+            cached_keys = Some(chunk_cached_keys);
+
+            if any_lane(&missing_key_lanes) {
+                let (tables, key_valid_bits, r_points, r_valid_bits) =
+                    avx512ifma::decode_keys_and_decompress_r(&public_keys, &r_bytes);
+                let mut tables = tables.into_iter();
+                decoded_keys = Some((
+                    core::array::from_fn(|lane| CachedPublicKey {
+                        encoded: public_keys[lane],
+                        table: tables.next().unwrap(),
+                    }),
+                    lane_flags_from_mask(key_valid_bits),
+                ));
+                decoded_r = Some((r_points, lane_flags_from_mask(r_valid_bits)));
+            }
+        }
+
+        let mut messages = [inputs[0].message; SIMD_LANES];
+        lane = 1;
+        while lane < SIMD_LANES {
+            messages[lane] = inputs[lane].message;
+            lane += 1;
+        }
+        let digests = sha512::hash_ed25519_challenges(&r_bytes, &public_keys, messages);
+
+        let mut k_digits: [Radix16; SIMD_LANES] = [[0i8; 65]; SIMD_LANES];
+        lane = 0;
+        while lane < SIMD_LANES {
+            k_digits[lane] = Scalar::from_wide_bytes(digests[lane]).to_radix16();
+            lane += 1;
+        }
+
+        {
+            let mut public_key_tables: [&PointTable; SIMD_LANES] =
+                [&self.identity_table; SIMD_LANES];
+            if uniform_public_key {
+                if let Some(key) = uniform_cached_key {
+                    public_key_tables = [&key.table; SIMD_LANES];
+                } else if let Some(key) = &uniform_decoded_key {
+                    if key.encoded == first_public_key {
+                        public_key_tables = [&key.table; SIMD_LANES];
+                    } else {
+                        valid = [false; SIMD_LANES];
+                    }
+                } else {
+                    valid = [false; SIMD_LANES];
+                }
+            } else {
+                let cached_keys = cached_keys
+                    .as_ref()
+                    .expect("non-uniform chunks are looked up");
+                lane = 0;
+                while lane < SIMD_LANES {
+                    if let Some(key) = cached_keys[lane] {
+                        public_key_tables[lane] = &key.table;
+                    } else if let Some((keys, key_valid_lanes)) = &decoded_keys {
+                        if key_valid_lanes[lane] {
+                            public_key_tables[lane] = &keys[lane].table;
+                        } else {
+                            valid[lane] = false;
+                        }
+                    } else {
+                        valid[lane] = false;
+                    }
+                    lane += 1;
+                }
+            }
+
+            let prepared = PreparedBatch {
+                public_key_tables,
+                s_digits,
+                k_digits,
+            };
+            match policy {
+                VerifyPolicy::Zip215 => {
+                    let (r_points, r_valid_lanes) = match decoded_r {
+                        Some(decoded) => decoded,
+                        None => {
+                            let (r_points, r_mask) = avx512ifma::decompress_r_points(&r_bytes);
+                            (r_points, lane_flags_from_mask(r_mask))
+                        }
+                    };
+                    let simd =
+                        avx512ifma::verify_prepared_zip215(&prepared, &r_points, &self.base_table);
+                    lane = 0;
+                    while lane < SIMD_LANES {
+                        out[lane] = simd[lane] && valid[lane] && r_valid_lanes[lane];
+                        lane += 1;
+                    }
+                }
+                VerifyPolicy::Dalek => {
+                    if let Some((r_points, r_valid_lanes)) = decoded_r {
+                        let simd = avx512ifma::verify_prepared_dalek_projective(
+                            &prepared,
+                            &r_points,
+                            &self.base_table,
+                        );
+                        lane = 0;
+                        while lane < SIMD_LANES {
+                            let legacy_excluded = public_keys[lane] == [0u8; 32]
+                                || r_encoding_is_legacy_excluded(&r_bytes[lane]);
+                            out[lane] = simd[lane]
+                                && valid[lane]
+                                && r_valid_lanes[lane]
+                                && r_encoding_has_canonical_y(&r_bytes[lane])
+                                && !legacy_excluded;
+                            lane += 1;
+                        }
+                    } else {
+                        let simd = avx512ifma::verify_prepared_dalek(
+                            &prepared,
+                            &r_bytes,
+                            &self.base_table,
+                        );
+                        lane = 0;
+                        while lane < SIMD_LANES {
+                            let legacy_excluded = public_keys[lane] == [0u8; 32]
+                                || r_encoding_is_legacy_excluded(&r_bytes[lane]);
+                            out[lane] = simd[lane] && valid[lane] && !legacy_excluded;
+                            lane += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(key) = uniform_decoded_key {
+            if any_lane(&missing_key_lanes) {
+                self.cache.insert(key);
+            }
+        }
+        if let Some((keys, key_valid_lanes)) = decoded_keys {
+            let insert_lanes =
+                core::array::from_fn(|lane| missing_key_lanes[lane] && key_valid_lanes[lane]);
+            self.cache.insert_batch(keys, insert_lanes);
+        }
+    }
+}
+
+fn lane_flags_from_mask(mask: u8) -> [bool; SIMD_LANES] {
+    core::array::from_fn(|lane| lane < u8::BITS as usize && mask & (1u8 << lane) != 0)
+}
+
+fn any_lane(lanes: &[bool; SIMD_LANES]) -> bool {
+    lanes.iter().any(|&lane| lane)
+}

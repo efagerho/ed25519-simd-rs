@@ -1,3 +1,5 @@
+use crate::batch::SIMD_LANES;
+
 const IV: [u64; 8] = [
     0x6a09e667f3bcc908,
     0xbb67ae8584caa73b,
@@ -92,7 +94,7 @@ const K: [u64; 80] = [
     0x6c44198c4a475817,
 ];
 
-/// Scalar SHA-512 — kept only as a test reference for the 8-wide AVX-512 path.
+/// Scalar SHA-512, kept only as a test reference for the AVX-512 path.
 #[cfg(test)]
 #[derive(Clone)]
 struct Sha512 {
@@ -185,23 +187,23 @@ pub(crate) fn hash_slices(slices: &[&[u8]]) -> [u8; 64] {
     h.finalize()
 }
 
-/// 8-wide SHA-512 of the Ed25519 challenges `SHA512(R || A || M)`.
-pub(crate) fn hash_ed25519_challenges8(
-    r_bytes: &[[u8; 32]; 8],
-    public_keys: &[[u8; 32]; 8],
-    messages: [&[u8]; 8],
-) -> [[u8; 64]; 8] {
+/// SIMD SHA-512 of the Ed25519 challenges `SHA512(R || A || M)`.
+pub(crate) fn hash_ed25519_challenges(
+    r_bytes: &[[u8; 32]; SIMD_LANES],
+    public_keys: &[[u8; 32]; SIMD_LANES],
+    messages: [&[u8]; SIMD_LANES],
+) -> [[u8; 64]; SIMD_LANES] {
     if same_len(messages) {
-        avx512::hash_ed25519_challenges8(r_bytes, public_keys, messages)
+        avx512::hash_ed25519_challenges(r_bytes, public_keys, messages)
     } else {
-        avx512::hash_ed25519_challenges8_mixed(r_bytes, public_keys, messages)
+        avx512::hash_ed25519_challenges_mixed(r_bytes, public_keys, messages)
     }
 }
 
-fn same_len(messages: [&[u8]; 8]) -> bool {
+fn same_len(messages: [&[u8]; SIMD_LANES]) -> bool {
     let len = messages[0].len();
     let mut i = 1;
-    while i < 8 {
+    while i < SIMD_LANES {
         if messages[i].len() != len {
             return false;
         }
@@ -299,10 +301,10 @@ fn small_sigma1(x: u64) -> u64 {
 mod avx512 {
     use core::mem::MaybeUninit;
 
-    use super::{IV, K};
+    use super::{IV, K, SIMD_LANES};
     use std::arch::x86_64::*;
 
-    const LANES: usize = 8;
+    const LANES: usize = SIMD_LANES;
 
     #[derive(Clone, Copy)]
     struct Padding {
@@ -311,7 +313,7 @@ mod avx512 {
         length_start: usize,
     }
 
-    pub(super) fn hash_ed25519_challenges8(
+    pub(super) fn hash_ed25519_challenges(
         r_bytes: &[[u8; 32]; LANES],
         public_keys: &[[u8; 32]; LANES],
         messages: [&[u8]; LANES],
@@ -335,14 +337,14 @@ mod avx512 {
             let bit_len = (total_len as u128) << 3;
             if block_count == 1 {
                 let words =
-                    single_block_words8(r_bytes, public_keys, messages, message_len, bit_len);
-                compress8(&mut state, words);
+                    single_block_words(r_bytes, public_keys, messages, message_len, bit_len);
+                compress_block(&mut state, words);
                 return digests_from_state(state);
             }
 
             let mut block_index = 0;
             while block_index < block_count {
-                let words = block_words8(
+                let words = block_words(
                     r_bytes,
                     public_keys,
                     messages,
@@ -351,7 +353,7 @@ mod avx512 {
                     block_index,
                     block_count,
                 );
-                compress8(&mut state, words);
+                compress_block(&mut state, words);
                 block_index += 1;
             }
 
@@ -360,7 +362,7 @@ mod avx512 {
     }
 
     #[inline(never)]
-    pub(super) fn hash_ed25519_challenges8_mixed(
+    pub(super) fn hash_ed25519_challenges_mixed(
         r_bytes: &[[u8; 32]; LANES],
         public_keys: &[[u8; 32]; LANES],
         messages: [&[u8]; LANES],
@@ -398,7 +400,7 @@ mod avx512 {
             while block_index < max_block_count {
                 let active = active_mask(&block_counts, block_index);
                 let old_state = state;
-                let words = generic_block_words8_mixed(
+                let words = generic_block_words_mixed(
                     r_bytes,
                     public_keys,
                     messages,
@@ -407,7 +409,7 @@ mod avx512 {
                     &length_starts,
                     block_index,
                 );
-                compress8(&mut state, words);
+                compress_block(&mut state, words);
                 if active != 0xff {
                     let mut word = 0;
                     while word < 8 {
@@ -434,7 +436,7 @@ mod avx512 {
         mask as __mmask8
     }
     #[inline(never)]
-    fn single_block_words8(
+    fn single_block_words(
         r_bytes: &[[u8; 32]; LANES],
         public_keys: &[[u8; 32]; LANES],
         messages: [&[u8]; LANES],
@@ -488,7 +490,7 @@ mod avx512 {
         u64::from_be_bytes(bytes)
     }
 
-    fn block_words8(
+    fn block_words(
         r_bytes: &[[u8; 32]; LANES],
         public_keys: &[[u8; 32]; LANES],
         messages: [&[u8]; LANES],
@@ -499,15 +501,15 @@ mod avx512 {
     ) -> [__m512i; 16] {
         let block_start = block_index * 128;
         if block_start == 0 && total_len >= 128 {
-            return first_data_block_words8(r_bytes, public_keys, messages);
+            return first_data_block_words(r_bytes, public_keys, messages);
         }
 
         if block_start >= 64 && block_start + 128 <= total_len {
-            return message_data_block_words8(messages, block_start - 64);
+            return message_data_block_words(messages, block_start - 64);
         }
 
         if block_start >= 64 && block_start < total_len && block_index + 1 == block_count {
-            return final_message_block_words8(
+            return final_message_block_words(
                 messages,
                 block_start - 64,
                 total_len - block_start,
@@ -515,7 +517,7 @@ mod avx512 {
             );
         }
 
-        generic_block_words8(
+        generic_block_words(
             r_bytes,
             public_keys,
             messages,
@@ -526,7 +528,7 @@ mod avx512 {
         )
     }
     #[inline(never)]
-    fn generic_block_words8(
+    fn generic_block_words(
         r_bytes: &[[u8; 32]; LANES],
         public_keys: &[[u8; 32]; LANES],
         messages: [&[u8]; LANES],
@@ -559,7 +561,7 @@ mod avx512 {
         })
     }
     #[inline(never)]
-    fn final_message_block_words8(
+    fn final_message_block_words(
         messages: [&[u8]; LANES],
         message_offset: usize,
         tail_len: usize,
@@ -613,7 +615,7 @@ mod avx512 {
         }
         u64::from_be_bytes(bytes)
     }
-    fn generic_block_words8_mixed(
+    fn generic_block_words_mixed(
         r_bytes: &[[u8; 32]; LANES],
         public_keys: &[[u8; 32]; LANES],
         messages: [&[u8]; LANES],
@@ -689,7 +691,7 @@ mod avx512 {
         }
         u64::from_be_bytes(bytes)
     }
-    fn first_data_block_words8(
+    fn first_data_block_words(
         r_bytes: &[[u8; 32]; LANES],
         public_keys: &[[u8; 32]; LANES],
         messages: [&[u8]; LANES],
@@ -710,7 +712,7 @@ mod avx512 {
             loadu(lanes)
         })
     }
-    fn message_data_block_words8(messages: [&[u8]; LANES], message_offset: usize) -> [__m512i; 16] {
+    fn message_data_block_words(messages: [&[u8]; LANES], message_offset: usize) -> [__m512i; 16] {
         core::array::from_fn(|word| {
             let mut lanes = [0u64; LANES];
             let offset = message_offset + word * 8;
@@ -751,7 +753,7 @@ mod avx512 {
             0
         }
     }
-    fn compress8(state: &mut [__m512i; 8], block_words: [__m512i; 16]) {
+    fn compress_block(state: &mut [__m512i; 8], block_words: [__m512i; 16]) {
         unsafe {
             let mut w: [MaybeUninit<__m512i>; 80] = MaybeUninit::uninit().assume_init();
             let mut i = 0;
@@ -951,6 +953,21 @@ mod tests {
     }
 
     #[test]
+    fn rfc4634_multiblock_hash() {
+        assert_eq!(
+            hash_slices(&[concat!(
+                "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmn",
+                "hijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu"
+            )
+            .as_bytes()]),
+            hex(
+                "8e959b75dae313da8cf4f72814fc143f8f7779c6eb9f7fa17299aeadb688901\
+                 8501d289e4900f7e4331b99dec4b5433ac7d329eeb6dd26545e96e55b874be909"
+            )
+        );
+    }
+
+    #[test]
     fn avx512_challenge_hash_matches_scalar() {
         let r = core::array::from_fn(|lane| [lane as u8; 32]);
         let public_keys = core::array::from_fn(|lane| [(lane as u8).wrapping_mul(3); 32]);
@@ -959,7 +976,7 @@ mod tests {
         });
         let messages = core::array::from_fn(|lane| messages_storage[lane].as_slice());
 
-        let wide = hash_ed25519_challenges8(&r, &public_keys, messages);
+        let wide = hash_ed25519_challenges(&r, &public_keys, messages);
         let scalar = core::array::from_fn(|lane| {
             hash_slices(&[
                 &r[lane],
@@ -979,7 +996,7 @@ mod tests {
         });
         let messages = core::array::from_fn(|lane| messages_storage[lane].as_slice());
 
-        let wide = hash_ed25519_challenges8(&r, &public_keys, messages);
+        let wide = hash_ed25519_challenges(&r, &public_keys, messages);
         let scalar = core::array::from_fn(|lane| {
             hash_slices(&[
                 &r[lane],
@@ -999,7 +1016,7 @@ mod tests {
         });
         let messages = core::array::from_fn(|lane| messages_storage[lane].as_slice());
 
-        let wide = hash_ed25519_challenges8(&r, &public_keys, messages);
+        let wide = hash_ed25519_challenges(&r, &public_keys, messages);
         let scalar = core::array::from_fn(|lane| {
             hash_slices(&[
                 &r[lane],
@@ -1020,7 +1037,7 @@ mod tests {
         let lengths = [0usize, 1, 19, 63, 64, 65, 127, 257];
         let messages = core::array::from_fn(|lane| &messages_storage[lane][..lengths[lane]]);
 
-        let wide = hash_ed25519_challenges8(&r, &public_keys, messages);
+        let wide = hash_ed25519_challenges(&r, &public_keys, messages);
         let scalar = core::array::from_fn(|lane| {
             hash_slices(&[
                 &r[lane],

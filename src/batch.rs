@@ -1,162 +1,202 @@
-use crate::edwards::{BasepointTable, PointTable};
+use crate::edwards::PointTable;
 use crate::scalar::Radix16;
-use crate::wide;
+use crate::verifier::VerifyInput;
+// TODO: Could use a more efficient hash table here
+use std::collections::HashMap;
 
 pub const PUBLIC_KEY_LEN: usize = 32;
 pub const SIGNATURE_LEN: usize = 64;
-pub(crate) const SIMD_LANES: usize = 8;
+/// Number of verification lanes processed by one SIMD chunk.
+pub const SIMD_LANES: usize = 8;
+const BUCKET_HISTOGRAM_BLOCKS: usize = 64;
 
-#[derive(Clone, Copy, Debug)]
-pub struct VerifyInput<'a> {
-    pub public_key: [u8; PUBLIC_KEY_LEN],
-    pub signature: [u8; SIGNATURE_LEN],
-    pub message: &'a [u8],
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum VerifyPolicy {
-    /// ZIP-215 cofactored verification; accepts non-canonical point encodings.
-    #[default]
-    Zip215,
-    /// Dalek-style canonical-`R` verification with solana-ed25519 legacy filters.
-    Dalek,
-}
-
-/// solana-ed25519 `verify_dalek` legacy-excluded `R` encodings.
-const LEGACY_EXCLUDED_R_ENCODINGS: [[u8; 32]; 11] = [
-    [0x00; 32],
-    {
-        let mut e = [0x00; 32];
-        e[0] = 0x01;
-        e
-    },
-    [
-        0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef, 0x98,
-        0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88, 0x6d, 0x53,
-        0xfc, 0x05,
-    ],
-    [
-        0xc7, 0x17, 0x6a, 0x70, 0x3d, 0x4d, 0xd8, 0x4f, 0xba, 0x3c, 0x0b, 0x76, 0x0d, 0x10, 0x67,
-        0x0f, 0x2a, 0x20, 0x53, 0xfa, 0x2c, 0x39, 0xcc, 0xc6, 0x4e, 0xc7, 0xfd, 0x77, 0x92, 0xac,
-        0x03, 0x7a,
-    ],
-    [
-        0x13, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef, 0x98,
-        0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88, 0x6d, 0x53,
-        0xfc, 0x85,
-    ],
-    [
-        0xb4, 0x17, 0x6a, 0x70, 0x3d, 0x4d, 0xd8, 0x4f, 0xba, 0x3c, 0x0b, 0x76, 0x0d, 0x10, 0x67,
-        0x0f, 0x2a, 0x20, 0x53, 0xfa, 0x2c, 0x39, 0xcc, 0xc6, 0x4e, 0xc7, 0xfd, 0x77, 0x92, 0xac,
-        0x03, 0xfa,
-    ],
-    [
-        0xec, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0x7f,
-    ],
-    [
-        0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0x7f,
-    ],
-    [
-        0xee, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0x7f,
-    ],
-    [
-        0xd9, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff,
-    ],
-    [
-        0xda, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff,
-    ],
-];
-const FIELD_P_BYTES: [u8; 32] = [
-    0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f,
-];
-
-pub(crate) fn r_encoding_is_legacy_excluded(r_bytes: &[u8; 32]) -> bool {
-    LEGACY_EXCLUDED_R_ENCODINGS.contains(r_bytes)
-}
-
-pub(crate) fn r_encoding_has_canonical_y(r_bytes: &[u8; 32]) -> bool {
-    let mut y = *r_bytes;
-    y[31] &= 0x7f;
-    let mut i = 32;
-    while i > 0 {
-        i -= 1;
-        if y[i] < FIELD_P_BYTES[i] {
-            return true;
-        }
-        if y[i] > FIELD_P_BYTES[i] {
-            return false;
-        }
-    }
-    false
-}
-
-/// Decode eight public keys and return a per-lane validity mask.
-pub(crate) fn decode_and_build_tables8_wide(
-    encoded: &[[u8; 32]; SIMD_LANES],
-) -> ([PointTable; SIMD_LANES], u8) {
-    wide::avx512ifma::decode_and_build_tables8(encoded)
-}
-
-pub(crate) struct PreparedVerificationBatch8WithoutR<'a> {
+pub(crate) struct PreparedBatch<'a> {
     pub(crate) public_key_tables: [&'a PointTable; SIMD_LANES],
     pub(crate) s_digits: [Radix16; SIMD_LANES],
     pub(crate) k_digits: [Radix16; SIMD_LANES],
 }
 
-pub(crate) struct DecompressedRBatch8 {
-    inner: wide::avx512ifma::WideRPoints8,
+/// Visit inputs as padded SIMD chunks, grouping mixed message lengths by
+/// SHA-512 block count so each SIMD challenge hash does less divergent work.
+pub(crate) fn for_each_simd_chunk<'a>(
+    inputs: &[VerifyInput<'a>],
+    order: &mut Vec<usize>,
+    visit: impl FnMut(&[VerifyInput<'a>; SIMD_LANES], &[usize; SIMD_LANES], usize),
+) {
+    if should_bucket_by_block_count(inputs) {
+        for_each_bucketed_simd_chunk(inputs, order, visit);
+    } else {
+        for_each_in_order_simd_chunk(inputs, visit);
+    }
 }
 
-/// Decompress eight `R` points and return a per-lane validity mask.
-pub(crate) fn decompress_r_batch_wide_simd(
-    r_bytes: &[[u8; 32]; SIMD_LANES],
-) -> (DecompressedRBatch8, u8) {
-    let (inner, mask) = wide::avx512ifma::decompress_r_points8(r_bytes);
-    (DecompressedRBatch8 { inner }, mask)
+/// Visit already-contiguous chunks and pad the tail with a duplicate lane.
+fn for_each_in_order_simd_chunk<'a>(
+    inputs: &[VerifyInput<'a>],
+    mut visit: impl FnMut(&[VerifyInput<'a>; SIMD_LANES], &[usize; SIMD_LANES], usize),
+) {
+    let (chunks, _) = inputs.as_chunks::<SIMD_LANES>();
+    for (chunk_index, chunk) in chunks.iter().enumerate() {
+        let output_indices = core::array::from_fn(|lane| chunk_index * SIMD_LANES + lane);
+        visit(chunk, &output_indices, SIMD_LANES);
+    }
+
+    let i = chunks.len() * SIMD_LANES;
+    let rem = inputs.len() - i;
+    if rem > 0 {
+        let mut chunk = [inputs[inputs.len() - 1]; SIMD_LANES];
+        chunk[..rem].copy_from_slice(&inputs[i..]);
+        let output_indices = core::array::from_fn(|lane| i + lane);
+        visit(&chunk, &output_indices, rem);
+    }
 }
 
-/// Decode eight keys and decompress eight `R` points together, interleaving the
-/// two square-root chains. Returns key tables + validity and `R` + validity.
-pub(crate) fn decode_keys_and_decompress_r8_wide(
-    keys: &[[u8; 32]; SIMD_LANES],
-    r_bytes: &[[u8; 32]; SIMD_LANES],
-) -> ([PointTable; SIMD_LANES], u8, DecompressedRBatch8, u8) {
-    let (tables, kmask, inner, rmask) =
-        wide::avx512ifma::decode_keys_and_decompress_r8(keys, r_bytes);
-    (tables, kmask, DecompressedRBatch8 { inner }, rmask)
+/// Visit chunks in block-count bucket order while reporting original indices.
+fn for_each_bucketed_simd_chunk<'a>(
+    inputs: &[VerifyInput<'a>],
+    order: &mut Vec<usize>,
+    mut visit: impl FnMut(&[VerifyInput<'a>; SIMD_LANES], &[usize; SIMD_LANES], usize),
+) {
+    build_block_bucket_order(inputs, order);
+
+    let mut i = 0;
+    while i + SIMD_LANES <= order.len() {
+        let mut chunk = [inputs[order[i]]; SIMD_LANES];
+        let mut output_indices = [0usize; SIMD_LANES];
+        let mut lane = 0;
+        while lane < SIMD_LANES {
+            let index = order[i + lane];
+            chunk[lane] = inputs[index];
+            output_indices[lane] = index;
+            lane += 1;
+        }
+        visit(&chunk, &output_indices, SIMD_LANES);
+        i += SIMD_LANES;
+    }
+
+    let rem = order.len() - i;
+    if rem > 0 {
+        let last = order[order.len() - 1];
+        let mut chunk = [inputs[last]; SIMD_LANES];
+        let mut output_indices = [0usize; SIMD_LANES];
+        let mut lane = 0;
+        while lane < rem {
+            let index = order[i + lane];
+            chunk[lane] = inputs[index];
+            output_indices[lane] = index;
+            lane += 1;
+        }
+        visit(&chunk, &output_indices, rem);
+    }
 }
 
-pub(crate) fn verify_prepared_batch8_zip215_simd(
-    prepared: &PreparedVerificationBatch8WithoutR<'_>,
-    r: &DecompressedRBatch8,
-    base_table: &BasepointTable,
-) -> [bool; SIMD_LANES] {
-    wide::avx512ifma::verify_prepared8_zip215(prepared, &r.inner, base_table)
+/// Bucket only when enough inputs have mixed SHA-512 challenge block counts.
+fn should_bucket_by_block_count(inputs: &[VerifyInput<'_>]) -> bool {
+    if inputs.len() < SIMD_LANES * 2 {
+        return false;
+    }
+
+    let first = challenge_block_count(inputs[0].message.len());
+    let mut i = 1;
+    while i < inputs.len() {
+        if challenge_block_count(inputs[i].message.len()) != first {
+            return true;
+        }
+        i += 1;
+    }
+    false
 }
 
-pub(crate) fn verify_prepared_batch8_dalek_simd(
-    prepared: &PreparedVerificationBatch8WithoutR<'_>,
-    r_bytes: &[[u8; 32]; SIMD_LANES],
-    base_table: &BasepointTable,
-) -> [bool; SIMD_LANES] {
-    wide::avx512ifma::verify_prepared8_dalek(prepared, r_bytes, base_table)
+/// Build original input indices sorted by challenge block count.
+fn build_block_bucket_order(inputs: &[VerifyInput<'_>], order: &mut Vec<usize>) {
+    let mut max_block_count = 0usize;
+    let mut i = 0;
+    while i < inputs.len() {
+        max_block_count = max_block_count.max(challenge_block_count(inputs[i].message.len()));
+        i += 1;
+    }
+
+    order.clear();
+    if max_block_count > BUCKET_HISTOGRAM_BLOCKS {
+        build_sparse_block_bucket_order(inputs, order);
+        return;
+    }
+
+    let mut counts = [0usize; BUCKET_HISTOGRAM_BLOCKS + 1];
+    i = 0;
+    while i < inputs.len() {
+        counts[challenge_block_count(inputs[i].message.len())] += 1;
+        i += 1;
+    }
+
+    let mut next = [0usize; BUCKET_HISTOGRAM_BLOCKS + 1];
+    let mut total = 0usize;
+    i = 0;
+    while i < counts.len() {
+        next[i] = total;
+        total += counts[i];
+        i += 1;
+    }
+
+    order.resize(inputs.len(), 0);
+    i = 0;
+    while i < inputs.len() {
+        let block_count = challenge_block_count(inputs[i].message.len());
+        let pos = next[block_count];
+        next[block_count] += 1;
+        order[pos] = i;
+        i += 1;
+    }
 }
 
-pub(crate) fn verify_prepared_batch8_dalek_projective_simd(
-    prepared: &PreparedVerificationBatch8WithoutR<'_>,
-    r: &DecompressedRBatch8,
-    base_table: &BasepointTable,
-) -> [bool; SIMD_LANES] {
-    wide::avx512ifma::verify_prepared8_dalek_projective(prepared, &r.inner, base_table)
+#[derive(Clone, Copy)]
+struct SparseBucket {
+    block_count: usize,
+    count: usize,
+    next: usize,
+}
+
+/// Build bucket order without a dense count table for very long messages.
+fn build_sparse_block_bucket_order(inputs: &[VerifyInput<'_>], order: &mut Vec<usize>) {
+    let mut buckets = Vec::<SparseBucket>::new();
+    let mut bucket_by_block_count = HashMap::<usize, usize>::new();
+
+    for input in inputs {
+        let block_count = challenge_block_count(input.message.len());
+        if let Some(&bucket_index) = bucket_by_block_count.get(&block_count) {
+            buckets[bucket_index].count += 1;
+        } else {
+            let bucket_index = buckets.len();
+            bucket_by_block_count.insert(block_count, bucket_index);
+            buckets.push(SparseBucket {
+                block_count,
+                count: 1,
+                next: 0,
+            });
+        }
+    }
+
+    buckets.sort_unstable_by_key(|bucket| bucket.block_count);
+
+    bucket_by_block_count.clear();
+    let mut total = 0;
+    for (bucket_index, bucket) in buckets.iter_mut().enumerate() {
+        bucket_by_block_count.insert(bucket.block_count, bucket_index);
+        bucket.next = total;
+        total += bucket.count;
+    }
+
+    order.resize(inputs.len(), 0);
+    for (input_index, input) in inputs.iter().enumerate() {
+        let block_count = challenge_block_count(input.message.len());
+        let bucket_index = bucket_by_block_count[&block_count];
+        let bucket = &mut buckets[bucket_index];
+        order[bucket.next] = input_index;
+        bucket.next += 1;
+    }
+}
+
+#[inline]
+fn challenge_block_count(message_len: usize) -> usize {
+    message_len.saturating_add(64 + 1 + 16).div_ceil(128)
 }

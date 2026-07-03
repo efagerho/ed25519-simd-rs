@@ -5,7 +5,7 @@
 use core::convert::TryFrom;
 
 use curve25519::ed_sigs::{Signature, SigningKey, VerificationKey, VerificationKeyBytes, batch};
-use ed25519_simd::{KeyCache, NullKeyCache, Verifier, VerifyInput, VerifyPolicy};
+use ed25519_simd::{KeyCache, LruKeyCache, NullKeyCache, Verifier, VerifyInput, VerifyPolicy};
 
 fn ours_single(input: VerifyInput<'_>) -> bool {
     let mut verifier = Verifier::with_cache(VerifyPolicy::default(), NullKeyCache::new());
@@ -194,7 +194,7 @@ fn single_verify_matches_solana_ed25519_on_canonical_corpus() {
         let ours_cached = cached_out[0];
         let theirs = solana_ed25519_verify_zebra(case.public_key, case.signature, &case.message);
 
-        assert_eq!(ours, ours_cached, "crate stateless vs cached disagree");
+        assert_eq!(ours, ours_cached, "crate stateless vs default disagree");
 
         if ours != theirs {
             disagreements += 1;
@@ -310,7 +310,7 @@ fn block_count_bucketed_batches_match_solana_ed25519() {
             .map(|input| solana_ed25519(input.public_key, input.signature, input.message))
             .collect();
 
-        let mut cached = Verifier::with_policy(policy);
+        let mut cached = Verifier::with_cache(policy, LruKeyCache::new());
         let mut cached_out = vec![false; inputs.len()];
         cached.verify_batch(&inputs, &mut cached_out);
         assert_eq!(cached_out, expected, "lru policy={policy:?}");
@@ -322,7 +322,7 @@ fn block_count_bucketed_batches_match_solana_ed25519() {
     }
 }
 
-/// Stresses the 8-wide distinct-key decode/table path against solana-ed25519.
+/// Stresses the SIMD distinct-key decode/table path against solana-ed25519.
 #[test]
 fn null_cache_decode_build_stress() {
     let mut rng = Lcg(0x5151_5151_5151_5151);
@@ -407,7 +407,7 @@ fn batch_verify_matches_solana_ed25519() {
 
             let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|c| c.input()).collect();
 
-            let mut verifier = Verifier::new();
+            let mut verifier = Verifier::with_cache(VerifyPolicy::Zip215, LruKeyCache::new());
             let keys: Vec<[u8; 32]> = cases.iter().map(|c| c.public_key).collect();
             verifier.preload_public_keys(&keys);
             let mut out = vec![false; inputs.len()];
@@ -474,7 +474,7 @@ fn batch_dalek_matches_solana_ed25519_simd() {
             }
 
             let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|c| c.input()).collect();
-            let mut verifier = Verifier::with_policy(Dalek);
+            let mut verifier = Verifier::with_cache(Dalek, LruKeyCache::new());
             let keys: Vec<[u8; 32]> = cases.iter().map(|c| c.public_key).collect();
             verifier.preload_public_keys(&keys);
             let mut out = vec![false; inputs.len()];
@@ -508,7 +508,7 @@ fn lru_capacity_does_not_evict_current_simd_chunk() {
     }
 
     let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|case| case.input()).collect();
-    let mut verifier = Verifier::with_policy_and_cache_capacity(VerifyPolicy::Zip215, 1);
+    let mut verifier = Verifier::with_cache_capacity(VerifyPolicy::Zip215, 1);
     let mut out = vec![false; inputs.len()];
     verifier.verify_batch(&inputs, &mut out);
 
@@ -566,7 +566,7 @@ fn per_lane_masking_matches_solana_ed25519_under_heavy_garbage() {
                     })
                     .collect();
 
-                let mut verifier = Verifier::with_policy(policy);
+                let mut verifier = Verifier::with_cache(policy, LruKeyCache::new());
                 let mut out = vec![false; inputs.len()];
                 verifier.verify_batch(&inputs, &mut out);
                 for idx in 0..inputs.len() {
