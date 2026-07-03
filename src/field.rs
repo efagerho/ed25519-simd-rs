@@ -141,17 +141,23 @@ impl Fe51 {
     }
 
     pub(crate) fn subtract(&self, rhs: &Self) -> Self {
-        let lhs = self.canonical();
-        let rhs = rhs.canonical();
-        let mut out = [0u64; 5];
-
-        if cmp_limbs(&lhs.limbs, &rhs.limbs) != core::cmp::Ordering::Less {
-            sub_limbs(&mut out, &lhs.limbs, &rhs.limbs);
-        } else {
-            sub_with_prime(&mut out, &lhs.limbs, &rhs.limbs);
+        // Bias by 16*p so the limb-wise difference cannot underflow: operand
+        // limbs are < 2^52 (the loosely-reduced invariant) while every bias
+        // limb is >= 2^55 - 304, and the sums stay well below 2^64.
+        const BIAS: [u64; 5] = [
+            16 * (MASK - 18),
+            16 * MASK,
+            16 * MASK,
+            16 * MASK,
+            16 * MASK,
+        ];
+        let mut h = [0u128; 5];
+        let mut i = 0;
+        while i < 5 {
+            h[i] = (self.limbs[i] + BIAS[i] - rhs.limbs[i]) as u128;
+            i += 1;
         }
-
-        Self { limbs: out }.canonical()
+        Self::carry_reduce(h)
     }
 
     pub(crate) fn negate(&self) -> Self {
@@ -400,25 +406,6 @@ fn cmp_limbs(a: &[u64; 5], b: &[u64; 5]) -> core::cmp::Ordering {
         }
     }
     core::cmp::Ordering::Equal
-}
-
-fn sub_with_prime(out: &mut [u64; 5], a: &[u64; 5], b: &[u64; 5]) {
-    let base = 1i128 << LIMB_BITS;
-    let mut carry = 0i128;
-    let mut i = 0;
-    while i < 5 {
-        let mut value = a[i] as i128 + P_LIMBS[i] as i128 - b[i] as i128 + carry;
-        if value < 0 {
-            value += base;
-            carry = -1;
-        } else {
-            carry = value >> LIMB_BITS;
-            value &= MASK as i128;
-        }
-        out[i] = value as u64;
-        i += 1;
-    }
-    debug_assert_eq!(carry, 0);
 }
 
 fn sub_limbs(out: &mut [u64; 5], a: &[u64; 5], b: &[u64; 5]) {

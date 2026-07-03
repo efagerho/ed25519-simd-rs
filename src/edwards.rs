@@ -91,6 +91,16 @@ impl CachedPoint {
     pub(crate) fn identity() -> Self {
         Self::new(&EdwardsPoint::identity())
     }
+
+    /// Cached form of `-P`: swap `y+x`/`y-x` and negate `t*2d`; `z2` is unchanged.
+    fn negate(&self) -> Self {
+        Self {
+            y_plus_x: self.y_minus_x.clone(),
+            y_minus_x: self.y_plus_x.clone(),
+            z2: self.z2.clone(),
+            t2d: self.t2d.negate(),
+        }
+    }
 }
 
 impl PointTable {
@@ -110,9 +120,9 @@ impl PointTable {
 impl PointTable {
     pub(crate) fn new(point: &EdwardsPoint) -> Self {
         let points = multiples_of(point);
-        let cached_points = core::array::from_fn(|i| CachedPoint::new(&points[i]));
-        let negative_cached_points =
-            core::array::from_fn(|i| CachedPoint::new(&points[i].negate()));
+        let cached_points: [CachedPoint; 8] =
+            core::array::from_fn(|i| CachedPoint::new(&points[i]));
+        let negative_cached_points = core::array::from_fn(|i| cached_points[i].negate());
         let identity_cached = CachedPoint::new(&EdwardsPoint::identity());
         Self {
             cached_points,
@@ -135,21 +145,19 @@ impl PointTable {
 impl BasepointTable {
     pub(crate) fn new() -> Self {
         let basepoint = EdwardsPoint::basepoint();
-        let mut current = basepoint.clone();
-        let cached_points = core::array::from_fn(|i| {
-            if i != 0 {
-                current = current.add(&basepoint);
-            }
-            CachedPoint::new(&current)
-        });
-
-        let mut current = basepoint.clone();
-        let negative_cached_points = core::array::from_fn(|i| {
-            if i != 0 {
-                current = current.add(&basepoint);
-            }
-            CachedPoint::new(&current.negate())
-        });
+        let mut points = Vec::with_capacity(BASEPOINT_TABLE_SIZE);
+        points.push(basepoint.clone());
+        for m in 2..=BASEPOINT_TABLE_SIZE {
+            let next = if m % 2 == 0 {
+                points[m / 2 - 1].double()
+            } else {
+                points[m - 2].add(&basepoint)
+            };
+            points.push(next);
+        }
+        let cached_points: [CachedPoint; BASEPOINT_TABLE_SIZE] =
+            core::array::from_fn(|i| CachedPoint::new(&points[i]));
+        let negative_cached_points = core::array::from_fn(|i| cached_points[i].negate());
         let identity_cached = CachedPoint::new(&EdwardsPoint::identity());
         Self {
             cached_points,
@@ -249,6 +257,7 @@ impl EdwardsPoint {
         self.add(&rhs.negate())
     }
 
+    #[cfg(test)]
     pub(crate) fn negate(&self) -> Self {
         Self {
             x: self.x.negate(),
@@ -258,7 +267,6 @@ impl EdwardsPoint {
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn double(&self) -> Self {
         let a = self.x.square();
         let b = self.y.square();
@@ -289,15 +297,14 @@ impl EdwardsPoint {
 }
 
 fn multiples_of(point: &EdwardsPoint) -> [EdwardsPoint; 8] {
-    let mut current = point.clone();
-    core::array::from_fn(|i| {
-        if i == 0 {
-            current.clone()
-        } else {
-            current = current.add(point);
-            current.clone()
-        }
-    })
+    let p2 = point.double();
+    let p3 = p2.add(point);
+    let p4 = p2.double();
+    let p5 = p4.add(point);
+    let p6 = p3.double();
+    let p7 = p6.add(point);
+    let p8 = p4.double();
+    [point.clone(), p2, p3, p4, p5, p6, p7, p8]
 }
 
 #[cfg(test)]
