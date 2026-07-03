@@ -1,5 +1,5 @@
 pub(crate) mod avx512ifma {
-    use crate::batch::PreparedVerificationBatch8WithoutR;
+    use crate::batch::PreparedBatch;
     #[cfg(test)]
     use crate::edwards::EdwardsPoint;
     use crate::edwards::{BasepointTable, CachedPoint, PointTable};
@@ -7,38 +7,32 @@ pub(crate) mod avx512ifma {
     use crate::scalar::Radix16;
     use std::arch::x86_64::*;
 
-    const LANES: usize = 8;
+    const LANES: usize = crate::batch::SIMD_LANES;
     const LIMB_MASK: u64 = (1u64 << 51) - 1;
     const FIELD_P_LIMBS: [u64; 5] = [LIMB_MASK - 18, LIMB_MASK, LIMB_MASK, LIMB_MASK, LIMB_MASK];
 
-    pub(crate) struct WideRPoints8(WidePoint);
+    pub(crate) struct WideRPoints(WidePoint);
 
-    /// Decompress eight `R` points and return a per-lane validity mask.
-    pub(crate) fn decompress_r_points8(r_bytes: &[[u8; 32]; LANES]) -> (WideRPoints8, u8) {
-        let (point, mask) = decompress_points8_wide(r_bytes);
-        (WideRPoints8(point), mask)
+    /// Decompress one SIMD chunk of `R` points and return a per-lane validity mask.
+    pub(crate) fn decompress_r_points(r_bytes: &[[u8; 32]; LANES]) -> (WideRPoints, u8) {
+        let (point, mask) = decompress_points_wide(r_bytes);
+        (WideRPoints(point), mask)
     }
 
-    /// Decode eight public keys and build cached tables with per-lane validity.
-    pub(crate) fn decode_and_build_tables8(bytes: &[[u8; 32]; LANES]) -> ([PointTable; LANES], u8) {
-        let (p, valid_mask) = decompress_points8_wide(bytes);
-        (build_tables8_from_point(p), valid_mask)
-    }
-
-    /// Decode eight public keys and eight `R` points together, interleaving the
+    /// Decode public keys and `R` points together, interleaving the
     /// two inverse-square-root chains (the latency-bound part of decompression).
     /// Returns the key tables + validity and the decompressed `R` + validity.
-    pub(crate) fn decode_keys_and_decompress_r8(
+    pub(crate) fn decode_keys_and_decompress_r(
         keys: &[[u8; 32]; LANES],
         r_bytes: &[[u8; 32]; LANES],
-    ) -> ([PointTable; LANES], u8, WideRPoints8, u8) {
-        let ((kp, kmask), (rp, rmask)) = decompress_points8_wide_x2(keys, r_bytes);
-        (build_tables8_from_point(kp), kmask, WideRPoints8(rp), rmask)
+    ) -> ([PointTable; LANES], u8, WideRPoints, u8) {
+        let ((kp, kmask), (rp, rmask)) = decompress_point_batches_wide(keys, r_bytes);
+        (build_tables_from_point(kp), kmask, WideRPoints(rp), rmask)
     }
 
-    /// Build the eight radix-16 cached tables from an already-decompressed
-    /// 8-wide point (one base point per lane).
-    fn build_tables8_from_point(p: WidePoint) -> [PointTable; LANES] {
+    /// Build the per-lane radix-16 cached tables from an already-decompressed
+    /// SIMD point.
+    fn build_tables_from_point(p: WidePoint) -> [PointTable; LANES] {
         // Tree-balanced multiples (P..8P): critical path ~4 deep instead of the
         // serial 7, with independent adds at each level to expose ILP.
         let p2 = p.add(&p);
@@ -56,22 +50,23 @@ pub(crate) mod avx512ifma {
         ];
 
         let two_d = WideFe::two_d();
-        type Lane8 = [Fe51; LANES];
-        let fields: [(Lane8, Lane8, Lane8, Lane8, Lane8); LANES] = core::array::from_fn(|i| {
-            let m = &mult[i];
-            let ypx = m.y.add(&m.x);
-            let ymx = m.y.subtract(&m.x);
-            let z2 = m.z.double();
-            let t2d = m.t.multiply(&two_d);
-            let neg_t2d = t2d.negate();
-            (
-                ypx.to_fields_loose(),
-                ymx.to_fields_loose(),
-                z2.to_fields_loose(),
-                t2d.to_fields_loose(),
-                neg_t2d.to_fields_loose(),
-            )
-        });
+        type LaneFields = [Fe51; LANES];
+        let fields: [(LaneFields, LaneFields, LaneFields, LaneFields, LaneFields); LANES] =
+            core::array::from_fn(|i| {
+                let m = &mult[i];
+                let ypx = m.y.add(&m.x);
+                let ymx = m.y.subtract(&m.x);
+                let z2 = m.z.double();
+                let t2d = m.t.multiply(&two_d);
+                let neg_t2d = t2d.negate();
+                (
+                    ypx.to_fields_loose(),
+                    ymx.to_fields_loose(),
+                    z2.to_fields_loose(),
+                    t2d.to_fields_loose(),
+                    neg_t2d.to_fields_loose(),
+                )
+            });
 
         let identity = CachedPoint::identity();
         core::array::from_fn(|k| {
@@ -99,12 +94,12 @@ pub(crate) mod avx512ifma {
     }
 
     // ZIP-215 cofactored verification: [8](sB - kA - R) == identity.
-    pub(crate) fn verify_prepared8_zip215(
-        prepared: &PreparedVerificationBatch8WithoutR<'_>,
-        r: &WideRPoints8,
+    pub(crate) fn verify_prepared_zip215(
+        prepared: &PreparedBatch<'_>,
+        r: &WideRPoints,
         base_table: &BasepointTable,
     ) -> [bool; LANES] {
-        let combined = mul_base_minus_public8_without_r(base_table, prepared);
+        let combined = mul_base_minus_public_without_r(base_table, prepared);
         let mut check = combined.subtract(&r.0);
         check = check
             .double_without_t()
@@ -113,22 +108,22 @@ pub(crate) mod avx512ifma {
         check.identity_lanes()
     }
 
-    pub(crate) fn verify_prepared8_dalek(
-        prepared: &PreparedVerificationBatch8WithoutR<'_>,
+    pub(crate) fn verify_prepared_dalek(
+        prepared: &PreparedBatch<'_>,
         r_bytes: &[[u8; 32]; LANES],
         base_table: &BasepointTable,
     ) -> [bool; LANES] {
-        let combined = mul_base_minus_public8_without_r(base_table, prepared);
+        let combined = mul_base_minus_public_without_r(base_table, prepared);
         let recomputed = combined.compress();
         core::array::from_fn(|lane| recomputed[lane] == r_bytes[lane])
     }
 
-    pub(crate) fn verify_prepared8_dalek_projective(
-        prepared: &PreparedVerificationBatch8WithoutR<'_>,
-        r: &WideRPoints8,
+    pub(crate) fn verify_prepared_dalek_projective(
+        prepared: &PreparedBatch<'_>,
+        r: &WideRPoints,
         base_table: &BasepointTable,
     ) -> [bool; LANES] {
-        let combined = mul_base_minus_public8_without_r(base_table, prepared);
+        let combined = mul_base_minus_public_without_r(base_table, prepared);
         combined.equals_affine_lanes(&r.0)
     }
 
@@ -145,7 +140,7 @@ pub(crate) mod avx512ifma {
         x_signs: [bool; LANES],
     }
 
-    fn decompress_setup8(bytes: &[[u8; 32]; LANES]) -> DecompressSetup {
+    fn decompress_setup(bytes: &[[u8; 32]; LANES]) -> DecompressSetup {
         let mut y_fields = core::array::from_fn(|_| Fe51::zero());
         let mut x_signs = [false; LANES];
 
@@ -178,7 +173,7 @@ pub(crate) mod avx512ifma {
         }
     }
 
-    fn decompress_finish8(s: DecompressSetup, pow: WideFe) -> (WidePoint, u8) {
+    fn decompress_finish(s: DecompressSetup, pow: WideFe) -> (WidePoint, u8) {
         let mut x = s.base.multiply(&pow);
 
         let vx2 = s.v.multiply(&x.square());
@@ -229,36 +224,36 @@ pub(crate) mod avx512ifma {
         )
     }
 
-    /// Decompress eight compressed Edwards points with per-lane validity.
-    fn decompress_points8_wide(bytes: &[[u8; 32]; LANES]) -> (WidePoint, u8) {
-        let s = decompress_setup8(bytes);
+    /// Decompress one SIMD chunk of compressed Edwards points with per-lane validity.
+    fn decompress_points_wide(bytes: &[[u8; 32]; LANES]) -> (WidePoint, u8) {
+        let s = decompress_setup(bytes);
         let pow = s.exp.pow_p_minus_5_over_8();
-        decompress_finish8(s, pow)
+        decompress_finish(s, pow)
     }
 
-    /// Decompress two independent groups of eight points, interleaving the two
+    /// Decompress two independent SIMD chunks, interleaving the two
     /// inverse-square-root chains so each fills the other's IFMA latency gaps.
-    fn decompress_points8_wide_x2(
+    fn decompress_point_batches_wide(
         a_bytes: &[[u8; 32]; LANES],
         b_bytes: &[[u8; 32]; LANES],
     ) -> ((WidePoint, u8), (WidePoint, u8)) {
-        let sa = decompress_setup8(a_bytes);
-        let sb = decompress_setup8(b_bytes);
+        let sa = decompress_setup(a_bytes);
+        let sb = decompress_setup(b_bytes);
         let (pa, pb) = WideFe::pow_p_minus_5_over_8_x2(&sa.exp, &sb.exp);
-        (decompress_finish8(sa, pa), decompress_finish8(sb, pb))
+        (decompress_finish(sa, pa), decompress_finish(sb, pb))
     }
-    fn mul_base_minus_public8_without_r(
+    fn mul_base_minus_public_without_r(
         base_table: &BasepointTable,
-        prepared: &PreparedVerificationBatch8WithoutR<'_>,
+        prepared: &PreparedBatch<'_>,
     ) -> WidePoint {
-        mul_base_minus_public8_parts(
+        mul_base_minus_public_parts(
             base_table,
             &prepared.public_key_tables,
             &prepared.s_digits,
             &prepared.k_digits,
         )
     }
-    fn mul_base_minus_public8_parts(
+    fn mul_base_minus_public_parts(
         base_table: &BasepointTable,
         public_key_tables: &[&PointTable; LANES],
         s_digits: &[Radix16; LANES],
@@ -1463,12 +1458,12 @@ pub(crate) mod avx512ifma {
             one_bytes[0] = 1;
             let k = crate::scalar::Scalar::from_canonical_bytes(one_bytes);
             let k_digits = [k.to_radix16(); LANES];
-            let prepared = PreparedVerificationBatch8WithoutR {
+            let prepared = PreparedBatch {
                 public_key_tables: [&table; LANES],
                 s_digits,
                 k_digits,
             };
-            let combined = mul_base_minus_public8_without_r(&base_table, &prepared);
+            let combined = mul_base_minus_public_without_r(&base_table, &prepared);
             let pts = combined.to_points();
             assert_eq!(
                 pts[0].compress(),
@@ -1515,15 +1510,15 @@ pub(crate) mod avx512ifma {
                 crate::sha512::hash_slices(&[&r_bytes, &a_bytes, b"taming the many eddsas"]);
             let k = crate::scalar::Scalar::from_wide_bytes(digest);
             let k_digits = [k.to_radix16(); LANES];
-            let prepared = PreparedVerificationBatch8WithoutR {
+            let prepared = PreparedBatch {
                 public_key_tables: [&table; LANES],
                 s_digits,
                 k_digits,
             };
-            let (r_point, r_mask) = decompress_points8_wide(&[r_bytes; LANES]);
+            let (r_point, r_mask) = decompress_points_wide(&[r_bytes; LANES]);
             assert_eq!(r_mask, 0xff, "torsion R must decode");
-            let r = WideRPoints8(r_point);
-            let result = verify_prepared8_zip215(&prepared, &r, &base_table);
+            let r = WideRPoints(r_point);
+            let result = verify_prepared_zip215(&prepared, &r, &base_table);
             assert!(
                 result[0],
                 "zip215 SIMD must accept this cofactored small-order case"
@@ -1538,7 +1533,7 @@ pub(crate) mod avx512ifma {
                 0x6d, 0x53, 0xfc, 0x05,
             ];
             let scalar = EdwardsPoint::decompress(&bytes).unwrap();
-            let (wide, mask) = decompress_points8_wide(&[bytes; LANES]);
+            let (wide, mask) = decompress_points_wide(&[bytes; LANES]);
             assert_eq!(mask, 0xff, "wide decode must succeed");
             let wide_pts = wide.to_points();
             assert_eq!(

@@ -214,22 +214,23 @@ impl Scalar52 {
         Self::montgomery_reduce(&Self::mul_internal(self, rhs))
     }
 
-    #[rustfmt::skip]
     fn mul_internal(a: &Self, b: &Self) -> [u128; 9] {
+        let a = &a.0;
+        let b = &b.0;
+
         [
-            m(a.0[0], b.0[0]),
-            m(a.0[0], b.0[1]) + m(a.0[1], b.0[0]),
-            m(a.0[0], b.0[2]) + m(a.0[1], b.0[1]) + m(a.0[2], b.0[0]),
-            m(a.0[0], b.0[3]) + m(a.0[1], b.0[2]) + m(a.0[2], b.0[1]) + m(a.0[3], b.0[0]),
-            m(a.0[0], b.0[4]) + m(a.0[1], b.0[3]) + m(a.0[2], b.0[2]) + m(a.0[3], b.0[1]) + m(a.0[4], b.0[0]),
-                                  m(a.0[1], b.0[4]) + m(a.0[2], b.0[3]) + m(a.0[3], b.0[2]) + m(a.0[4], b.0[1]),
-                                                        m(a.0[2], b.0[4]) + m(a.0[3], b.0[3]) + m(a.0[4], b.0[2]),
-                                                                              m(a.0[3], b.0[4]) + m(a.0[4], b.0[3]),
-                                                                                                    m(a.0[4], b.0[4]),
+            m(a[0], b[0]),
+            m(a[0], b[1]) + m(a[1], b[0]),
+            m(a[0], b[2]) + m(a[1], b[1]) + m(a[2], b[0]),
+            m(a[0], b[3]) + m(a[1], b[2]) + m(a[2], b[1]) + m(a[3], b[0]),
+            m(a[0], b[4]) + m(a[1], b[3]) + m(a[2], b[2]) + m(a[3], b[1]) + m(a[4], b[0]),
+            m(a[1], b[4]) + m(a[2], b[3]) + m(a[3], b[2]) + m(a[4], b[1]),
+            m(a[2], b[4]) + m(a[3], b[3]) + m(a[4], b[2]),
+            m(a[3], b[4]) + m(a[4], b[3]),
+            m(a[4], b[4]),
         ]
     }
 
-    #[rustfmt::skip]
     fn montgomery_reduce(limbs: &[u128; 9]) -> Self {
         #[inline(always)]
         fn part1(sum: u128) -> (u128, u64) {
@@ -243,16 +244,16 @@ impl Scalar52 {
         }
 
         let l = &SCALAR_L.0;
-        let (carry, n0) = part1(        limbs[0]);
+        let (carry, n0) = part1(limbs[0]);
         let (carry, n1) = part1(carry + limbs[1] + m(n0, l[1]));
         let (carry, n2) = part1(carry + limbs[2] + m(n0, l[2]) + m(n1, l[1]));
-        let (carry, n3) = part1(carry + limbs[3]               + m(n1, l[2]) + m(n2, l[1]));
-        let (carry, n4) = part1(carry + limbs[4] + m(n0, l[4])               + m(n2, l[2]) + m(n3, l[1]));
+        let (carry, n3) = part1(carry + limbs[3] + m(n1, l[2]) + m(n2, l[1]));
+        let (carry, n4) = part1(carry + limbs[4] + m(n0, l[4]) + m(n2, l[2]) + m(n3, l[1]));
 
-        let (carry, r0) = part2(carry + limbs[5]               + m(n1, l[4])               + m(n3, l[2]) + m(n4, l[1]));
-        let (carry, r1) = part2(carry + limbs[6]                             + m(n2, l[4])               + m(n4, l[2]));
-        let (carry, r2) = part2(carry + limbs[7]                                           + m(n3, l[4]));
-        let (carry, r3) = part2(carry + limbs[8]                                                         + m(n4, l[4]));
+        let (carry, r0) = part2(carry + limbs[5] + m(n1, l[4]) + m(n3, l[2]) + m(n4, l[1]));
+        let (carry, r1) = part2(carry + limbs[6] + m(n2, l[4]) + m(n4, l[2]));
+        let (carry, r2) = part2(carry + limbs[7] + m(n3, l[4]));
+        let (carry, r3) = part2(carry + limbs[8] + m(n4, l[4]));
         let r4 = carry as u64;
 
         Self([r0, r1, r2, r3, r4]).sub(&SCALAR_L)

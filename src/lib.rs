@@ -8,11 +8,18 @@ compile_error!("ed25519-simd requires x86_64 with AVX-512F, AVX-512DQ, and AVX-5
 
 mod batch;
 mod cache;
+mod cpuid;
 mod edwards;
 mod field;
+mod lru_cache;
+mod policy;
 mod scalar;
 mod sha512;
+mod verifier;
 mod wide;
 
-pub use batch::{PUBLIC_KEY_LEN, SIGNATURE_LEN, VerifyInput, VerifyPolicy};
-pub use cache::{CacheStats, CachedPublicKey, KeyCache, LruKeyCache, NullKeyCache, Verifier};
+pub use batch::{PUBLIC_KEY_LEN, SIGNATURE_LEN, SIMD_LANES};
+pub use cache::{CachedPublicKey, KeyCache, NullKeyCache};
+pub use lru_cache::{CacheStats, LruKeyCache};
+pub use policy::VerifyPolicy;
+pub use verifier::{Verifier, VerifyInput};
