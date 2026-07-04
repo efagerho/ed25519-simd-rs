@@ -9,6 +9,7 @@ pub(crate) mod avx512ifma {
 
     const LANES: usize = crate::batch::SIMD_LANES;
     const LIMB_MASK: u64 = (1u64 << 51) - 1;
+    #[cfg(test)]
     const FIELD_P_LIMBS: [u64; 5] = [LIMB_MASK - 18, LIMB_MASK, LIMB_MASK, LIMB_MASK, LIMB_MASK];
 
     pub(crate) struct WideRPoints(WidePoint);
@@ -986,45 +987,64 @@ pub(crate) mod avx512ifma {
             self.subtract(rhs).is_zero_lanes()
         }
         fn is_zero_lanes(self) -> [bool; LANES] {
-            let limbs = self.canonical_limb_rows();
-            core::array::from_fn(|lane| {
-                limbs[0][lane] == 0
-                    && limbs[1][lane] == 0
-                    && limbs[2][lane] == 0
-                    && limbs[3][lane] == 0
-                    && limbs[4][lane] == 0
-            })
+            unsafe {
+                let c = self.canonical();
+                let zero = _mm512_setzero_si512();
+                let mask = _mm512_cmpeq_epu64_mask(c.limbs[0], zero)
+                    & _mm512_cmpeq_epu64_mask(c.limbs[1], zero)
+                    & _mm512_cmpeq_epu64_mask(c.limbs[2], zero)
+                    & _mm512_cmpeq_epu64_mask(c.limbs[3], zero)
+                    & _mm512_cmpeq_epu64_mask(c.limbs[4], zero);
+                mask_to_lanes(mask)
+            }
         }
         fn is_odd_lanes(self) -> [bool; LANES] {
-            let limbs = self.canonical_limb_rows();
-            core::array::from_fn(|lane| (limbs[0][lane] & 1) != 0)
-        }
-        fn canonical_limb_rows(self) -> [[u64; LANES]; 5] {
-            let mut rows = [[0u64; LANES]; 5];
-            storeu(self.limbs[0], &mut rows[0]);
-            storeu(self.limbs[1], &mut rows[1]);
-            storeu(self.limbs[2], &mut rows[2]);
-            storeu(self.limbs[3], &mut rows[3]);
-            storeu(self.limbs[4], &mut rows[4]);
-
-            let mut lane = 0;
-            while lane < LANES {
-                let canonical = canonicalize_field_limbs([
-                    rows[0][lane],
-                    rows[1][lane],
-                    rows[2][lane],
-                    rows[3][lane],
-                    rows[4][lane],
-                ]);
-                let mut limb = 0;
-                while limb < 5 {
-                    rows[limb][lane] = canonical[limb];
-                    limb += 1;
-                }
-                lane += 1;
+            unsafe {
+                let c = self.canonical();
+                let one = _mm512_set1_epi64(1);
+                mask_to_lanes(_mm512_test_epi64_mask(c.limbs[0], one))
             }
+        }
+        /// Vectorized equivalent of the scalar `Fe51::canonical`: brings every
+        /// lane to its unique representative in `[0, p)`, across all 8 lanes at
+        /// once instead of a scalar per-lane loop.
+        ///
+        /// `reduce64` (its existing 2-pass cascade, already relied on by strict
+        /// `add`) leaves limbs 1..4 exactly in `[0, 2^51)` — the two passes are
+        /// needed for that guarantee; a single pass can leave a limb at exactly
+        /// `2^51` instead of properly carried into the next one. Limb 0 can
+        /// still be loose by a small residual (worst case a few dozen), but
+        /// that's harmless for what follows: since p's limbs are all `2^51 - 1`
+        /// except limb 0 (`2^51 - 19`), a value is `>= p` iff limbs 1..4 are
+        /// *exactly* `2^51 - 1` and limb 0 is `>= 2^51 - 19` — a plain, exact
+        /// equality check on the properly-bounded high limbs, unaffected by
+        /// limb 0's small residual. And when that holds, `limb0 - (2^51 - 19)`
+        /// never needs a borrow (limbs 1..4 become exactly 0), so the whole
+        /// conditional subtraction is branch-free elementwise arithmetic.
+        fn canonical(&self) -> Self {
+            unsafe {
+                let reduced = Self::reduce64(self.limbs);
+                let mask = _mm512_set1_epi64(LIMB_MASK as i64);
+                let p0 = _mm512_set1_epi64((LIMB_MASK - 18) as i64);
 
-            rows
+                let ge_high = _mm512_cmpeq_epu64_mask(reduced.limbs[1], mask)
+                    & _mm512_cmpeq_epu64_mask(reduced.limbs[2], mask)
+                    & _mm512_cmpeq_epu64_mask(reduced.limbs[3], mask)
+                    & _mm512_cmpeq_epu64_mask(reduced.limbs[4], mask);
+                let ge_p = ge_high & _mm512_cmpge_epu64_mask(reduced.limbs[0], p0);
+
+                let zero = _mm512_setzero_si512();
+                let sub0 = _mm512_sub_epi64(reduced.limbs[0], p0);
+                Self {
+                    limbs: [
+                        _mm512_mask_blend_epi64(ge_p, reduced.limbs[0], sub0),
+                        _mm512_mask_blend_epi64(ge_p, reduced.limbs[1], zero),
+                        _mm512_mask_blend_epi64(ge_p, reduced.limbs[2], zero),
+                        _mm512_mask_blend_epi64(ge_p, reduced.limbs[3], zero),
+                        _mm512_mask_blend_epi64(ge_p, reduced.limbs[4], zero),
+                    ],
+                }
+            }
         }
         fn blend(&self, mask: u8, rhs: &Self) -> Self {
             unsafe {
@@ -1345,7 +1365,13 @@ pub(crate) mod avx512ifma {
     fn storeu(value: __m512i, out: &mut [u64; LANES]) {
         unsafe { _mm512_storeu_si512(out.as_mut_ptr() as *mut __m512i, value) }
     }
+    fn mask_to_lanes(mask: __mmask8) -> [bool; LANES] {
+        core::array::from_fn(|lane| (mask & (1 << lane)) != 0)
+    }
 
+    /// Scalar reference for `WideFe::canonical`, kept only as a test check for
+    /// the vectorized path.
+    #[cfg(test)]
     fn canonicalize_field_limbs(limbs: [u64; 5]) -> [u64; 5] {
         // The partial carry chain below relies on limbs already being < 2^52.
         debug_assert!(limbs.iter().all(|&l| l < (1u64 << 52)));
@@ -1390,6 +1416,7 @@ pub(crate) mod avx512ifma {
         out
     }
 
+    #[cfg(test)]
     fn cmp_field_limbs(lhs: &[u64; 5], rhs: &[u64; 5]) -> core::cmp::Ordering {
         let mut i = 5;
         while i > 0 {
@@ -1402,6 +1429,7 @@ pub(crate) mod avx512ifma {
         core::cmp::Ordering::Equal
     }
 
+    #[cfg(test)]
     fn sub_field_limbs(lhs: &mut [u64; 5], rhs: &[u64; 5]) {
         let mut borrow = 0i128;
         let base = 1i128 << 51;
@@ -1429,6 +1457,115 @@ pub(crate) mod avx512ifma {
                 out = out.square();
             }
             out
+        }
+
+        fn wide_from_rows(rows: [[u64; LANES]; 5]) -> WideFe {
+            WideFe {
+                limbs: core::array::from_fn(|i| loadu(rows[i])),
+            }
+        }
+
+        /// Checks the vectorized `canonical`/`is_zero_lanes`/`is_odd_lanes`
+        /// against two independent references for the given per-lane rows:
+        /// the scalar `canonicalize_field_limbs` (same algorithm, unvectorized)
+        /// and field.rs's separately-implemented `Fe51::from_limbs` (different
+        /// code, same mathematical target).
+        fn check_canonical(rows: [[u64; LANES]; 5]) {
+            let wide = wide_from_rows(rows);
+            let canonical = wide.canonical();
+            let mut canonical_rows = [[0u64; LANES]; 5];
+            for limb in 0..5 {
+                storeu(canonical.limbs[limb], &mut canonical_rows[limb]);
+            }
+            let is_zero = wide.is_zero_lanes();
+            let is_odd = wide.is_odd_lanes();
+
+            for lane in 0..LANES {
+                let input: [u64; 5] = core::array::from_fn(|limb| rows[limb][lane]);
+                let expected = canonicalize_field_limbs(input);
+                let actual: [u64; 5] = core::array::from_fn(|limb| canonical_rows[limb][lane]);
+                assert_eq!(actual, expected, "lane {lane} diverged from scalar reference");
+                assert_eq!(
+                    is_zero[lane],
+                    expected == [0u64; 5],
+                    "is_zero_lanes lane {lane}"
+                );
+                assert_eq!(
+                    is_odd[lane],
+                    (expected[0] & 1) != 0,
+                    "is_odd_lanes lane {lane}"
+                );
+
+                let expected_bytes = crate::field::Fe51::from_limbs(input).to_bytes();
+                let actual_bytes = crate::field::Fe51::from_limbs(actual).to_bytes();
+                assert_eq!(
+                    actual_bytes, expected_bytes,
+                    "lane {lane} diverged from field.rs Fe51 reference"
+                );
+            }
+        }
+
+        #[test]
+        fn canonical_matches_references_on_boundary_values() {
+            let zero = [0u64; 5];
+            let p = FIELD_P_LIMBS;
+            let p_minus_1 = {
+                let mut l = p;
+                l[0] -= 1;
+                l
+            };
+            let p_plus_1 = {
+                let mut l = p;
+                l[0] += 1;
+                l
+            };
+            // Every limb at its documented max input bound (2^52 - 1).
+            let max_limbs = [(1u64 << 52) - 1; 5];
+            let hand_picked = [zero, p, p_minus_1, p_plus_1, max_limbs];
+
+            let mut state = 0x2545f4914f6cdd1du64;
+            let mut next = || {
+                state = state
+                    .wrapping_mul(0xd1342543de82ef95)
+                    .wrapping_add(0x9e3779b97f4a7c15);
+                state
+            };
+
+            let mut rows = [[0u64; LANES]; 5];
+            for lane in 0..LANES {
+                let limbs = if lane < hand_picked.len() {
+                    hand_picked[lane]
+                } else {
+                    core::array::from_fn(|_| next() & ((1u64 << 52) - 1))
+                };
+                for limb in 0..5 {
+                    rows[limb][lane] = limbs[limb];
+                }
+            }
+            check_canonical(rows);
+        }
+
+        #[test]
+        fn canonical_matches_references_on_random_values() {
+            let mut state = 0x9e3779b97f4a7c15u64;
+            let mut next = || {
+                state = state
+                    .wrapping_mul(0xd1342543de82ef95)
+                    .wrapping_add(0x2545f4914f6cdd1d);
+                state
+            };
+
+            let mut round = 0;
+            while round < 512 {
+                let mut rows = [[0u64; LANES]; 5];
+                for lane in 0..LANES {
+                    for limb in 0..5 {
+                        rows[limb][lane] = next() & ((1u64 << 52) - 1);
+                    }
+                }
+                check_canonical(rows);
+                round += 1;
+            }
         }
 
         #[test]
