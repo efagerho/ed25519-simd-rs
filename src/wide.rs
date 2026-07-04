@@ -918,11 +918,22 @@ pub(crate) mod avx512ifma {
             let h = g.square_repeat::<50>().multiply(&e);
             h.square_repeat::<5>().multiply(&z11)
         }
+        // Every squaring but the last stays loose (limb0 < 2^60, skipping the
+        // trailing reduce_loose pass of a strict square): `square_loose`'s own
+        // entry normalization absorbs that bound as valid input for the next
+        // squaring, whether loose or strict. Only the final squaring needs the
+        // full strict reduction, since every call site immediately feeds the
+        // result into a `multiply`, which requires tight (< 2^52) inputs and
+        // has no entry normalization of its own.
         fn square_repeat<const N: usize>(&self) -> Self {
             let mut out = *self;
             let mut i = 0;
             while i < N {
-                out = out.square();
+                out = if i + 1 < N {
+                    out.square_loose()
+                } else {
+                    out.square()
+                };
                 i += 1;
             }
             out
@@ -935,8 +946,13 @@ pub(crate) mod avx512ifma {
             let (mut x, mut y) = (*a, *b);
             let mut i = 0;
             while i < N {
-                x = x.square();
-                y = y.square();
+                if i + 1 < N {
+                    x = x.square_loose();
+                    y = y.square_loose();
+                } else {
+                    x = x.square();
+                    y = y.square();
+                }
                 i += 1;
             }
             (x, y)
@@ -1406,6 +1422,76 @@ pub(crate) mod avx512ifma {
     #[cfg(test)]
     mod simd_torsion_tests {
         use super::*;
+
+        fn strict_square_n(x: &WideFe, n: usize) -> WideFe {
+            let mut out = *x;
+            for _ in 0..n {
+                out = out.square();
+            }
+            out
+        }
+
+        #[test]
+        fn square_repeat_matches_strict_reference() {
+            // square_repeat keeps every squaring but the last loose; verify
+            // that's bit-identical to N strict squarings for every N actually
+            // used by pow_p_minus_5_over_8/invert, plus the N=0/1 boundary.
+            macro_rules! check {
+                ($x:expr, $n:literal) => {
+                    let x = $x;
+                    assert!(
+                        WideFe::square_repeat::<$n>(&x)
+                            .equals_lanes(&strict_square_n(&x, $n))
+                            .iter()
+                            .all(|&v| v),
+                        "square_repeat::<{}> diverged from strict reference",
+                        $n
+                    );
+                };
+            }
+            for x in [
+                WideFe::constant(crate::field::D_LIMBS),
+                WideFe::constant(crate::field::SQRT_M1_LIMBS),
+            ] {
+                check!(x, 0);
+                check!(x, 1);
+                check!(x, 2);
+                check!(x, 5);
+                check!(x, 10);
+                check!(x, 20);
+                check!(x, 50);
+                check!(x, 100);
+            }
+        }
+
+        #[test]
+        fn square_repeat_x2_matches_strict_reference() {
+            let a = WideFe::constant(crate::field::D_LIMBS);
+            let b = WideFe::constant(crate::field::SQRT_M1_LIMBS);
+            macro_rules! check {
+                ($n:literal) => {
+                    let (xa, xb) = WideFe::square_repeat_x2::<$n>(&a, &b);
+                    assert!(
+                        xa.equals_lanes(&strict_square_n(&a, $n)).iter().all(|&v| v),
+                        "square_repeat_x2::<{}> diverged from strict reference (lane a)",
+                        $n
+                    );
+                    assert!(
+                        xb.equals_lanes(&strict_square_n(&b, $n)).iter().all(|&v| v),
+                        "square_repeat_x2::<{}> diverged from strict reference (lane b)",
+                        $n
+                    );
+                };
+            }
+            check!(0);
+            check!(1);
+            check!(2);
+            check!(5);
+            check!(10);
+            check!(20);
+            check!(50);
+            check!(100);
+        }
 
         #[test]
         fn pow_x2_matches_sequential() {
