@@ -149,8 +149,8 @@ Message length 1:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 5.59 | 5.63 | 5.61 | 5.64 |
-| ed25519-simd Dalek null-cache | 5.53 | 5.60 | 5.60 | 5.55 |
+| ed25519-simd Zip215 null-cache | 5.46 | 5.45 | 5.46 | 5.45 |
+| ed25519-simd Dalek null-cache | 5.41 | 5.45 | 5.42 | 5.41 |
 | solana-ed25519 Zip215 batch[^batch-api] | 14.02 | 13.01 | 12.47 | 12.24 |
 | solana-ed25519 Dalek loop | 22.47 | 22.49 | 22.38 | 22.39 |
 | ed25519-dalek batch[^batch-api] | 11.54 | 10.46 | 9.92 | 9.68 |
@@ -164,8 +164,8 @@ Message length 1024:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 5.94 | 5.97 | 5.96 | 5.96 |
-| ed25519-simd Dalek null-cache | 5.91 | 5.90 | 5.88 | 5.93 |
+| ed25519-simd Zip215 null-cache | 5.80 | 5.82 | 5.82 | 5.83 |
+| ed25519-simd Dalek null-cache | 5.79 | 5.81 | 5.79 | 5.79 |
 | solana-ed25519 Zip215 batch[^batch-api] | 14.91 | 13.98 | 13.47 | 13.33 |
 | solana-ed25519 Dalek loop | 23.45 | 23.45 | 23.42 | 23.50 |
 | ed25519-dalek batch[^batch-api] | 12.56 | 11.50 | 10.92 | 10.63 |
@@ -179,8 +179,8 @@ Mixed message lengths:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 5.74 | 5.67 | 5.70 | 5.69 |
-| ed25519-simd Dalek null-cache | 5.69 | 5.65 | 5.68 | 5.62 |
+| ed25519-simd Zip215 null-cache | 5.61 | 5.58 | 5.56 | 5.54 |
+| ed25519-simd Dalek null-cache | 5.57 | 5.53 | 5.53 | 5.47 |
 | solana-ed25519 Zip215 batch[^batch-api] | 14.09 | 13.09 | 12.64 | 12.48 |
 | solana-ed25519 Dalek loop | 22.65 | 22.55 | 22.67 | 22.58 |
 | ed25519-dalek batch[^batch-api] | 11.63 | 10.64 | 10.14 | 9.82 |

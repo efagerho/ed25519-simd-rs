@@ -1,6 +1,6 @@
 //! Plain (non-criterion) harness for profiling the cold `NullKeyCache` path.
 //! Build: `cargo bench --bench cold_profile --no-run`
-//! Profile: `perf record -g <binary> [policy] [keys] [iters] [msglen] [invalid_pct]`
+//! Profile: `perf record -g <binary> [policy] [keys] [iters] [msglen|mixed] [invalid_pct]`
 
 use std::time::Instant;
 
@@ -13,6 +13,25 @@ fn signing_key_from_index(index: u64) -> SigningKey {
     SigningKey::from(seed)
 }
 
+/// Matches `MsgLen::Mixed` in benches/solana_ed25519_compare.rs: a uniform
+/// random length in [0, 257) per signature.
+struct SplitMix(u64);
+
+impl SplitMix {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    }
+}
+
+enum MsgLenArg {
+    Fixed(usize),
+    Mixed,
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let policy = match args.get(1).map(String::as_str) {
@@ -21,14 +40,23 @@ fn main() {
     };
     let keys: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(512);
     let iters: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(4000);
-    let msglen: usize = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(1);
+    let msglen_arg = match args.get(4).map(String::as_str) {
+        Some("mixed") => MsgLenArg::Mixed,
+        Some(s) => MsgLenArg::Fixed(s.parse().unwrap_or(1)),
+        None => MsgLenArg::Fixed(1),
+    };
 
+    let mut rng = SplitMix(0x5eed_1234);
     let mut messages: Vec<Vec<u8>> = Vec::with_capacity(keys);
     let mut pks = Vec::with_capacity(keys);
     let mut sigs = Vec::with_capacity(keys);
     for i in 0..keys {
         let sk = signing_key_from_index(i as u64);
         let pk = <[u8; 32]>::from(VerificationKeyBytes::from(&sk));
+        let msglen = match msglen_arg {
+            MsgLenArg::Fixed(l) => l,
+            MsgLenArg::Mixed => (rng.next() % 257) as usize,
+        };
         let msg = vec![(i & 0xff) as u8; msglen];
         let sig = sk.sign(&msg).to_bytes();
         pks.push(pk);
@@ -66,10 +94,14 @@ fn main() {
     }
     let elapsed = start.elapsed();
 
+    let msglen_label = match msglen_arg {
+        MsgLenArg::Fixed(l) => l.to_string(),
+        MsgLenArg::Mixed => "mixed".to_string(),
+    };
     let total_sigs = (iters * keys) as f64;
     let per_sig_ns = elapsed.as_nanos() as f64 / total_sigs;
     eprintln!(
-        "{policy:?} keys={keys} iters={iters} msglen={msglen} accepted={accepted} \
+        "{policy:?} keys={keys} iters={iters} msglen={msglen_label} accepted={accepted} \
          total={:.2}s  {:.1} ns/sig  {:.0} sigs/s",
         elapsed.as_secs_f64(),
         per_sig_ns,
