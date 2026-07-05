@@ -2,63 +2,14 @@
 //!
 //! Covers ZIP-215 vs `verify_zebra`/`batch::Verifier` and Dalek vs `verify_dalek`.
 
-use core::convert::TryFrom;
+mod support;
 
-use curve25519::ed_sigs::{Signature, SigningKey, VerificationKey, VerificationKeyBytes, batch};
+use curve25519::ed_sigs::{Signature, VerificationKeyBytes, batch};
 use ed25519_simd::{KeyCache, LruKeyCache, NullKeyCache, Verifier, VerifyInput, VerifyPolicy};
-
-fn ours_single(input: VerifyInput<'_>) -> bool {
-    let mut verifier = Verifier::with_cache(VerifyPolicy::default(), NullKeyCache::new());
-    let mut out = [false];
-    verifier.verify_batch(&[input], &mut out);
-    out[0]
-}
-
-fn solana_ed25519_verify_zebra(public_key: [u8; 32], signature: [u8; 64], message: &[u8]) -> bool {
-    let vk_bytes = VerificationKeyBytes::from(public_key);
-    let sig = Signature::from(signature);
-    VerificationKey::try_from(vk_bytes)
-        .and_then(|vk| vk.verify_zebra(&sig, message))
-        .is_ok()
-}
-
-fn solana_ed25519_verify_dalek(public_key: [u8; 32], signature: [u8; 64], message: &[u8]) -> bool {
-    let vk_bytes = VerificationKeyBytes::from(public_key);
-    let sig = Signature::from(signature);
-    VerificationKey::try_from(vk_bytes)
-        .and_then(|vk| vk.verify_dalek(&sig, message))
-        .is_ok()
-}
-
-fn ours_policy(
-    public_key: [u8; 32],
-    signature: [u8; 64],
-    message: &[u8],
-    policy: ed25519_simd::VerifyPolicy,
-) -> bool {
-    let mut verifier = Verifier::with_policy(policy);
-    let mut out = [false];
-    verifier.verify_batch(
-        &[VerifyInput {
-            public_key,
-            signature,
-            message,
-        }],
-        &mut out,
-    );
-    out[0]
-}
-
-fn hx(s: &str) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    let b = s.as_bytes();
-    for i in 0..32 {
-        let hi = (b[2 * i] as char).to_digit(16).unwrap() as u8;
-        let lo = (b[2 * i + 1] as char).to_digit(16).unwrap() as u8;
-        out[i] = (hi << 4) | lo;
-    }
-    out
-}
+use support::{
+    Case, hex_array, signing_key_from_index, solana_ed25519_verify_dalek,
+    solana_ed25519_verify_zebra, verify,
+};
 
 fn solana_ed25519_verify_batch(inputs: &[VerifyInput<'_>]) -> bool {
     let mut batch = batch::Verifier::new();
@@ -87,29 +38,7 @@ impl Lcg {
     }
 }
 
-fn signing_key_from_index(index: u64) -> SigningKey {
-    let mut seed = [0u8; 32];
-    seed[..8].copy_from_slice(&index.to_le_bytes());
-    SigningKey::from(seed)
-}
-
-struct Case {
-    public_key: [u8; 32],
-    signature: [u8; 64],
-    message: Vec<u8>,
-}
-
 type SolanaEd25519VerifyFn = fn([u8; 32], [u8; 64], &[u8]) -> bool;
-
-impl Case {
-    fn input(&self) -> VerifyInput<'_> {
-        VerifyInput {
-            public_key: self.public_key,
-            signature: self.signature,
-            message: &self.message,
-        }
-    }
-}
 
 fn build_corpus(count: usize) -> Vec<Case> {
     let mut rng = Lcg(0x0123_4567_89ab_cdef);
@@ -188,7 +117,7 @@ fn single_verify_matches_solana_ed25519_on_canonical_corpus() {
 
     for case in &cases {
         let input = case.input();
-        let ours = ours_single(input);
+        let ours = verify(VerifyPolicy::default(), input);
         let mut cached_out = [false];
         verifier.verify_batch(&[input], &mut cached_out);
         let ours_cached = cached_out[0];
@@ -597,47 +526,47 @@ fn enumerate_divergences_vs_solana_ed25519() {
     let points: [(&str, [u8; 32]); 14] = [
         (
             "id_canon",
-            hx("0100000000000000000000000000000000000000000000000000000000000000"),
+            hex_array::<32>("0100000000000000000000000000000000000000000000000000000000000000"),
         ),
         (
             "id_noncanon",
-            hx("eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"),
+            hex_array::<32>("eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"),
         ),
         (
             "y0_canon",
-            hx("0000000000000000000000000000000000000000000000000000000000000000"),
+            hex_array::<32>("0000000000000000000000000000000000000000000000000000000000000000"),
         ),
         (
             "y0_sign",
-            hx("0000000000000000000000000000000000000000000000000000000000000080"),
+            hex_array::<32>("0000000000000000000000000000000000000000000000000000000000000080"),
         ),
         (
             "y0_noncanon",
-            hx("edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"),
+            hex_array::<32>("edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"),
         ),
         (
             "ord2",
-            hx("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"),
+            hex_array::<32>("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"),
         ),
         (
             "ord8a",
-            hx("26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05"),
+            hex_array::<32>("26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05"),
         ),
         (
             "ord8b",
-            hx("26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85"),
+            hex_array::<32>("26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85"),
         ),
         (
             "ord8c",
-            hx("c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a"),
+            hex_array::<32>("c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a"),
         ),
         (
             "ord8d",
-            hx("c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa"),
+            hex_array::<32>("c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa"),
         ),
         (
             "ord2_noncanon_hi",
-            hx("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+            hex_array::<32>("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
         ),
         ("valid", {
             let k = signing_key_from_index(7);
@@ -645,15 +574,15 @@ fn enumerate_divergences_vs_solana_ed25519() {
         }),
         (
             "garbage",
-            hx("0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"),
+            hex_array::<32>("0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"),
         ),
         (
             "highbit_garbage",
-            hx("0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1fff"),
+            hex_array::<32>("0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1fff"),
         ),
     ];
 
-    let l = hx("edd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010");
+    let l = hex_array::<32>("edd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010");
     let mut l_minus_1 = l;
     l_minus_1[0] -= 1;
     let zero = [0u8; 32];
@@ -680,13 +609,27 @@ fn enumerate_divergences_vs_solana_ed25519() {
                 sig[32..].copy_from_slice(s);
                 total += 1;
 
-                let ours_cof = ours_policy(*a, sig, message, Zip215);
+                let ours_cof = verify(
+                    Zip215,
+                    VerifyInput {
+                        public_key: *a,
+                        signature: sig,
+                        message,
+                    },
+                );
                 let solana_ed25519_zebra = solana_ed25519_verify_zebra(*a, sig, message);
                 if ours_cof != solana_ed25519_zebra {
                     zebra_div.push((a_name, r_name, s_name, ours_cof, solana_ed25519_zebra));
                 }
 
-                let ours_strict = ours_policy(*a, sig, message, Dalek);
+                let ours_strict = verify(
+                    Dalek,
+                    VerifyInput {
+                        public_key: *a,
+                        signature: sig,
+                        message,
+                    },
+                );
                 let solana_ed25519_dalek = solana_ed25519_verify_dalek(*a, sig, message);
                 if ours_strict != solana_ed25519_dalek {
                     dalek_div.push((a_name, r_name, s_name, ours_strict, solana_ed25519_dalek));
@@ -739,11 +682,14 @@ fn noncanonical_encoding_now_matches_solana_ed25519() {
 
     let message = b"";
 
-    let ours = ours_single(VerifyInput {
-        public_key,
-        signature,
-        message,
-    });
+    let ours = verify(
+        VerifyPolicy::default(),
+        VerifyInput {
+            public_key,
+            signature,
+            message,
+        },
+    );
     let theirs = solana_ed25519_verify_zebra(public_key, signature, message);
 
     assert!(

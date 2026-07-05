@@ -51,13 +51,18 @@ fn wycheproof_fixed_length_vectors_match_dalek_policy() {
                 test["tcId"],
                 test["flags"]
             );
-            if expected {
-                assert!(
-                    verify(VerifyPolicy::Zip215, input),
-                    "ZIP-215 rejected valid Wycheproof tcId={}",
-                    test["tcId"]
-                );
-            }
+            // Wycheproof's `expected` is Dalek-oriented (e.g. some small-order
+            // vectors it marks "invalid" are accepted under ZIP-215's
+            // cofactored check), so ZIP-215's acceptance set is pinned against
+            // the solana-ed25519 oracle instead of `expected` directly — this
+            // covers every vector, not just the ones already expected valid.
+            let zip215_oracle = solana_ed25519_verify_zebra(public_key, signature, &message);
+            assert_eq!(
+                verify(VerifyPolicy::Zip215, input),
+                zip215_oracle,
+                "Wycheproof tcId={} ZIP-215 disagrees with solana-ed25519 oracle",
+                test["tcId"]
+            );
             checked += 1;
         }
     }

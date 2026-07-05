@@ -1,3 +1,4 @@
+#![doc = include_str!("../README.md")]
 #[cfg(not(all(
     target_arch = "x86_64",
     target_feature = "avx512f",
