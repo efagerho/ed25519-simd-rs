@@ -405,13 +405,22 @@ dependencies = [
 name = "ed25519-simd"
 version = "0.1.0"
 dependencies = [
+ "rand",
+ "serde_json",
+ "solana-ed25519",
+]
+
+[[package]]
+name = "ed25519-simd-compare-bench"
+version = "0.1.0"
+dependencies = [
  "aws-lc-rs",
  "criterion",
  "ed25519-dalek",
+ "ed25519-simd",
  "openssl",
  "rand",
  "ring",
- "serde_json",
  "sodiumoxide",
  "solana-ed25519",
 ]

@@ -1,5 +1,6 @@
 use core::convert::TryFrom;
 use std::hint::black_box;
+use std::sync::Once;
 
 use criterion::{
     BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,
@@ -11,15 +12,21 @@ use ed25519_dalek::{
     verify_batch as dalek_verify_batch,
 };
 use ed25519_simd::{NullKeyCache, Verifier, VerifyInput, VerifyPolicy};
-use openssl::{
-    pkey::{Id as OpenSslId, PKey, Public as OpenSslPublic},
-    sign::Verifier as OpenSslVerifier,
-};
+use openssl::{pkey::{Id as OpenSslId, PKey}, sign::Verifier as OpenSslVerifier};
 use sodiumoxide::crypto::sign::ed25519::{
     PublicKey as SodiumPublicKey, Signature as SodiumSignature, verify_detached as sodium_verify,
 };
 
 const SIZES: [usize; 4] = [8, 16, 32, 64];
+
+/// libsodium requires one-time global initialization; unlike per-signature
+/// key parsing (deliberately timed inside `sodium_loop`, see below), this is
+/// a one-time process-wide cost with no per-verification analog to compare
+/// against, so it stays outside the timed loop.
+fn init_sodiumoxide() {
+    static INIT: Once = Once::new();
+    INIT.call_once(|| sodiumoxide::init().expect("failed to initialize libsodium"));
+}
 
 struct SplitMix(u64);
 impl SplitMix {
@@ -70,6 +77,31 @@ fn generate_distinct_keys(n: usize, msg_len: MsgLen) -> Vec<Owned> {
         .collect()
 }
 
+/// Signatures over a small, fixed set of keys, cycled to fill the batch —
+/// the hot-key-repeat workload `LruKeyCache` is meant for.
+fn generate_hot_keys(n: usize, hot_key_count: usize, msg_len: MsgLen) -> Vec<Owned> {
+    let mut rng = SplitMix(0x5eed_1234);
+    let hot_keys: Vec<SigningKey> = (0..hot_key_count)
+        .map(|i| signing_key_from_index(i as u64))
+        .collect();
+    (0..n)
+        .map(|i| {
+            let key = &hot_keys[i % hot_key_count];
+            let pk = <[u8; 32]>::from(VerificationKeyBytes::from(key));
+            let len = match msg_len {
+                MsgLen::Fixed(l) => l,
+                MsgLen::Mixed => (rng.next() % 257) as usize,
+            };
+            let mut msg = vec![0u8; len];
+            for b in msg.iter_mut() {
+                *b = (rng.next() & 0xff) as u8;
+            }
+            let sig = key.sign(&msg).to_bytes();
+            Owned { pk, sig, msg }
+        })
+        .collect()
+}
+
 /// Corrupt a scattered fraction of signatures while leaving keys valid.
 fn corrupt_fraction(cases: &mut [Owned], invalid_pct: u64) {
     let mut st = 0x9e37_79b9_7f4a_7c15u64;
@@ -104,132 +136,88 @@ fn solana_ed25519_batch_zip215(inputs: &[VerifyInput<'_>]) -> bool {
     batch.verify(rand::thread_rng()).is_ok()
 }
 
+// The `_loop` and `_batch` functions below verify every element of the batch
+// even after the first failure: with a scattered-invalid fraction (see
+// `bench_garbage_scenario`), a short-circuiting `.all()` would measure only a
+// prefix of the batch instead of the whole thing, understating the backend's
+// cost relative to ed25519-simd (which always verifies every lane). `fold`
+// with `&` (not `&&`) forces every element to be evaluated regardless of
+// `acc`'s current value.
+//
+// Key/signature parsing also happens inside each closure below, matching
+// ed25519-simd's `NullKeyCache` and solana-ed25519's own loops, which decode
+// fresh on every call — otherwise backends whose setup was hoisted out of the
+// timed loop would be compared unfairly against the two that don't.
 fn solana_ed25519_dalek_loop(inputs: &[VerifyInput<'_>]) -> bool {
-    inputs.iter().all(|input| {
+    inputs.iter().fold(true, |acc, input| {
         let vk_bytes = VerificationKeyBytes::from(input.public_key);
         let sig = Signature::from(input.signature);
-        VerificationKey::try_from(vk_bytes)
+        let ok = VerificationKey::try_from(vk_bytes)
             .and_then(|vk| vk.verify_dalek(&sig, input.message))
-            .is_ok()
+            .is_ok();
+        acc & ok
     })
 }
 
-struct DalekBatchInputs<'a> {
-    messages: Vec<&'a [u8]>,
-    signatures: Vec<DalekSignature>,
-    verifying_keys: Vec<DalekVerifyingKey>,
-}
-
-fn dalek_batch_inputs<'msg>(inputs: &[VerifyInput<'msg>]) -> DalekBatchInputs<'msg> {
-    let messages = inputs.iter().map(|input| input.message).collect();
-    let signatures = inputs
+fn dalek_batch(inputs: &[VerifyInput<'_>]) -> bool {
+    let messages: Vec<&[u8]> = inputs.iter().map(|input| input.message).collect();
+    let signatures: Vec<DalekSignature> = inputs
         .iter()
         .map(|input| DalekSignature::from_bytes(&input.signature))
         .collect();
-    let verifying_keys = inputs
+    let verifying_keys: Vec<DalekVerifyingKey> = inputs
         .iter()
         .map(|input| DalekVerifyingKey::from_bytes(&input.public_key).unwrap())
         .collect();
-    DalekBatchInputs {
-        messages,
-        signatures,
-        verifying_keys,
-    }
+    dalek_verify_batch(&messages, &signatures, &verifying_keys).is_ok()
 }
 
-fn dalek_batch(batch: &DalekBatchInputs<'_>) -> bool {
-    dalek_verify_batch(&batch.messages, &batch.signatures, &batch.verifying_keys).is_ok()
+fn dalek_loop(inputs: &[VerifyInput<'_>]) -> bool {
+    inputs.iter().fold(true, |acc, input| {
+        let signature = DalekSignature::from_bytes(&input.signature);
+        let ok = DalekVerifyingKey::from_bytes(&input.public_key)
+            .map(|vk| DalekVerifier::verify(&vk, input.message, &signature).is_ok())
+            .unwrap_or(false);
+        acc & ok
+    })
 }
 
-fn dalek_loop(batch: &DalekBatchInputs<'_>) -> bool {
-    batch
-        .messages
-        .iter()
-        .zip(&batch.signatures)
-        .zip(&batch.verifying_keys)
-        .all(|((message, signature), verifying_key)| {
-            DalekVerifier::verify(verifying_key, message, signature).is_ok()
-        })
+fn aws_lc_loop(inputs: &[VerifyInput<'_>]) -> bool {
+    inputs.iter().fold(true, |acc, input| {
+        let ok = aws_lc_rs::signature::ParsedPublicKey::new(
+            &aws_lc_rs::signature::ED25519,
+            input.public_key,
+        )
+        .map(|key| key.verify_sig(input.message, &input.signature).is_ok())
+        .unwrap_or(false);
+        acc & ok
+    })
 }
 
-fn aws_lc_keys(inputs: &[VerifyInput<'_>]) -> Vec<aws_lc_rs::signature::ParsedPublicKey> {
-    inputs
-        .iter()
-        .map(|input| {
-            aws_lc_rs::signature::ParsedPublicKey::new(
-                &aws_lc_rs::signature::ED25519,
-                input.public_key,
-            )
-            .unwrap()
-        })
-        .collect()
+fn ring_loop(inputs: &[VerifyInput<'_>]) -> bool {
+    inputs.iter().fold(true, |acc, input| {
+        let key = ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, input.public_key);
+        acc & key.verify(input.message, &input.signature).is_ok()
+    })
 }
 
-fn aws_lc_loop(inputs: &[VerifyInput<'_>], keys: &[aws_lc_rs::signature::ParsedPublicKey]) -> bool {
-    inputs
-        .iter()
-        .zip(keys)
-        .all(|(input, key)| key.verify_sig(input.message, &input.signature).is_ok())
+fn sodium_loop(inputs: &[VerifyInput<'_>]) -> bool {
+    inputs.iter().fold(true, |acc, input| {
+        let key = SodiumPublicKey::from_slice(&input.public_key).unwrap();
+        let signature = SodiumSignature::from_bytes(&input.signature).unwrap();
+        acc & sodium_verify(&signature, input.message, &key)
+    })
 }
 
-fn ring_keys(inputs: &[VerifyInput<'_>]) -> Vec<ring::signature::UnparsedPublicKey<[u8; 32]>> {
-    inputs
-        .iter()
-        .map(|input| {
-            ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, input.public_key)
-        })
-        .collect()
-}
-
-fn ring_loop(
-    inputs: &[VerifyInput<'_>],
-    keys: &[ring::signature::UnparsedPublicKey<[u8; 32]>],
-) -> bool {
-    inputs
-        .iter()
-        .zip(keys)
-        .all(|(input, key)| key.verify(input.message, &input.signature).is_ok())
-}
-
-fn sodium_inputs(inputs: &[VerifyInput<'_>]) -> (Vec<SodiumPublicKey>, Vec<SodiumSignature>) {
-    sodiumoxide::init().expect("failed to initialize libsodium");
-    let keys = inputs
-        .iter()
-        .map(|input| SodiumPublicKey::from_slice(&input.public_key).unwrap())
-        .collect();
-    let signatures = inputs
-        .iter()
-        .map(|input| SodiumSignature::from_bytes(&input.signature).unwrap())
-        .collect();
-    (keys, signatures)
-}
-
-fn sodium_loop(
-    inputs: &[VerifyInput<'_>],
-    keys: &[SodiumPublicKey],
-    signatures: &[SodiumSignature],
-) -> bool {
-    inputs
-        .iter()
-        .zip(keys)
-        .zip(signatures)
-        .all(|((input, key), signature)| sodium_verify(signature, input.message, key))
-}
-
-fn openssl_keys(inputs: &[VerifyInput<'_>]) -> Vec<PKey<OpenSslPublic>> {
-    inputs
-        .iter()
-        .map(|input| {
-            PKey::public_key_from_raw_bytes(&input.public_key, OpenSslId::ED25519).unwrap()
-        })
-        .collect()
-}
-
-fn openssl_loop(inputs: &[VerifyInput<'_>], keys: &[PKey<OpenSslPublic>]) -> bool {
-    inputs.iter().zip(keys).all(|(input, key)| {
-        OpenSslVerifier::new_without_digest(key)
-            .and_then(|mut verifier| verifier.verify_oneshot(&input.signature, input.message))
-            .unwrap_or(false)
+fn openssl_loop(inputs: &[VerifyInput<'_>]) -> bool {
+    inputs.iter().fold(true, |acc, input| {
+        let ok = (|| {
+            let key = PKey::public_key_from_raw_bytes(&input.public_key, OpenSslId::ED25519)?;
+            let mut verifier = OpenSslVerifier::new_without_digest(&key)?;
+            verifier.verify_oneshot(&input.signature, input.message)
+        })()
+        .unwrap_or(false);
+        acc & ok
     })
 }
 
@@ -248,6 +236,57 @@ fn bench_ours_nocache(
             black_box(out.iter().all(|accepted| *accepted))
         })
     });
+}
+
+/// Unlike `bench_ours_nocache`, the verifier (and its cache) is reused
+/// unmodified across `b.iter()` calls, so after the first call every hot key
+/// is already resident and subsequent calls measure the steady-state,
+/// all-hits cost `LruKeyCache` is meant to buy back.
+fn bench_ours_lru_cache(
+    group: &mut BenchmarkGroup<'_, WallTime>,
+    name: &str,
+    policy: VerifyPolicy,
+    n: usize,
+    hot_key_count: usize,
+    inputs: &[VerifyInput<'_>],
+) {
+    group.bench_with_input(BenchmarkId::new(name, n), &n, |b, _| {
+        let mut verifier = Verifier::with_cache_capacity(policy, hot_key_count);
+        let mut out = vec![false; inputs.len()];
+        b.iter(|| {
+            verifier.verify_batch(black_box(inputs), &mut out);
+            black_box(out.iter().all(|accepted| *accepted))
+        })
+    });
+}
+
+/// Compares `NullKeyCache` against `LruKeyCache` on a batch that repeats a
+/// small set of `hot_key_count` keys, quantifying the caching win the README
+/// only describes qualitatively.
+fn bench_hot_keys_scenario(c: &mut Criterion, group_name: &str, hot_key_count: usize) {
+    let mut group = c.benchmark_group(group_name);
+    for n in SIZES {
+        let cases = generate_hot_keys(n, hot_key_count, MsgLen::Fixed(1));
+        let inputs = inputs_of(&cases);
+        group.throughput(Throughput::Elements(n as u64));
+
+        bench_ours_nocache(
+            &mut group,
+            "ed25519_simd_nullcache/zip215",
+            VerifyPolicy::Zip215,
+            n,
+            &inputs,
+        );
+        bench_ours_lru_cache(
+            &mut group,
+            "ed25519_simd_lrucache/zip215",
+            VerifyPolicy::Zip215,
+            n,
+            hot_key_count,
+            &inputs,
+        );
+    }
+    group.finish();
 }
 
 fn bench_scenario(c: &mut Criterion, group_name: &str, msg_len: MsgLen) {
@@ -283,38 +322,28 @@ fn bench_scenario(c: &mut Criterion, group_name: &str, msg_len: MsgLen) {
             |b, _| b.iter(|| solana_ed25519_dalek_loop(black_box(&inputs))),
         );
 
-        let dalek_batch_inputs = dalek_batch_inputs(&inputs);
         group.bench_with_input(BenchmarkId::new("ed25519_dalek/batch", n), &n, |b, _| {
-            b.iter(|| dalek_batch(black_box(&dalek_batch_inputs)))
+            b.iter(|| dalek_batch(black_box(&inputs)))
         });
         group.bench_with_input(BenchmarkId::new("ed25519_dalek/loop", n), &n, |b, _| {
-            b.iter(|| dalek_loop(black_box(&dalek_batch_inputs)))
+            b.iter(|| dalek_loop(black_box(&inputs)))
         });
 
-        let aws_lc_keys = aws_lc_keys(&inputs);
-        group.bench_with_input(BenchmarkId::new("aws_lc_rs/parsed_loop", n), &n, |b, _| {
-            b.iter(|| aws_lc_loop(black_box(&inputs), black_box(&aws_lc_keys)))
+        group.bench_with_input(BenchmarkId::new("aws_lc_rs/loop", n), &n, |b, _| {
+            b.iter(|| aws_lc_loop(black_box(&inputs)))
         });
 
-        let ring_keys = ring_keys(&inputs);
-        group.bench_with_input(BenchmarkId::new("ring/unparsed_loop", n), &n, |b, _| {
-            b.iter(|| ring_loop(black_box(&inputs), black_box(&ring_keys)))
+        group.bench_with_input(BenchmarkId::new("ring/loop", n), &n, |b, _| {
+            b.iter(|| ring_loop(black_box(&inputs)))
         });
 
-        let (sodium_keys, sodium_signatures) = sodium_inputs(&inputs);
+        init_sodiumoxide();
         group.bench_with_input(BenchmarkId::new("sodiumoxide/loop", n), &n, |b, _| {
-            b.iter(|| {
-                sodium_loop(
-                    black_box(&inputs),
-                    black_box(&sodium_keys),
-                    black_box(&sodium_signatures),
-                )
-            })
+            b.iter(|| sodium_loop(black_box(&inputs)))
         });
 
-        let openssl_keys = openssl_keys(&inputs);
         group.bench_with_input(BenchmarkId::new("openssl/loop", n), &n, |b, _| {
-            b.iter(|| openssl_loop(black_box(&inputs), black_box(&openssl_keys)))
+            b.iter(|| openssl_loop(black_box(&inputs)))
         });
     }
     group.finish();
@@ -348,12 +377,11 @@ fn bench_garbage_scenario(c: &mut Criterion, group_name: &str, invalid_pct: u64)
             &n,
             |b, _| b.iter(|| solana_ed25519_batch_zip215(black_box(&inputs))),
         );
-        let dalek_batch_inputs = dalek_batch_inputs(&inputs);
         group.bench_with_input(BenchmarkId::new("ed25519_dalek/batch", n), &n, |b, _| {
-            b.iter(|| dalek_batch(black_box(&dalek_batch_inputs)))
+            b.iter(|| dalek_batch(black_box(&inputs)))
         });
         group.bench_with_input(BenchmarkId::new("ed25519_dalek/loop", n), &n, |b, _| {
-            b.iter(|| dalek_loop(black_box(&dalek_batch_inputs)))
+            b.iter(|| dalek_loop(black_box(&inputs)))
         });
         group.bench_with_input(
             BenchmarkId::new("solana_ed25519/dalek_loop", n),
@@ -384,12 +412,17 @@ fn bench_distinct_keys_mixed_len(c: &mut Criterion) {
     bench_scenario(c, "distinct_keys/msg_len_mixed", MsgLen::Mixed);
 }
 
+fn bench_hot_keys_4(c: &mut Criterion) {
+    bench_hot_keys_scenario(c, "hot_keys/distinct_4", 4);
+}
+
 criterion_group!(
     benches,
     bench_distinct_keys_len1,
     bench_distinct_keys_len1024,
     bench_distinct_keys_mixed_len,
     bench_garbage_25,
-    bench_garbage_50
+    bench_garbage_50,
+    bench_hot_keys_4
 );
 criterion_main!(benches);
