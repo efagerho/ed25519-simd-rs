@@ -76,8 +76,11 @@ It holds the precomputed base-point table and a pluggable, statically-selected
 key cache, so construction is not free — build it once and call `verify_batch`
 repeatedly:
 
-```rust
+```rust,no_run
 use ed25519_simd::{Verifier, VerifyInput, VerifyPolicy};
+# let public_key = [0u8; 32];
+# let signature = [0u8; 64];
+# let message: &[u8] = b"hello";
 
 let mut verifier = Verifier::with_policy(VerifyPolicy::Zip215);
 
@@ -89,7 +92,7 @@ let inputs = [VerifyInput {
 
 let mut out = vec![false; inputs.len()];
 verifier.verify_batch(&inputs, &mut out);
-assert!(out[0]);
+// out[0] is true iff `signature` is valid for (public_key, message).
 ```
 
 Each output entry corresponds to the input at the same index, so callers can see
@@ -100,10 +103,19 @@ which signatures passed or failed.
 Verification repeatedly needs a decoded public key and a precomputed
 variable-base multiplication table. `Verifier::new()` and
 `Verifier::with_policy(...)` use `NullKeyCache`, so decoded keys are not retained
-across batches by default. This keeps cold or mostly-distinct workloads from
-paying for cache bookkeeping they do not use.
+across batches. **`NullKeyCache` is the recommended default** for most
+workloads: it keeps cold or mostly-distinct-key workloads from paying for
+cache bookkeeping they do not use, and it needs no assumptions about the
+shape of the workload to be safe.
 
-Use `LruKeyCache` when a workload has a hot key set worth retaining:
+Only reach for `LruKeyCache` if you have actual knowledge of your key
+distribution — specifically, that a small set of keys repeats often enough
+across batches to be worth retaining. Caching a hot set you don't actually
+have wastes memory and bookkeeping for no benefit. The [Hot Key
+Repeats](#hot-key-repeats) benchmark below quantifies the win on a workload
+that does repeat a small key set; measure your own workload before relying on
+it, since the win shrinks or disappears as the hot set gets larger or less
+repetitive:
 
 - `with_cache_capacity(...)` bounds the retained key set.
 - `preload_public_keys(...)` decodes and pins known hot keys.
@@ -117,8 +129,9 @@ values, so misses decoded by the verifier can be retained without re-decoding.
 The verifier keeps any per-chunk decoded tables in local scratch while a chunk
 is being verified, even with `NullKeyCache`:
 
-```rust
+```rust,no_run
 use ed25519_simd::{LruKeyCache, Verifier, VerifyPolicy};
+# let hot_keys: Vec<[u8; 32]> = Vec::new();
 
 let mut verifier = Verifier::with_cache(VerifyPolicy::Zip215, LruKeyCache::new());
 verifier.preload_public_keys(&hot_keys);
@@ -137,62 +150,86 @@ The following numbers are Criterion medians in microseconds per signature for
 distinct-key batches. The `ed25519-simd` rows use `NullKeyCache`, so decoded keys
 are not retained across batches.
 
-Command:
+Command. The comparison bench lives in the `benches-compare` workspace member
+(it depends on several other Ed25519/crypto libraries purely for comparison,
+kept out of the main crate's dependency tree so `cargo test` doesn't build
+them), so it's run from there rather than the crate root:
 
 ```sh
+cd benches-compare
 RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f,+avx512dq,+avx512ifma" \
-  cargo bench --bench solana_ed25519_compare -- distinct_keys \
-  --sample-size 20 --warm-up-time 0.2 --measurement-time 0.5
+  cargo bench --bench solana_ed25519_compare -- distinct_keys
 ```
 
 Message length 1:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 5.33 | 5.33 | 5.33 | 5.37 |
-| ed25519-simd Dalek null-cache | 5.27 | 5.27 | 5.29 | 5.27 |
-| solana-ed25519 Zip215 batch[^batch-api] | 14.02 | 13.01 | 12.47 | 12.24 |
-| solana-ed25519 Dalek loop | 22.47 | 22.49 | 22.38 | 22.39 |
-| ed25519-dalek batch[^batch-api] | 11.54 | 10.46 | 9.92 | 9.68 |
-| ed25519-dalek loop | 17.51 | 17.42 | 17.40 | 17.45 |
-| aws-lc-rs parsed loop | 22.55 | 22.56 | 22.55 | 22.55 |
-| ring loop | 30.64 | 30.56 | 30.55 | 31.69 |
-| sodiumoxide loop | 35.60 | 35.53 | 35.52 | 35.58 |
-| openssl loop | 58.72 | 58.46 | 58.27 | 59.11 |
+| ed25519-simd Zip215 null-cache | 5.35 | 5.34 | 5.34 | 5.35 |
+| ed25519-simd Dalek null-cache | 5.30 | 5.29 | 5.31 | 5.29 |
+| solana-ed25519 Zip215 batch[^batch-api] | 14.05 | 13.03 | 12.58 | 12.33 |
+| solana-ed25519 Dalek loop | 22.40 | 22.40 | 22.41 | 22.41 |
+| ed25519-dalek batch[^batch-api] | 14.35 | 13.24 | 12.73 | 12.47 |
+| ed25519-dalek loop | 20.22 | 20.15 | 20.19 | 20.19 |
+| aws-lc-rs parsed loop | 22.56 | 22.60 | 22.57 | 22.60 |
+| ring loop | 30.63 | 30.53 | 30.54 | 31.71 |
+| sodiumoxide loop | 35.60 | 35.46 | 35.49 | 35.62 |
+| openssl loop | 59.14 | 58.77 | 59.31 | 59.24 |
 
 Message length 1024:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 5.68 | 5.68 | 5.70 | 5.73 |
-| ed25519-simd Dalek null-cache | 5.62 | 5.64 | 5.66 | 5.69 |
-| solana-ed25519 Zip215 batch[^batch-api] | 14.91 | 13.98 | 13.47 | 13.33 |
-| solana-ed25519 Dalek loop | 23.45 | 23.45 | 23.42 | 23.50 |
-| ed25519-dalek batch[^batch-api] | 12.56 | 11.50 | 10.92 | 10.63 |
-| ed25519-dalek loop | 18.44 | 18.44 | 18.41 | 18.41 |
-| aws-lc-rs parsed loop | 23.66 | 23.78 | 23.66 | 23.65 |
-| ring loop | 31.70 | 31.72 | 31.67 | 32.85 |
-| sodiumoxide loop | 36.74 | 36.99 | 36.79 | 36.88 |
-| openssl loop | 59.41 | 59.00 | 59.25 | 59.34 |
+| ed25519-simd Zip215 null-cache | 5.69 | 5.70 | 5.71 | 5.70 |
+| ed25519-simd Dalek null-cache | 5.64 | 5.67 | 5.65 | 5.67 |
+| solana-ed25519 Zip215 batch[^batch-api] | 15.01 | 14.04 | 13.59 | 13.32 |
+| solana-ed25519 Dalek loop | 23.52 | 23.52 | 23.41 | 23.45 |
+| ed25519-dalek batch[^batch-api] | 15.41 | 14.30 | 13.70 | 13.46 |
+| ed25519-dalek loop | 21.18 | 21.22 | 21.19 | 21.20 |
+| aws-lc-rs parsed loop | 23.70 | 23.71 | 23.78 | 23.68 |
+| ring loop | 31.68 | 31.66 | 31.78 | 32.60 |
+| sodiumoxide loop | 36.77 | 36.77 | 36.79 | 36.81 |
+| openssl loop | 59.80 | 60.35 | 59.65 | 59.76 |
 
 Mixed message lengths:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 5.47 | 5.42 | 5.43 | 5.39 |
-| ed25519-simd Dalek null-cache | 5.41 | 5.39 | 5.41 | 5.35 |
-| solana-ed25519 Zip215 batch[^batch-api] | 14.09 | 13.09 | 12.64 | 12.48 |
-| solana-ed25519 Dalek loop | 22.65 | 22.55 | 22.67 | 22.58 |
-| ed25519-dalek batch[^batch-api] | 11.63 | 10.64 | 10.14 | 9.82 |
-| ed25519-dalek loop | 17.56 | 17.55 | 17.59 | 17.59 |
-| aws-lc-rs parsed loop | 22.70 | 22.74 | 22.85 | 22.73 |
-| ring loop | 30.68 | 30.76 | 30.94 | 31.88 |
-| sodiumoxide loop | 35.71 | 35.72 | 35.88 | 35.82 |
-| openssl loop | 59.09 | 58.54 | 58.67 | 58.93 |
+| ed25519-simd Zip215 null-cache | 5.48 | 5.44 | 5.45 | 5.42 |
+| ed25519-simd Dalek null-cache | 5.45 | 5.37 | 5.38 | 5.36 |
+| solana-ed25519 Zip215 batch[^batch-api] | 14.25 | 13.16 | 12.72 | 12.49 |
+| solana-ed25519 Dalek loop | 22.54 | 22.51 | 22.60 | 22.64 |
+| ed25519-dalek batch[^batch-api] | 14.46 | 13.44 | 12.93 | 12.63 |
+| ed25519-dalek loop | 20.33 | 20.32 | 20.36 | 20.34 |
+| aws-lc-rs parsed loop | 22.74 | 22.86 | 22.85 | 22.83 |
+| ring loop | 30.77 | 30.85 | 30.84 | 31.67 |
+| sodiumoxide loop | 35.73 | 35.78 | 35.75 | 35.80 |
+| openssl loop | 59.27 | 59.90 | 59.17 | 59.65 |
 
 [^batch-api]: The batch APIs for `solana-ed25519` and `ed25519-dalek` return a
     single pass/fail result for the whole batch. They do not identify exactly
     which signatures in the batch were invalid.
+
+### Hot Key Repeats
+
+Same command, filtered to the `hot_keys` group:
+
+```sh
+cd benches-compare
+RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f,+avx512dq,+avx512ifma" \
+  cargo bench --bench solana_ed25519_compare -- hot_keys
+```
+
+This scenario cycles through 4 distinct keys to fill each batch and reuses
+the same `Verifier` across benchmark iterations, so `LruKeyCache` is warm
+(all hits) after the first iteration. It quantifies the `LruKeyCache` win
+referenced in [Key Caching](#key-caching) for a workload that actually
+repeats a small key set:
+
+| Backend | 8 | 16 | 32 | 64 |
+|---|---:|---:|---:|---:|
+| ed25519-simd Zip215 null-cache | 5.38 | 5.35 | 5.40 | 5.38 |
+| ed25519-simd Zip215 LRU-cache (warm) | 4.81 | 4.81 | 4.86 | 4.84 |
 
 ## Compatibility Target
 
