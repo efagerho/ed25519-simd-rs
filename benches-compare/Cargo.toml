@@ -1,0 +1,22 @@
+[package]
+name = "ed25519-simd-compare-bench"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+ed25519-simd = { path = ".." }
+
+[dev-dependencies]
+aws-lc-rs = "1.17"
+criterion = "0.8"
+curve25519 = { package = "solana-ed25519", version = "0.1.0" }
+ed25519-dalek = { version = "2.2", features = ["batch"] }
+openssl = "0.10"
+rand = "0.8"
+ring = "0.17"
+sodiumoxide = "0.2"
+
+[[bench]]
+name = "solana_ed25519_compare"
+harness = false
