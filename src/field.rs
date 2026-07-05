@@ -32,7 +32,7 @@ const P_BYTES: [u8; 32] = [
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f,
 ];
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct Fe51 {
     limbs: [u64; 5],
 }
@@ -45,6 +45,7 @@ impl Fe51 {
     /// Store limbs without canonicalizing. Valid only when each limb is already
     /// `< 2^52` (the loosely-reduced invariant), e.g. straight from a wide reduce.
     pub(crate) fn from_limbs_unchecked(limbs: [u64; 5]) -> Self {
+        debug_assert!(limbs.iter().all(|&limb| limb < (1u64 << 52)));
         Self { limbs }
     }
 
@@ -271,7 +272,7 @@ impl Fe51 {
 
     #[inline(always)]
     fn square_repeat<const N: usize>(&self) -> Self {
-        let mut out = self.clone();
+        let mut out = *self;
         let mut i = 0;
         while i < N {
             out = out.square();
@@ -384,11 +385,7 @@ fn is_canonical_bytes(bytes: &[u8; 32]) -> bool {
 }
 
 fn load_u64_le(bytes: &[u8; 32], offset: usize) -> u64 {
-    unsafe {
-        u64::from_le(core::ptr::read_unaligned(
-            bytes.as_ptr().add(offset) as *const u64
-        ))
-    }
+    u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap())
 }
 
 #[cfg(test)]
