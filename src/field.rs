@@ -219,18 +219,18 @@ impl Fe51 {
         let v2 = v.square();
         let v3 = v2.multiply(v);
         let v7 = v3.square().multiply(v);
-        let mut x = u
+        let x = u
             .multiply(&v3)
             .multiply(&u.multiply(&v7).pow_p_minus_5_over_8());
 
+        // (sqrt(-1)*x)^2 * v == -(x^2 * v), so if the first candidate is off by
+        // exactly a factor of -1, negating the already-computed `vx2` and
+        // comparing to `u` decides it without recomputing `v * x^2`.
         let vx2 = v.multiply(&x.square());
         if vx2.equals(u) {
-            return Some(x);
-        }
-
-        x = x.multiply(&Self::sqrt_m1());
-        if v.multiply(&x.square()).equals(u) {
             Some(x)
+        } else if vx2.negate().equals(u) {
+            Some(x.multiply(&Self::sqrt_m1()))
         } else {
             None
         }
