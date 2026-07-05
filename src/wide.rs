@@ -1298,7 +1298,7 @@ pub(crate) mod avx512ifma {
                 .square_loose()
                 .subtract_sum_wide(&a, &b);
             let g = b.subtract_wide(&a);
-            let f = g.subtract(&c);
+            let f = b.subtract_sum_wide(&a, &c);
             let h = WideFe::negate_sum_wide(&a, &b);
             let t = if COMPUTE_T {
                 e.multiply(&h)
