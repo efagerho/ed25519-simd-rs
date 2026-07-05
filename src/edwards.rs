@@ -95,9 +95,9 @@ impl CachedPoint {
     /// Cached form of `-P`: swap `y+x`/`y-x` and negate `t*2d`; `z2` is unchanged.
     fn negate(&self) -> Self {
         Self {
-            y_plus_x: self.y_minus_x.clone(),
-            y_minus_x: self.y_plus_x.clone(),
-            z2: self.z2.clone(),
+            y_plus_x: self.y_minus_x,
+            y_minus_x: self.y_plus_x,
+            z2: self.z2,
             t2d: self.t2d.negate(),
         }
     }
@@ -115,9 +115,7 @@ impl PointTable {
             identity_cached,
         }
     }
-}
 
-impl PointTable {
     pub(crate) fn new(point: &EdwardsPoint) -> Self {
         let points = multiples_of(point);
         let cached_points: [CachedPoint; 8] =
@@ -227,8 +225,8 @@ impl EdwardsPoint {
         }
 
         Some(Self {
-            x: x.clone(),
-            y: y.clone(),
+            x,
+            y,
             z: Fe51::one(),
             t: x.multiply(&y),
         })
@@ -261,8 +259,8 @@ impl EdwardsPoint {
     pub(crate) fn negate(&self) -> Self {
         Self {
             x: self.x.negate(),
-            y: self.y.clone(),
-            z: self.z.clone(),
+            y: self.y,
+            z: self.z,
             t: self.t.negate(),
         }
     }

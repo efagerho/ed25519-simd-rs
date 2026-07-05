@@ -8,6 +8,10 @@ pub(crate) mod avx512ifma {
     use std::arch::x86_64::*;
 
     const LANES: usize = crate::batch::SIMD_LANES;
+    // `__mmask8` and the raw 512-bit loadu/storeu intrinsics throughout this
+    // module hard-code 8 lanes; this catches a `SIMD_LANES` change at compile
+    // time instead of silently corrupting or truncating lanes at runtime.
+    const _: () = assert!(LANES == 8, "avx512ifma assumes exactly 8 SIMD lanes");
     const LIMB_MASK: u64 = (1u64 << 51) - 1;
     #[cfg(test)]
     const FIELD_P_LIMBS: [u64; 5] = [LIMB_MASK - 18, LIMB_MASK, LIMB_MASK, LIMB_MASK, LIMB_MASK];
@@ -73,22 +77,12 @@ pub(crate) mod avx512ifma {
         core::array::from_fn(|k| {
             let cached = core::array::from_fn(|i| {
                 let (ypx, ymx, z2, t2d, _) = &fields[i];
-                CachedPoint::from_fields(
-                    ypx[k].clone(),
-                    ymx[k].clone(),
-                    z2[k].clone(),
-                    t2d[k].clone(),
-                )
+                CachedPoint::from_fields(ypx[k], ymx[k], z2[k], t2d[k])
             });
             // -P's cached fields are P's with y±x swapped and t2d negated.
             let negative = core::array::from_fn(|i| {
                 let (ypx, ymx, z2, _, neg_t2d) = &fields[i];
-                CachedPoint::from_fields(
-                    ymx[k].clone(),
-                    ypx[k].clone(),
-                    z2[k].clone(),
-                    neg_t2d[k].clone(),
-                )
+                CachedPoint::from_fields(ymx[k], ypx[k], z2[k], neg_t2d[k])
             });
             PointTable::from_cached(cached, negative, identity.clone())
         })
@@ -1182,10 +1176,10 @@ pub(crate) mod avx512ifma {
         }
         #[cfg(test)]
         fn from_points(points: &[EdwardsPoint; LANES]) -> Self {
-            let xs = core::array::from_fn(|lane| points[lane].coords().0.clone());
-            let ys = core::array::from_fn(|lane| points[lane].coords().1.clone());
-            let zs = core::array::from_fn(|lane| points[lane].coords().2.clone());
-            let ts = core::array::from_fn(|lane| points[lane].coords().3.clone());
+            let xs = core::array::from_fn(|lane| *points[lane].coords().0);
+            let ys = core::array::from_fn(|lane| *points[lane].coords().1);
+            let zs = core::array::from_fn(|lane| *points[lane].coords().2);
+            let ts = core::array::from_fn(|lane| *points[lane].coords().3);
             Self {
                 x: WideFe::from_fields(&xs),
                 y: WideFe::from_fields(&ys),
@@ -1200,12 +1194,7 @@ pub(crate) mod avx512ifma {
             let zs = self.z.to_fields();
             let ts = self.t.to_fields();
             core::array::from_fn(|lane| {
-                EdwardsPoint::from_coords_unchecked(
-                    xs[lane].clone(),
-                    ys[lane].clone(),
-                    zs[lane].clone(),
-                    ts[lane].clone(),
-                )
+                EdwardsPoint::from_coords_unchecked(xs[lane], ys[lane], zs[lane], ts[lane])
             })
         }
 
