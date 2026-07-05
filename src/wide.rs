@@ -260,7 +260,7 @@ pub(crate) mod avx512ifma {
         while pair > 0 {
             pair -= 1;
             let odd_index = pair * 2 + 1;
-            if odd_index < 65 {
+            if odd_index < 64 {
                 acc = acc.double4();
 
                 add_public_digit(
@@ -275,13 +275,16 @@ pub(crate) mod avx512ifma {
             acc = acc.double4();
             add_base_pair_digit(&mut acc, base_table, s_digits, pair);
 
-            add_public_digit(
-                &mut acc,
-                public_key_tables,
-                public_tables_uniform,
-                k_digits,
-                pair * 2,
-            );
+            let even_index = pair * 2;
+            if even_index < 64 {
+                add_public_digit(
+                    &mut acc,
+                    public_key_tables,
+                    public_tables_uniform,
+                    k_digits,
+                    even_index,
+                );
+            }
         }
         acc
     }
@@ -391,12 +394,17 @@ pub(crate) mod avx512ifma {
     fn base_pair_digit(digits: &Radix16, pair: usize) -> i16 {
         let even_index = pair * 2;
         let odd_index = even_index + 1;
+        let even = if even_index < digits.len() {
+            digits[even_index] as i16
+        } else {
+            0
+        };
         let odd = if odd_index < digits.len() {
             (digits[odd_index] as i16) << 4
         } else {
             0
         };
-        digits[even_index] as i16 + odd
+        even + odd
     }
 
     #[inline(always)]
@@ -1665,7 +1673,7 @@ pub(crate) mod avx512ifma {
             let id = EdwardsPoint::identity();
             let table = PointTable::new(&id);
             let base_table = BasepointTable::new();
-            let s_digits = [[0i8; 65]; LANES];
+            let s_digits = [[0i8; 64]; LANES];
             let mut one_bytes = [0u8; 32];
             one_bytes[0] = 1;
             let k = crate::scalar::Scalar::from_canonical_bytes(one_bytes);
@@ -1717,7 +1725,7 @@ pub(crate) mod avx512ifma {
             let id = EdwardsPoint::decompress(&a_bytes).unwrap();
             let table = PointTable::new(&id);
             let base_table = BasepointTable::new();
-            let s_digits = [[0i8; 65]; LANES];
+            let s_digits = [[0i8; 64]; LANES];
             let digest =
                 crate::sha512::hash_slices(&[&r_bytes, &a_bytes, b"taming the many eddsas"]);
             let k = crate::scalar::Scalar::from_wide_bytes(digest);

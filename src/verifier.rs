@@ -117,7 +117,7 @@ impl<C: KeyCache> Verifier<C> {
         let mut valid = [true; SIMD_LANES];
         let mut r_bytes = [[0u8; 32]; SIMD_LANES];
         let mut public_keys = [[0u8; 32]; SIMD_LANES];
-        let mut s_digits = [[0i8; 65]; SIMD_LANES];
+        let mut s_digits = [[0i8; 64]; SIMD_LANES];
         let mut lane = 0;
         while lane < SIMD_LANES {
             r_bytes[lane].copy_from_slice(&inputs[lane].signature[..32]);
@@ -179,7 +179,7 @@ impl<C: KeyCache> Verifier<C> {
         }
         let digests = sha512::hash_ed25519_challenges(&r_bytes, &public_keys, messages);
 
-        let mut k_digits: [Radix16; SIMD_LANES] = [[0i8; 65]; SIMD_LANES];
+        let mut k_digits: [Radix16; SIMD_LANES] = [[0i8; 64]; SIMD_LANES];
         lane = 0;
         while lane < SIMD_LANES {
             k_digits[lane] = Scalar::from_wide_bytes(digests[lane]).to_radix16();

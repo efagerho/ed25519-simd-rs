@@ -3,7 +3,7 @@ const L_BYTES: [u8; 32] = [
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
 ];
 
-pub(crate) type Radix16 = [i8; 65];
+pub(crate) type Radix16 = [i8; 64];
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Scalar {
@@ -23,7 +23,7 @@ impl Scalar {
     }
 
     pub(crate) fn to_radix16(self) -> Radix16 {
-        let mut digits = [0i8; 65];
+        let mut digits = [0i8; 64];
         let mut i = 0;
         while i < 32 {
             digits[2 * i] = (self.bytes[i] & 0x0f) as i8;
@@ -44,7 +44,9 @@ impl Scalar {
             }
             i += 1;
         }
-        digits[64] = carry;
+        // Scalars are always reduced mod L < 2^253, so the final carry out of
+        // digit 63 (which would need a 65th digit) is provably always zero.
+        debug_assert_eq!(carry, 0, "radix-16 carry out of a scalar reduced mod L");
         digits
     }
 }
