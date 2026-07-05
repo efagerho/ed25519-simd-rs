@@ -253,13 +253,11 @@ impl<C: KeyCache> Verifier<C> {
                         );
                         lane = 0;
                         while lane < SIMD_LANES {
-                            let legacy_excluded = public_keys[lane] == [0u8; 32]
-                                || r_encoding_is_legacy_excluded(&r_bytes[lane]);
                             out[lane] = simd[lane]
                                 && valid[lane]
                                 && r_valid_lanes[lane]
                                 && r_encoding_has_canonical_y(&r_bytes[lane])
-                                && !legacy_excluded;
+                                && !dalek_legacy_excluded(&public_keys[lane], &r_bytes[lane]);
                             lane += 1;
                         }
                     } else {
@@ -270,9 +268,9 @@ impl<C: KeyCache> Verifier<C> {
                         );
                         lane = 0;
                         while lane < SIMD_LANES {
-                            let legacy_excluded = public_keys[lane] == [0u8; 32]
-                                || r_encoding_is_legacy_excluded(&r_bytes[lane]);
-                            out[lane] = simd[lane] && valid[lane] && !legacy_excluded;
+                            out[lane] = simd[lane]
+                                && valid[lane]
+                                && !dalek_legacy_excluded(&public_keys[lane], &r_bytes[lane]);
                             lane += 1;
                         }
                     }
@@ -291,6 +289,10 @@ impl<C: KeyCache> Verifier<C> {
             self.cache.insert_batch(keys, insert_lanes);
         }
     }
+}
+
+fn dalek_legacy_excluded(public_key: &[u8; 32], r_bytes: &[u8; 32]) -> bool {
+    *public_key == [0u8; 32] || r_encoding_is_legacy_excluded(r_bytes)
 }
 
 fn lane_flags_from_mask(mask: u8) -> [bool; SIMD_LANES] {

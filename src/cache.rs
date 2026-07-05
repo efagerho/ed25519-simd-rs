@@ -5,7 +5,7 @@ const SIMD_LANES: usize = crate::batch::SIMD_LANES;
 /// A decoded public key and its precomputed multiplication table.
 #[derive(Clone, Debug)]
 pub struct CachedPublicKey {
-    pub encoded: [u8; 32],
+    pub(crate) encoded: [u8; 32],
     pub(crate) table: PointTable,
 }
 
@@ -16,6 +16,11 @@ impl CachedPublicKey {
             encoded,
             table: PointTable::new(&point),
         })
+    }
+
+    /// Return the encoded public key bytes this was built from.
+    pub fn encoded(&self) -> [u8; 32] {
+        self.encoded
     }
 }
 

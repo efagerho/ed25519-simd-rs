@@ -222,7 +222,7 @@ struct TinyKeyCache {
 
 impl KeyCache for TinyKeyCache {
     fn get(&self, encoded: &[u8; 32]) -> Option<&CachedPublicKey> {
-        let key = self.keys.iter().find(|key| &key.encoded == encoded);
+        let key = self.keys.iter().find(|key| key.encoded() == *encoded);
         if key.is_some() {
             self.hits.set(self.hits.get() + 1);
         }
@@ -230,7 +230,8 @@ impl KeyCache for TinyKeyCache {
     }
 
     fn insert(&mut self, key: CachedPublicKey) {
-        if self.keys.iter().all(|cached| cached.encoded != key.encoded) && self.keys.len() < 2 {
+        if self.keys.iter().all(|cached| cached.encoded() != key.encoded()) && self.keys.len() < 2
+        {
             self.keys.push(key);
         }
     }
