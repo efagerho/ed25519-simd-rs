@@ -21,10 +21,6 @@ impl CachedPublicKey {
         })
     }
 
-    /// Return the encoded public key bytes this was built from.
-    pub fn encoded(&self) -> [u8; PUBLIC_KEY_LEN] {
-        self.encoded
-    }
 }
 
 /// Storage policy for decoded public keys.
