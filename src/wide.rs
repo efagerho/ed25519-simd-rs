@@ -73,6 +73,14 @@ pub(crate) mod avx512ifma {
                 let z2 = m.z.double();
                 let t2d = m.t.multiply(&two_d);
                 let neg_t2d = t2d.negate();
+                // `ypx`/`ymx`/`z2`/`t2d`/`neg_t2d` are already strict (each
+                // came from a `WideFe::add`/`subtract`/`multiply`/`negate`
+                // call above), so `to_fields_loose` only skips the redundant
+                // final canonicalizing subtract-if->=p step, not any real
+                // bound-tightening; the stored `CachedPoint` table entries
+                // only ever feed `add_cached_assign`'s deferred-reduction
+                // arithmetic (see `CachedPoint::from_fields`), which already
+                // tolerates loosely-reduced (`< 2^52`) fields.
                 (
                     ypx.to_fields_loose(),
                     ymx.to_fields_loose(),
@@ -431,6 +439,12 @@ pub(crate) mod avx512ifma {
                 ])
             })
         }
+        // Uses the full 2-pass `reduce64` (not `reduce_loose`) so the result is
+        // itself strict enough to feed straight into another `subtract`/
+        // `negate` (whose small `4*p`-scale biases need a strict operand) or
+        // to serve as a final coordinate. `add_loose` below is the
+        // deferred-reduction counterpart for operands only feeding another
+        // additive op.
         fn add(&self, rhs: &Self) -> Self {
             unsafe {
                 let h = [
@@ -455,6 +469,17 @@ pub(crate) mod avx512ifma {
                 Self::reduce_loose(h)
             }
         }
+        // The `4*p` bias only exceeds a strict (`< 2^52`-per-limb) subtrahend
+        // (limb0 needs `rhs.limb0 <= 4*p.limb0`, i.e. `< 2^53 - 76`; limbs
+        // 1..4 need `< 2^53 - 4`) with a full extra bit of headroom to spare
+        // -- nowhere near enough for a `*_loose` subtrahend (limb0 up to
+        // `2^60`, see the deferred-reduction comment below `subtract`),
+        // which would underflow the bias and wrap around `u64`/`epi64`
+        // arithmetic instead of computing the intended difference. Every
+        // caller of this function passes operands that trace back to a
+        // `multiply`/`square`/`add`/`reduce64`-based op or a broadcast
+        // constant (all strict); callers needing a possibly-loose subtrahend
+        // use `subtract_wide` instead.
         fn subtract(&self, rhs: &Self) -> Self {
             unsafe {
                 let bias = [
@@ -481,12 +506,13 @@ pub(crate) mod avx512ifma {
         // multiply→add/sub edge in the point formulas.
         //
         // Bounds. Inputs are < 2^52, so each 52x52 IFMA product is < 2^104 and a
-        // column sums at most five of them: lo[i], hi[i] < 5*2^52 < 2^55. After
-        // the one carry pass in `reduce_ifma_loose`, limbs 1..4 are masked to
-        // < 2^51, while limb0 = (masked < 2^51) + 19*carry4 with carry4 < 2^55,
-        // i.e. **limb0 < 2^51 + 19*2^55 < 2^60**. So a loose operand is < 2^60 in
-        // limb0 and < 2^51 elsewhere — valid for an additive consumer but NOT a
-        // valid IFMA input (which needs < 2^52).
+        // column sums at most five of them: lo[i], hi[i] < 5*2^52. After the one
+        // carry pass in `reduce_ifma_loose`, limbs 1..4 are masked to < 2^51,
+        // while limb0 = (masked < 2^51) + 19*carry4, with carry4 = (lo[4]>>51) +
+        // (hi[4]<<1) < 10 + 10*2^52 < 10*2^52, i.e. **limb0 < 2^51 + 190*2^52 <
+        // 256*2^52 = 2^60**. So a loose operand is < 2^60 in limb0 and < 2^51
+        // elsewhere — valid for an additive consumer but NOT a valid IFMA input
+        // (which needs < 2^52).
         //
         // The `*_wide` subtracts therefore widen the borrow bias from 4*p/8*p to
         // 2048*p (limb0 = 2048*(2^51-19) ~= 2^62). That exceeds the sum of up to
@@ -897,6 +923,16 @@ pub(crate) mod avx512ifma {
                 Self::reduce_loose(lo)
             }
         }
+        /// One pass of carry propagation. Limbs 1..4 are masked (`&= mask`)
+        /// *after* receiving their incoming carry, so they always end up
+        /// exactly `< 2^51` regardless of how loose the input was. Limb 0 is
+        /// masked *before* the final wraparound carry (`carry4 * 19`, from
+        /// limb 4's overflow) is folded into it, so it alone can come out
+        /// loose again by that carry's magnitude. Every call site here only
+        /// ever feeds this the sum/difference of at most two already-bounded
+        /// operands (fresh field values, or another loose/deferred result),
+        /// which keeps limb 0's residual small (at most a few dozen) — safe
+        /// as another additive op's input, which is all any caller needs.
         fn reduce_loose(mut h: [__m512i; 5]) -> Self {
             unsafe {
                 let mask = _mm512_set1_epi64(LIMB_MASK as i64);
@@ -917,6 +953,16 @@ pub(crate) mod avx512ifma {
                 Self { limbs: h }
             }
         }
+        /// Two full passes of `reduce_loose`'s carry propagation. Needed
+        /// because a single pass's residual on limb 0 (see `reduce_loose`)
+        /// is folded in *after* limb 0's own masking, so it isn't itself
+        /// re-masked; a second pass re-masks limb 0 and ripples its (now
+        /// tiny, `<= 1`-unit) overflow through limbs 1..4 again, tightening
+        /// limb 0's worst-case residual accordingly. Used by strict `add`
+        /// and `canonical`, both of which need every limb — including
+        /// limb 0 — as close to `< 2^51` as this representation allows (see
+        /// `canonical`'s doc for the exact residual bound and why it's still
+        /// harmless there).
         fn reduce64(mut h: [__m512i; 5]) -> Self {
             unsafe {
                 let mask = _mm512_set1_epi64(LIMB_MASK as i64);
@@ -1026,6 +1072,14 @@ pub(crate) mod avx512ifma {
             let y_equal = self.y.equals_lanes(&y);
             core::array::from_fn(|lane| x_equal[lane] && y_equal[lane])
         }
+        // Every coordinate this reads (`self.*`/`rhs.*`) and every intermediate
+        // it computes (a, b, c, d) is the output of a strict `multiply`/`add`
+        // chain -- this function is only ever called on `WidePoint`s built by
+        // `build_tables_from_point`'s tree-doubling, which itself only ever
+        // produces strict coordinates -- so the plain (not `_wide`) `subtract`
+        // calls below always see operands well within its `4*p` bias. The
+        // per-verification hot path uses `add_cached_assign` instead, whose
+        // loose `multiply_loose` intermediates need the `_wide` subtracts.
         fn add(&self, rhs: &Self) -> Self {
             let a = self.y.subtract(&self.x).multiply(&rhs.y.subtract(&rhs.x));
             let b = self.y.add_loose(&self.x).multiply(&rhs.y.add_loose(&rhs.x));
@@ -1045,6 +1099,11 @@ pub(crate) mod avx512ifma {
         }
         fn add_cached_assign(&mut self, rhs: &WideCachedPoint) {
             // a,b,c,d feed only additive ops, so defer their final carry pass.
+            // Unlike `add` above, a/b/c/d here come from `multiply_loose` (not
+            // `multiply`), so they can be loose in limb0 (up to ~2^60, see the
+            // deferred-reduction comment on `WideFe::subtract`) -- `e`/`f` use
+            // `subtract_wide`, not plain `subtract`, specifically because its
+            // `4*p` bias isn't enough headroom for that.
             let a = self.y.subtract(&self.x).multiply_loose(&rhs.y_minus_x);
             let b = self.y.add_loose(&self.x).multiply_loose(&rhs.y_plus_x);
             let e = b.subtract_wide(&a);
@@ -1086,7 +1145,11 @@ pub(crate) mod avx512ifma {
             doubled.double()
         }
         fn double_impl<const COMPUTE_T: bool>(&self) -> Self {
-            // The squares feed only additive ops, so defer their final carry pass.
+            // The squares feed only additive ops, so defer their final carry
+            // pass. a/b/c come from `square_loose`, loose the same way
+            // `add_cached_assign`'s `multiply_loose` results are (limb0 up to
+            // ~2^60), so `g`/`f`/`h` below use the `_wide` subtract/negate
+            // variants, not the plain, small-bias `subtract`.
             let a = self.x.square_loose();
             let b = self.y.square_loose();
             let c = self.z.square_loose().double_loose();

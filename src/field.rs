@@ -81,6 +81,11 @@ impl Fe51 {
         Some(Self::from_bytes_unchecked(bytes))
     }
 
+    // "Unchecked" refers only to canonicality (the represented value may be
+    // `>= p`, e.g. a non-canonical y encoding that ZIP-215/Dalek decoding
+    // treats as reduced mod p) — each limb is masked to exactly `< 2^51` by
+    // construction (`& MASK` below), so this is always safe to feed into any
+    // op that accepts canonical or loosely-reduced (`< 2^52`) operands.
     pub(crate) fn from_bytes_unchecked(bytes: &[u8; 32]) -> Self {
         Self {
             limbs: [
