@@ -244,7 +244,10 @@ impl Fe51 {
         self.limbs
     }
 
-    fn pow_p_minus_5_over_8(&self) -> Self {
+    // `pub(crate)` (not just used by `sqrt_ratio` below) so wide.rs's tests can
+    // cross-check it against `WideFe::pow_p_minus_5_over_8`'s independently
+    // written, structurally identical addition chain.
+    pub(crate) fn pow_p_minus_5_over_8(&self) -> Self {
         let t0 = self.square();
         let t1 = t0.square_repeat::<2>().multiply(self);
         let t0 = t0.multiply(&t1);

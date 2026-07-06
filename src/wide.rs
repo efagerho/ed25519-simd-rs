@@ -1450,6 +1450,40 @@ pub(crate) mod avx512ifma {
             );
         }
 
+        #[test]
+        fn wide_pow_matches_scalar_reference() {
+            // `Fe51::pow_p_minus_5_over_8` (field.rs) and
+            // `WideFe::pow_p_minus_5_over_8` are independently written,
+            // structurally identical addition chains for the same exponent;
+            // nothing else cross-checks them, so a future fix or optimization
+            // applied to one but not the other would silently desync the
+            // scalar and SIMD decompression paths.
+            let mut state = 0x9e3779b97f4a7c15u64;
+            let mut next = move || {
+                state = state
+                    .wrapping_mul(0xd1342543de82ef95)
+                    .wrapping_add(0x9e3779b97f4a7c15);
+                state
+            };
+
+            let mut round = 0;
+            while round < 200 {
+                let fields: [crate::field::Fe51; LANES] = core::array::from_fn(|_| {
+                    let limbs: [u64; 5] = core::array::from_fn(|_| next() & LIMB_MASK);
+                    crate::field::Fe51::from_limbs(limbs)
+                });
+                let wide_result = WideFe::from_fields(&fields).pow_p_minus_5_over_8().to_fields();
+
+                for (lane, field) in fields.iter().enumerate() {
+                    assert!(
+                        field.pow_p_minus_5_over_8().equals(&wide_result[lane]),
+                        "lane {lane} diverged from scalar reference at round {round}"
+                    );
+                }
+                round += 1;
+            }
+        }
+
         fn ord8a() -> EdwardsPoint {
             let bytes = [
                 0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef,
