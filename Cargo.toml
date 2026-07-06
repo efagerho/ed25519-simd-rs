@@ -5,7 +5,7 @@ edition = "2024"
 license = "Apache-2.0"
 description = "Verification-only, AVX-512 IFMA batch Ed25519 signature verification, acceptance-compatible with solana-ed25519"
 repository = "https://github.com/efagerho/ed25519-simd-rs"
-rust-version = "1.87"
+rust-version = "1.89"
 
 [dependencies]
 
