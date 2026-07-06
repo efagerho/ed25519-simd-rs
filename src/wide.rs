@@ -297,13 +297,13 @@ pub(crate) mod avx512ifma {
         pair: usize,
     ) {
         match base_digit_pattern(s_digits, pair) {
-            WideDigitPattern::Uniform(0) => {}
-            WideDigitPattern::Uniform(digit) => {
+            DigitPattern::Uniform(0) => {}
+            DigitPattern::Uniform(digit) => {
                 let selected = base_table.select_signed_cached_ref(digit);
                 let selected = WideCachedPoint::broadcast(selected);
                 acc.add_cached_assign(&selected);
             }
-            WideDigitPattern::Mixed => {
+            DigitPattern::Mixed => {
                 let first =
                     base_table.select_signed_cached_ref(base_pair_digit(&s_digits[0], pair));
                 let mut selected = [first; LANES];
@@ -350,23 +350,20 @@ pub(crate) mod avx512ifma {
     }
 
     #[derive(Clone, Copy, Eq, PartialEq)]
-    enum DigitPattern {
-        Uniform(i8),
+    enum DigitPattern<T> {
+        Uniform(T),
         Mixed,
     }
 
-    #[derive(Clone, Copy, Eq, PartialEq)]
-    enum WideDigitPattern {
-        Uniform(i16),
-        Mixed,
-    }
-
+    // Shared "are all lanes' digits equal" scan for `digit_pattern` (raw i8
+    // radix-16 digits) and `base_digit_pattern` (combined i16 base-pair
+    // digits) — they differ only in the per-lane digit type and how it's read.
     #[inline(always)]
-    fn digit_pattern(digits: &[Radix16; LANES], index: usize) -> DigitPattern {
-        let first = digits[0][index];
+    fn lane_digit_pattern<T: Copy + PartialEq>(digit_at: impl Fn(usize) -> T) -> DigitPattern<T> {
+        let first = digit_at(0);
         let mut lane = 1;
         while lane < LANES {
-            if digits[lane][index] != first {
+            if digit_at(lane) != first {
                 return DigitPattern::Mixed;
             }
             lane += 1;
@@ -375,16 +372,13 @@ pub(crate) mod avx512ifma {
     }
 
     #[inline(always)]
-    fn base_digit_pattern(digits: &[Radix16; LANES], pair: usize) -> WideDigitPattern {
-        let first = base_pair_digit(&digits[0], pair);
-        let mut lane = 1;
-        while lane < LANES {
-            if base_pair_digit(&digits[lane], pair) != first {
-                return WideDigitPattern::Mixed;
-            }
-            lane += 1;
-        }
-        WideDigitPattern::Uniform(first)
+    fn digit_pattern(digits: &[Radix16; LANES], index: usize) -> DigitPattern<i8> {
+        lane_digit_pattern(|lane| digits[lane][index])
+    }
+
+    #[inline(always)]
+    fn base_digit_pattern(digits: &[Radix16; LANES], pair: usize) -> DigitPattern<i16> {
+        lane_digit_pattern(|lane| base_pair_digit(&digits[lane], pair))
     }
 
     // Fold two adjacent signed radix-16 digits into one radix-256 digit
