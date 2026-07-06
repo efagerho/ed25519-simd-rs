@@ -256,35 +256,49 @@ pub(crate) mod avx512ifma {
     ) -> WidePoint {
         let mut acc = WidePoint::identity();
         let public_tables_uniform = public_tables_uniform(public_key_tables);
-        let mut pair = 33;
+
+        // Seed the accumulator from the top digit pair (63, 62) directly
+        // instead of doubling the still-identity accumulator first: `s` and
+        // `k` are both reduced mod L (see `to_radix16`'s carry-out assert),
+        // so there is no digit above index 63 to make room for.
+        add_public_digit(
+            &mut acc,
+            public_key_tables,
+            public_tables_uniform,
+            k_digits,
+            63,
+        );
+        acc = acc.double4();
+        add_base_pair_digit(&mut acc, base_table, s_digits, 31);
+        add_public_digit(
+            &mut acc,
+            public_key_tables,
+            public_tables_uniform,
+            k_digits,
+            62,
+        );
+
+        let mut pair = 31;
         while pair > 0 {
             pair -= 1;
-            let odd_index = pair * 2 + 1;
-            if odd_index < 64 {
-                acc = acc.double4();
-
-                add_public_digit(
-                    &mut acc,
-                    public_key_tables,
-                    public_tables_uniform,
-                    k_digits,
-                    odd_index,
-                );
-            }
+            acc = acc.double4();
+            add_public_digit(
+                &mut acc,
+                public_key_tables,
+                public_tables_uniform,
+                k_digits,
+                pair * 2 + 1,
+            );
 
             acc = acc.double4();
             add_base_pair_digit(&mut acc, base_table, s_digits, pair);
-
-            let even_index = pair * 2;
-            if even_index < 64 {
-                add_public_digit(
-                    &mut acc,
-                    public_key_tables,
-                    public_tables_uniform,
-                    k_digits,
-                    even_index,
-                );
-            }
+            add_public_digit(
+                &mut acc,
+                public_key_tables,
+                public_tables_uniform,
+                k_digits,
+                pair * 2,
+            );
         }
         acc
     }
@@ -384,21 +398,11 @@ pub(crate) mod avx512ifma {
     // Fold two adjacent signed radix-16 digits into one radix-256 digit
     // `even + (odd << 4)`, magnitude at most `8 + 8*16 = 136` — which is exactly
     // `BASEPOINT_TABLE_SIZE`, the number of base-point multiples tabulated.
+    // `pair` ranges over 0..32 (see `mul_base_minus_public_parts`), so both
+    // indices are always in bounds for the 64-digit `Radix16`.
     #[inline(always)]
     fn base_pair_digit(digits: &Radix16, pair: usize) -> i16 {
-        let even_index = pair * 2;
-        let odd_index = even_index + 1;
-        let even = if even_index < digits.len() {
-            digits[even_index] as i16
-        } else {
-            0
-        };
-        let odd = if odd_index < digits.len() {
-            (digits[odd_index] as i16) << 4
-        } else {
-            0
-        };
-        even + odd
+        digits[pair * 2] as i16 + ((digits[pair * 2 + 1] as i16) << 4)
     }
 
     #[inline(always)]
