@@ -122,6 +122,25 @@ impl LruKeyCache {
         next
     }
 
+    fn insert_encoded(&mut self, encoded: [u8; 32], pinned: bool) -> bool {
+        if let Some(entry) = self.keys.get(&encoded) {
+            self.touch_entry(entry);
+            if pinned {
+                entry.pinned.set(true);
+            }
+            return true;
+        }
+
+        let Some(key) = CachedPublicKey::from_encoded(encoded) else {
+            return false;
+        };
+        self.record_miss(key, pinned);
+        true
+    }
+
+    /// Shared hit-bookkeeping for a key already resident in the cache. See
+    /// `record_miss` for the counterpart shared by the two insertion paths
+    /// (`insert_encoded` and the `KeyCache::insert` impl below).
     fn touch_entry(&self, entry: &LruEntry) {
         let last_used = self.tick();
         self.hits.set(self.hits.get().wrapping_add(1));
@@ -129,28 +148,12 @@ impl LruKeyCache {
         entry.last_used.set(last_used);
     }
 
-    fn insert_encoded(&mut self, encoded: [u8; 32], pinned: bool) -> bool {
+    /// Shared miss-bookkeeping: record the decoded key and evict if over
+    /// capacity. See `touch_entry` for the hit counterpart.
+    fn record_miss(&mut self, key: CachedPublicKey, pinned: bool) {
         let last_used = self.tick();
-
-        if let Some(entry) = self.keys.get_mut(&encoded) {
-            self.hits.set(self.hits.get().wrapping_add(1));
-            entry.hits.set(entry.hits.get().wrapping_add(1));
-            entry.last_used.set(last_used);
-            entry.pinned.set(entry.pinned.get() || pinned);
-            return true;
-        }
-
-        self.misses.set(self.misses.get().wrapping_add(1));
-        let Some(key) = CachedPublicKey::from_encoded(encoded) else {
-            return false;
-        };
-        self.insert_cached(key, pinned, last_used);
-        self.evict_to_capacity(Some(encoded));
-        true
-    }
-
-    fn insert_cached(&mut self, key: CachedPublicKey, pinned: bool, last_used: u64) {
         let encoded = key.encoded;
+        self.misses.set(self.misses.get().wrapping_add(1));
         self.keys.insert(
             encoded,
             LruEntry {
@@ -161,6 +164,7 @@ impl LruKeyCache {
             },
         );
         self.inserts.set(self.inserts.get().wrapping_add(1));
+        self.evict_to_capacity(Some(encoded));
     }
 
     fn evict_to_capacity(&mut self, protected: Option<[u8; 32]>) {
@@ -203,16 +207,10 @@ impl KeyCache for LruKeyCache {
     }
 
     fn insert(&mut self, key: CachedPublicKey) {
-        let last_used = self.tick();
         if let Some(entry) = self.keys.get(&key.encoded) {
-            self.hits.set(self.hits.get().wrapping_add(1));
-            entry.hits.set(entry.hits.get().wrapping_add(1));
-            entry.last_used.set(last_used);
+            self.touch_entry(entry);
         } else {
-            let encoded = key.encoded;
-            self.misses.set(self.misses.get().wrapping_add(1));
-            self.insert_cached(key, false, last_used);
-            self.evict_to_capacity(Some(encoded));
+            self.record_miss(key, false);
         }
     }
 }
