@@ -209,12 +209,12 @@ impl<C: KeyCache> Verifier<C> {
             messages[lane] = inputs[lane].message;
             lane += 1;
         }
-        let digests = sha512::hash_ed25519_challenges(&r_bytes, &public_keys, messages);
+        let digests = sha512::hash_ed25519_challenge_words(&r_bytes, &public_keys, messages);
 
         let mut k_digits: [Radix16; SIMD_LANES] = [[0i8; 64]; SIMD_LANES];
         lane = 0;
         while lane < SIMD_LANES {
-            k_digits[lane] = Scalar::from_wide_bytes(digests[lane]).to_radix16();
+            k_digits[lane] = Scalar::from_wide_words(digests[lane]).to_radix16();
             lane += 1;
         }
 

@@ -16,9 +16,22 @@ impl Scalar {
         Self { bytes }
     }
 
+    /// Kept as a scalar reference for tests; the verifier's hot path uses
+    /// `from_wide_words` to avoid the byte round trip this does internally.
+    #[cfg(test)]
     pub(crate) fn from_wide_bytes(bytes: [u8; 64]) -> Self {
         Self {
             bytes: reduce_wide(bytes),
+        }
+    }
+
+    /// Like `from_wide_bytes`, but takes the wide hash's words pre-swapped
+    /// to the little-endian integer this reduces mod `L` (see
+    /// `sha512::hash_ed25519_challenge_words`), skipping the byte round trip
+    /// `from_wide_bytes` does internally.
+    pub(crate) fn from_wide_words(words: [u64; 8]) -> Self {
+        Self {
+            bytes: Scalar52::from_wide_words(&words).to_bytes(),
         }
     }
 
@@ -65,6 +78,7 @@ pub(crate) fn is_canonical(bytes: &[u8; 32]) -> bool {
     false
 }
 
+#[cfg(test)]
 fn reduce_wide(bytes: [u8; 64]) -> [u8; 32] {
     Scalar52::from_wide_bytes(&bytes).to_bytes()
 }
@@ -97,7 +111,7 @@ const SCALAR_RR: Scalar52 = Scalar52([
 struct Scalar52([u64; 5]);
 
 impl Scalar52 {
-    #[rustfmt::skip]
+    #[cfg(test)]
     fn from_wide_bytes(bytes: &[u8; 64]) -> Self {
         let words = [
             load_u64(bytes, 0),
@@ -109,7 +123,11 @@ impl Scalar52 {
             load_u64(bytes, 48),
             load_u64(bytes, 56),
         ];
+        Self::from_wide_words(&words)
+    }
 
+    #[rustfmt::skip]
+    fn from_wide_words(words: &[u64; 8]) -> Self {
         let lo = Scalar52([
               words[0]                              & LIMB52_MASK,
             ((words[0] >> 52) | (words[1] << 12))   & LIMB52_MASK,
@@ -267,6 +285,7 @@ fn m(lhs: u64, rhs: u64) -> u128 {
     (lhs as u128) * (rhs as u128)
 }
 
+#[cfg(test)]
 fn load_u64(bytes: &[u8; 64], offset: usize) -> u64 {
     let mut word = [0u8; 8];
     word.copy_from_slice(&bytes[offset..offset + 8]);
