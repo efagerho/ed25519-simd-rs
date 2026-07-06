@@ -6,8 +6,9 @@ mod support;
 
 use curve25519::ed_sigs::{Signature, VerificationKeyBytes, batch};
 use ed25519_simd::{KeyCache, LruKeyCache, NullKeyCache, Verifier, VerifyInput, VerifyPolicy};
+use serde_json::Value;
 use support::{
-    Case, hex_array, signing_key_from_index, solana_ed25519_verify_dalek,
+    Case, hex_array, hex_vec, signing_key_from_index, solana_ed25519_verify_dalek,
     solana_ed25519_verify_zebra, verify,
 };
 
@@ -699,5 +700,155 @@ fn noncanonical_encoding_now_matches_solana_ed25519() {
     assert_eq!(
         ours, theirs,
         "crate must match solana-ed25519 on non-canonical encoding"
+    );
+}
+
+/// The speccheck and Wycheproof vectors (security_vectors.rs) are proven
+/// forgeries/edge cases, but they only ever run through single-input
+/// `verify()` batches, which always build a fresh `NullKeyCache` verifier —
+/// i.e. always a uniform-key, cache-miss chunk. Under `VerifyPolicy::Dalek`
+/// that exercises exactly one of two structurally different acceptance
+/// checks: `verify_prepared_dalek`'s exact byte comparison (taken on a cache
+/// hit) vs `verify_prepared_dalek_projective`'s affine comparison plus an
+/// explicit canonical-encoding recheck (taken on a miss). A refactor that
+/// changes only *which* lanes take which path can silently stop validating
+/// one of them against these vectors without any test failing — which is
+/// exactly how the projective path once accepted speccheck vector 9, a forged
+/// signature over a non-canonically-signed encoding of the order-2 point
+/// (`x == 0` with the sign bit set), that the byte-compare path already
+/// rejected. This replays the same vectors through the two combinations that
+/// were previously untested: a non-uniform (mixed-key) batch, and a
+/// warm/preloaded `LruKeyCache`.
+#[test]
+fn speccheck_and_wycheproof_vectors_survive_non_uniform_batches_and_warm_cache() {
+    // Seven ordinary, distinct, validly-signed lanes that never change:
+    // pairing a vector with these in one SIMD chunk guarantees
+    // `uniform_public_key == false`, forcing the non-uniform decode path.
+    let filler_message: &[u8] = b"filler lane";
+    let fillers: Vec<Case> = (0..7u64)
+        .map(|i| {
+            let signing_key = signing_key_from_index(0xf111_0000 + i);
+            let public_key = <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key));
+            let signature = signing_key.sign(filler_message).to_bytes();
+            Case {
+                public_key,
+                signature,
+                message: filler_message.to_vec(),
+            }
+        })
+        .collect();
+
+    let mut non_uniform_mismatches = Vec::new();
+    let mut warm_cache_mismatches = Vec::new();
+    let mut checked = 0usize;
+
+    fn check(
+        name: String,
+        public_key: [u8; 32],
+        signature: [u8; 64],
+        message: &[u8],
+        fillers: &[Case],
+        non_uniform_mismatches: &mut Vec<(String, VerifyPolicy, bool, bool)>,
+        warm_cache_mismatches: &mut Vec<(String, VerifyPolicy, bool, bool)>,
+    ) {
+        for policy in [VerifyPolicy::Zip215, VerifyPolicy::Dalek] {
+            let oracle = match policy {
+                VerifyPolicy::Zip215 => solana_ed25519_verify_zebra(public_key, signature, message),
+                VerifyPolicy::Dalek => solana_ed25519_verify_dalek(public_key, signature, message),
+            };
+
+            // Non-uniform batch: the vector shares a chunk with 7 distinct,
+            // ordinary keys, forcing `decode_keys_and_decompress_r` instead
+            // of the uniform-key branch.
+            let mut inputs = vec![VerifyInput {
+                public_key,
+                signature,
+                message,
+            }];
+            inputs.extend(fillers.iter().map(Case::input));
+            let mut verifier = Verifier::with_cache(policy, NullKeyCache::new());
+            let mut out = vec![false; inputs.len()];
+            verifier.verify_batch(&inputs, &mut out);
+            if out[0] != oracle {
+                non_uniform_mismatches.push((name.clone(), policy, out[0], oracle));
+            }
+
+            // Warm cache: preload the key so the subsequent verify is a cache
+            // hit, forcing the `decoded_r == None` branch
+            // (`verify_prepared_dalek`'s byte comparison for Dalek).
+            let mut cached = Verifier::with_cache(policy, LruKeyCache::new());
+            cached.preload_public_keys(&[public_key]);
+            let input = VerifyInput {
+                public_key,
+                signature,
+                message,
+            };
+            let mut cached_out = [false];
+            cached.verify_batch(&[input], &mut cached_out);
+            if cached_out[0] != oracle {
+                warm_cache_mismatches.push((name.clone(), policy, cached_out[0], oracle));
+            }
+        }
+    }
+
+    let speccheck: Value =
+        serde_json::from_str(include_str!("vectors/ed25519_speccheck.json")).unwrap();
+    for (idx, case) in speccheck.as_array().unwrap().iter().enumerate() {
+        let public_key = hex_array::<32>(case["pub_key"].as_str().unwrap());
+        let signature = hex_array::<64>(case["signature"].as_str().unwrap());
+        let message = hex_vec(case["message"].as_str().unwrap());
+        check(
+            format!("speccheck[{idx}]"),
+            public_key,
+            signature,
+            &message,
+            &fillers,
+            &mut non_uniform_mismatches,
+            &mut warm_cache_mismatches,
+        );
+        checked += 1;
+    }
+
+    let wycheproof: Value =
+        serde_json::from_str(include_str!("vectors/ed25519_wycheproof.json")).unwrap();
+    for group in wycheproof["testGroups"].as_array().unwrap() {
+        let public_key = hex_array::<32>(group["publicKey"]["pk"].as_str().unwrap());
+        for (idx, test) in group["tests"].as_array().unwrap().iter().enumerate() {
+            let sig = hex_vec(test["sig"].as_str().unwrap());
+            if sig.len() != 64 {
+                continue;
+            }
+            let signature: [u8; 64] = sig.try_into().unwrap();
+            let message = hex_vec(test["msg"].as_str().unwrap());
+            check(
+                format!("wycheproof tcId={} (group idx {idx})", test["tcId"]),
+                public_key,
+                signature,
+                &message,
+                &fillers,
+                &mut non_uniform_mismatches,
+                &mut warm_cache_mismatches,
+            );
+            checked += 1;
+        }
+    }
+
+    for (name, policy, ours, oracle) in non_uniform_mismatches.iter().take(20) {
+        eprintln!("NON-UNIFORM MISMATCH {name} policy={policy:?} ours={ours} oracle={oracle}");
+    }
+    for (name, policy, ours, oracle) in warm_cache_mismatches.iter().take(20) {
+        eprintln!("WARM-CACHE MISMATCH {name} policy={policy:?} ours={ours} oracle={oracle}");
+    }
+
+    assert!(checked > 100, "expected the full speccheck+Wycheproof corpus, got {checked}");
+    assert_eq!(
+        non_uniform_mismatches.len(),
+        0,
+        "disagreements in non-uniform (mixed-key) batches"
+    );
+    assert_eq!(
+        warm_cache_mismatches.len(),
+        0,
+        "disagreements with a warm/preloaded LruKeyCache"
     );
 }
