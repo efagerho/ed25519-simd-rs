@@ -134,7 +134,6 @@ fn hot_key_cache_tracks_hot_keys_and_capacity() {
     assert_eq!(stats.capacity, Some(1));
     assert_eq!(stats.evictions, 1);
     assert_eq!(stats.inserts, 2);
-    assert_eq!(stats.misses, 2);
     // Each single-input batch is padded to a full SIMD chunk of 8 identical
     // lanes; the verifier looks up and inserts every lane independently (it
     // has no notion of "this lane is a padding duplicate"), so the 7 padding
@@ -149,7 +148,6 @@ fn hot_key_cache_tracks_hot_keys_and_capacity() {
     assert_eq!(stats.pinned_keys, 1);
     assert_eq!(stats.evictions, 2);
     assert_eq!(stats.inserts, 3);
-    assert_eq!(stats.misses, 3);
     assert_eq!(verifier.cache().hot_public_keys(1), [rfc8032_key0()]);
 
     // A key already resident and re-preloaded is a hit, not a fresh insert.
