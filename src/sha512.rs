@@ -477,13 +477,13 @@ mod avx512 {
             let mut lane = 0;
             while lane < LANES {
                 lanes[lane] = if word < 4 {
-                    read_be_u64(r_bytes[lane].as_ptr(), word * 8)
+                    read_be_u64(&r_bytes[lane], word * 8)
                 } else if word < 8 {
-                    read_be_u64(public_keys[lane].as_ptr(), (word - 4) * 8)
+                    read_be_u64(&public_keys[lane], (word - 4) * 8)
                 } else {
                     let message_offset = (word - 8) * 8;
                     if message_offset + 8 <= message_len {
-                        read_be_u64(messages[lane].as_ptr(), message_offset)
+                        read_be_u64_slice(messages[lane], message_offset)
                     } else {
                         single_block_tail_word(messages[lane], message_len, message_offset)
                     }
@@ -588,13 +588,13 @@ mod avx512 {
             let mut lane = 0;
             while lane < LANES {
                 lanes[lane] = if word < 4 {
-                    read_be_u64(r_bytes[lane].as_ptr(), word * 8)
+                    read_be_u64(&r_bytes[lane], word * 8)
                 } else if word < 8 {
-                    read_be_u64(public_keys[lane].as_ptr(), (word - 4) * 8)
+                    read_be_u64(&public_keys[lane], (word - 4) * 8)
                 } else {
                     let message_offset = (word - 8) * 8;
                     if message_offset + 8 <= message_len {
-                        read_be_u64(messages[lane].as_ptr(), message_offset)
+                        read_be_u64_slice(messages[lane], message_offset)
                     } else {
                         single_block_tail_word(messages[lane], message_len, message_offset)
                     }
@@ -624,7 +624,7 @@ mod avx512 {
             let mut lane = 0;
             while lane < LANES {
                 lanes[lane] = if word_offset + 8 <= tail_len {
-                    read_be_u64(messages[lane].as_ptr(), message_offset + word_offset)
+                    read_be_u64_slice(messages[lane], message_offset + word_offset)
                 } else {
                     final_message_tail_word(messages[lane], message_offset, tail_len, word_offset)
                 };
@@ -658,7 +658,7 @@ mod avx512 {
             let mut lane = 0;
             while lane < LANES {
                 lanes[lane] = if word_offset + 8 <= tail_len {
-                    read_be_u64(messages[lane].as_ptr(), message_offset + word_offset)
+                    read_be_u64_slice(messages[lane], message_offset + word_offset)
                 } else {
                     final_message_tail_word(messages[lane], message_offset, tail_len, word_offset)
                 };
@@ -726,13 +726,13 @@ mod avx512 {
     ) -> u64 {
         let word_end = word_offset + 8;
         if word_end <= 32 {
-            return read_be_u64(r_bytes[lane].as_ptr(), word_offset);
+            return read_be_u64(&r_bytes[lane], word_offset);
         }
         if word_offset >= 32 && word_end <= 64 {
-            return read_be_u64(public_keys[lane].as_ptr(), word_offset - 32);
+            return read_be_u64(&public_keys[lane], word_offset - 32);
         }
         if word_offset >= 64 && word_end <= padding.total_len {
-            return read_be_u64(messages[lane].as_ptr(), word_offset - 64);
+            return read_be_u64_slice(messages[lane], word_offset - 64);
         }
         if word_offset == padding.length_start {
             return (padding.bit_len >> 64) as u64;
@@ -769,16 +769,22 @@ mod avx512 {
         public_keys: &[[u8; 32]; LANES],
         messages: [&[u8]; LANES],
     ) -> [__m512i; 16] {
+        // Only called when the message holds at least 64 bytes (`total_len >=
+        // 128`), so this always succeeds; converting once here, rather than
+        // per-word below, checks that bound a single time per lane instead of
+        // once per word.
+        let message_heads: [[u8; 64]; LANES] =
+            core::array::from_fn(|lane| messages[lane][..64].try_into().unwrap());
         core::array::from_fn(|word| {
             let mut lanes = [0u64; LANES];
             let mut lane = 0;
             while lane < LANES {
                 lanes[lane] = if word < 4 {
-                    read_be_u64(r_bytes[lane].as_ptr(), word * 8)
+                    read_be_u64(&r_bytes[lane], word * 8)
                 } else if word < 8 {
-                    read_be_u64(public_keys[lane].as_ptr(), (word - 4) * 8)
+                    read_be_u64(&public_keys[lane], (word - 4) * 8)
                 } else {
-                    read_be_u64(messages[lane].as_ptr(), (word - 8) * 8)
+                    read_be_u64(&message_heads[lane], (word - 8) * 8)
                 };
                 lane += 1;
             }
@@ -786,21 +792,40 @@ mod avx512 {
         })
     }
     fn message_data_block_words(messages: [&[u8]; LANES], message_offset: usize) -> [__m512i; 16] {
+        // Caller guarantees a full 128-byte block is available at
+        // `message_offset`; converting once here checks that bound a single
+        // time per lane instead of once per word.
+        let blocks: [[u8; 128]; LANES] = core::array::from_fn(|lane| {
+            messages[lane][message_offset..message_offset + 128]
+                .try_into()
+                .unwrap()
+        });
         core::array::from_fn(|word| {
             let mut lanes = [0u64; LANES];
-            let offset = message_offset + word * 8;
+            let offset = word * 8;
             let mut lane = 0;
             while lane < LANES {
-                lanes[lane] = read_be_u64(messages[lane].as_ptr(), offset);
+                lanes[lane] = read_be_u64(&blocks[lane], offset);
                 lane += 1;
             }
             loadu(lanes)
         })
     }
 
+    // A `&[u8; N]` (as opposed to `&[u8]`) keeps the bound `offset + 8 <= N`
+    // checkable against a monomorphized-in constant instead of a runtime
+    // slice length, so the compiler can fold or cheapen it. Callers touching a
+    // fixed-size window (a 32-byte key/R, or a pre-sliced whole message block)
+    // should convert to an array reference once and read through this; callers
+    // stuck with a genuinely variable-length remainder use `read_be_u64_slice`.
     #[inline(always)]
-    fn read_be_u64(bytes: *const u8, offset: usize) -> u64 {
-        unsafe { u64::from_be(core::ptr::read_unaligned(bytes.add(offset) as *const u64)) }
+    fn read_be_u64<const N: usize>(bytes: &[u8; N], offset: usize) -> u64 {
+        u64::from_be_bytes(bytes[offset..offset + 8].try_into().unwrap())
+    }
+
+    #[inline(always)]
+    fn read_be_u64_slice(bytes: &[u8], offset: usize) -> u64 {
+        u64::from_be_bytes(bytes[offset..offset + 8].try_into().unwrap())
     }
 
     fn compress_block(state: &mut [__m512i; 8], block_words: [__m512i; 16]) {
