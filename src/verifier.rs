@@ -3,7 +3,7 @@ use crate::cache::{CachedPublicKey, KeyCache, NullKeyCache};
 use crate::cpuid;
 use crate::edwards::{BasepointTable, EdwardsPoint, PointTable};
 use crate::lru_cache::LruKeyCache;
-use crate::policy::{VerifyPolicy, r_encoding_has_canonical_y, r_encoding_is_legacy_excluded};
+use crate::policy::{VerifyPolicy, r_encoding_is_legacy_excluded};
 use crate::scalar::{self, Radix16, Scalar};
 use crate::sha512;
 use crate::wide::avx512ifma;
@@ -150,7 +150,23 @@ impl<C: KeyCache> Verifier<C> {
             uniform_cached_key = self.cache.get(&first_public_key);
             if uniform_cached_key.is_none() {
                 missing_key_lanes = [true; SIMD_LANES];
-                uniform_decoded_key = CachedPublicKey::from_encoded(first_public_key);
+                // Decode the (duplicated) key and R together through the same
+                // interleaved SIMD path the non-uniform miss branch below
+                // uses, instead of a solo scalar key decode followed by a
+                // separate solo R decompression: the two inverse-square-root
+                // chains share the same IFMA latency, so fusing them is
+                // strictly cheaper than running either alone. Redundant SIMD
+                // lanes on identical input are free, so only lane 0 is kept.
+                let uniform_keys = [first_public_key; SIMD_LANES];
+                let (tables, key_valid_bits, r_points, r_valid_bits) =
+                    avx512ifma::decode_keys_and_decompress_r(&uniform_keys, &r_bytes);
+                if key_valid_bits & 1 != 0 {
+                    uniform_decoded_key = Some(CachedPublicKey {
+                        encoded: first_public_key,
+                        table: tables.into_iter().next().unwrap(),
+                    });
+                }
+                decoded_r = Some((r_points, lane_flags_from_mask(r_valid_bits)));
             }
         } else {
             let chunk_cached_keys: [Option<&CachedPublicKey>; SIMD_LANES] =
@@ -257,12 +273,20 @@ impl<C: KeyCache> Verifier<C> {
                             &r_points,
                             self.base_table,
                         );
+                        // Dalek requires an exact canonical `R`, not just an
+                        // affine match: re-encode the decompressed point and
+                        // require a byte-for-byte match against the input, so
+                        // a non-canonical encoding that happens to decode to
+                        // the same point (e.g. a set sign bit on `x == 0`) is
+                        // rejected exactly as the raw-byte comparison below
+                        // would reject it.
+                        let r_canonical = r_points.compress();
                         lane = 0;
                         while lane < SIMD_LANES {
                             out[lane] = simd[lane]
                                 && valid[lane]
                                 && r_valid_lanes[lane]
-                                && r_encoding_has_canonical_y(&r_bytes[lane])
+                                && r_canonical[lane] == r_bytes[lane]
                                 && !dalek_legacy_excluded(&public_keys[lane], &r_bytes[lane]);
                             lane += 1;
                         }

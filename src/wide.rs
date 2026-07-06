@@ -18,6 +18,18 @@ pub(crate) mod avx512ifma {
 
     pub(crate) struct WideRPoints(WidePoint);
 
+    impl WideRPoints {
+        /// Re-encode the decompressed points. Comparing this against the
+        /// original bytes proves the input encoding was already canonical:
+        /// decompression accepts some non-canonical byte encodings (e.g. a
+        /// set sign bit on an `x == 0` point) that decode to the same point,
+        /// so an affine/projective equality check alone would wrongly accept
+        /// them under a policy that requires an exact canonical `R`.
+        pub(crate) fn compress(&self) -> [[u8; 32]; LANES] {
+            self.0.compress()
+        }
+    }
+
     /// Decompress one SIMD chunk of `R` points and return a per-lane validity mask.
     pub(crate) fn decompress_r_points(r_bytes: &[[u8; 32]; LANES]) -> (WideRPoints, u8) {
         let (point, mask) = decompress_points_wide(r_bytes);
