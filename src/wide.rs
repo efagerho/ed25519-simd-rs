@@ -601,12 +601,16 @@ pub(crate) mod avx512ifma {
         // two loose subtrahends (< 2*2^60 = 2^61), so every limb stays
         // non-negative; the trailing `reduce_loose` then folds the result (limbs
         // < ~2^62) back below 2^52 in one pass, a valid IFMA input again.
-        fn square_loose(&self) -> Self {
+        // Shared accumulation for `square`/`square_loose`: they differ only in
+        // which `reduce_ifma*` pass is applied to the raw (lo, hi) columns.
+        fn square_accum(&self) -> ([__m512i; 5], [__m512i; 5]) {
             unsafe {
                 let z = _mm512_setzero_si512();
                 let mut lo = [z; 5];
                 let mut hi = [z; 5];
 
+                // Normalize loose limb0 before squaring; torsion cases can represent
+                // zero as p, and doubled IFMA inputs must stay under 52 bits.
                 let limbs = {
                     let mask = _mm512_set1_epi64(LIMB_MASK as i64);
                     let mut l = self.limbs;
@@ -653,10 +657,16 @@ pub(crate) mod avx512ifma {
                 madd_one(&mut lo[4], &mut hi[4], f1_2, limbs[3]);
                 madd_one(&mut lo[4], &mut hi[4], limbs[2], limbs[2]);
 
-                Self::reduce_ifma_loose(lo, hi)
+                (lo, hi)
             }
         }
-        fn multiply_loose(&self, rhs: &Self) -> Self {
+        fn square_loose(&self) -> Self {
+            let (lo, hi) = self.square_accum();
+            Self::reduce_ifma_loose(lo, hi)
+        }
+        // Shared accumulation for `multiply`/`multiply_loose`: they differ only
+        // in which `reduce_ifma*` pass is applied to the raw (lo, hi) columns.
+        fn multiply_accum(&self, rhs: &Self) -> ([__m512i; 5], [__m512i; 5]) {
             unsafe {
                 let z = _mm512_setzero_si512();
                 let mut lo = [z; 5];
@@ -700,8 +710,12 @@ pub(crate) mod avx512ifma {
                 madd_one(&mut lo[4], &mut hi[4], self.limbs[3], rhs.limbs[1]);
                 madd_one(&mut lo[4], &mut hi[4], self.limbs[4], rhs.limbs[0]);
 
-                Self::reduce_ifma_loose(lo, hi)
+                (lo, hi)
             }
+        }
+        fn multiply_loose(&self, rhs: &Self) -> Self {
+            let (lo, hi) = self.multiply_accum(rhs);
+            Self::reduce_ifma_loose(lo, hi)
         }
 
         // `reduce_ifma` without the trailing `reduce_loose` pass: one IFMA carry
@@ -783,108 +797,12 @@ pub(crate) mod avx512ifma {
             self.add_loose(self)
         }
         fn square(&self) -> Self {
-            unsafe {
-                let z = _mm512_setzero_si512();
-                let mut lo = [z; 5];
-                let mut hi = [z; 5];
-
-                // Normalize loose limb0 before squaring; torsion cases can represent
-                // zero as p, and doubled IFMA inputs must stay under 52 bits.
-                let limbs = {
-                    let mask = _mm512_set1_epi64(LIMB_MASK as i64);
-                    let mut l = self.limbs;
-                    let mut i = 0;
-                    while i < 4 {
-                        let carry = _mm512_srli_epi64(l[i], 51);
-                        l[i] = _mm512_and_si512(l[i], mask);
-                        l[i + 1] = _mm512_add_epi64(l[i + 1], carry);
-                        i += 1;
-                    }
-                    l
-                };
-
-                let f0_2 = _mm512_add_epi64(limbs[0], limbs[0]);
-                let f1_2 = _mm512_add_epi64(limbs[1], limbs[1]);
-                let f2_2 = _mm512_add_epi64(limbs[2], limbs[2]);
-                let f3_2 = _mm512_add_epi64(limbs[3], limbs[3]);
-
-                madd_one(&mut lo[0], &mut hi[0], limbs[0], limbs[0]);
-                let (mut wlo, mut whi) = (z, z);
-                madd_one(&mut wlo, &mut whi, f1_2, limbs[4]);
-                madd_one(&mut wlo, &mut whi, f2_2, limbs[3]);
-                add_wrap19(&mut lo[0], &mut hi[0], wlo, whi);
-
-                madd_one(&mut lo[1], &mut hi[1], f0_2, limbs[1]);
-                let (mut wlo, mut whi) = (z, z);
-                madd_one(&mut wlo, &mut whi, f2_2, limbs[4]);
-                madd_one(&mut wlo, &mut whi, limbs[3], limbs[3]);
-                add_wrap19(&mut lo[1], &mut hi[1], wlo, whi);
-
-                madd_one(&mut lo[2], &mut hi[2], f0_2, limbs[2]);
-                madd_one(&mut lo[2], &mut hi[2], limbs[1], limbs[1]);
-                let (mut wlo, mut whi) = (z, z);
-                madd_one(&mut wlo, &mut whi, f3_2, limbs[4]);
-                add_wrap19(&mut lo[2], &mut hi[2], wlo, whi);
-
-                madd_one(&mut lo[3], &mut hi[3], f0_2, limbs[3]);
-                madd_one(&mut lo[3], &mut hi[3], f1_2, limbs[2]);
-                let (mut wlo, mut whi) = (z, z);
-                madd_one(&mut wlo, &mut whi, limbs[4], limbs[4]);
-                add_wrap19(&mut lo[3], &mut hi[3], wlo, whi);
-
-                madd_one(&mut lo[4], &mut hi[4], f0_2, limbs[4]);
-                madd_one(&mut lo[4], &mut hi[4], f1_2, limbs[3]);
-                madd_one(&mut lo[4], &mut hi[4], limbs[2], limbs[2]);
-
-                Self::reduce_ifma(lo, hi)
-            }
+            let (lo, hi) = self.square_accum();
+            Self::reduce_ifma(lo, hi)
         }
         fn multiply(&self, rhs: &Self) -> Self {
-            unsafe {
-                let z = _mm512_setzero_si512();
-                let mut lo = [z; 5];
-                let mut hi = [z; 5];
-
-                madd_one(&mut lo[0], &mut hi[0], self.limbs[0], rhs.limbs[0]);
-                let (mut wlo, mut whi) = (z, z);
-                madd_one(&mut wlo, &mut whi, self.limbs[1], rhs.limbs[4]);
-                madd_one(&mut wlo, &mut whi, self.limbs[2], rhs.limbs[3]);
-                madd_one(&mut wlo, &mut whi, self.limbs[3], rhs.limbs[2]);
-                madd_one(&mut wlo, &mut whi, self.limbs[4], rhs.limbs[1]);
-                add_wrap19(&mut lo[0], &mut hi[0], wlo, whi);
-
-                madd_one(&mut lo[1], &mut hi[1], self.limbs[0], rhs.limbs[1]);
-                madd_one(&mut lo[1], &mut hi[1], self.limbs[1], rhs.limbs[0]);
-                let (mut wlo, mut whi) = (z, z);
-                madd_one(&mut wlo, &mut whi, self.limbs[2], rhs.limbs[4]);
-                madd_one(&mut wlo, &mut whi, self.limbs[3], rhs.limbs[3]);
-                madd_one(&mut wlo, &mut whi, self.limbs[4], rhs.limbs[2]);
-                add_wrap19(&mut lo[1], &mut hi[1], wlo, whi);
-
-                madd_one(&mut lo[2], &mut hi[2], self.limbs[0], rhs.limbs[2]);
-                madd_one(&mut lo[2], &mut hi[2], self.limbs[1], rhs.limbs[1]);
-                madd_one(&mut lo[2], &mut hi[2], self.limbs[2], rhs.limbs[0]);
-                let (mut wlo, mut whi) = (z, z);
-                madd_one(&mut wlo, &mut whi, self.limbs[3], rhs.limbs[4]);
-                madd_one(&mut wlo, &mut whi, self.limbs[4], rhs.limbs[3]);
-                add_wrap19(&mut lo[2], &mut hi[2], wlo, whi);
-
-                madd_one(&mut lo[3], &mut hi[3], self.limbs[0], rhs.limbs[3]);
-                madd_one(&mut lo[3], &mut hi[3], self.limbs[1], rhs.limbs[2]);
-                madd_one(&mut lo[3], &mut hi[3], self.limbs[2], rhs.limbs[1]);
-                madd_one(&mut lo[3], &mut hi[3], self.limbs[3], rhs.limbs[0]);
-                let (mut wlo, mut whi) = (z, z);
-                madd_one(&mut wlo, &mut whi, self.limbs[4], rhs.limbs[4]);
-                add_wrap19(&mut lo[3], &mut hi[3], wlo, whi);
-
-                madd_one(&mut lo[4], &mut hi[4], self.limbs[0], rhs.limbs[4]);
-                madd_one(&mut lo[4], &mut hi[4], self.limbs[1], rhs.limbs[3]);
-                madd_one(&mut lo[4], &mut hi[4], self.limbs[2], rhs.limbs[2]);
-                madd_one(&mut lo[4], &mut hi[4], self.limbs[3], rhs.limbs[1]);
-                madd_one(&mut lo[4], &mut hi[4], self.limbs[4], rhs.limbs[0]);
-
-                Self::reduce_ifma(lo, hi)
-            }
+            let (lo, hi) = self.multiply_accum(rhs);
+            Self::reduce_ifma(lo, hi)
         }
         fn pow_p_minus_5_over_8(&self) -> Self {
             let t0 = self.square();
