@@ -295,6 +295,10 @@ impl Fe51 {
         acc
     }
 
+    // Leaves limb 1 with up to one extra carry bit beyond the `< 2^51`
+    // invariant (from the final `h[0] -> h[1]` carry below); every other
+    // limb is fully reduced. `canonical` needs limb 1 fully reduced too
+    // before its `>= p` comparison, so it uses `carry_reduce_fully` instead.
     fn carry_reduce(mut h: [u128; 5]) -> Self {
         let mut i = 0;
         while i < 4 {
@@ -329,7 +333,7 @@ impl Fe51 {
             h[i] = self.limbs[i] as u128;
             i += 1;
         }
-        let mut fe = Self::carry_reduce_loose(h);
+        let mut fe = Self::carry_reduce_fully(h);
         if cmp_limbs(&fe.limbs, &P_LIMBS) != core::cmp::Ordering::Less {
             let mut out = [0u64; 5];
             sub_limbs(&mut out, &fe.limbs, &P_LIMBS);
@@ -338,7 +342,11 @@ impl Fe51 {
         fe
     }
 
-    fn carry_reduce_loose(mut h: [u128; 5]) -> Self {
+    // Like `carry_reduce`, but carries limb 1's extra bit into limb 2 too,
+    // so every limb (not just 0 and 2-4) is `< 2^51`. Needed here, not in
+    // `carry_reduce`, because this is the only caller that compares limbs
+    // against `P_LIMBS` afterward and needs each one fully reduced first.
+    fn carry_reduce_fully(mut h: [u128; 5]) -> Self {
         let mut i = 0;
         while i < 4 {
             let carry = h[i] >> LIMB_BITS;
