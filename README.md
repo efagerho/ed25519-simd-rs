@@ -125,7 +125,7 @@ workloads: it keeps cold or mostly-distinct-key workloads from paying for
 cache bookkeeping they do not use, and it needs no assumptions about the
 shape of the workload to be safe.
 
-Only reach for `LruKeyCache` if you have actual knowledge of your key
+Only reach for `HotKeyCache` if you have actual knowledge of your key
 distribution — specifically, that a small set of keys repeats often enough
 across batches to be worth retaining. Caching a hot set you don't actually
 have wastes memory and bookkeeping for no benefit. The [Hot Key
@@ -134,26 +134,22 @@ that does repeat a small key set; measure your own workload before relying on
 it, since the win shrinks or disappears as the hot set gets larger or less
 repetitive:
 
-- `LruKeyCache::with_capacity(...)` bounds the evictable retained key set;
+- `HotKeyCache::with_capacity(...)` bounds the evictable retained key set;
   pass it to `Verifier::with_cache(...)`.
 - `verifier.cache_mut().preload(...)` decodes and pins known hot keys; pinned
   keys are retained outside the capacity bound and are not evicted. It
   returns the keys that failed to decode instead of silently dropping them.
-- `verifier.cache()` returns `&LruKeyCache`, which exposes optional cache
+- `verifier.cache()` returns `&HotKeyCache`, which exposes optional cache
   stats and hot-key reporting.
-
-Applications that already manage their own small hot set can provide a custom
-`KeyCache` to `Verifier::with_cache(...)`; the cache stores `CachedPublicKey`
-values, so misses decoded by the verifier can be retained without re-decoding.
 
 The verifier keeps any per-chunk decoded tables in local scratch while a chunk
 is being verified, even with `NullKeyCache`:
 
 ```rust,no_run
-use ed25519_simd::{LruKeyCache, Verifier, VerifyPolicy};
+use ed25519_simd::{HotKeyCache, Verifier, VerifyPolicy};
 # let hot_keys: Vec<[u8; 32]> = Vec::new();
 
-let mut verifier = Verifier::with_cache(VerifyPolicy::Zip215, LruKeyCache::new());
+let mut verifier = Verifier::with_cache(VerifyPolicy::Zip215, HotKeyCache::new());
 let rejected = verifier.cache_mut().preload(&hot_keys);
 assert!(rejected.is_empty(), "some hot keys failed to decode: {rejected:?}");
 ```
@@ -186,8 +182,8 @@ Message length 1:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 5.35 | 5.34 | 5.34 | 5.35 |
-| ed25519-simd Dalek null-cache | 5.30 | 5.29 | 5.31 | 5.29 |
+| ed25519-simd Zip215 null-cache | 5.18 | 5.16 | 5.16 | 5.16 |
+| ed25519-simd Dalek null-cache | 5.14 | 5.14 | 5.14 | 5.14 |
 | solana-ed25519 Zip215 batch[^batch-api] | 14.05 | 13.03 | 12.58 | 12.33 |
 | solana-ed25519 Dalek loop | 22.40 | 22.40 | 22.41 | 22.41 |
 | ed25519-dalek batch[^batch-api] | 14.35 | 13.24 | 12.73 | 12.47 |
@@ -201,8 +197,8 @@ Message length 1024:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 5.69 | 5.70 | 5.71 | 5.70 |
-| ed25519-simd Dalek null-cache | 5.64 | 5.67 | 5.65 | 5.67 |
+| ed25519-simd Zip215 null-cache | 5.46 | 5.46 | 5.46 | 5.48 |
+| ed25519-simd Dalek null-cache | 5.40 | 5.42 | 5.42 | 5.40 |
 | solana-ed25519 Zip215 batch[^batch-api] | 15.01 | 14.04 | 13.59 | 13.32 |
 | solana-ed25519 Dalek loop | 23.52 | 23.52 | 23.41 | 23.45 |
 | ed25519-dalek batch[^batch-api] | 15.41 | 14.30 | 13.70 | 13.46 |
@@ -216,8 +212,8 @@ Mixed message lengths:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 5.48 | 5.44 | 5.45 | 5.42 |
-| ed25519-simd Dalek null-cache | 5.45 | 5.37 | 5.38 | 5.36 |
+| ed25519-simd Zip215 null-cache | 5.31 | 5.25 | 5.26 | 5.23 |
+| ed25519-simd Dalek null-cache | 5.25 | 5.21 | 5.21 | 5.19 |
 | solana-ed25519 Zip215 batch[^batch-api] | 14.25 | 13.16 | 12.72 | 12.49 |
 | solana-ed25519 Dalek loop | 22.54 | 22.51 | 22.60 | 22.64 |
 | ed25519-dalek batch[^batch-api] | 14.46 | 13.44 | 12.93 | 12.63 |
@@ -242,15 +238,15 @@ RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f,+avx512dq,+avx512ifma
 ```
 
 This scenario cycles through 4 distinct keys to fill each batch and reuses
-the same `Verifier` across benchmark iterations, so `LruKeyCache` is warm
-(all hits) after the first iteration. It quantifies the `LruKeyCache` win
+the same `Verifier` across benchmark iterations, so `HotKeyCache` is warm
+(all hits) after the first iteration. It quantifies the `HotKeyCache` win
 referenced in [Key Caching](#key-caching) for a workload that actually
 repeats a small key set:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 5.38 | 5.35 | 5.40 | 5.38 |
-| ed25519-simd Zip215 LRU-cache (warm) | 4.81 | 4.81 | 4.86 | 4.84 |
+| ed25519-simd Zip215 null-cache | 5.19 | 5.20 | 5.19 | 5.20 |
+| ed25519-simd Zip215 hot-key cache (warm) | 4.72 | 4.72 | 4.72 | 4.72 |
 
 ## Compatibility Target
 
