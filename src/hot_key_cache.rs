@@ -118,12 +118,32 @@ impl HotKeyCache {
     /// Decode and pin the given keys so they are retained outside the eviction
     /// bound. Returns the keys that failed to decode (and so were not
     /// pinned), in the order given; an empty vector means every key succeeded.
+    ///
+    /// Pinning has no expiry; call [`HotKeyCache::unpin`] to release keys
+    /// pinned by an earlier call (e.g. a validator set that has rotated out),
+    /// or repeated `preload` calls on an ever-growing key set will retain
+    /// every key ever pinned for the cache's lifetime.
     #[must_use]
     pub fn preload(&mut self, keys: &[[u8; PUBLIC_KEY_LEN]]) -> Vec<[u8; PUBLIC_KEY_LEN]> {
         keys.iter()
             .copied()
             .filter(|key| !self.insert_encoded(*key, true))
             .collect()
+    }
+
+    /// Release the pin on the given keys, making them ordinary evictable
+    /// entries again (still resident until capacity pressure evicts them,
+    /// same as any other entry). Keys that are absent or were never pinned
+    /// are silently ignored.
+    pub fn unpin(&mut self, keys: &[[u8; PUBLIC_KEY_LEN]]) {
+        for key in keys {
+            if let Some(entry) = self.keys.get(key)
+                && entry.pinned.replace(false)
+            {
+                self.pinned_keys -= 1;
+            }
+        }
+        self.evict_to_capacity(None);
     }
 
     fn tick(&self) -> u64 {

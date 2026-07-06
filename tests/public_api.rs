@@ -200,6 +200,32 @@ fn hot_key_cache_set_capacity_clamps_and_evicts_immediately() {
 }
 
 #[test]
+fn hot_key_cache_unpin_releases_capacity() {
+    let mut cache = HotKeyCache::with_capacity(1);
+    assert!(cache.preload(&[rfc8032_key0()]).is_empty());
+    cache.insert(CachedPublicKey::from_encoded(rfc8032_key1()).unwrap());
+    let stats = cache.stats();
+    assert_eq!(stats.keys, 2);
+    assert_eq!(stats.pinned_keys, 1);
+    assert_eq!(stats.evictions, 0, "a pinned key must not be evicted by another insert");
+
+    // Unpinning key0 makes it an ordinary evictable entry again; `unpin`
+    // reclaims capacity immediately rather than waiting for the next insert.
+    cache.unpin(&[rfc8032_key0()]);
+    let stats = cache.stats();
+    assert_eq!(stats.pinned_keys, 0);
+    assert_eq!(stats.keys, 1);
+    assert_eq!(stats.evictions, 1);
+    assert!(cache.get(&rfc8032_key1()).is_some());
+    assert!(cache.get(&rfc8032_key0()).is_none());
+
+    // Unpinning an absent/never-pinned key is a harmless no-op.
+    cache.unpin(&[rfc8032_key0()]);
+    assert_eq!(cache.stats().pinned_keys, 0);
+    assert_eq!(cache.stats().evictions, 1);
+}
+
+#[test]
 fn verifier_exposes_cache_mut_and_policy() {
     let mut verifier = Verifier::with_cache(VerifyPolicy::Dalek, HotKeyCache::new());
     assert_eq!(verifier.policy(), VerifyPolicy::Dalek);
