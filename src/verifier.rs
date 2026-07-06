@@ -7,6 +7,7 @@ use crate::policy::{VerifyPolicy, r_encoding_has_canonical_y, r_encoding_is_lega
 use crate::scalar::{self, Radix16, Scalar};
 use crate::sha512;
 use crate::wide::avx512ifma;
+use std::sync::LazyLock;
 
 #[derive(Clone, Copy, Debug)]
 pub struct VerifyInput<'a> {
@@ -17,10 +18,16 @@ pub struct VerifyInput<'a> {
 
 const SIMD_LANES: usize = batch::SIMD_LANES;
 
+// The base-point table (all 273 precomputed multiples used by the multi-scalar
+// ladder, ~43KB) is identical for every `Verifier` regardless of policy or
+// cache choice, so it's built once per process and shared by reference rather
+// than reconstructed (135 point doublings/additions) for every instance.
+static BASE_TABLE: LazyLock<BasepointTable> = LazyLock::new(BasepointTable::new);
+
 #[derive(Debug)]
 pub struct Verifier<C: KeyCache = NullKeyCache> {
     policy: VerifyPolicy,
-    base_table: BasepointTable,
+    base_table: &'static BasepointTable,
     identity_table: PointTable,
     bucket_order: Vec<usize>,
     cache: C,
@@ -62,7 +69,7 @@ impl<C: KeyCache> Verifier<C> {
         cpuid::assert_required_avx512_runtime_support();
         Self {
             policy,
-            base_table: BasepointTable::new(),
+            base_table: &*BASE_TABLE,
             identity_table: PointTable::new(&EdwardsPoint::identity()),
             bucket_order: Vec::new(),
             cache,
@@ -235,7 +242,7 @@ impl<C: KeyCache> Verifier<C> {
                         }
                     };
                     let simd =
-                        avx512ifma::verify_prepared_zip215(&prepared, &r_points, &self.base_table);
+                        avx512ifma::verify_prepared_zip215(&prepared, &r_points, self.base_table);
                     lane = 0;
                     while lane < SIMD_LANES {
                         out[lane] = simd[lane] && valid[lane] && r_valid_lanes[lane];
@@ -247,7 +254,7 @@ impl<C: KeyCache> Verifier<C> {
                         let simd = avx512ifma::verify_prepared_dalek_projective(
                             &prepared,
                             &r_points,
-                            &self.base_table,
+                            self.base_table,
                         );
                         lane = 0;
                         while lane < SIMD_LANES {
@@ -262,7 +269,7 @@ impl<C: KeyCache> Verifier<C> {
                         let simd = avx512ifma::verify_prepared_dalek(
                             &prepared,
                             &r_bytes,
-                            &self.base_table,
+                            self.base_table,
                         );
                         lane = 0;
                         while lane < SIMD_LANES {
