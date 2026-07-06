@@ -77,32 +77,6 @@ const LEGACY_EXCLUDED_R_ENCODINGS: [[u8; 32]; 11] = [
     ],
 ];
 
-/// The Ed25519 field modulus `p = 2^255 - 19`, encoded little-endian.
-///
-/// Ed25519 point encodings store the sign of `x` in the high bit of the last
-/// byte, so `r_encoding_has_canonical_y` clears that bit and compares the
-/// remaining 255-bit little-endian `y` value against this bound.
-const FIELD_P_BYTES: [u8; 32] = [
-    0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f,
-];
-
 pub(crate) fn r_encoding_is_legacy_excluded(r_bytes: &[u8; 32]) -> bool {
     LEGACY_EXCLUDED_R_ENCODINGS.contains(r_bytes)
-}
-
-pub(crate) fn r_encoding_has_canonical_y(r_bytes: &[u8; 32]) -> bool {
-    let mut y = *r_bytes;
-    y[31] &= 0x7f;
-    let mut i = 32;
-    while i > 0 {
-        i -= 1;
-        if y[i] < FIELD_P_BYTES[i] {
-            return true;
-        }
-        if y[i] > FIELD_P_BYTES[i] {
-            return false;
-        }
-    }
-    false
 }
