@@ -1,15 +1,16 @@
+use crate::batch::PUBLIC_KEY_LEN;
 use crate::edwards::{EdwardsPoint, PointTable};
 
 /// A decoded public key and its precomputed multiplication table.
 #[derive(Clone, Debug)]
 pub struct CachedPublicKey {
-    pub(crate) encoded: [u8; 32],
+    pub(crate) encoded: [u8; PUBLIC_KEY_LEN],
     pub(crate) table: PointTable,
 }
 
 impl CachedPublicKey {
     /// Build a cached public key from its encoded bytes.
-    pub fn from_encoded(encoded: [u8; 32]) -> Option<Self> {
+    pub fn from_encoded(encoded: [u8; PUBLIC_KEY_LEN]) -> Option<Self> {
         EdwardsPoint::decompress(&encoded).map(|point| Self {
             encoded,
             table: PointTable::new(&point),
@@ -17,7 +18,7 @@ impl CachedPublicKey {
     }
 
     /// Return the encoded public key bytes this was built from.
-    pub fn encoded(&self) -> [u8; 32] {
+    pub fn encoded(&self) -> [u8; PUBLIC_KEY_LEN] {
         self.encoded
     }
 }
@@ -32,7 +33,7 @@ impl CachedPublicKey {
 pub trait KeyCache {
     /// Borrow a cached key, or `None` if it is absent. Implementations may
     /// update hit counters or recency state through interior mutability.
-    fn get(&self, encoded: &[u8; 32]) -> Option<&CachedPublicKey>;
+    fn get(&self, encoded: &[u8; PUBLIC_KEY_LEN]) -> Option<&CachedPublicKey>;
 
     /// Optionally retain an already-decoded key for later chunks or batches.
     /// The default implementation leaves the cache unchanged.
@@ -51,7 +52,7 @@ impl NullKeyCache {
 
 impl KeyCache for NullKeyCache {
     #[inline]
-    fn get(&self, _encoded: &[u8; 32]) -> Option<&CachedPublicKey> {
+    fn get(&self, _encoded: &[u8; PUBLIC_KEY_LEN]) -> Option<&CachedPublicKey> {
         None
     }
 }

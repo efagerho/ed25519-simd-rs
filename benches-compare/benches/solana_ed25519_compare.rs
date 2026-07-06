@@ -11,7 +11,7 @@ use ed25519_dalek::{
     Signature as DalekSignature, Verifier as DalekVerifier, VerifyingKey as DalekVerifyingKey,
     verify_batch as dalek_verify_batch,
 };
-use ed25519_simd::{NullKeyCache, Verifier, VerifyInput, VerifyPolicy};
+use ed25519_simd::{LruKeyCache, NullKeyCache, Verifier, VerifyInput, VerifyPolicy};
 use openssl::{pkey::{Id as OpenSslId, PKey}, sign::Verifier as OpenSslVerifier};
 use sodiumoxide::crypto::sign::ed25519::{
     PublicKey as SodiumPublicKey, Signature as SodiumSignature, verify_detached as sodium_verify,
@@ -251,7 +251,7 @@ fn bench_ours_lru_cache(
     inputs: &[VerifyInput<'_>],
 ) {
     group.bench_with_input(BenchmarkId::new(name, n), &n, |b, _| {
-        let mut verifier = Verifier::with_cache_capacity(policy, hot_key_count);
+        let mut verifier = Verifier::with_cache(policy, LruKeyCache::with_capacity(hot_key_count));
         let mut out = vec![false; inputs.len()];
         b.iter(|| {
             verifier.verify_batch(black_box(inputs), &mut out);

@@ -1,3 +1,4 @@
+use crate::batch::PUBLIC_KEY_LEN;
 use crate::cache::{CachedPublicKey, KeyCache};
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -6,14 +7,24 @@ use std::collections::HashMap;
 /// bounding its cost independent of cache size. See `evict_to_capacity`.
 const EVICTION_SAMPLE: usize = 8;
 
+/// Snapshot of an [`LruKeyCache`]'s counters and occupancy at the moment
+/// [`LruKeyCache::stats`] was called.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CacheStats {
+    /// Total resident keys, including pinned ones.
     pub keys: usize,
+    /// Resident keys pinned by [`LruKeyCache::preload`]; not counted against `capacity`.
     pub pinned_keys: usize,
-    pub max_keys: Option<usize>,
+    /// The evictable capacity passed to [`LruKeyCache::with_capacity`]/[`LruKeyCache::set_capacity`],
+    /// or `None` for an unbounded cache. Pinned keys may push `keys` above this.
+    pub capacity: Option<usize>,
+    /// Total [`KeyCache::get`]/[`KeyCache::insert`] calls that found a resident key.
     pub hits: u64,
+    /// Total [`KeyCache::get`]/[`KeyCache::insert`] calls that found no resident key.
     pub misses: u64,
+    /// Total keys newly decoded and inserted (cumulative; not reduced by eviction).
     pub inserts: u64,
+    /// Total keys evicted to stay within `capacity`.
     pub evictions: u64,
 }
 
@@ -30,8 +41,8 @@ struct LruEntry {
 /// set of repeating keys.
 #[derive(Debug)]
 pub struct LruKeyCache {
-    keys: HashMap<[u8; 32], LruEntry>,
-    max_cached_keys: Option<usize>,
+    keys: HashMap<[u8; PUBLIC_KEY_LEN], LruEntry>,
+    capacity: Option<usize>,
     hits: Cell<u64>,
     misses: Cell<u64>,
     inserts: Cell<u64>,
@@ -50,7 +61,7 @@ impl LruKeyCache {
     pub fn new() -> Self {
         Self {
             keys: HashMap::new(),
-            max_cached_keys: None,
+            capacity: None,
             hits: Cell::new(0),
             misses: Cell::new(0),
             inserts: Cell::new(0),
@@ -62,17 +73,17 @@ impl LruKeyCache {
     /// Create a cache bounded to at least one evictable retained key.
     ///
     /// Preloaded keys are pinned and do not count as evictable capacity.
-    pub fn with_capacity(max_cached_keys: usize) -> Self {
+    pub fn with_capacity(capacity: usize) -> Self {
         let mut cache = Self::new();
-        cache.set_capacity(Some(max_cached_keys));
+        cache.set_capacity(Some(capacity));
         cache
     }
 
     /// Set the maximum evictable retained key count, or `None` for an unbounded cache.
     ///
     /// Preloaded keys are pinned and may make total occupancy exceed this value.
-    pub fn set_capacity(&mut self, max_cached_keys: Option<usize>) {
-        self.max_cached_keys = max_cached_keys.map(|keys| keys.max(1));
+    pub fn set_capacity(&mut self, capacity: Option<usize>) {
+        self.capacity = capacity.map(|capacity| capacity.max(1));
         self.evict_to_capacity(None);
     }
 
@@ -85,7 +96,7 @@ impl LruKeyCache {
                 .values()
                 .filter(|entry| entry.pinned.get())
                 .count(),
-            max_keys: self.max_cached_keys,
+            capacity: self.capacity,
             hits: self.hits.get(),
             misses: self.misses.get(),
             inserts: self.inserts.get(),
@@ -94,7 +105,7 @@ impl LruKeyCache {
     }
 
     /// Return up to `limit` keys ordered by hit count and recent use.
-    pub fn hot_public_keys(&self, limit: usize) -> Vec<[u8; 32]> {
+    pub fn hot_public_keys(&self, limit: usize) -> Vec<[u8; PUBLIC_KEY_LEN]> {
         let mut entries: Vec<&LruEntry> = self.keys.values().collect();
         entries.sort_by(|lhs, rhs| {
             rhs.hits
@@ -109,11 +120,15 @@ impl LruKeyCache {
             .collect()
     }
 
-    /// Decode and pin the given keys so they are retained outside the eviction bound.
-    pub fn preload(&mut self, keys: &[[u8; 32]]) {
-        for key in keys {
-            self.insert_encoded(*key, true);
-        }
+    /// Decode and pin the given keys so they are retained outside the eviction
+    /// bound. Returns the keys that failed to decode (and so were not
+    /// pinned), in the order given; an empty vector means every key succeeded.
+    #[must_use]
+    pub fn preload(&mut self, keys: &[[u8; PUBLIC_KEY_LEN]]) -> Vec<[u8; PUBLIC_KEY_LEN]> {
+        keys.iter()
+            .copied()
+            .filter(|key| !self.insert_encoded(*key, true))
+            .collect()
     }
 
     fn tick(&self) -> u64 {
@@ -122,7 +137,7 @@ impl LruKeyCache {
         next
     }
 
-    fn insert_encoded(&mut self, encoded: [u8; 32], pinned: bool) -> bool {
+    fn insert_encoded(&mut self, encoded: [u8; PUBLIC_KEY_LEN], pinned: bool) -> bool {
         if let Some(entry) = self.keys.get(&encoded) {
             self.touch_entry(entry);
             if pinned {
@@ -167,12 +182,12 @@ impl LruKeyCache {
         self.evict_to_capacity(Some(encoded));
     }
 
-    fn evict_to_capacity(&mut self, protected: Option<[u8; 32]>) {
-        let Some(max_cached_keys) = self.max_cached_keys else {
+    fn evict_to_capacity(&mut self, protected: Option<[u8; PUBLIC_KEY_LEN]>) {
+        let Some(capacity) = self.capacity else {
             return;
         };
 
-        while self.keys.len() > max_cached_keys {
+        while self.keys.len() > capacity {
             // Bound the scan to a fixed-size sample of eligible candidates
             // instead of the whole map, the same approximation production
             // caches (e.g. Redis's `maxmemory-samples`) make to keep eviction
@@ -200,7 +215,7 @@ impl LruKeyCache {
 
 impl KeyCache for LruKeyCache {
     #[inline]
-    fn get(&self, encoded: &[u8; 32]) -> Option<&CachedPublicKey> {
+    fn get(&self, encoded: &[u8; PUBLIC_KEY_LEN]) -> Option<&CachedPublicKey> {
         let entry = self.keys.get(encoded)?;
         self.touch_entry(entry);
         Some(&entry.key)

@@ -2,17 +2,21 @@ use crate::batch::{self, PreparedBatch};
 use crate::cache::{CachedPublicKey, KeyCache, NullKeyCache};
 use crate::cpuid;
 use crate::edwards::{BasepointTable, EdwardsPoint, PointTable};
-use crate::lru_cache::LruKeyCache;
 use crate::policy::{VerifyPolicy, r_encoding_is_legacy_excluded};
 use crate::scalar::{self, Radix16, Scalar};
 use crate::sha512;
 use crate::wide::avx512ifma;
 use std::sync::LazyLock;
 
+/// One signature verification request: a public key, a signature over
+/// `message`, and the message itself.
 #[derive(Clone, Copy, Debug)]
 pub struct VerifyInput<'a> {
+    /// Encoded Ed25519 public key.
     pub public_key: [u8; batch::PUBLIC_KEY_LEN],
+    /// Encoded Ed25519 signature (`R || S`).
     pub signature: [u8; batch::SIGNATURE_LEN],
+    /// The signed message.
     pub message: &'a [u8],
 }
 
@@ -30,6 +34,10 @@ static BASE_TABLE: LazyLock<BasepointTable> = LazyLock::new(BasepointTable::new)
 static IDENTITY_TABLE: LazyLock<PointTable> =
     LazyLock::new(|| PointTable::new(&EdwardsPoint::identity()));
 
+/// Batch Ed25519 signature verifier for a fixed [`VerifyPolicy`] and
+/// [`KeyCache`]. Construction is not free (it builds/shares the base-point
+/// table and validates AVX-512 support), so build one and reuse it across
+/// calls to [`verify_batch`](Verifier::verify_batch).
 #[derive(Debug)]
 pub struct Verifier<C: KeyCache = NullKeyCache> {
     policy: VerifyPolicy,
@@ -50,30 +58,38 @@ impl Default for Verifier<NullKeyCache> {
 
 impl Verifier<NullKeyCache> {
     /// Create a verifier with the default policy and no retained-key cache.
+    ///
+    /// # Panics
+    ///
+    /// Panics if this binary was not built with the AVX-512 features this
+    /// crate requires enabled for the running CPU; see the crate-level
+    /// [Requirements](crate#requirements) section.
     pub fn new() -> Self {
         Self::with_policy(VerifyPolicy::default())
     }
 
     /// Create a verifier with a specific policy and no retained-key cache.
+    ///
+    /// # Panics
+    ///
+    /// Panics under the same condition as [`Verifier::new`].
     pub fn with_policy(policy: VerifyPolicy) -> Self {
         Self::with_cache(policy, NullKeyCache::new())
     }
 }
 
-impl Verifier<LruKeyCache> {
-    /// Create a verifier with a specific policy and capacity-bounded evictable LRU cache.
-    pub fn with_cache_capacity(policy: VerifyPolicy, max_cached_keys: usize) -> Self {
-        Self::with_cache(policy, LruKeyCache::with_capacity(max_cached_keys))
-    }
-
-    /// Decode and pin keys in the LRU cache outside the eviction bound.
-    pub fn preload_public_keys(&mut self, keys: &[[u8; 32]]) {
-        self.cache.preload(keys);
-    }
-}
-
 impl<C: KeyCache> Verifier<C> {
-    /// Create a verifier backed by a caller-provided cache.
+    /// Create a verifier backed by a caller-provided cache. Use
+    /// [`LruKeyCache::with_capacity`](crate::LruKeyCache::with_capacity) for
+    /// a capacity-bounded evictable cache:
+    /// `Verifier::with_cache(policy, LruKeyCache::with_capacity(n))`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if this binary was not built with the AVX-512 features this
+    /// crate requires enabled for the running CPU; see the crate-level
+    /// [Requirements](crate#requirements) section. This is a guard against a
+    /// bare `SIGILL`, not a complete one — see that section for why.
     pub fn with_cache(policy: VerifyPolicy, cache: C) -> Self {
         cpuid::assert_required_avx512_runtime_support();
         Self {
@@ -100,7 +116,12 @@ impl<C: KeyCache> Verifier<C> {
         self.policy
     }
 
-    /// Verify a batch and write one boolean result per input.
+    /// Verify a batch and write one boolean result per input. `out[i]` is
+    /// `true` iff `inputs[i]`'s signature is valid for its `(public_key, message)`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `inputs.len() != out.len()`.
     pub fn verify_batch(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
         assert_eq!(inputs.len(), out.len());
         let mut bucket_order = core::mem::take(&mut self.bucket_order);

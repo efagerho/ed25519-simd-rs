@@ -90,12 +90,12 @@ key cache, so construction is not free — build it once and call `verify_batch`
 repeatedly:
 
 ```rust,no_run
-use ed25519_simd::{Verifier, VerifyInput, VerifyPolicy};
+use ed25519_simd::{Verifier, VerifyInput};
 # let public_key = [0u8; 32];
 # let signature = [0u8; 64];
 # let message: &[u8] = b"hello";
 
-let mut verifier = Verifier::with_policy(VerifyPolicy::Zip215);
+let mut verifier = Verifier::new();
 
 let inputs = [VerifyInput {
     public_key,
@@ -109,7 +109,11 @@ verifier.verify_batch(&inputs, &mut out);
 ```
 
 Each output entry corresponds to the input at the same index, so callers can see
-which signatures passed or failed.
+which signatures passed or failed. `out` must be the same length as `inputs`;
+`verify_batch` panics otherwise. `Verifier::new()` uses the default
+`VerifyPolicy::Zip215` policy and no retained-key cache; see
+[Verification Policies](#verification-policies) and [Key
+Caching](#key-caching) for the other constructors.
 
 ## Key Caching
 
@@ -130,9 +134,11 @@ that does repeat a small key set; measure your own workload before relying on
 it, since the win shrinks or disappears as the hot set gets larger or less
 repetitive:
 
-- `with_cache_capacity(...)` bounds the evictable retained key set.
-- `preload_public_keys(...)` decodes and pins known hot keys; pinned keys are
-  retained outside the capacity bound and are not evicted.
+- `LruKeyCache::with_capacity(...)` bounds the evictable retained key set;
+  pass it to `Verifier::with_cache(...)`.
+- `verifier.cache_mut().preload(...)` decodes and pins known hot keys; pinned
+  keys are retained outside the capacity bound and are not evicted. It
+  returns the keys that failed to decode instead of silently dropping them.
 - `verifier.cache()` returns `&LruKeyCache`, which exposes optional cache
   stats and hot-key reporting.
 
@@ -148,7 +154,8 @@ use ed25519_simd::{LruKeyCache, Verifier, VerifyPolicy};
 # let hot_keys: Vec<[u8; 32]> = Vec::new();
 
 let mut verifier = Verifier::with_cache(VerifyPolicy::Zip215, LruKeyCache::new());
-verifier.preload_public_keys(&hot_keys);
+let rejected = verifier.cache_mut().preload(&hot_keys);
+assert!(rejected.is_empty(), "some hot keys failed to decode: {rejected:?}");
 ```
 
 ## SIMD Path
