@@ -108,7 +108,13 @@ impl PointTable {
     /// Select the cached point for a signed digit in `-8..=8`.
     pub(crate) fn select_signed_cached_ref(&self, digit: i8) -> &CachedPoint {
         debug_assert!((-8..=8).contains(&digit));
-        &self.entries[(digit + 8) as usize]
+        // SAFETY: `digit` is a balanced radix-16 digit from `to_radix16`,
+        // whose windowing algorithm always produces a value in `-8..=8`
+        // (checked above in debug), so `digit + 8` is always in `0..=16`, in
+        // bounds for `entries`. This runs ~64 times per lane per verified
+        // chunk, so eliding the bounds check here removes a real, measured
+        // cost from the hottest loop in the crate.
+        unsafe { self.entries.get_unchecked((digit + 8) as usize) }
     }
 }
 
@@ -138,7 +144,17 @@ impl BasepointTable {
         debug_assert!(
             (-(BASEPOINT_TABLE_SIZE as i16)..=(BASEPOINT_TABLE_SIZE as i16)).contains(&digit)
         );
-        &self.entries[(digit + BASEPOINT_TABLE_SIZE as i16) as usize]
+        // SAFETY: `digit` is `base_pair_digit`'s folded radix-256 digit,
+        // whose magnitude is bounded by `8 + 8*16 = 136 == BASEPOINT_TABLE_SIZE`
+        // (checked above in debug), so `digit + BASEPOINT_TABLE_SIZE` is
+        // always in `0..=2*BASEPOINT_TABLE_SIZE`, in bounds for `entries`.
+        // This runs ~32 times per lane per verified chunk, so eliding the
+        // bounds check here removes a real, measured cost from the hottest
+        // loop in the crate.
+        unsafe {
+            self.entries
+                .get_unchecked((digit + BASEPOINT_TABLE_SIZE as i16) as usize)
+        }
     }
 }
 
