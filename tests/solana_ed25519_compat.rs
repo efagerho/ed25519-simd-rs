@@ -252,6 +252,62 @@ fn block_count_bucketed_batches_match_solana_ed25519() {
     }
 }
 
+/// `block_count_bucketed_batches_match_solana_ed25519` above always uses a
+/// batch size that's an exact multiple of `SIMD_LANES` (8), so the bucketed
+/// path's tail-padding remainder branch (`for_each_bucketed_simd_chunk`'s
+/// `rem > 0` case) never runs there or in any other bucketing test. This uses
+/// 17 inputs (>= the 16-input bucketing threshold, mixed lengths, and not a
+/// multiple of 8) to force that branch and check it against solana-ed25519.
+#[test]
+fn block_count_bucketed_batch_with_non_multiple_of_eight_tail_matches_solana_ed25519() {
+    let lengths = [
+        1usize, 2048, 64, 1024, 2, 1536, 128, 4096, 3, 512, 65, 2047, 4, 256, 112, 3072, 5,
+    ];
+    assert_eq!(lengths.len(), 17, "must not be a multiple of SIMD_LANES (8)");
+
+    let mut rng = Lcg(0xba7c_4ed0_7a11);
+    let mut cases = Vec::with_capacity(lengths.len());
+
+    for (idx, &len) in lengths.iter().enumerate() {
+        let mut message = vec![0u8; len];
+        rng.fill(&mut message);
+        let signing_key = signing_key_from_index(idx as u64 + 20_000);
+        let public_key = <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key));
+        let mut signature = signing_key.sign(&message).to_bytes();
+        if idx % 5 == 2 {
+            signature[(idx * 13) % 64] ^= 0x20;
+        }
+        cases.push(Case {
+            public_key,
+            signature,
+            message,
+        });
+    }
+
+    let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|c| c.input()).collect();
+    let policies: [(VerifyPolicy, SolanaEd25519VerifyFn); 2] = [
+        (VerifyPolicy::Zip215, solana_ed25519_verify_zebra),
+        (VerifyPolicy::Dalek, solana_ed25519_verify_dalek),
+    ];
+
+    for (policy, solana_ed25519) in policies {
+        let expected: Vec<bool> = inputs
+            .iter()
+            .map(|input| solana_ed25519(input.public_key, input.signature, input.message))
+            .collect();
+
+        let mut cached = Verifier::with_cache(policy, HotKeyCache::new());
+        let mut cached_out = vec![false; inputs.len()];
+        cached.verify_batch(&inputs, &mut cached_out);
+        assert_eq!(cached_out, expected, "hot-key cache policy={policy:?}");
+
+        let mut cold = Verifier::with_cache(policy, NullKeyCache::new());
+        let mut cold_out = vec![false; inputs.len()];
+        cold.verify_batch(&inputs, &mut cold_out);
+        assert_eq!(cold_out, expected, "null-cache policy={policy:?}");
+    }
+}
+
 /// Stresses the SIMD distinct-key decode/table path against solana-ed25519.
 #[test]
 fn null_cache_decode_build_stress() {
