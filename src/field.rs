@@ -292,11 +292,11 @@ impl Fe51 {
         acc
     }
 
-    // Leaves limb 1 with up to one extra carry bit beyond the `< 2^51`
-    // invariant (from the final `h[0] -> h[1]` carry below); every other
-    // limb is fully reduced. `canonical` needs limb 1 fully reduced too
-    // before its `>= p` comparison, so it uses `carry_reduce_fully` instead.
-    fn carry_reduce(mut h: [u128; 5]) -> Self {
+    // Shared carry-propagation prefix for `carry_reduce`/`carry_reduce_fully`:
+    // masks limbs 0 and 2-4 to `< 2^51` and folds the wraparound bit into
+    // limb 0, leaving limb 1 with up to one extra carry bit. See callers for
+    // how each finishes and packs the result into `u64` limbs.
+    fn carry_reduce_prefix(mut h: [u128; 5]) -> [u128; 5] {
         let mut i = 0;
         while i < 4 {
             let carry = h[i] >> LIMB_BITS;
@@ -313,14 +313,26 @@ impl Fe51 {
         h[0] &= MASK as u128;
         h[1] += carry;
 
+        h
+    }
+
+    fn pack_limbs(h: [u128; 5]) -> Self {
         let mut limbs = [0u64; 5];
         let mut i = 0;
         while i < 5 {
             limbs[i] = h[i] as u64;
             i += 1;
         }
-
         Self { limbs }
+    }
+
+    // Leaves limb 1 with up to one extra carry bit beyond the `< 2^51`
+    // invariant (from `carry_reduce_prefix`'s final `h[0] -> h[1]` carry);
+    // every other limb is fully reduced. `canonical` needs limb 1 fully
+    // reduced too before its `>= p` comparison, so it uses
+    // `carry_reduce_fully` instead.
+    fn carry_reduce(h: [u128; 5]) -> Self {
+        Self::pack_limbs(Self::carry_reduce_prefix(h))
     }
 
     fn canonical(&self) -> Self {
@@ -343,34 +355,12 @@ impl Fe51 {
     // so every limb (not just 0 and 2-4) is `< 2^51`. Needed here, not in
     // `carry_reduce`, because this is the only caller that compares limbs
     // against `P_LIMBS` afterward and needs each one fully reduced first.
-    fn carry_reduce_fully(mut h: [u128; 5]) -> Self {
-        let mut i = 0;
-        while i < 4 {
-            let carry = h[i] >> LIMB_BITS;
-            h[i] &= MASK as u128;
-            h[i + 1] += carry;
-            i += 1;
-        }
-
-        let carry = h[4] >> LIMB_BITS;
-        h[4] &= MASK as u128;
-        h[0] += carry * 19;
-
-        let carry = h[0] >> LIMB_BITS;
-        h[0] &= MASK as u128;
-        h[1] += carry;
-
+    fn carry_reduce_fully(h: [u128; 5]) -> Self {
+        let mut h = Self::carry_reduce_prefix(h);
         let carry = h[1] >> LIMB_BITS;
         h[1] &= MASK as u128;
         h[2] += carry;
-
-        let mut limbs = [0u64; 5];
-        let mut i = 0;
-        while i < 5 {
-            limbs[i] = h[i] as u64;
-            i += 1;
-        }
-        Self { limbs }
+        Self::pack_limbs(h)
     }
 }
 
