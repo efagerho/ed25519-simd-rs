@@ -93,7 +93,7 @@ impl Fe51 {
         }
     }
 
-    pub(crate) fn to_bytes(&self) -> [u8; 32] {
+    pub(crate) fn to_bytes(self) -> [u8; 32] {
         let l = self.canonical().limbs;
         [
             l[0] as u8,
@@ -145,13 +145,7 @@ impl Fe51 {
         // Bias by 16*p so the limb-wise difference cannot underflow: operand
         // limbs are < 2^52 (the loosely-reduced invariant) while every bias
         // limb is >= 2^55 - 304, and the sums stay well below 2^64.
-        const BIAS: [u64; 5] = [
-            16 * (MASK - 18),
-            16 * MASK,
-            16 * MASK,
-            16 * MASK,
-            16 * MASK,
-        ];
+        const BIAS: [u64; 5] = [16 * (MASK - 18), 16 * MASK, 16 * MASK, 16 * MASK, 16 * MASK];
         let mut h = [0u128; 5];
         let mut i = 0;
         while i < 5 {
