@@ -19,14 +19,11 @@ pub(crate) mod avx512ifma {
     pub(crate) struct WideRPoints(WidePoint);
 
     impl WideRPoints {
-        /// Re-encode the decompressed points. Comparing this against the
-        /// original bytes proves the input encoding was already canonical:
-        /// decompression accepts some non-canonical byte encodings (e.g. a
-        /// set sign bit on an `x == 0` point) that decode to the same point,
-        /// so an affine/projective equality check alone would wrongly accept
-        /// them under a policy that requires an exact canonical `R`.
-        pub(crate) fn compress(&self) -> [[u8; 32]; LANES] {
-            self.0.compress()
+        /// Decompression accepts "negative zero" encodings where the sign bit
+        /// is set for an `x == 0` point. Dalek rejects those encodings, so the
+        /// verifier checks these lanes in addition to canonical `y` bytes.
+        pub(crate) fn x_zero_lanes(&self) -> [bool; LANES] {
+            self.0.x.is_zero_lanes()
         }
     }
 
@@ -1275,8 +1272,8 @@ pub(crate) mod avx512ifma {
             let wide = wide_from_rows(rows);
             let canonical = wide.canonical();
             let mut canonical_rows = [[0u64; LANES]; 5];
-            for limb in 0..5 {
-                storeu(canonical.limbs[limb], &mut canonical_rows[limb]);
+            for (limb, row) in canonical_rows.iter_mut().enumerate() {
+                storeu(canonical.limbs[limb], row);
             }
             let is_zero = wide.is_zero_lanes();
             let is_odd = wide.is_odd_lanes();
@@ -1285,7 +1282,10 @@ pub(crate) mod avx512ifma {
                 let input: [u64; 5] = core::array::from_fn(|limb| rows[limb][lane]);
                 let expected = canonicalize_field_limbs(input);
                 let actual: [u64; 5] = core::array::from_fn(|limb| canonical_rows[limb][lane]);
-                assert_eq!(actual, expected, "lane {lane} diverged from scalar reference");
+                assert_eq!(
+                    actual, expected,
+                    "lane {lane} diverged from scalar reference"
+                );
                 assert_eq!(
                     is_zero[lane],
                     expected == [0u64; 5],
@@ -1359,9 +1359,9 @@ pub(crate) mod avx512ifma {
             let mut round = 0;
             while round < 512 {
                 let mut rows = [[0u64; LANES]; 5];
-                for lane in 0..LANES {
-                    for limb in 0..5 {
-                        rows[limb][lane] = next() & ((1u64 << 52) - 1);
+                for row in &mut rows {
+                    for value in row {
+                        *value = next() & ((1u64 << 52) - 1);
                     }
                 }
                 check_canonical(rows);

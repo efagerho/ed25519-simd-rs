@@ -2,7 +2,7 @@ use crate::batch::{self, PreparedBatch};
 use crate::cache::{CachedPublicKey, KeyCache, NullKeyCache};
 use crate::cpuid;
 use crate::edwards::{BasepointTable, EdwardsPoint, PointTable};
-use crate::policy::{VerifyPolicy, r_encoding_is_legacy_excluded};
+use crate::policy::{VerifyPolicy, r_encoding_has_canonical_y, r_encoding_is_legacy_excluded};
 use crate::scalar::{self, Radix16, Scalar};
 use crate::sha512;
 use crate::wide::avx512ifma;
@@ -33,6 +33,14 @@ static BASE_TABLE: LazyLock<BasepointTable> = LazyLock::new(BasepointTable::new)
 // by reference instead of rebuilt (17 `CachedPoint`s) per instance.
 static IDENTITY_TABLE: LazyLock<PointTable> =
     LazyLock::new(|| PointTable::new(&EdwardsPoint::identity()));
+
+struct ChunkParts<'a> {
+    valid: [bool; SIMD_LANES],
+    r_bytes: [[u8; 32]; SIMD_LANES],
+    public_keys: [[u8; 32]; SIMD_LANES],
+    s_digits: [Radix16; SIMD_LANES],
+    messages: [&'a [u8]; SIMD_LANES],
+}
 
 /// Batch Ed25519 signature verifier for a fixed [`VerifyPolicy`] and
 /// [`KeyCache`]. Construction is not free (it builds/shares the base-point
@@ -80,9 +88,9 @@ impl Verifier<NullKeyCache> {
 
 impl<C: KeyCache> Verifier<C> {
     /// Create a verifier backed by a caller-provided cache. Use
-    /// [`LruKeyCache::with_capacity`](crate::LruKeyCache::with_capacity) for
+    /// [`HotKeyCache::with_capacity`](crate::HotKeyCache::with_capacity) for
     /// a capacity-bounded evictable cache:
-    /// `Verifier::with_cache(policy, LruKeyCache::with_capacity(n))`.
+    /// `Verifier::with_cache(policy, HotKeyCache::with_capacity(n))`.
     ///
     /// # Panics
     ///
@@ -145,64 +153,33 @@ impl<C: KeyCache> Verifier<C> {
     ) {
         let policy = self.policy;
 
-        // Parse R, public keys, and s (per-lane validity for non-canonical s).
-        let mut valid = [true; SIMD_LANES];
-        let mut r_bytes = [[0u8; 32]; SIMD_LANES];
-        let mut public_keys = [[0u8; 32]; SIMD_LANES];
-        let mut s_digits = [[0i8; 64]; SIMD_LANES];
-        let mut lane = 0;
-        while lane < SIMD_LANES {
-            r_bytes[lane].copy_from_slice(&inputs[lane].signature[..32]);
-
-            let mut s_bytes = [0u8; 32];
-            s_bytes.copy_from_slice(&inputs[lane].signature[32..]);
-            if scalar::is_canonical(&s_bytes) {
-                s_digits[lane] = Scalar::from_canonical_bytes(s_bytes).to_radix16();
-            } else {
-                valid[lane] = false;
-            }
-            public_keys[lane] = inputs[lane].public_key;
-            lane += 1;
+        let ChunkParts {
+            mut valid,
+            r_bytes,
+            public_keys,
+            s_digits,
+            messages,
+        } = parse_chunk_inputs(inputs);
+        if !any_lane(&valid) {
+            return;
         }
 
         let cached_keys: [Option<&CachedPublicKey>; SIMD_LANES] =
             core::array::from_fn(|lane| self.cache.get(&public_keys[lane]));
         let mut missing_key_lanes = [false; SIMD_LANES];
-        lane = 0;
+        let mut lane = 0;
         while lane < SIMD_LANES {
             missing_key_lanes[lane] = cached_keys[lane].is_none();
             lane += 1;
         }
 
         let mut decoded_r: Option<(avx512ifma::WideRPoints, [bool; SIMD_LANES])> = None;
-        let mut decoded_keys: Option<([CachedPublicKey; SIMD_LANES], [bool; SIMD_LANES])> = None;
+        let mut decoded_key_tables: Option<([PointTable; SIMD_LANES], [bool; SIMD_LANES])> = None;
         if any_lane(&missing_key_lanes) {
             let (tables, key_valid_bits, r_points, r_valid_bits) =
                 avx512ifma::decode_keys_and_decompress_r(&public_keys, &r_bytes);
-            let mut tables = tables.into_iter();
-            decoded_keys = Some((
-                core::array::from_fn(|lane| CachedPublicKey {
-                    encoded: public_keys[lane],
-                    table: tables.next().unwrap(),
-                }),
-                lane_flags_from_mask(key_valid_bits),
-            ));
+            decoded_key_tables = Some((tables, lane_flags_from_mask(key_valid_bits)));
             decoded_r = Some((r_points, lane_flags_from_mask(r_valid_bits)));
-        }
-
-        let mut messages = [inputs[0].message; SIMD_LANES];
-        lane = 1;
-        while lane < SIMD_LANES {
-            messages[lane] = inputs[lane].message;
-            lane += 1;
-        }
-        let digests = sha512::hash_ed25519_challenge_words(&r_bytes, &public_keys, messages);
-
-        let mut k_digits: [Radix16; SIMD_LANES] = [[0i8; 64]; SIMD_LANES];
-        lane = 0;
-        while lane < SIMD_LANES {
-            k_digits[lane] = Scalar::from_wide_words(digests[lane]).to_radix16();
-            lane += 1;
         }
 
         let mut public_key_tables: [&PointTable; SIMD_LANES] = [self.identity_table; SIMD_LANES];
@@ -210,9 +187,9 @@ impl<C: KeyCache> Verifier<C> {
         while lane < SIMD_LANES {
             if let Some(key) = cached_keys[lane] {
                 public_key_tables[lane] = &key.table;
-            } else if let Some((keys, key_valid_lanes)) = &decoded_keys {
+            } else if let Some((tables, key_valid_lanes)) = &decoded_key_tables {
                 if key_valid_lanes[lane] {
-                    public_key_tables[lane] = &keys[lane].table;
+                    public_key_tables[lane] = &tables[lane];
                 } else {
                     valid[lane] = false;
                 }
@@ -221,6 +198,11 @@ impl<C: KeyCache> Verifier<C> {
             }
             lane += 1;
         }
+        if !any_lane(&valid) {
+            return;
+        }
+
+        let k_digits = challenge_digits(&r_bytes, &public_keys, messages);
 
         let prepared = PreparedBatch {
             public_key_tables,
@@ -251,20 +233,15 @@ impl<C: KeyCache> Verifier<C> {
                         &r_points,
                         self.base_table,
                     );
-                    // Dalek requires an exact canonical `R`, not just an
-                    // affine match: re-encode the decompressed point and
-                    // require a byte-for-byte match against the input, so
-                    // a non-canonical encoding that happens to decode to
-                    // the same point (e.g. a set sign bit on `x == 0`) is
-                    // rejected exactly as the raw-byte comparison below
-                    // would reject it.
-                    let r_canonical = r_points.compress();
+                    let r_x_zero = r_points.x_zero_lanes();
                     lane = 0;
                     while lane < SIMD_LANES {
+                        let signed_zero = r_x_zero[lane] && r_bytes[lane][31] & 0x80 != 0;
                         out[lane] = simd[lane]
                             && valid[lane]
                             && r_valid_lanes[lane]
-                            && r_canonical[lane] == r_bytes[lane]
+                            && r_encoding_has_canonical_y(&r_bytes[lane])
+                            && !signed_zero
                             && !dalek_legacy_excluded(&public_keys[lane], &r_bytes[lane]);
                         lane += 1;
                     }
@@ -282,14 +259,59 @@ impl<C: KeyCache> Verifier<C> {
             }
         }
 
-        if let Some((keys, key_valid_lanes)) = decoded_keys {
-            for (lane, key) in keys.into_iter().enumerate() {
+        if let Some((tables, key_valid_lanes)) = decoded_key_tables {
+            for (lane, table) in tables.into_iter().enumerate() {
                 if missing_key_lanes[lane] && key_valid_lanes[lane] {
-                    self.cache.insert(key);
+                    self.cache.insert(CachedPublicKey {
+                        encoded: public_keys[lane],
+                        table,
+                    });
                 }
             }
         }
     }
+}
+
+#[inline(always)]
+fn parse_chunk_inputs<'a>(inputs: &[VerifyInput<'a>; SIMD_LANES]) -> ChunkParts<'a> {
+    let mut valid = [true; SIMD_LANES];
+    let mut r_bytes = [[0u8; 32]; SIMD_LANES];
+    let mut public_keys = [[0u8; 32]; SIMD_LANES];
+    let mut s_digits = [[0i8; 64]; SIMD_LANES];
+    let mut messages = [inputs[0].message; SIMD_LANES];
+    let mut lane = 0;
+    while lane < SIMD_LANES {
+        r_bytes[lane].copy_from_slice(&inputs[lane].signature[..32]);
+
+        let mut s_bytes = [0u8; 32];
+        s_bytes.copy_from_slice(&inputs[lane].signature[32..]);
+        if scalar::is_canonical(&s_bytes) {
+            s_digits[lane] = Scalar::from_canonical_bytes(s_bytes).to_radix16();
+        } else {
+            valid[lane] = false;
+        }
+        public_keys[lane] = inputs[lane].public_key;
+        messages[lane] = inputs[lane].message;
+        lane += 1;
+    }
+
+    ChunkParts {
+        valid,
+        r_bytes,
+        public_keys,
+        s_digits,
+        messages,
+    }
+}
+
+#[inline(always)]
+fn challenge_digits(
+    r_bytes: &[[u8; 32]; SIMD_LANES],
+    public_keys: &[[u8; 32]; SIMD_LANES],
+    messages: [&[u8]; SIMD_LANES],
+) -> [Radix16; SIMD_LANES] {
+    let digests = sha512::hash_ed25519_challenge_words(r_bytes, public_keys, messages);
+    core::array::from_fn(|lane| Scalar::from_wide_words(digests[lane]).to_radix16())
 }
 
 fn dalek_legacy_excluded(public_key: &[u8; 32], r_bytes: &[u8; 32]) -> bool {
