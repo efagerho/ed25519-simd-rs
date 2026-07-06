@@ -12,8 +12,8 @@ const BUCKET_HISTOGRAM_BLOCKS: usize = 64;
 
 pub(crate) struct PreparedBatch<'a> {
     pub(crate) public_key_tables: [&'a PointTable; SIMD_LANES],
-    pub(crate) s_digits: [Radix16; SIMD_LANES],
-    pub(crate) k_digits: [Radix16; SIMD_LANES],
+    pub(crate) s_digits: &'a [Radix16; SIMD_LANES],
+    pub(crate) k_digits: &'a [Radix16; SIMD_LANES],
 }
 
 /// Visit inputs as padded SIMD chunks, grouping mixed message lengths by
