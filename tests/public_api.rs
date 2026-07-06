@@ -209,6 +209,28 @@ fn hot_key_cache_tracks_hot_keys_and_capacity() {
 }
 
 #[test]
+fn hot_key_cache_preload_can_pin_an_already_resident_key() {
+    let mut cache = HotKeyCache::new();
+    cache.insert(CachedPublicKey::from_encoded(rfc8032_key0()).unwrap());
+    let stats = cache.stats();
+    assert_eq!(stats.keys, 1);
+    assert_eq!(stats.pinned_keys, 0);
+    assert_eq!(stats.inserts, 1);
+
+    // Preloading an already-resident, not-yet-pinned key pins it in place
+    // instead of inserting a duplicate entry.
+    assert!(cache.preload(&[rfc8032_key0()]).is_empty());
+    let stats = cache.stats();
+    assert_eq!(stats.keys, 1);
+    assert_eq!(stats.pinned_keys, 1);
+    assert_eq!(stats.inserts, 1);
+
+    // Preloading it again (already pinned) doesn't double-count.
+    assert!(cache.preload(&[rfc8032_key0()]).is_empty());
+    assert_eq!(cache.stats().pinned_keys, 1);
+}
+
+#[test]
 fn hot_key_cache_set_capacity_clamps_and_evicts_immediately() {
     let mut cache = HotKeyCache::new();
     cache.insert(CachedPublicKey::from_encoded(rfc8032_key0()).unwrap());
