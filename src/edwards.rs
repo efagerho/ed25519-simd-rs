@@ -62,6 +62,12 @@ impl CachedPoint {
         (&self.y_plus_x, &self.y_minus_x, &self.z2, &self.t2d)
     }
 
+    /// Accepts loosely-reduced fields (`< 2^52` per limb), not just canonical
+    /// ones: `wide.rs`'s `build_tables_from_point` passes fields straight from
+    /// `WideFe::to_fields_loose` here to skip a canonicalizing pass per table
+    /// entry. Safe because every consumer of these fields (`coords()` ->
+    /// `WideFe::from_field_refs` -> `Fe51::reduced_limbs`, and `negate`'s
+    /// `Fe51::subtract`/`negate`) already tolerates that bound.
     pub(crate) fn from_fields(y_plus_x: Fe51, y_minus_x: Fe51, z2: Fe51, t2d: Fe51) -> Self {
         Self {
             y_plus_x,
