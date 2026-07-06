@@ -20,7 +20,6 @@ impl CachedPublicKey {
             table: PointTable::new(&point),
         })
     }
-
 }
 
 /// Storage policy for decoded public keys.
