@@ -258,50 +258,25 @@ pub(crate) mod avx512ifma {
         let k_digits = prepared.k_digits;
 
         let mut acc = WidePoint::identity();
-        let public_tables_uniform = public_tables_uniform(public_key_tables);
 
         // Seed the accumulator from the top digit pair (63, 62) directly
         // instead of doubling the still-identity accumulator first: `s` and
         // `k` are both reduced mod L (see `to_radix16`'s carry-out assert),
         // so there is no digit above index 63 to make room for.
-        add_public_digit(
-            &mut acc,
-            public_key_tables,
-            public_tables_uniform,
-            k_digits,
-            63,
-        );
+        add_public_digit(&mut acc, public_key_tables, k_digits, 63);
         acc = acc.double4();
         add_base_pair_digit(&mut acc, base_table, s_digits, 31);
-        add_public_digit(
-            &mut acc,
-            public_key_tables,
-            public_tables_uniform,
-            k_digits,
-            62,
-        );
+        add_public_digit(&mut acc, public_key_tables, k_digits, 62);
 
         let mut pair = 31;
         while pair > 0 {
             pair -= 1;
             acc = acc.double4();
-            add_public_digit(
-                &mut acc,
-                public_key_tables,
-                public_tables_uniform,
-                k_digits,
-                pair * 2 + 1,
-            );
+            add_public_digit(&mut acc, public_key_tables, k_digits, pair * 2 + 1);
 
             acc = acc.double4();
             add_base_pair_digit(&mut acc, base_table, s_digits, pair);
-            add_public_digit(
-                &mut acc,
-                public_key_tables,
-                public_tables_uniform,
-                k_digits,
-                pair * 2,
-            );
+            add_public_digit(&mut acc, public_key_tables, k_digits, pair * 2);
         }
         acc
     }
@@ -313,89 +288,35 @@ pub(crate) mod avx512ifma {
         s_digits: &[Radix16; LANES],
         pair: usize,
     ) {
-        match base_digit_pattern(s_digits, pair) {
-            DigitPattern::Uniform(0) => {}
-            DigitPattern::Uniform(digit) => {
-                let selected = base_table.select_signed_cached_ref(digit);
-                let selected = WideCachedPoint::broadcast(selected);
-                acc.add_cached_assign(&selected);
-            }
-            DigitPattern::Mixed => {
-                let first =
-                    base_table.select_signed_cached_ref(base_pair_digit(&s_digits[0], pair));
-                let mut selected = [first; LANES];
-                let mut lane = 1;
-                while lane < LANES {
-                    selected[lane] =
-                        base_table.select_signed_cached_ref(base_pair_digit(&s_digits[lane], pair));
-                    lane += 1;
-                }
-                let selected = WideCachedPoint::from_cached_refs(&selected);
-                acc.add_cached_assign(&selected);
-            }
+        let first = base_table.select_signed_cached_ref(base_pair_digit(&s_digits[0], pair));
+        let mut selected = [first; LANES];
+        let mut lane = 1;
+        while lane < LANES {
+            selected[lane] =
+                base_table.select_signed_cached_ref(base_pair_digit(&s_digits[lane], pair));
+            lane += 1;
         }
+        let selected = WideCachedPoint::from_cached_refs(&selected);
+        acc.add_cached_assign(&selected);
     }
 
     #[inline]
     fn add_public_digit(
         acc: &mut WidePoint,
         public_key_tables: &[&PointTable; LANES],
-        public_tables_uniform: bool,
         k_digits: &[Radix16; LANES],
         index: usize,
     ) {
-        match digit_pattern(k_digits, index) {
-            DigitPattern::Uniform(0) => {}
-            DigitPattern::Uniform(digit) if public_tables_uniform => {
-                let selected = public_key_tables[0].select_signed_cached_ref(-digit);
-                let selected = WideCachedPoint::broadcast(selected);
-                acc.add_cached_assign(&selected);
-            }
-            DigitPattern::Uniform(_) | DigitPattern::Mixed => {
-                let first = public_key_tables[0].select_signed_cached_ref(-k_digits[0][index]);
-                let mut selected = [first; LANES];
-                let mut lane = 1;
-                while lane < LANES {
-                    selected[lane] =
-                        public_key_tables[lane].select_signed_cached_ref(-k_digits[lane][index]);
-                    lane += 1;
-                }
-                let selected = WideCachedPoint::from_cached_refs(&selected);
-                acc.add_cached_assign(&selected);
-            }
-        }
-    }
-
-    #[derive(Clone, Copy, Eq, PartialEq)]
-    enum DigitPattern<T> {
-        Uniform(T),
-        Mixed,
-    }
-
-    // Shared "are all lanes' digits equal" scan for `digit_pattern` (raw i8
-    // radix-16 digits) and `base_digit_pattern` (combined i16 base-pair
-    // digits) — they differ only in the per-lane digit type and how it's read.
-    #[inline(always)]
-    fn lane_digit_pattern<T: Copy + PartialEq>(digit_at: impl Fn(usize) -> T) -> DigitPattern<T> {
-        let first = digit_at(0);
+        let first = public_key_tables[0].select_signed_cached_ref(-k_digits[0][index]);
+        let mut selected = [first; LANES];
         let mut lane = 1;
         while lane < LANES {
-            if digit_at(lane) != first {
-                return DigitPattern::Mixed;
-            }
+            selected[lane] =
+                public_key_tables[lane].select_signed_cached_ref(-k_digits[lane][index]);
             lane += 1;
         }
-        DigitPattern::Uniform(first)
-    }
-
-    #[inline(always)]
-    fn digit_pattern(digits: &[Radix16; LANES], index: usize) -> DigitPattern<i8> {
-        lane_digit_pattern(|lane| digits[lane][index])
-    }
-
-    #[inline(always)]
-    fn base_digit_pattern(digits: &[Radix16; LANES], pair: usize) -> DigitPattern<i16> {
-        lane_digit_pattern(|lane| base_pair_digit(&digits[lane], pair))
+        let selected = WideCachedPoint::from_cached_refs(&selected);
+        acc.add_cached_assign(&selected);
     }
 
     // Fold two adjacent signed radix-16 digits into one radix-256 digit
@@ -406,19 +327,6 @@ pub(crate) mod avx512ifma {
     #[inline(always)]
     fn base_pair_digit(digits: &Radix16, pair: usize) -> i16 {
         digits[pair * 2] as i16 + ((digits[pair * 2 + 1] as i16) << 4)
-    }
-
-    #[inline(always)]
-    fn public_tables_uniform(public_key_tables: &[&PointTable; LANES]) -> bool {
-        let first = public_key_tables[0] as *const PointTable;
-        let mut lane = 1;
-        while lane < LANES {
-            if !core::ptr::eq(first, public_key_tables[lane] as *const PointTable) {
-                return false;
-            }
-            lane += 1;
-        }
-        true
     }
 
     #[derive(Clone, Copy)]
@@ -438,20 +346,6 @@ pub(crate) mod avx512ifma {
                 let z = _mm512_setzero_si512();
                 Self {
                     limbs: [_mm512_set1_epi64(1), z, z, z, z],
-                }
-            }
-        }
-        fn broadcast_field(field: &Fe51) -> Self {
-            unsafe {
-                let limbs = field.reduced_limbs();
-                Self {
-                    limbs: [
-                        _mm512_set1_epi64(limbs[0] as i64),
-                        _mm512_set1_epi64(limbs[1] as i64),
-                        _mm512_set1_epi64(limbs[2] as i64),
-                        _mm512_set1_epi64(limbs[3] as i64),
-                        _mm512_set1_epi64(limbs[4] as i64),
-                    ],
                 }
             }
         }
@@ -1069,15 +963,6 @@ pub(crate) mod avx512ifma {
     }
 
     impl WideCachedPoint {
-        fn broadcast(point: &CachedPoint) -> Self {
-            let (y_plus_x, y_minus_x, z2, t2d) = point.coords();
-            Self {
-                y_plus_x: WideFe::broadcast_field(y_plus_x),
-                y_minus_x: WideFe::broadcast_field(y_minus_x),
-                z2: WideFe::broadcast_field(z2),
-                t2d: WideFe::broadcast_field(t2d),
-            }
-        }
         fn from_cached_refs(points: &[&CachedPoint; LANES]) -> Self {
             let y_plus_x = core::array::from_fn(|lane| points[lane].coords().0);
             let y_minus_x = core::array::from_fn(|lane| points[lane].coords().1);
