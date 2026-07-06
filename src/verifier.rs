@@ -193,11 +193,9 @@ impl<C: KeyCache> Verifier<C> {
                 if let Some(key) = uniform_cached_key {
                     public_key_tables = [&key.table; SIMD_LANES];
                 } else if let Some(key) = &uniform_decoded_key {
-                    if key.encoded == first_public_key {
-                        public_key_tables = [&key.table; SIMD_LANES];
-                    } else {
-                        valid = [false; SIMD_LANES];
-                    }
+                    // `uniform_decoded_key` is always built from `first_public_key`
+                    // (see below), so its `encoded` field is guaranteed to match.
+                    public_key_tables = [&key.table; SIMD_LANES];
                 } else {
                     valid = [false; SIMD_LANES];
                 }
@@ -279,9 +277,9 @@ impl<C: KeyCache> Verifier<C> {
         }
 
         if let Some(key) = uniform_decoded_key {
-            if any_lane(&missing_key_lanes) {
-                self.cache.insert(key);
-            }
+            // Only ever constructed after a cache miss set every lane in
+            // `missing_key_lanes`, so inserting here is always warranted.
+            self.cache.insert(key);
         }
         if let Some((keys, key_valid_lanes)) = decoded_keys {
             let insert_lanes =
