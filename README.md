@@ -139,6 +139,10 @@ repetitive:
 - `verifier.cache_mut().preload(...)` decodes and pins known hot keys; pinned
   keys are retained outside the capacity bound and are not evicted. It
   returns the keys that failed to decode instead of silently dropping them.
+- `verifier.cache_mut().unpin(...)` releases a pin (e.g. keys from a rotated-out
+  validator set) so they become ordinary evictable entries again; pinning has
+  no automatic expiry, so a workload that repeatedly preloads a changing key
+  set should unpin the keys it no longer needs.
 - `verifier.cache()` returns `&HotKeyCache`, which exposes optional cache
   stats and hot-key reporting.
 
