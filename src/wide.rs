@@ -106,7 +106,7 @@ pub(crate) mod avx512ifma {
         r: &WideRPoints,
         base_table: &BasepointTable,
     ) -> [bool; LANES] {
-        let combined = mul_base_minus_public_without_r(base_table, prepared);
+        let combined = mul_base_minus_public(base_table, prepared);
         let mut check = combined.subtract(&r.0);
         check = check
             .double_without_t()
@@ -120,7 +120,7 @@ pub(crate) mod avx512ifma {
         r_bytes: &[[u8; 32]; LANES],
         base_table: &BasepointTable,
     ) -> [bool; LANES] {
-        let combined = mul_base_minus_public_without_r(base_table, prepared);
+        let combined = mul_base_minus_public(base_table, prepared);
         let recomputed = combined.compress();
         core::array::from_fn(|lane| recomputed[lane] == r_bytes[lane])
     }
@@ -130,7 +130,7 @@ pub(crate) mod avx512ifma {
         r: &WideRPoints,
         base_table: &BasepointTable,
     ) -> [bool; LANES] {
-        let combined = mul_base_minus_public_without_r(base_table, prepared);
+        let combined = mul_base_minus_public(base_table, prepared);
         combined.equals_affine_lanes(&r.0)
     }
 
@@ -249,23 +249,14 @@ pub(crate) mod avx512ifma {
         let (pa, pb) = WideFe::pow_p_minus_5_over_8_x2(&sa.exp, &sb.exp);
         (decompress_finish(sa, pa), decompress_finish(sb, pb))
     }
-    fn mul_base_minus_public_without_r(
+    fn mul_base_minus_public(
         base_table: &BasepointTable,
         prepared: &PreparedBatch<'_>,
     ) -> WidePoint {
-        mul_base_minus_public_parts(
-            base_table,
-            &prepared.public_key_tables,
-            &prepared.s_digits,
-            &prepared.k_digits,
-        )
-    }
-    fn mul_base_minus_public_parts(
-        base_table: &BasepointTable,
-        public_key_tables: &[&PointTable; LANES],
-        s_digits: &[Radix16; LANES],
-        k_digits: &[Radix16; LANES],
-    ) -> WidePoint {
+        let public_key_tables = &prepared.public_key_tables;
+        let s_digits = &prepared.s_digits;
+        let k_digits = &prepared.k_digits;
+
         let mut acc = WidePoint::identity();
         let public_tables_uniform = public_tables_uniform(public_key_tables);
 
@@ -410,7 +401,7 @@ pub(crate) mod avx512ifma {
     // Fold two adjacent signed radix-16 digits into one radix-256 digit
     // `even + (odd << 4)`, magnitude at most `8 + 8*16 = 136` — which is exactly
     // `BASEPOINT_TABLE_SIZE`, the number of base-point multiples tabulated.
-    // `pair` ranges over 0..32 (see `mul_base_minus_public_parts`), so both
+    // `pair` ranges over 0..32 (see `mul_base_minus_public`), so both
     // indices are always in bounds for the 64-digit `Radix16`.
     #[inline(always)]
     fn base_pair_digit(digits: &Radix16, pair: usize) -> i16 {
@@ -1611,7 +1602,7 @@ pub(crate) mod avx512ifma {
                 s_digits,
                 k_digits,
             };
-            let combined = mul_base_minus_public_without_r(&base_table, &prepared);
+            let combined = mul_base_minus_public(&base_table, &prepared);
             let pts = combined.to_points();
             assert_eq!(
                 pts[0].compress(),
