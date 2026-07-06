@@ -213,13 +213,7 @@ pub(crate) fn hash_ed25519_challenges(
 /// already byte-swapped to the little-endian integer RFC 8032 reduces mod
 /// `L` (see `Scalar::from_wide_words`), skipping the byte round trip
 /// `hash_ed25519_challenges` + `Scalar::from_wide_bytes` would otherwise do.
-pub(crate) fn hash_ed25519_challenge_words(
-    r_bytes: &[[u8; 32]; SIMD_LANES],
-    public_keys: &[[u8; 32]; SIMD_LANES],
-    messages: [&[u8]; SIMD_LANES],
-) -> [[u64; 8]; SIMD_LANES] {
-    avx512::hash_ed25519_challenge_words_mixed(r_bytes, public_keys, messages)
-}
+pub(crate) use avx512::hash_ed25519_challenge_words;
 
 #[cfg(test)]
 fn compress(state: &mut [u64; 8], block: &[u8; 128]) {
@@ -317,7 +311,7 @@ mod avx512 {
     #[derive(Clone, Copy)]
     struct Padding {
         total_len: usize,
-        bit_len: u128,
+        bit_len: u64,
         length_start: usize,
     }
 
@@ -329,14 +323,14 @@ mod avx512 {
     /// lanes holding their digest) and are assembled per-lane, blending
     /// finished lanes' state back in via `active_mask`.
     #[inline(never)]
-    pub(super) fn hash_ed25519_challenge_words_mixed(
+    pub(crate) fn hash_ed25519_challenge_words(
         r_bytes: &[[u8; 32]; LANES],
         public_keys: &[[u8; 32]; LANES],
         messages: [&[u8]; LANES],
     ) -> [[u64; 8]; LANES] {
         unsafe {
             let mut total_lens = [0usize; LANES];
-            let mut bit_lens = [0u128; LANES];
+            let mut bit_lens = [0u64; LANES];
             let mut length_starts = [0usize; LANES];
             let mut block_counts = [0usize; LANES];
             let mut max_block_count = 0usize;
@@ -346,7 +340,13 @@ mod avx512 {
                 let total_len = 64 + messages[lane].len();
                 let block_count = challenge_block_count(messages[lane].len());
                 total_lens[lane] = total_len;
-                bit_lens[lane] = (total_len as u128) << 3;
+                // The bit-length field is conceptually 128 bits (RFC 6234),
+                // but a message would need to be >= 2^61 bytes for the high
+                // word to be nonzero -- far beyond any representable slice
+                // this crate will ever see, so it's tracked as u64 and the
+                // high word is treated as always zero (see `mixed_block_word`).
+                debug_assert!(total_len < (1 << 61), "message too long for u64 bit length");
+                bit_lens[lane] = (total_len as u64) << 3;
                 length_starts[lane] = block_count * 128 - 16;
                 block_counts[lane] = block_count;
                 max_block_count = core::cmp::max(max_block_count, block_count);
@@ -428,7 +428,7 @@ mod avx512 {
         public_keys: &[[u8; 32]; LANES],
         messages: [&[u8]; LANES],
         total_lens: &[usize; LANES],
-        bit_lens: &[u128; LANES],
+        bit_lens: &[u64; LANES],
         length_starts: &[usize; LANES],
         block_index: usize,
     ) -> [__m512i; 16] {
@@ -469,13 +469,13 @@ mod avx512 {
         if word_offset >= 64 && word_end <= padding.total_len {
             return read_be_u64_slice(messages[lane], word_offset - 64);
         }
-        if word_offset == padding.length_start {
-            return (padding.bit_len >> 64) as u64;
-        }
         if word_offset == padding.length_start + 8 {
-            return padding.bit_len as u64;
+            return padding.bit_len;
         }
-        if word_offset > padding.total_len && word_end <= padding.length_start {
+        // The high length word (at `length_start`) is always zero (see the
+        // debug_assert in `hash_ed25519_challenge_words`), so it folds into
+        // this zero-padding range by widening the bound past that word.
+        if word_offset > padding.total_len && word_end <= padding.length_start + 8 {
             return 0;
         }
 
