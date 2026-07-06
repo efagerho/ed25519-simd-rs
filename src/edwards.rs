@@ -36,18 +36,20 @@ pub(crate) struct EdwardsPoint {
     t: Fe51,
 }
 
+// Both tables store `[-N*P, ..., -1*P, identity, 1*P, ..., N*P]` as one
+// signed-indexed array (digit `d` at index `d + N`) instead of separate
+// positive/negative/identity arrays selected by branching on `d`'s sign: a
+// windowed scalar multiply looks up a data-random digit per table per
+// iteration, so a sign branch there is unpredictable and measurably costs
+// branch mispredicts on the multiscalar hot path.
 #[derive(Clone, Debug)]
 pub(crate) struct PointTable {
-    cached_points: [CachedPoint; 8],
-    negative_cached_points: [CachedPoint; 8],
-    identity_cached: CachedPoint,
+    entries: [CachedPoint; 17],
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct BasepointTable {
-    cached_points: [CachedPoint; BASEPOINT_TABLE_SIZE],
-    negative_cached_points: [CachedPoint; BASEPOINT_TABLE_SIZE],
-    identity_cached: CachedPoint,
+    entries: [CachedPoint; 2 * BASEPOINT_TABLE_SIZE + 1],
 }
 
 // The base-point multiscalar combines two adjacent signed radix-16 digits (each
@@ -109,11 +111,16 @@ impl PointTable {
         negative_cached_points: [CachedPoint; 8],
         identity_cached: CachedPoint,
     ) -> Self {
-        Self {
-            cached_points,
-            negative_cached_points,
-            identity_cached,
-        }
+        let entries = core::array::from_fn(|i| {
+            if i < 8 {
+                negative_cached_points[7 - i].clone()
+            } else if i == 8 {
+                identity_cached.clone()
+            } else {
+                cached_points[i - 9].clone()
+            }
+        });
+        Self { entries }
     }
 
     pub(crate) fn new(point: &EdwardsPoint) -> Self {
@@ -122,21 +129,13 @@ impl PointTable {
             core::array::from_fn(|i| CachedPoint::new(&points[i]));
         let negative_cached_points = core::array::from_fn(|i| cached_points[i].negate());
         let identity_cached = CachedPoint::new(&EdwardsPoint::identity());
-        Self {
-            cached_points,
-            negative_cached_points,
-            identity_cached,
-        }
+        Self::from_cached(cached_points, negative_cached_points, identity_cached)
     }
 
+    /// Select the cached point for a signed digit in `-8..=8`.
     pub(crate) fn select_signed_cached_ref(&self, digit: i8) -> &CachedPoint {
-        if digit > 0 {
-            &self.cached_points[digit as usize - 1]
-        } else if digit < 0 {
-            &self.negative_cached_points[(-digit) as usize - 1]
-        } else {
-            &self.identity_cached
-        }
+        debug_assert!((-8..=8).contains(&digit));
+        &self.entries[(digit + 8) as usize]
     }
 }
 
@@ -155,26 +154,26 @@ impl BasepointTable {
         }
         let cached_points: [CachedPoint; BASEPOINT_TABLE_SIZE] =
             core::array::from_fn(|i| CachedPoint::new(&points[i]));
-        let negative_cached_points = core::array::from_fn(|i| cached_points[i].negate());
+        let negative_cached_points: [CachedPoint; BASEPOINT_TABLE_SIZE] =
+            core::array::from_fn(|i| cached_points[i].negate());
         let identity_cached = CachedPoint::new(&EdwardsPoint::identity());
-        Self {
-            cached_points,
-            negative_cached_points,
-            identity_cached,
-        }
+        let entries = core::array::from_fn(|i| {
+            if i < BASEPOINT_TABLE_SIZE {
+                negative_cached_points[BASEPOINT_TABLE_SIZE - 1 - i].clone()
+            } else if i == BASEPOINT_TABLE_SIZE {
+                identity_cached.clone()
+            } else {
+                cached_points[i - BASEPOINT_TABLE_SIZE - 1].clone()
+            }
+        });
+        Self { entries }
     }
 
+    /// Select the cached point for a signed digit in
+    /// `-BASEPOINT_TABLE_SIZE..=BASEPOINT_TABLE_SIZE`.
     pub(crate) fn select_signed_cached_ref(&self, digit: i16) -> &CachedPoint {
-        if digit > 0 {
-            debug_assert!((digit as usize) <= BASEPOINT_TABLE_SIZE);
-            &self.cached_points[digit as usize - 1]
-        } else if digit < 0 {
-            let index = (-digit) as usize;
-            debug_assert!(index <= BASEPOINT_TABLE_SIZE);
-            &self.negative_cached_points[index - 1]
-        } else {
-            &self.identity_cached
-        }
+        debug_assert!((-(BASEPOINT_TABLE_SIZE as i16)..=(BASEPOINT_TABLE_SIZE as i16)).contains(&digit));
+        &self.entries[(digit + BASEPOINT_TABLE_SIZE as i16) as usize]
     }
 }
 
