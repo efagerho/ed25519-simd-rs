@@ -8,7 +8,6 @@ pub const PUBLIC_KEY_LEN: usize = 32;
 pub const SIGNATURE_LEN: usize = 64;
 /// Number of verification lanes processed by one SIMD chunk.
 pub(crate) const SIMD_LANES: usize = 8;
-const BUCKET_HISTOGRAM_BLOCKS: usize = 64;
 
 pub(crate) struct PreparedBatch<'a> {
     pub(crate) public_key_tables: [&'a PointTable; SIMD_LANES],
@@ -107,53 +106,12 @@ fn should_bucket_by_block_count(inputs: &[VerifyInput<'_>]) -> bool {
     false
 }
 
-/// Build original input indices sorted by challenge block count.
-fn build_block_bucket_order(inputs: &[VerifyInput<'_>], order: &mut Vec<usize>) {
-    let mut max_block_count = 0usize;
-    let mut i = 0;
-    while i < inputs.len() {
-        max_block_count = max_block_count.max(challenge_block_count(inputs[i].message.len()));
-        i += 1;
-    }
-
-    order.clear();
-    if max_block_count > BUCKET_HISTOGRAM_BLOCKS {
-        build_sparse_block_bucket_order(inputs, order);
-        return;
-    }
-
-    let mut counts = [0usize; BUCKET_HISTOGRAM_BLOCKS + 1];
-    i = 0;
-    while i < inputs.len() {
-        counts[challenge_block_count(inputs[i].message.len())] += 1;
-        i += 1;
-    }
-
-    let mut next = [0usize; BUCKET_HISTOGRAM_BLOCKS + 1];
-    let mut total = 0usize;
-    i = 0;
-    while i < counts.len() {
-        next[i] = total;
-        total += counts[i];
-        i += 1;
-    }
-
-    order.resize(inputs.len(), 0);
-    i = 0;
-    while i < inputs.len() {
-        let block_count = challenge_block_count(inputs[i].message.len());
-        let pos = next[block_count];
-        next[block_count] += 1;
-        order[pos] = i;
-        i += 1;
-    }
-}
-
-/// Build bucket order without a dense count table for very long messages.
-/// Only grouping same-block-count inputs together matters (see
+/// Build original input indices grouped by challenge block count. Only
+/// grouping same-block-count inputs together matters (see
 /// `for_each_bucketed_simd_chunk`), not the order buckets appear in, so a
-/// direct sort by block count suffices — no hash table needed.
-fn build_sparse_block_bucket_order(inputs: &[VerifyInput<'_>], order: &mut Vec<usize>) {
+/// direct sort by block count suffices — no dense histogram needed.
+fn build_block_bucket_order(inputs: &[VerifyInput<'_>], order: &mut Vec<usize>) {
+    order.clear();
     order.extend(0..inputs.len());
     order.sort_unstable_by_key(|&i| challenge_block_count(inputs[i].message.len()));
 }
