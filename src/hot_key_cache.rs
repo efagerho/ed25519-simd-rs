@@ -18,11 +18,11 @@ pub struct CacheStats {
     /// The evictable capacity passed to [`HotKeyCache::with_capacity`]/[`HotKeyCache::set_capacity`],
     /// or `None` for an unbounded cache. Pinned keys may push `keys` above this.
     pub capacity: Option<usize>,
-    /// Total [`KeyCache::get`]/[`KeyCache::insert`] calls that found a resident key.
+    /// Total lane-level [`KeyCache::get`] calls that found a resident key.
+    /// Padded SIMD lanes count separately, but same-chunk insert collisions do not.
     pub hits: u64,
     /// Total keys newly decoded and inserted (cumulative; not reduced by eviction).
-    /// Equivalently, the total number of [`KeyCache::get`]/[`KeyCache::insert`]
-    /// calls that found no resident key, since every miss is immediately inserted.
+    /// Duplicate missing lanes in the same SIMD chunk may share one retained entry.
     pub inserts: u64,
     /// Total keys evicted to stay within `capacity`.
     pub evictions: u64,
@@ -31,7 +31,7 @@ pub struct CacheStats {
 #[derive(Clone, Debug)]
 struct CacheEntry {
     key: CachedPublicKey,
-    hits: Cell<u64>,
+    uses: Cell<u64>,
     last_used: Cell<u64>,
     pinned: Cell<bool>,
 }
@@ -43,6 +43,7 @@ struct CacheEntry {
 pub struct HotKeyCache {
     keys: HashMap<[u8; PUBLIC_KEY_LEN], CacheEntry>,
     capacity: Option<usize>,
+    pinned_keys: usize,
     hits: Cell<u64>,
     inserts: Cell<u64>,
     evictions: Cell<u64>,
@@ -61,6 +62,7 @@ impl HotKeyCache {
         Self {
             keys: HashMap::new(),
             capacity: None,
+            pinned_keys: 0,
             hits: Cell::new(0),
             inserts: Cell::new(0),
             evictions: Cell::new(0),
@@ -89,11 +91,7 @@ impl HotKeyCache {
     pub fn stats(&self) -> CacheStats {
         CacheStats {
             keys: self.keys.len(),
-            pinned_keys: self
-                .keys
-                .values()
-                .filter(|entry| entry.pinned.get())
-                .count(),
+            pinned_keys: self.pinned_keys,
             capacity: self.capacity,
             hits: self.hits.get(),
             inserts: self.inserts.get(),
@@ -105,9 +103,9 @@ impl HotKeyCache {
     pub fn hot_public_keys(&self, limit: usize) -> Vec<[u8; PUBLIC_KEY_LEN]> {
         let mut entries: Vec<&CacheEntry> = self.keys.values().collect();
         entries.sort_by(|lhs, rhs| {
-            rhs.hits
+            rhs.uses
                 .get()
-                .cmp(&lhs.hits.get())
+                .cmp(&lhs.uses.get())
                 .then_with(|| rhs.last_used.get().cmp(&lhs.last_used.get()))
         });
         entries
@@ -136,9 +134,9 @@ impl HotKeyCache {
 
     fn insert_encoded(&mut self, encoded: [u8; PUBLIC_KEY_LEN], pinned: bool) -> bool {
         if let Some(entry) = self.keys.get(&encoded) {
-            self.touch_entry(entry);
-            if pinned {
-                entry.pinned.set(true);
+            self.record_use(entry, false);
+            if pinned && !entry.pinned.replace(true) {
+                self.pinned_keys += 1;
             }
             return true;
         }
@@ -150,26 +148,31 @@ impl HotKeyCache {
         true
     }
 
-    /// Shared hit-bookkeeping for a key already resident in the cache. See
-    /// `record_miss` for the counterpart shared by the two insertion paths
-    /// (`insert_encoded` and the `KeyCache::insert` impl below).
-    fn touch_entry(&self, entry: &CacheEntry) {
+    /// Shared use-bookkeeping for a key already resident in the cache. `count_hit`
+    /// is reserved for `KeyCache::get`; insert/preload collisions update hot-key
+    /// ordering without inflating the public cache-hit counter.
+    fn record_use(&self, entry: &CacheEntry, count_hit: bool) {
         let last_used = self.tick();
-        self.hits.set(self.hits.get().wrapping_add(1));
-        entry.hits.set(entry.hits.get().wrapping_add(1));
+        if count_hit {
+            self.hits.set(self.hits.get().wrapping_add(1));
+        }
+        entry.uses.set(entry.uses.get().wrapping_add(1));
         entry.last_used.set(last_used);
     }
 
     /// Shared miss-bookkeeping: record the decoded key and evict if over
-    /// capacity. See `touch_entry` for the hit counterpart.
+    /// capacity. See `record_use` for the resident-key counterpart.
     fn record_miss(&mut self, key: CachedPublicKey, pinned: bool) {
         let last_used = self.tick();
         let encoded = key.encoded;
+        if pinned {
+            self.pinned_keys += 1;
+        }
         self.keys.insert(
             encoded,
             CacheEntry {
                 key,
-                hits: Cell::new(1),
+                uses: Cell::new(1),
                 last_used: Cell::new(last_used),
                 pinned: Cell::new(pinned),
             },
@@ -183,7 +186,7 @@ impl HotKeyCache {
             return;
         };
 
-        while self.keys.len() > capacity {
+        while self.evictable_len() > capacity {
             // Bound the scan to a fixed-size sample of eligible candidates
             // instead of the whole map, the same approximation production
             // caches (e.g. Redis's `maxmemory-samples`) make to keep eviction
@@ -197,7 +200,7 @@ impl HotKeyCache {
                 .iter()
                 .filter(|(encoded, entry)| Some(**encoded) != protected && !entry.pinned.get())
                 .take(EVICTION_SAMPLE)
-                .min_by_key(|(_, entry)| (entry.hits.get(), entry.last_used.get()))
+                .min_by_key(|(_, entry)| (entry.uses.get(), entry.last_used.get()))
                 .map(|(encoded, _)| *encoded);
 
             let Some(victim) = victim else {
@@ -207,6 +210,11 @@ impl HotKeyCache {
             self.evictions.set(self.evictions.get().wrapping_add(1));
         }
     }
+
+    fn evictable_len(&self) -> usize {
+        debug_assert!(self.pinned_keys <= self.keys.len());
+        self.keys.len() - self.pinned_keys
+    }
 }
 
 impl crate::cache::private::Sealed for HotKeyCache {}
@@ -215,13 +223,13 @@ impl KeyCache for HotKeyCache {
     #[inline]
     fn get(&self, encoded: &[u8; PUBLIC_KEY_LEN]) -> Option<&CachedPublicKey> {
         let entry = self.keys.get(encoded)?;
-        self.touch_entry(entry);
+        self.record_use(entry, true);
         Some(&entry.key)
     }
 
     fn insert(&mut self, key: CachedPublicKey) {
         if let Some(entry) = self.keys.get(&key.encoded) {
-            self.touch_entry(entry);
+            self.record_use(entry, false);
         } else {
             self.record_miss(key, false);
         }

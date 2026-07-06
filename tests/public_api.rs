@@ -134,28 +134,36 @@ fn hot_key_cache_tracks_hot_keys_and_capacity() {
     assert_eq!(stats.capacity, Some(1));
     assert_eq!(stats.evictions, 1);
     assert_eq!(stats.inserts, 2);
-    // Each single-input batch is padded to a full SIMD chunk of 8 identical
-    // lanes; the verifier looks up and inserts every lane independently (it
-    // has no notion of "this lane is a padding duplicate"), so the 7 padding
-    // lanes per batch each land as a hit against the entry the first lane
-    // just inserted.
-    assert_eq!(stats.hits, 14);
+    // Same-chunk duplicate insertions do not count as cache hits; hits are
+    // reserved for resident keys found by the verifier's initial lookup pass.
+    assert_eq!(stats.hits, 0);
     assert_eq!(verifier.cache().hot_public_keys(1), [rfc8032_key1()]);
 
     assert!(verifier.cache_mut().preload(&[rfc8032_key0()]).is_empty());
     let stats = verifier.cache().stats();
-    assert_eq!(stats.keys, 1);
+    assert_eq!(stats.keys, 2);
     assert_eq!(stats.pinned_keys, 1);
-    assert_eq!(stats.evictions, 2);
+    assert_eq!(stats.evictions, 1);
     assert_eq!(stats.inserts, 3);
-    assert_eq!(verifier.cache().hot_public_keys(1), [rfc8032_key0()]);
+    let hot_keys = verifier.cache().hot_public_keys(2);
+    assert!(hot_keys.contains(&rfc8032_key0()));
+    assert!(hot_keys.contains(&rfc8032_key1()));
 
-    // A key already resident and re-preloaded is a hit, not a fresh insert.
+    // A key already resident and re-preloaded is neither a fresh insert nor a
+    // cache hit; only `get` calls contribute to `CacheStats::hits`.
     assert!(verifier.cache_mut().preload(&[rfc8032_key0()]).is_empty());
     let stats = verifier.cache().stats();
-    assert_eq!(stats.keys, 1);
+    assert_eq!(stats.keys, 2);
     assert_eq!(stats.inserts, 3);
-    assert_eq!(stats.hits, 15);
+    assert_eq!(stats.hits, 0);
+
+    verifier.verify_batch(&[input0], &mut out);
+    assert_eq!(out, [true]);
+    let stats = verifier.cache().stats();
+    assert_eq!(stats.keys, 2);
+    assert_eq!(stats.evictions, 1);
+    assert_eq!(stats.hits, 8);
+    assert_eq!(verifier.cache().hot_public_keys(1), [rfc8032_key0()]);
 }
 
 #[test]
@@ -180,6 +188,15 @@ fn hot_key_cache_set_capacity_clamps_and_evicts_immediately() {
     assert_eq!(stats.capacity, Some(5));
     assert_eq!(stats.keys, 1);
     assert_eq!(stats.evictions, 1);
+
+    let mut cache = HotKeyCache::with_capacity(1);
+    assert!(cache.preload(&[rfc8032_key0()]).is_empty());
+    cache.insert(CachedPublicKey::from_encoded(rfc8032_key1()).unwrap());
+    let stats = cache.stats();
+    assert_eq!(stats.capacity, Some(1));
+    assert_eq!(stats.keys, 2);
+    assert_eq!(stats.pinned_keys, 1);
+    assert_eq!(stats.evictions, 0);
 }
 
 #[test]
