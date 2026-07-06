@@ -20,9 +20,9 @@ pub struct CacheStats {
     pub capacity: Option<usize>,
     /// Total [`KeyCache::get`]/[`KeyCache::insert`] calls that found a resident key.
     pub hits: u64,
-    /// Total [`KeyCache::get`]/[`KeyCache::insert`] calls that found no resident key.
-    pub misses: u64,
     /// Total keys newly decoded and inserted (cumulative; not reduced by eviction).
+    /// Equivalently, the total number of [`KeyCache::get`]/[`KeyCache::insert`]
+    /// calls that found no resident key, since every miss is immediately inserted.
     pub inserts: u64,
     /// Total keys evicted to stay within `capacity`.
     pub evictions: u64,
@@ -44,7 +44,6 @@ pub struct HotKeyCache {
     keys: HashMap<[u8; PUBLIC_KEY_LEN], CacheEntry>,
     capacity: Option<usize>,
     hits: Cell<u64>,
-    misses: Cell<u64>,
     inserts: Cell<u64>,
     evictions: Cell<u64>,
     clock: Cell<u64>,
@@ -63,7 +62,6 @@ impl HotKeyCache {
             keys: HashMap::new(),
             capacity: None,
             hits: Cell::new(0),
-            misses: Cell::new(0),
             inserts: Cell::new(0),
             evictions: Cell::new(0),
             clock: Cell::new(0),
@@ -98,7 +96,6 @@ impl HotKeyCache {
                 .count(),
             capacity: self.capacity,
             hits: self.hits.get(),
-            misses: self.misses.get(),
             inserts: self.inserts.get(),
             evictions: self.evictions.get(),
         }
@@ -168,7 +165,6 @@ impl HotKeyCache {
     fn record_miss(&mut self, key: CachedPublicKey, pinned: bool) {
         let last_used = self.tick();
         let encoded = key.encoded;
-        self.misses.set(self.misses.get().wrapping_add(1));
         self.keys.insert(
             encoded,
             CacheEntry {
