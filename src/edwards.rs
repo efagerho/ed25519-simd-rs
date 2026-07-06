@@ -44,12 +44,12 @@ pub(crate) struct EdwardsPoint {
 // branch mispredicts on the multiscalar hot path.
 #[derive(Clone, Debug)]
 pub(crate) struct PointTable {
-    entries: [CachedPoint; 17],
+    entries: [CachedPoint; SIGNED_POINT_TABLE_SIZE],
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct BasepointTable {
-    entries: [CachedPoint; 2 * BASEPOINT_TABLE_SIZE + 1],
+    entries: [CachedPoint; SIGNED_BASEPOINT_TABLE_SIZE],
 }
 
 // The base-point multiscalar combines two adjacent signed radix-16 digits (each
@@ -57,7 +57,10 @@ pub(crate) struct BasepointTable {
 // most `8 + 8*16 = 136` (see `base_pair_digit` in wide.rs). The table therefore
 // holds multiples `1*B ..= 136*B` (negatives handled separately), so this size
 // must equal that maximum digit magnitude.
+const POINT_TABLE_SIZE: usize = 8;
+const SIGNED_POINT_TABLE_SIZE: usize = 2 * POINT_TABLE_SIZE + 1;
 const BASEPOINT_TABLE_SIZE: usize = 136;
+const SIGNED_BASEPOINT_TABLE_SIZE: usize = 2 * BASEPOINT_TABLE_SIZE + 1;
 
 #[derive(Clone, Debug)]
 pub(crate) struct CachedPoint {
@@ -107,25 +110,17 @@ impl CachedPoint {
 
 impl PointTable {
     pub(crate) fn from_cached(
-        cached_points: [CachedPoint; 8],
-        negative_cached_points: [CachedPoint; 8],
+        cached_points: [CachedPoint; POINT_TABLE_SIZE],
+        negative_cached_points: [CachedPoint; POINT_TABLE_SIZE],
         identity_cached: CachedPoint,
     ) -> Self {
-        let entries = core::array::from_fn(|i| {
-            if i < 8 {
-                negative_cached_points[7 - i].clone()
-            } else if i == 8 {
-                identity_cached.clone()
-            } else {
-                cached_points[i - 9].clone()
-            }
-        });
+        let entries = signed_cached_entries(cached_points, negative_cached_points, identity_cached);
         Self { entries }
     }
 
     pub(crate) fn new(point: &EdwardsPoint) -> Self {
         let points = multiples_of(point);
-        let cached_points: [CachedPoint; 8] =
+        let cached_points: [CachedPoint; POINT_TABLE_SIZE] =
             core::array::from_fn(|i| CachedPoint::new(&points[i]));
         let negative_cached_points = core::array::from_fn(|i| cached_points[i].negate());
         let identity_cached = CachedPoint::new(&EdwardsPoint::identity());
@@ -155,24 +150,35 @@ impl BasepointTable {
         let negative_cached_points: [CachedPoint; BASEPOINT_TABLE_SIZE] =
             core::array::from_fn(|i| cached_points[i].negate());
         let identity_cached = CachedPoint::new(&EdwardsPoint::identity());
-        let entries = core::array::from_fn(|i| {
-            if i < BASEPOINT_TABLE_SIZE {
-                negative_cached_points[BASEPOINT_TABLE_SIZE - 1 - i].clone()
-            } else if i == BASEPOINT_TABLE_SIZE {
-                identity_cached.clone()
-            } else {
-                cached_points[i - BASEPOINT_TABLE_SIZE - 1].clone()
-            }
-        });
+        let entries = signed_cached_entries(cached_points, negative_cached_points, identity_cached);
         Self { entries }
     }
 
     /// Select the cached point for a signed digit in
     /// `-BASEPOINT_TABLE_SIZE..=BASEPOINT_TABLE_SIZE`.
     pub(crate) fn select_signed_cached_ref(&self, digit: i16) -> &CachedPoint {
-        debug_assert!((-(BASEPOINT_TABLE_SIZE as i16)..=(BASEPOINT_TABLE_SIZE as i16)).contains(&digit));
+        debug_assert!(
+            (-(BASEPOINT_TABLE_SIZE as i16)..=(BASEPOINT_TABLE_SIZE as i16)).contains(&digit)
+        );
         &self.entries[(digit + BASEPOINT_TABLE_SIZE as i16) as usize]
     }
+}
+
+fn signed_cached_entries<const N: usize, const OUT: usize>(
+    cached_points: [CachedPoint; N],
+    negative_cached_points: [CachedPoint; N],
+    identity_cached: CachedPoint,
+) -> [CachedPoint; OUT] {
+    debug_assert_eq!(OUT, 2 * N + 1);
+    core::array::from_fn(|i| {
+        if i < N {
+            negative_cached_points[N - 1 - i].clone()
+        } else if i == N {
+            identity_cached.clone()
+        } else {
+            cached_points[i - N - 1].clone()
+        }
+    })
 }
 
 impl EdwardsPoint {
