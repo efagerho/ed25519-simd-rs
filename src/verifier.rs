@@ -153,7 +153,8 @@ impl<C: KeyCache> Verifier<C> {
                 uniform_decoded_key = CachedPublicKey::from_encoded(first_public_key);
             }
         } else {
-            let chunk_cached_keys = self.cache.get_batch(&public_keys);
+            let chunk_cached_keys: [Option<&CachedPublicKey>; SIMD_LANES] =
+                core::array::from_fn(|lane| self.cache.get(&public_keys[lane]));
             lane = 0;
             while lane < SIMD_LANES {
                 if chunk_cached_keys[lane].is_none() {
@@ -289,9 +290,11 @@ impl<C: KeyCache> Verifier<C> {
             self.cache.insert(key);
         }
         if let Some((keys, key_valid_lanes)) = decoded_keys {
-            let insert_lanes =
-                core::array::from_fn(|lane| missing_key_lanes[lane] && key_valid_lanes[lane]);
-            self.cache.insert_batch(keys, insert_lanes);
+            for (lane, key) in keys.into_iter().enumerate() {
+                if missing_key_lanes[lane] && key_valid_lanes[lane] {
+                    self.cache.insert(key);
+                }
+            }
         }
     }
 }
