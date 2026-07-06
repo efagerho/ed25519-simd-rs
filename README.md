@@ -35,9 +35,22 @@ gate on the hot path), **a binary built with `-C target-cpu=native` must run on
 the same CPU it was built for, or one that is at least as capable.** Running it on
 a CPU that lacks the required features would otherwise fault with an illegal
 instruction (`SIGILL`). As a guard, `Verifier` construction performs a runtime
-feature check and panics with a clear message rather than faulting in the hot
-path. Build on the deployment host (or with an explicit
-`-C target-feature=+avx512f,+avx512dq,+avx512ifma` matching the deployment CPU).
+feature check and panics with a clear message instead of faulting in this
+crate's hot path.
+
+This guard reduces, but cannot eliminate, the risk of a raw `SIGILL`: the
+`-C target-feature`/`-C target-cpu=native` flags that enable AVX-512 apply to
+the entire binary, not just this crate, so the compiler is free to use AVX-512
+instructions in any code built with those flags — including the standard
+library's generic/monomorphized code (formatting, collections, panic/backtrace
+machinery, etc.) — whether or not it ever calls into `ed25519-simd`. Code that
+runs before a `Verifier` is constructed, or unrelated code elsewhere in the
+same binary, is not covered by this check. The guard's real value is catching
+the common case (a `Verifier` built and used near the start of a program, per
+the usage pattern above) with a clear message rather than a bare `SIGILL`; it
+is not a substitute for building on the deployment host (or with an explicit
+`-C target-feature=+avx512f,+avx512dq,+avx512ifma` matching the deployment
+CPU).
 
 ## Scope
 
