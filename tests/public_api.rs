@@ -231,6 +231,39 @@ fn hot_key_cache_preload_can_pin_an_already_resident_key() {
 }
 
 #[test]
+fn hot_key_cache_evicts_down_to_capacity_with_more_candidates_than_the_eviction_sample() {
+    // Eviction bounds each round's scan to a fixed-size sample (currently 8)
+    // instead of examining every candidate; use enough evictable candidates
+    // that a single round can't see them all, so this exercises the sampling
+    // path (never reached by any batch/preload test, which all stay small).
+    let keys: Vec<[u8; 32]> = (0..12u64)
+        .map(|i| <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key_from_index(i))))
+        .collect();
+
+    let mut cache = HotKeyCache::new();
+    // Pin two keys so they must survive untouched even while many more
+    // evictable candidates than the sample size compete for the rest.
+    assert!(cache.preload(&keys[..2]).is_empty());
+    for key in &keys[2..] {
+        cache.insert(CachedPublicKey::from_encoded(*key).unwrap());
+    }
+    assert_eq!(cache.stats().keys, 12);
+    assert_eq!(cache.stats().pinned_keys, 2);
+
+    // Shrink the evictable capacity well below the 10 evictable candidates,
+    // forcing several eviction rounds in a row.
+    cache.set_capacity(Some(3));
+    let stats = cache.stats();
+    assert_eq!(stats.capacity, Some(3));
+    assert_eq!(stats.pinned_keys, 2);
+    assert_eq!(stats.keys - stats.pinned_keys, 3);
+    assert_eq!(stats.evictions, 10 - 3);
+    for key in &keys[..2] {
+        assert!(cache.get(key).is_some(), "pinned key must survive eviction");
+    }
+}
+
+#[test]
 fn hot_key_cache_set_capacity_clamps_and_evicts_immediately() {
     let mut cache = HotKeyCache::new();
     cache.insert(CachedPublicKey::from_encoded(rfc8032_key0()).unwrap());
