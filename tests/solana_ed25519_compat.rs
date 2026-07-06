@@ -580,7 +580,7 @@ fn per_lane_masking_matches_solana_ed25519_under_heavy_garbage() {
 fn enumerate_divergences_vs_solana_ed25519() {
     use ed25519_simd::VerifyPolicy::{Dalek, Zip215};
 
-    let points: [(&str, [u8; 32]); 14] = [
+    let points: [(&str, [u8; 32]); 18] = [
         (
             "id_canon",
             hex_array::<32>("0100000000000000000000000000000000000000000000000000000000000000"),
@@ -620,6 +620,26 @@ fn enumerate_divergences_vs_solana_ed25519() {
         (
             "ord8d",
             hex_array::<32>("c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa"),
+        ),
+        // The following four are LEGACY_EXCLUDED_R_ENCODINGS entries (policy.rs)
+        // that no other test exercises as an exact R value; ord8b/ord8d above
+        // are near-miss decoys (same tail byte, different leading byte) that
+        // don't actually cover them.
+        (
+            "legacy_excl_valid_pt1",
+            hex_array::<32>("13e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85"),
+        ),
+        (
+            "legacy_excl_invalid_pt",
+            hex_array::<32>("b4176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa"),
+        ),
+        (
+            "legacy_excl_offcurve",
+            hex_array::<32>("d9ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+        ),
+        (
+            "legacy_excl_valid_pt2",
+            hex_array::<32>("daffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
         ),
         (
             "ord2_noncanon_hi",
