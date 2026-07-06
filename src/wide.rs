@@ -254,8 +254,8 @@ pub(crate) mod avx512ifma {
         prepared: &PreparedBatch<'_>,
     ) -> WidePoint {
         let public_key_tables = &prepared.public_key_tables;
-        let s_digits = &prepared.s_digits;
-        let k_digits = &prepared.k_digits;
+        let s_digits = prepared.s_digits;
+        let k_digits = prepared.k_digits;
 
         let mut acc = WidePoint::identity();
         let public_tables_uniform = public_tables_uniform(public_key_tables);
@@ -1599,8 +1599,8 @@ pub(crate) mod avx512ifma {
             let k_digits = [k.to_radix16(); LANES];
             let prepared = PreparedBatch {
                 public_key_tables: [&table; LANES],
-                s_digits,
-                k_digits,
+                s_digits: &s_digits,
+                k_digits: &k_digits,
             };
             let combined = mul_base_minus_public(&base_table, &prepared);
             let pts = combined.to_points();
@@ -1651,8 +1651,8 @@ pub(crate) mod avx512ifma {
             let k_digits = [k.to_radix16(); LANES];
             let prepared = PreparedBatch {
                 public_key_tables: [&table; LANES],
-                s_digits,
-                k_digits,
+                s_digits: &s_digits,
+                k_digits: &k_digits,
             };
             let (r_point, r_mask) = decompress_points_wide(&[r_bytes; LANES]);
             assert_eq!(r_mask, 0xff, "torsion R must decode");

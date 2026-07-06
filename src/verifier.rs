@@ -254,8 +254,8 @@ impl<C: KeyCache> Verifier<C> {
 
         let prepared = PreparedBatch {
             public_key_tables,
-            s_digits,
-            k_digits,
+            s_digits: &s_digits,
+            k_digits: &k_digits,
         };
         match policy {
             VerifyPolicy::Zip215 => {
