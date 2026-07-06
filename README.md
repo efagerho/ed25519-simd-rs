@@ -130,8 +130,9 @@ that does repeat a small key set; measure your own workload before relying on
 it, since the win shrinks or disappears as the hot set gets larger or less
 repetitive:
 
-- `with_cache_capacity(...)` bounds the retained key set.
-- `preload_public_keys(...)` decodes and pins known hot keys.
+- `with_cache_capacity(...)` bounds the evictable retained key set.
+- `preload_public_keys(...)` decodes and pins known hot keys; pinned keys are
+  retained outside the capacity bound and are not evicted.
 - `verifier.cache()` returns `&LruKeyCache`, which exposes optional cache
   stats and hot-key reporting.
 

@@ -52,12 +52,12 @@ impl Verifier<NullKeyCache> {
 }
 
 impl Verifier<LruKeyCache> {
-    /// Create a verifier with a specific policy and bounded LRU cache.
+    /// Create a verifier with a specific policy and capacity-bounded evictable LRU cache.
     pub fn with_cache_capacity(policy: VerifyPolicy, max_cached_keys: usize) -> Self {
         Self::with_cache(policy, LruKeyCache::with_capacity(max_cached_keys))
     }
 
-    /// Decode and pin keys in the LRU cache.
+    /// Decode and pin keys in the LRU cache outside the eviction bound.
     pub fn preload_public_keys(&mut self, keys: &[[u8; 32]]) {
         self.cache.preload(keys);
     }

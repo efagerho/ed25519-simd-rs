@@ -2,6 +2,10 @@ use crate::cache::{CachedPublicKey, KeyCache};
 use std::cell::Cell;
 use std::collections::HashMap;
 
+/// Number of eligible candidates `evict_to_capacity` examines per eviction,
+/// bounding its cost independent of cache size. See `evict_to_capacity`.
+const EVICTION_SAMPLE: usize = 8;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CacheStats {
     pub keys: usize,
@@ -55,14 +59,18 @@ impl LruKeyCache {
         }
     }
 
-    /// Create a cache bounded to at least one retained key.
+    /// Create a cache bounded to at least one evictable retained key.
+    ///
+    /// Preloaded keys are pinned and do not count as evictable capacity.
     pub fn with_capacity(max_cached_keys: usize) -> Self {
         let mut cache = Self::new();
         cache.set_capacity(Some(max_cached_keys));
         cache
     }
 
-    /// Set the maximum retained key count, or `None` for an unbounded cache.
+    /// Set the maximum evictable retained key count, or `None` for an unbounded cache.
+    ///
+    /// Preloaded keys are pinned and may make total occupancy exceed this value.
     pub fn set_capacity(&mut self, max_cached_keys: Option<usize>) {
         self.max_cached_keys = max_cached_keys.map(|keys| keys.max(1));
         self.evict_to_capacity(None);
@@ -101,7 +109,7 @@ impl LruKeyCache {
             .collect()
     }
 
-    /// Decode and pin the given keys so they are not evicted.
+    /// Decode and pin the given keys so they are retained outside the eviction bound.
     pub fn preload(&mut self, keys: &[[u8; 32]]) {
         for key in keys {
             self.insert_encoded(*key, true);
@@ -161,10 +169,19 @@ impl LruKeyCache {
         };
 
         while self.keys.len() > max_cached_keys {
+            // Bound the scan to a fixed-size sample of eligible candidates
+            // instead of the whole map, the same approximation production
+            // caches (e.g. Redis's `maxmemory-samples`) make to keep eviction
+            // cost independent of cache size. `take` comes after `filter` so
+            // a sample skewed toward pinned/protected entries can't make this
+            // give up early while real candidates exist elsewhere; for caches
+            // at or under EVICTION_SAMPLE live entries (every case in this
+            // crate's tests), it's exactly equivalent to an exhaustive scan.
             let victim = self
                 .keys
                 .iter()
                 .filter(|(encoded, entry)| Some(**encoded) != protected && !entry.pinned.get())
+                .take(EVICTION_SAMPLE)
                 .min_by_key(|(_, entry)| (entry.hits.get(), entry.last_used.get()))
                 .map(|(encoded, _)| *encoded);
 
