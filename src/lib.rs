@@ -19,7 +19,7 @@ mod sha512;
 mod verifier;
 mod wide;
 
-pub use batch::{PUBLIC_KEY_LEN, SIGNATURE_LEN, SIMD_LANES};
+pub use batch::{PUBLIC_KEY_LEN, SIGNATURE_LEN};
 pub use cache::{CachedPublicKey, KeyCache, NullKeyCache};
 pub use lru_cache::{CacheStats, LruKeyCache};
 pub use policy::VerifyPolicy;

@@ -4,10 +4,12 @@ use crate::verifier::VerifyInput;
 // TODO: Could use a more efficient hash table here
 use std::collections::HashMap;
 
+/// Byte length of an encoded Ed25519 public key.
 pub const PUBLIC_KEY_LEN: usize = 32;
+/// Byte length of an encoded Ed25519 signature.
 pub const SIGNATURE_LEN: usize = 64;
 /// Number of verification lanes processed by one SIMD chunk.
-pub const SIMD_LANES: usize = 8;
+pub(crate) const SIMD_LANES: usize = 8;
 const BUCKET_HISTOGRAM_BLOCKS: usize = 64;
 
 pub(crate) struct PreparedBatch<'a> {

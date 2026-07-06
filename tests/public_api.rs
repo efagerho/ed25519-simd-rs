@@ -1,7 +1,8 @@
 mod support;
 
 use ed25519_simd::{
-    CachedPublicKey, KeyCache, LruKeyCache, NullKeyCache, Verifier, VerifyInput, VerifyPolicy,
+    CachedPublicKey, KeyCache, LruKeyCache, NullKeyCache, PUBLIC_KEY_LEN, Verifier, VerifyInput,
+    VerifyPolicy,
 };
 use std::cell::Cell;
 use support::hex_array;
@@ -54,7 +55,7 @@ fn cached_verifier_accepts_batch() {
     let mut out = [false];
     let mut verifier = Verifier::with_cache(VerifyPolicy::default(), LruKeyCache::new());
 
-    verifier.preload_public_keys(&[rfc8032_key1()]);
+    assert!(verifier.cache_mut().preload(&[rfc8032_key1()]).is_empty());
     verifier.verify_batch(&[input], &mut out);
 
     assert_eq!(out, [true]);
@@ -70,7 +71,7 @@ fn cached_verifier_accepts_simd_sized_batch() {
     let mut out = [false; 8];
     let mut verifier = Verifier::with_cache(VerifyPolicy::default(), LruKeyCache::new());
 
-    verifier.preload_public_keys(&[rfc8032_key1()]);
+    assert!(verifier.cache_mut().preload(&[rfc8032_key1()]).is_empty());
     verifier.verify_batch(&inputs, &mut out);
 
     assert_eq!(out, [true; 8]);
@@ -87,7 +88,7 @@ fn cached_verifier_rejects_one_bad_lane_in_simd_batch() {
     let mut out = [false; 8];
     let mut verifier = Verifier::with_cache(VerifyPolicy::default(), LruKeyCache::new());
 
-    verifier.preload_public_keys(&[rfc8032_key1()]);
+    assert!(verifier.cache_mut().preload(&[rfc8032_key1()]).is_empty());
     verifier.verify_batch(&inputs, &mut out);
 
     assert_eq!(out, [true, true, true, false, true, true, true, true]);
@@ -104,7 +105,7 @@ fn cached_verifier_rejects_bad_r_lane_in_simd_batch() {
     let mut out = [false; 8];
     let mut verifier = Verifier::with_cache(VerifyPolicy::default(), LruKeyCache::new());
 
-    verifier.preload_public_keys(&[rfc8032_key1()]);
+    assert!(verifier.cache_mut().preload(&[rfc8032_key1()]).is_empty());
     verifier.verify_batch(&inputs, &mut out);
 
     assert_eq!(out, [true, true, true, true, true, false, true, true]);
@@ -122,7 +123,7 @@ fn lru_cache_tracks_hot_keys_and_capacity() {
         signature: rfc8032_sig1(),
         message: &[0x72],
     };
-    let mut verifier = Verifier::with_cache_capacity(VerifyPolicy::default(), 1);
+    let mut verifier = Verifier::with_cache(VerifyPolicy::default(), LruKeyCache::with_capacity(1));
     let mut out = [false];
 
     verifier.verify_batch(&[input0], &mut out);
@@ -132,14 +133,14 @@ fn lru_cache_tracks_hot_keys_and_capacity() {
 
     let stats = verifier.cache().stats();
     assert_eq!(stats.keys, 1);
-    assert_eq!(stats.max_keys, Some(1));
+    assert_eq!(stats.capacity, Some(1));
     assert_eq!(stats.evictions, 1);
     assert_eq!(stats.inserts, 2);
     assert_eq!(stats.misses, 2);
     assert_eq!(stats.hits, 0);
     assert_eq!(verifier.cache().hot_public_keys(1), [rfc8032_key1()]);
 
-    verifier.preload_public_keys(&[rfc8032_key0()]);
+    assert!(verifier.cache_mut().preload(&[rfc8032_key0()]).is_empty());
     let stats = verifier.cache().stats();
     assert_eq!(stats.keys, 1);
     assert_eq!(stats.pinned_keys, 1);
@@ -149,7 +150,7 @@ fn lru_cache_tracks_hot_keys_and_capacity() {
     assert_eq!(verifier.cache().hot_public_keys(1), [rfc8032_key0()]);
 
     // A key already resident and re-preloaded is a hit, not a fresh insert.
-    verifier.preload_public_keys(&[rfc8032_key0()]);
+    assert!(verifier.cache_mut().preload(&[rfc8032_key0()]).is_empty());
     let stats = verifier.cache().stats();
     assert_eq!(stats.keys, 1);
     assert_eq!(stats.inserts, 3);
@@ -162,20 +163,20 @@ fn lru_cache_set_capacity_clamps_and_evicts_immediately() {
     cache.insert(CachedPublicKey::from_encoded(rfc8032_key0()).unwrap());
     cache.insert(CachedPublicKey::from_encoded(rfc8032_key1()).unwrap());
     assert_eq!(cache.stats().keys, 2);
-    assert_eq!(cache.stats().max_keys, None);
+    assert_eq!(cache.stats().capacity, None);
 
     // A requested capacity of 0 is clamped up to 1, and the cache evicts down
     // to it immediately rather than waiting for the next insert.
     cache.set_capacity(Some(0));
     let stats = cache.stats();
-    assert_eq!(stats.max_keys, Some(1));
+    assert_eq!(stats.capacity, Some(1));
     assert_eq!(stats.keys, 1);
     assert_eq!(stats.evictions, 1);
 
     // Raising the capacity back up does not evict or insert anything.
     cache.set_capacity(Some(5));
     let stats = cache.stats();
-    assert_eq!(stats.max_keys, Some(5));
+    assert_eq!(stats.capacity, Some(5));
     assert_eq!(stats.keys, 1);
     assert_eq!(stats.evictions, 1);
 }
@@ -184,10 +185,10 @@ fn lru_cache_set_capacity_clamps_and_evicts_immediately() {
 fn verifier_exposes_cache_mut_and_policy() {
     let mut verifier = Verifier::with_cache(VerifyPolicy::Dalek, LruKeyCache::new());
     assert_eq!(verifier.policy(), VerifyPolicy::Dalek);
-    assert_eq!(verifier.cache().stats().max_keys, None);
+    assert_eq!(verifier.cache().stats().capacity, None);
 
     verifier.cache_mut().set_capacity(Some(1));
-    assert_eq!(verifier.cache().stats().max_keys, Some(1));
+    assert_eq!(verifier.cache().stats().capacity, Some(1));
 
     let zip215_verifier = Verifier::with_cache(VerifyPolicy::Zip215, LruKeyCache::new());
     assert_eq!(zip215_verifier.policy(), VerifyPolicy::Zip215);
@@ -221,7 +222,7 @@ struct TinyKeyCache {
 }
 
 impl KeyCache for TinyKeyCache {
-    fn get(&self, encoded: &[u8; 32]) -> Option<&CachedPublicKey> {
+    fn get(&self, encoded: &[u8; PUBLIC_KEY_LEN]) -> Option<&CachedPublicKey> {
         let key = self.keys.iter().find(|key| key.encoded() == *encoded);
         if key.is_some() {
             self.hits.set(self.hits.get() + 1);

@@ -339,7 +339,7 @@ fn batch_verify_matches_solana_ed25519() {
 
             let mut verifier = Verifier::with_cache(VerifyPolicy::Zip215, LruKeyCache::new());
             let keys: Vec<[u8; 32]> = cases.iter().map(|c| c.public_key).collect();
-            verifier.preload_public_keys(&keys);
+            assert!(verifier.cache_mut().preload(&keys).is_empty());
             let mut out = vec![false; inputs.len()];
             verifier.verify_batch(&inputs, &mut out);
 
@@ -406,7 +406,7 @@ fn batch_dalek_matches_solana_ed25519_simd() {
             let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|c| c.input()).collect();
             let mut verifier = Verifier::with_cache(Dalek, LruKeyCache::new());
             let keys: Vec<[u8; 32]> = cases.iter().map(|c| c.public_key).collect();
-            verifier.preload_public_keys(&keys);
+            assert!(verifier.cache_mut().preload(&keys).is_empty());
             let mut out = vec![false; inputs.len()];
             verifier.verify_batch(&inputs, &mut out);
 
@@ -438,7 +438,7 @@ fn lru_capacity_does_not_evict_current_simd_chunk() {
     }
 
     let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|case| case.input()).collect();
-    let mut verifier = Verifier::with_cache_capacity(VerifyPolicy::Zip215, 1);
+    let mut verifier = Verifier::with_cache(VerifyPolicy::Zip215, LruKeyCache::with_capacity(1));
     let mut out = vec![false; inputs.len()];
     verifier.verify_batch(&inputs, &mut out);
 
@@ -777,7 +777,9 @@ fn speccheck_and_wycheproof_vectors_survive_non_uniform_batches_and_warm_cache()
             // hit, forcing the `decoded_r == None` branch
             // (`verify_prepared_dalek`'s byte comparison for Dalek).
             let mut cached = Verifier::with_cache(policy, LruKeyCache::new());
-            cached.preload_public_keys(&[public_key]);
+            // `public_key` may be garbage/undecodable for some vectors here;
+            // that's an expected preload failure, not a test bug.
+            let _ = cached.cache_mut().preload(&[public_key]);
             let input = VerifyInput {
                 public_key,
                 signature,
