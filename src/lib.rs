@@ -12,7 +12,7 @@ mod cache;
 mod cpuid;
 mod edwards;
 mod field;
-mod lru_cache;
+mod hot_key_cache;
 mod policy;
 mod scalar;
 mod sha512;
@@ -21,6 +21,6 @@ mod wide;
 
 pub use batch::{PUBLIC_KEY_LEN, SIGNATURE_LEN};
 pub use cache::{CachedPublicKey, KeyCache, NullKeyCache};
-pub use lru_cache::{CacheStats, LruKeyCache};
+pub use hot_key_cache::{CacheStats, HotKeyCache};
 pub use policy::VerifyPolicy;
 pub use verifier::{Verifier, VerifyInput};

@@ -1,10 +1,8 @@
 mod support;
 
 use ed25519_simd::{
-    CachedPublicKey, KeyCache, LruKeyCache, NullKeyCache, PUBLIC_KEY_LEN, Verifier, VerifyInput,
-    VerifyPolicy,
+    CachedPublicKey, HotKeyCache, KeyCache, NullKeyCache, Verifier, VerifyInput, VerifyPolicy,
 };
-use std::cell::Cell;
 use support::hex_array;
 
 fn rfc8032_key0() -> [u8; 32] {
@@ -53,7 +51,7 @@ fn cached_verifier_accepts_batch() {
         message: &[0x72],
     };
     let mut out = [false];
-    let mut verifier = Verifier::with_cache(VerifyPolicy::default(), LruKeyCache::new());
+    let mut verifier = Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::new());
 
     assert!(verifier.cache_mut().preload(&[rfc8032_key1()]).is_empty());
     verifier.verify_batch(&[input], &mut out);
@@ -69,7 +67,7 @@ fn cached_verifier_accepts_simd_sized_batch() {
         message: &[0x72],
     }; 8];
     let mut out = [false; 8];
-    let mut verifier = Verifier::with_cache(VerifyPolicy::default(), LruKeyCache::new());
+    let mut verifier = Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::new());
 
     assert!(verifier.cache_mut().preload(&[rfc8032_key1()]).is_empty());
     verifier.verify_batch(&inputs, &mut out);
@@ -86,7 +84,7 @@ fn cached_verifier_rejects_one_bad_lane_in_simd_batch() {
     }; 8];
     inputs[3].signature[40] ^= 1;
     let mut out = [false; 8];
-    let mut verifier = Verifier::with_cache(VerifyPolicy::default(), LruKeyCache::new());
+    let mut verifier = Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::new());
 
     assert!(verifier.cache_mut().preload(&[rfc8032_key1()]).is_empty());
     verifier.verify_batch(&inputs, &mut out);
@@ -103,7 +101,7 @@ fn cached_verifier_rejects_bad_r_lane_in_simd_batch() {
     }; 8];
     inputs[5].signature[..32].copy_from_slice(&[0xff; 32]);
     let mut out = [false; 8];
-    let mut verifier = Verifier::with_cache(VerifyPolicy::default(), LruKeyCache::new());
+    let mut verifier = Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::new());
 
     assert!(verifier.cache_mut().preload(&[rfc8032_key1()]).is_empty());
     verifier.verify_batch(&inputs, &mut out);
@@ -112,7 +110,7 @@ fn cached_verifier_rejects_bad_r_lane_in_simd_batch() {
 }
 
 #[test]
-fn lru_cache_tracks_hot_keys_and_capacity() {
+fn hot_key_cache_tracks_hot_keys_and_capacity() {
     let input0 = VerifyInput {
         public_key: rfc8032_key0(),
         signature: rfc8032_sig0(),
@@ -123,7 +121,7 @@ fn lru_cache_tracks_hot_keys_and_capacity() {
         signature: rfc8032_sig1(),
         message: &[0x72],
     };
-    let mut verifier = Verifier::with_cache(VerifyPolicy::default(), LruKeyCache::with_capacity(1));
+    let mut verifier = Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::with_capacity(1));
     let mut out = [false];
 
     verifier.verify_batch(&[input0], &mut out);
@@ -163,8 +161,8 @@ fn lru_cache_tracks_hot_keys_and_capacity() {
 }
 
 #[test]
-fn lru_cache_set_capacity_clamps_and_evicts_immediately() {
-    let mut cache = LruKeyCache::new();
+fn hot_key_cache_set_capacity_clamps_and_evicts_immediately() {
+    let mut cache = HotKeyCache::new();
     cache.insert(CachedPublicKey::from_encoded(rfc8032_key0()).unwrap());
     cache.insert(CachedPublicKey::from_encoded(rfc8032_key1()).unwrap());
     assert_eq!(cache.stats().keys, 2);
@@ -188,14 +186,14 @@ fn lru_cache_set_capacity_clamps_and_evicts_immediately() {
 
 #[test]
 fn verifier_exposes_cache_mut_and_policy() {
-    let mut verifier = Verifier::with_cache(VerifyPolicy::Dalek, LruKeyCache::new());
+    let mut verifier = Verifier::with_cache(VerifyPolicy::Dalek, HotKeyCache::new());
     assert_eq!(verifier.policy(), VerifyPolicy::Dalek);
     assert_eq!(verifier.cache().stats().capacity, None);
 
     verifier.cache_mut().set_capacity(Some(1));
     assert_eq!(verifier.cache().stats().capacity, Some(1));
 
-    let zip215_verifier = Verifier::with_cache(VerifyPolicy::Zip215, LruKeyCache::new());
+    let zip215_verifier = Verifier::with_cache(VerifyPolicy::Zip215, HotKeyCache::new());
     assert_eq!(zip215_verifier.policy(), VerifyPolicy::Zip215);
 }
 
@@ -218,48 +216,4 @@ fn default_verifier_does_not_retain_keys() {
 
     assert_eq!(out, [true]);
     assert!(verifier.cache().get(&rfc8032_key1()).is_none());
-}
-
-#[derive(Default)]
-struct TinyKeyCache {
-    keys: Vec<CachedPublicKey>,
-    hits: Cell<u64>,
-}
-
-impl KeyCache for TinyKeyCache {
-    fn get(&self, encoded: &[u8; PUBLIC_KEY_LEN]) -> Option<&CachedPublicKey> {
-        let key = self.keys.iter().find(|key| key.encoded() == *encoded);
-        if key.is_some() {
-            self.hits.set(self.hits.get() + 1);
-        }
-        key
-    }
-
-    fn insert(&mut self, key: CachedPublicKey) {
-        if self.keys.iter().all(|cached| cached.encoded() != key.encoded()) && self.keys.len() < 2
-        {
-            self.keys.push(key);
-        }
-    }
-}
-
-#[test]
-fn custom_key_cache_can_retain_a_small_hot_set() {
-    let input = VerifyInput {
-        public_key: rfc8032_key1(),
-        signature: rfc8032_sig1(),
-        message: &[0x72],
-    };
-    let mut verifier = Verifier::with_cache(VerifyPolicy::Zip215, TinyKeyCache::default());
-    let mut out = [false];
-
-    verifier.verify_batch(&[input], &mut out);
-    assert_eq!(out, [true]);
-    assert_eq!(verifier.cache().keys.len(), 1);
-
-    verifier.verify_batch(&[input], &mut out);
-    assert_eq!(out, [true]);
-    // The single real input is padded to a full 8-lane SIMD chunk, and every
-    // lane independently looks the key up, so this counts 8 hits, not 1.
-    assert_eq!(verifier.cache().hits.get(), 8);
 }

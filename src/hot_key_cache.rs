@@ -7,15 +7,15 @@ use std::collections::HashMap;
 /// bounding its cost independent of cache size. See `evict_to_capacity`.
 const EVICTION_SAMPLE: usize = 8;
 
-/// Snapshot of an [`LruKeyCache`]'s counters and occupancy at the moment
-/// [`LruKeyCache::stats`] was called.
+/// Snapshot of a [`HotKeyCache`]'s counters and occupancy at the moment
+/// [`HotKeyCache::stats`] was called.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CacheStats {
     /// Total resident keys, including pinned ones.
     pub keys: usize,
-    /// Resident keys pinned by [`LruKeyCache::preload`]; not counted against `capacity`.
+    /// Resident keys pinned by [`HotKeyCache::preload`]; not counted against `capacity`.
     pub pinned_keys: usize,
-    /// The evictable capacity passed to [`LruKeyCache::with_capacity`]/[`LruKeyCache::set_capacity`],
+    /// The evictable capacity passed to [`HotKeyCache::with_capacity`]/[`HotKeyCache::set_capacity`],
     /// or `None` for an unbounded cache. Pinned keys may push `keys` above this.
     pub capacity: Option<usize>,
     /// Total [`KeyCache::get`]/[`KeyCache::insert`] calls that found a resident key.
@@ -29,7 +29,7 @@ pub struct CacheStats {
 }
 
 #[derive(Clone, Debug)]
-struct LruEntry {
+struct CacheEntry {
     key: CachedPublicKey,
     hits: Cell<u64>,
     last_used: Cell<u64>,
@@ -40,8 +40,8 @@ struct LruEntry {
 /// optional capacity and least-valuable eviction. Best for workloads with a hot
 /// set of repeating keys.
 #[derive(Debug)]
-pub struct LruKeyCache {
-    keys: HashMap<[u8; PUBLIC_KEY_LEN], LruEntry>,
+pub struct HotKeyCache {
+    keys: HashMap<[u8; PUBLIC_KEY_LEN], CacheEntry>,
     capacity: Option<usize>,
     hits: Cell<u64>,
     misses: Cell<u64>,
@@ -50,13 +50,13 @@ pub struct LruKeyCache {
     clock: Cell<u64>,
 }
 
-impl Default for LruKeyCache {
+impl Default for HotKeyCache {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl LruKeyCache {
+impl HotKeyCache {
     /// Create an unbounded cache.
     pub fn new() -> Self {
         Self {
@@ -106,7 +106,7 @@ impl LruKeyCache {
 
     /// Return up to `limit` keys ordered by hit count and recent use.
     pub fn hot_public_keys(&self, limit: usize) -> Vec<[u8; PUBLIC_KEY_LEN]> {
-        let mut entries: Vec<&LruEntry> = self.keys.values().collect();
+        let mut entries: Vec<&CacheEntry> = self.keys.values().collect();
         entries.sort_by(|lhs, rhs| {
             rhs.hits
                 .get()
@@ -156,7 +156,7 @@ impl LruKeyCache {
     /// Shared hit-bookkeeping for a key already resident in the cache. See
     /// `record_miss` for the counterpart shared by the two insertion paths
     /// (`insert_encoded` and the `KeyCache::insert` impl below).
-    fn touch_entry(&self, entry: &LruEntry) {
+    fn touch_entry(&self, entry: &CacheEntry) {
         let last_used = self.tick();
         self.hits.set(self.hits.get().wrapping_add(1));
         entry.hits.set(entry.hits.get().wrapping_add(1));
@@ -171,7 +171,7 @@ impl LruKeyCache {
         self.misses.set(self.misses.get().wrapping_add(1));
         self.keys.insert(
             encoded,
-            LruEntry {
+            CacheEntry {
                 key,
                 hits: Cell::new(1),
                 last_used: Cell::new(last_used),
@@ -213,7 +213,9 @@ impl LruKeyCache {
     }
 }
 
-impl KeyCache for LruKeyCache {
+impl crate::cache::private::Sealed for HotKeyCache {}
+
+impl KeyCache for HotKeyCache {
     #[inline]
     fn get(&self, encoded: &[u8; PUBLIC_KEY_LEN]) -> Option<&CachedPublicKey> {
         let entry = self.keys.get(encoded)?;
