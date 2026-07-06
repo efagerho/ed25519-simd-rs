@@ -141,16 +141,14 @@ impl PointTable {
 
 impl BasepointTable {
     pub(crate) fn new() -> Self {
+        // Built once per process (see BASE_TABLE in verifier.rs), so there's
+        // no reason to special-case even m via double() to save a handful of
+        // multiplies: this whole computation runs once ever.
         let basepoint = EdwardsPoint::basepoint();
         let mut points = Vec::with_capacity(BASEPOINT_TABLE_SIZE);
         points.push(basepoint.clone());
-        for m in 2..=BASEPOINT_TABLE_SIZE {
-            let next = if m % 2 == 0 {
-                points[m / 2 - 1].double()
-            } else {
-                points[m - 2].add(&basepoint)
-            };
-            points.push(next);
+        for _ in 2..=BASEPOINT_TABLE_SIZE {
+            points.push(points.last().unwrap().add(&basepoint));
         }
         let cached_points: [CachedPoint; BASEPOINT_TABLE_SIZE] =
             core::array::from_fn(|i| CachedPoint::new(&points[i]));
