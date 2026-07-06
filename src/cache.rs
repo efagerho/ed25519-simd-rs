@@ -1,7 +1,5 @@
 use crate::edwards::{EdwardsPoint, PointTable};
 
-const SIMD_LANES: usize = crate::batch::SIMD_LANES;
-
 /// A decoded public key and its precomputed multiplication table.
 #[derive(Clone, Debug)]
 pub struct CachedPublicKey {
@@ -36,32 +34,9 @@ pub trait KeyCache {
     /// update hit counters or recency state through interior mutability.
     fn get(&self, encoded: &[u8; 32]) -> Option<&CachedPublicKey>;
 
-    /// Borrow one SIMD chunk of cached keys.
-    fn get_batch<'a>(
-        &'a self,
-        keys: &[[u8; 32]; SIMD_LANES],
-    ) -> [Option<&'a CachedPublicKey>; SIMD_LANES] {
-        core::array::from_fn(|lane| self.get(&keys[lane]))
-    }
-
     /// Optionally retain an already-decoded key for later chunks or batches.
     /// The default implementation leaves the cache unchanged.
     fn insert(&mut self, _key: CachedPublicKey) {}
-
-    /// Optionally retain already-decoded keys from one SIMD chunk.
-    ///
-    /// Only lanes with the corresponding `insert_lanes` entry set are inserted.
-    fn insert_batch(
-        &mut self,
-        keys: [CachedPublicKey; SIMD_LANES],
-        insert_lanes: [bool; SIMD_LANES],
-    ) {
-        for (lane, key) in keys.into_iter().enumerate() {
-            if insert_lanes[lane] {
-                self.insert(key);
-            }
-        }
-    }
 }
 
 /// A [`KeyCache`] that retains no decoded keys.
