@@ -51,11 +51,8 @@ fn wycheproof_fixed_length_vectors_match_dalek_policy() {
                 test["tcId"],
                 test["flags"]
             );
-            // Wycheproof's `expected` is Dalek-oriented (e.g. some small-order
-            // vectors it marks "invalid" are accepted under ZIP-215's
-            // cofactored check), so ZIP-215's acceptance set is pinned against
-            // the solana-ed25519 oracle instead of `expected` directly — this
-            // covers every vector, not just the ones already expected valid.
+            // Wycheproof expectations are Dalek-oriented; pin ZIP-215 against
+            // the solana-ed25519 oracle instead.
             let zip215_oracle = solana_ed25519_verify_zebra(public_key, signature, &message);
             assert_eq!(
                 verify(VerifyPolicy::Zip215, input),
@@ -77,13 +74,9 @@ fn speccheck_vectors_match_zip215_and_dalek_policies() {
         serde_json::from_str(include_str!("vectors/ed25519_speccheck.json")).unwrap();
     let cases = cases.as_array().unwrap();
 
-    // Pinned expectations for the 12 "Taming the Many EdDSAs" speccheck
-    // vectors. ZIP-215 is cofactored; the Dalek policy is cofactorless, so it
-    // additionally rejects the small-/mixed-order vectors (0, 4, 5, 9, 10) that
-    // the cofactored check accepts. Both reject the non-canonical-S vectors
-    // (6, 7, 8). `solana-ed25519` is cross-checked against these same arrays as a fixture
-    // guard, so a drift in either the vectors or `solana-ed25519` is caught here rather
-    // than silently agreed upon.
+    // Pinned speccheck expectations: Dalek rejects the small-/mixed-order cases
+    // accepted by ZIP-215; both reject non-canonical S. solana-ed25519 is
+    // cross-checked against these arrays as a fixture guard.
     let zip215_expected = [
         true, true, true, true, true, true, false, false, false, true, true, true,
     ];

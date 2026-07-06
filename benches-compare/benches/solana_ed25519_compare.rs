@@ -22,10 +22,7 @@ use sodiumoxide::crypto::sign::ed25519::{
 
 const SIZES: [usize; 4] = [8, 16, 32, 64];
 
-/// libsodium requires one-time global initialization; unlike per-signature
-/// key parsing (deliberately timed inside `sodium_loop`, see below), this is
-/// a one-time process-wide cost with no per-verification analog to compare
-/// against, so it stays outside the timed loop.
+/// One-time libsodium initialization, kept outside timed loops.
 fn init_sodiumoxide() {
     static INIT: Once = Once::new();
     INIT.call_once(|| sodiumoxide::init().expect("failed to initialize libsodium"));
@@ -139,18 +136,8 @@ fn solana_ed25519_batch_zip215(inputs: &[VerifyInput<'_>]) -> bool {
     batch.verify(rand::thread_rng()).is_ok()
 }
 
-// The `_loop` and `_batch` functions below verify every element of the batch
-// even after the first failure: with a scattered-invalid fraction (see
-// `bench_garbage_scenario`), a short-circuiting `.all()` would measure only a
-// prefix of the batch instead of the whole thing, understating the backend's
-// cost relative to ed25519-simd (which always verifies every lane). `fold`
-// with `&` (not `&&`) forces every element to be evaluated regardless of
-// `acc`'s current value.
-//
-// Key/signature parsing also happens inside each closure below, matching
-// ed25519-simd's `NullKeyCache` and solana-ed25519's own loops, which decode
-// fresh on every call — otherwise backends whose setup was hoisted out of the
-// timed loop would be compared unfairly against the two that don't.
+// These loops verify every element with `&`, so scattered-invalid batches do
+// not short-circuit. Parsing stays inside the loop to match cold-cache backends.
 fn solana_ed25519_dalek_loop(inputs: &[VerifyInput<'_>]) -> bool {
     inputs.iter().fold(true, |acc, input| {
         let vk_bytes = VerificationKeyBytes::from(input.public_key);
@@ -242,10 +229,7 @@ fn bench_ours_nocache(
     });
 }
 
-/// Unlike `bench_ours_nocache`, the verifier (and its cache) is reused
-/// unmodified across `b.iter()` calls, so after the first call every hot key
-/// is already resident and subsequent calls measure the steady-state,
-/// all-hits cost `HotKeyCache` is meant to buy back.
+/// Reuse one verifier/cache so iterations measure steady-state hot-key hits.
 fn bench_ours_hot_key_cache(
     group: &mut BenchmarkGroup<'_, WallTime>,
     name: &str,

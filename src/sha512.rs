@@ -187,10 +187,7 @@ pub(crate) fn hash_slices(slices: &[&[u8]]) -> [u8; 64] {
     h.finalize()
 }
 
-/// SIMD SHA-512 of the Ed25519 challenges `SHA512(R || A || M)`, as bytes.
-/// Kept as a scalar-comparable reference for tests; the verifier's hot path
-/// uses `hash_ed25519_challenge_words` to avoid the byte round trip this
-/// does internally.
+/// Test reference returning challenge hashes as bytes.
 #[cfg(test)]
 pub(crate) fn hash_ed25519_challenges(
     r_bytes: &[[u8; 32]; SIMD_LANES],
@@ -209,10 +206,7 @@ pub(crate) fn hash_ed25519_challenges(
     })
 }
 
-/// Like `hash_ed25519_challenges`, but returns each lane's digest words
-/// already byte-swapped to the little-endian integer RFC 8032 reduces mod
-/// `L` (see `Scalar::from_wide_words`), skipping the byte round trip
-/// `hash_ed25519_challenges` + `Scalar::from_wide_bytes` would otherwise do.
+/// Challenge hashes as pre-swapped words for `Scalar::from_wide_words`.
 pub(crate) use avx512::hash_ed25519_challenge_words;
 
 #[cfg(test)]
@@ -315,13 +309,8 @@ mod avx512 {
         length_start: usize,
     }
 
-    /// Mixed message lengths, possibly with different SHA-512 block counts.
-    /// Blocks that lie entirely within `min_total` (the shortest lane) hold
-    /// real data in every lane, so they're bulk-read with no per-lane
-    /// branching and no state blending. Once a block runs past the shortest
-    /// lane's data, lanes diverge (padding, finalization, or already-finished
-    /// lanes holding their digest) and are assembled per-lane, blending
-    /// finished lanes' state back in via `active_mask`.
+    /// Hash mixed-length challenges, bulk-reading full common blocks and
+    /// blending per-lane tails through `active_mask`.
     #[inline(never)]
     pub(crate) fn hash_ed25519_challenge_words(
         r_bytes: &[[u8; 32]; LANES],
@@ -340,11 +329,8 @@ mod avx512 {
                 let total_len = 64 + messages[lane].len();
                 let block_count = challenge_block_count(messages[lane].len());
                 total_lens[lane] = total_len;
-                // The bit-length field is conceptually 128 bits (RFC 6234),
-                // but a message would need to be >= 2^61 bytes for the high
-                // word to be nonzero -- far beyond any representable slice
-                // this crate will ever see, so it's tracked as u64 and the
-                // high word is treated as always zero (see `mixed_block_word`).
+                // A slice cannot reach the 2^61 bytes needed for a nonzero
+                // high length word, so track the bit length as u64.
                 debug_assert!(total_len < (1 << 61), "message too long for u64 bit length");
                 bit_lens[lane] = (total_len as u64) << 3;
                 length_starts[lane] = block_count * 128 - 16;
@@ -368,10 +354,7 @@ mod avx512 {
             let mut block_index = 0;
             while block_index < max_block_count {
                 let block_start = block_index * 128;
-                // Every lane's data covers this whole block, so every lane is
-                // active here (block_index < block_counts[lane] follows from
-                // total_lens[lane] >= min_total >= block_start + 128); skip
-                // the mask/blend work that active_mask would otherwise do.
+                // Common full-data blocks are active in every lane; skip blend work.
                 if block_start == 0 && min_total >= 128 {
                     compress_block(
                         &mut state,
@@ -504,10 +487,8 @@ mod avx512 {
         public_keys: &[[u8; 32]; LANES],
         messages: [&[u8]; LANES],
     ) -> [__m512i; 16] {
-        // Only called when the message holds at least 64 bytes (`total_len >=
-        // 128`), so this always succeeds; converting once here, rather than
-        // per-word below, checks that bound a single time per lane instead of
-        // once per word.
+        // Called only when each message has its first 64 bytes; convert once
+        // so bounds are checked once per lane.
         let message_heads: [[u8; 64]; LANES] =
             core::array::from_fn(|lane| messages[lane][..64].try_into().unwrap());
         core::array::from_fn(|word| {
@@ -527,9 +508,7 @@ mod avx512 {
         })
     }
     fn message_data_block_words(messages: [&[u8]; LANES], message_offset: usize) -> [__m512i; 16] {
-        // Caller guarantees a full 128-byte block is available at
-        // `message_offset`; converting once here checks that bound a single
-        // time per lane instead of once per word.
+        // Caller guarantees a full block; convert once to bound-check once per lane.
         let blocks: [[u8; 128]; LANES] = core::array::from_fn(|lane| {
             messages[lane][message_offset..message_offset + 128]
                 .try_into()
@@ -547,12 +526,7 @@ mod avx512 {
         })
     }
 
-    // A `&[u8; N]` (as opposed to `&[u8]`) keeps the bound `offset + 8 <= N`
-    // checkable against a monomorphized-in constant instead of a runtime
-    // slice length, so the compiler can fold or cheapen it. Callers touching a
-    // fixed-size window (a 32-byte key/R, or a pre-sliced whole message block)
-    // should convert to an array reference once and read through this; callers
-    // stuck with a genuinely variable-length remainder use `read_be_u64_slice`.
+    // Array references let fixed-size windows use a monomorphized bounds check.
     #[inline(always)]
     fn read_be_u64<const N: usize>(bytes: &[u8; N], offset: usize) -> u64 {
         u64::from_be_bytes(bytes[offset..offset + 8].try_into().unwrap())
@@ -564,11 +538,7 @@ mod avx512 {
     }
 
     fn compress_block(state: &mut [__m512i; 8], block_words: [__m512i; 16]) {
-        // The schedule recurrence only ever looks back 16 steps (i-2, i-7,
-        // i-15, i-16), so a 16-word rolling buffer replaces the full 80-word,
-        // 5KB schedule array; `i & 15` cycles through it, and slot `i & 15`
-        // always holds word `i - 16` right before it's due to be overwritten
-        // with word `i`.
+        // A 16-word rolling buffer is enough for SHA-512's schedule lookback.
         let mut w = block_words;
 
         let mut a = state[0];
@@ -623,12 +593,7 @@ mod avx512 {
         state[6] = add(state[6], g);
         state[7] = add(state[7], h);
     }
-    /// Per-lane digest words, byte-swapped to the little-endian integer
-    /// RFC 8032's `k = H(...) mod L` reduces (`Scalar52::from_wide_words`
-    /// takes them directly). SHA-512 digest bytes are big-endian per word,
-    /// so swapping each word once here is exactly equivalent to writing
-    /// each word's big-endian bytes and reloading them little-endian, but
-    /// without ever materializing the intermediate byte array.
+    /// Digest words pre-swapped to the little-endian integer reduced by RFC 8032.
     fn digest_words_from_state(state: [__m512i; 8]) -> [[u64; 8]; LANES] {
         let mut words = [[0u64; LANES]; 8];
         let mut word = 0;
@@ -833,11 +798,7 @@ mod tests {
 
     #[test]
     fn avx512_challenge_hash_matches_scalar_at_boundary_lengths() {
-        // One uniform-length hash per length, covering every block-builder
-        // branch: single block (47), block 0 with tail (48, 55, 63), padding-only
-        // final block with the 0x80 marker at the boundary (64, 192), final
-        // message tails (111, 112, 127, 128, 175), and a non-final block where
-        // the message ends (176, 191).
+        // Cover the block-builder boundaries with one uniform hash per length.
         let lengths = [
             47usize, 48, 55, 63, 64, 111, 112, 127, 128, 175, 176, 191, 192,
         ];
@@ -860,10 +821,7 @@ mod tests {
 
     #[test]
     fn avx512_challenge_hash_matches_scalar_with_uniform_block_counts() {
-        // Mixed lengths that share one block count, per count 1..=3 and a
-        // larger one with bulk interior blocks; exercises the shared-prefix
-        // bulk read (min_total reaches every lane's final block) including
-        // divergent block 0 (two-block hashes) and tails.
+        // Mixed lengths with shared block counts, including bulk reads and tails.
         let length_sets: [[usize; 8]; 4] = [
             [0, 1, 7, 19, 30, 40, 46, 47],            // 1 block
             [48, 55, 63, 64, 90, 128, 170, 175],      // 2 blocks
@@ -893,11 +851,7 @@ mod tests {
 
     #[test]
     fn avx512_challenge_hash_matches_scalar_with_shared_prefix_and_different_block_counts() {
-        // Lengths spanning several distinct block counts but with a long
-        // common prefix, so min_total reaches well past block 0: this is the
-        // case a same-block-count bucketing pass cannot help with, but the
-        // shared-prefix bulk read still applies to the blocks before the
-        // shortest lane's data ends.
+        // Different block counts with a long common prefix, still using bulk reads.
         let lengths = [200usize, 200, 250, 300, 400, 500, 600, 900];
         let storage: [[u8; 900]; 8] = core::array::from_fn(|lane| {
             core::array::from_fn(|i| (lane as u8).wrapping_mul(43).wrapping_add(i as u8))

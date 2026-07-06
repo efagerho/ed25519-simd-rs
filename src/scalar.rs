@@ -25,10 +25,7 @@ impl Scalar {
         }
     }
 
-    /// Like `from_wide_bytes`, but takes the wide hash's words pre-swapped
-    /// to the little-endian integer this reduces mod `L` (see
-    /// `sha512::hash_ed25519_challenge_words`), skipping the byte round trip
-    /// `from_wide_bytes` does internally.
+    /// Reduce pre-swapped wide hash words, avoiding a byte round trip.
     pub(crate) fn from_wide_words(words: [u64; 8]) -> Self {
         Self {
             bytes: Scalar52::from_wide_words(&words).to_bytes(),

@@ -129,17 +129,12 @@ fn hot_key_cache_handles_mixed_hit_and_miss_lanes_in_one_chunk() {
         .collect();
 
     let mut verifier = Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::new());
-    // Preload every other key so half the lanes of the single 8-lane chunk
-    // below are cache hits and the other half are genuine cache misses,
-    // combined in one call to try_verify_chunk (every other HotKeyCache test
-    // is either fully preloaded or fully cold, never both in one chunk).
+    // Mix cache hits and misses in one SIMD chunk.
     let preloaded: Vec<[u8; 32]> = public_keys.iter().step_by(2).copied().collect();
     assert!(verifier.cache_mut().preload(&preloaded).is_empty());
     assert_eq!(verifier.cache().stats().keys, 4);
 
-    // Corrupt one hit lane (index 2) and one miss lane (index 3) so the test
-    // proves each lane's decoded table is matched to that lane's own key,
-    // not swapped with a neighboring hit/miss lane during the per-lane merge.
+    // Corrupt one hit lane and one miss lane to catch table/lane mix-ups.
     inputs[2].signature[0] ^= 1;
     inputs[3].signature[0] ^= 1;
 
@@ -232,17 +227,13 @@ fn hot_key_cache_preload_can_pin_an_already_resident_key() {
 
 #[test]
 fn hot_key_cache_evicts_down_to_capacity_with_more_candidates_than_the_eviction_sample() {
-    // Eviction bounds each round's scan to a fixed-size sample (currently 8)
-    // instead of examining every candidate; use enough evictable candidates
-    // that a single round can't see them all, so this exercises the sampling
-    // path (never reached by any batch/preload test, which all stay small).
+    // Use more evictable keys than one eviction sample can inspect.
     let keys: Vec<[u8; 32]> = (0..12u64)
         .map(|i| <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key_from_index(i))))
         .collect();
 
     let mut cache = HotKeyCache::new();
-    // Pin two keys so they must survive untouched even while many more
-    // evictable candidates than the sample size compete for the rest.
+    // Pinned keys must survive while sampled eviction trims the rest.
     assert!(cache.preload(&keys[..2]).is_empty());
     for key in &keys[2..] {
         cache.insert(CachedPublicKey::from_encoded(*key).unwrap());
@@ -304,7 +295,10 @@ fn hot_key_cache_unpin_releases_capacity() {
     let stats = cache.stats();
     assert_eq!(stats.keys, 2);
     assert_eq!(stats.pinned_keys, 1);
-    assert_eq!(stats.evictions, 0, "a pinned key must not be evicted by another insert");
+    assert_eq!(
+        stats.evictions, 0,
+        "a pinned key must not be evicted by another insert"
+    );
 
     // Unpinning key0 makes it an ordinary evictable entry again; `unpin`
     // reclaims capacity immediately rather than waiting for the next insert.

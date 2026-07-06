@@ -1,15 +1,9 @@
 use std::arch::x86_64::{__cpuid, __cpuid_count, _xgetbv};
 
-/// Panics with a clear message if this host lacks AVX-512 (F, DQ, IFMA) or the
-/// required OS state support.
+/// Panics if this host lacks AVX-512 F/DQ/IFMA or OS register-state support.
 ///
-/// This reduces, but cannot eliminate, the risk of a raw `SIGILL`: the
-/// `-C target-feature`/`-C target-cpu=native` build flags that enable AVX-512
-/// apply to the whole binary, not just this crate, so the compiler may legally
-/// emit AVX-512 instructions in other code — including the standard library's
-/// generic code — that runs before this check, or that never calls into this
-/// crate at all. Called once from `Verifier` construction; not a substitute
-/// for building on or for the actual deployment CPU.
+/// This lowers `SIGILL` risk but cannot guard code that runs before verifier
+/// construction or elsewhere in the AVX-512-built binary.
 #[cold]
 #[inline(never)]
 pub(crate) fn assert_required_avx512_runtime_support() {

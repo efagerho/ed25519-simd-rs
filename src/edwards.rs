@@ -14,12 +14,8 @@ pub(crate) struct EdwardsPoint {
     t: Fe51,
 }
 
-// Both tables store `[-N*P, ..., -1*P, identity, 1*P, ..., N*P]` as one
-// signed-indexed array (digit `d` at index `d + N`) instead of separate
-// positive/negative/identity arrays selected by branching on `d`'s sign: a
-// windowed scalar multiply looks up a data-random digit per table per
-// iteration, so a sign branch there is unpredictable and measurably costs
-// branch mispredicts on the multiscalar hot path.
+// Signed-indexed layout: digit `d` maps to `entries[d + N]`, avoiding a hot
+// unpredictable branch on the digit sign.
 #[derive(Clone, Debug)]
 pub(crate) struct PointTable {
     entries: [CachedPoint; SIGNED_POINT_TABLE_SIZE],
@@ -30,11 +26,8 @@ pub(crate) struct BasepointTable {
     entries: [CachedPoint; SIGNED_BASEPOINT_TABLE_SIZE],
 }
 
-// The base-point multiscalar combines two adjacent signed radix-16 digits (each
-// in [-8, 8]) into one radix-256 digit `even + (odd << 4)`, whose magnitude is at
-// most `8 + 8*16 = 136` (see `base_pair_digit` in wide.rs). The table therefore
-// holds multiples `1*B ..= 136*B` (negatives handled separately), so this size
-// must equal that maximum digit magnitude.
+// `base_pair_digit` folds two radix-16 digits into a radix-256 digit with
+// maximum magnitude `8 + 8*16 = 136`.
 const POINT_TABLE_SIZE: usize = 8;
 const SIGNED_POINT_TABLE_SIZE: usize = 2 * POINT_TABLE_SIZE + 1;
 const BASEPOINT_TABLE_SIZE: usize = 136;
@@ -62,12 +55,8 @@ impl CachedPoint {
         (&self.y_plus_x, &self.y_minus_x, &self.z2, &self.t2d)
     }
 
-    /// Accepts loosely-reduced fields (`< 2^52` per limb), not just canonical
-    /// ones: `wide.rs`'s `build_tables_from_point` passes fields straight from
-    /// `WideFe::to_fields_loose` here to skip a canonicalizing pass per table
-    /// entry. Safe because every consumer of these fields (`coords()` ->
-    /// `WideFe::from_field_refs` -> `Fe51::reduced_limbs`, and `negate`'s
-    /// `Fe51::subtract`/`negate`) already tolerates that bound.
+    /// Accept loosely-reduced fields (`< 2^52` per limb) from SIMD table
+    /// construction; all consumers tolerate that bound.
     pub(crate) fn from_fields(y_plus_x: Fe51, y_minus_x: Fe51, z2: Fe51, t2d: Fe51) -> Self {
         Self {
             y_plus_x,
@@ -114,12 +103,8 @@ impl PointTable {
     /// Select the cached point for a signed digit in `-8..=8`.
     pub(crate) fn select_signed_cached_ref(&self, digit: i8) -> &CachedPoint {
         debug_assert!((-8..=8).contains(&digit));
-        // SAFETY: `digit` is a balanced radix-16 digit from `to_radix16`,
-        // whose windowing algorithm always produces a value in `-8..=8`
-        // (checked above in debug), so `digit + 8` is always in `0..=16`, in
-        // bounds for `entries`. This runs ~64 times per lane per verified
-        // chunk, so eliding the bounds check here removes a real, measured
-        // cost from the hottest loop in the crate.
+        // SAFETY: `digit` is a radix-16 digit in `-8..=8`, so `digit + 8` is
+        // in bounds for this 17-entry table.
         unsafe { self.entries.get_unchecked((digit + 8) as usize) }
     }
 }
@@ -150,13 +135,8 @@ impl BasepointTable {
         debug_assert!(
             (-(BASEPOINT_TABLE_SIZE as i16)..=(BASEPOINT_TABLE_SIZE as i16)).contains(&digit)
         );
-        // SAFETY: `digit` is `base_pair_digit`'s folded radix-256 digit,
-        // whose magnitude is bounded by `8 + 8*16 = 136 == BASEPOINT_TABLE_SIZE`
-        // (checked above in debug), so `digit + BASEPOINT_TABLE_SIZE` is
-        // always in `0..=2*BASEPOINT_TABLE_SIZE`, in bounds for `entries`.
-        // This runs ~32 times per lane per verified chunk, so eliding the
-        // bounds check here removes a real, measured cost from the hottest
-        // loop in the crate.
+        // SAFETY: `base_pair_digit` bounds `digit` to
+        // `-BASEPOINT_TABLE_SIZE..=BASEPOINT_TABLE_SIZE`.
         unsafe {
             self.entries
                 .get_unchecked((digit + BASEPOINT_TABLE_SIZE as i16) as usize)

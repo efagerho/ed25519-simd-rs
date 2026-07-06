@@ -73,14 +73,8 @@ pub(crate) mod avx512ifma {
                 let z2 = m.z.double();
                 let t2d = m.t.multiply(&two_d);
                 let neg_t2d = t2d.negate();
-                // `ypx`/`ymx`/`z2`/`t2d`/`neg_t2d` are already strict (each
-                // came from a `WideFe::add`/`subtract`/`multiply`/`negate`
-                // call above), so `to_fields_loose` only skips the redundant
-                // final canonicalizing subtract-if->=p step, not any real
-                // bound-tightening; the stored `CachedPoint` table entries
-                // only ever feed `add_cached_assign`'s deferred-reduction
-                // arithmetic (see `CachedPoint::from_fields`), which already
-                // tolerates loosely-reduced (`< 2^52`) fields.
+                // These strict values may be stored as loose fields; table
+                // consumers tolerate `< 2^52` limbs.
                 (
                     ypx.to_fields_loose(),
                     ymx.to_fields_loose(),
@@ -139,10 +133,7 @@ pub(crate) mod avx512ifma {
         combined.equals_affine_lanes(&r.0)
     }
 
-    /// Pre-`pow` state of a decompression: everything needed to finish once the
-    /// inverse-square-root exponent has been raised. Splitting decompression into
-    /// setup → pow → finish lets two independent decodes share one interleaved
-    /// `pow_x2` (the latency-bound chain), hiding each chain's IFMA latency.
+    /// Decompression state before the inverse-square-root exponentiation.
     struct DecompressSetup {
         u: WideFe,
         v: WideFe,
@@ -264,10 +255,7 @@ pub(crate) mod avx512ifma {
 
         let mut acc = WidePoint::identity();
 
-        // Seed the accumulator from the top digit pair (63, 62) directly
-        // instead of doubling the still-identity accumulator first: `s` and
-        // `k` are both reduced mod L (see `to_radix16`'s carry-out assert),
-        // so there is no digit above index 63 to make room for.
+        // Start at top digits 63/62; reduced scalars have no digit above 63.
         add_public_digit(&mut acc, public_key_tables, k_digits, 63);
         acc = acc.double4();
         add_base_pair_digit(&mut acc, base_table, s_digits, 31);
@@ -324,11 +312,7 @@ pub(crate) mod avx512ifma {
         acc.add_cached_assign(&selected);
     }
 
-    // Fold two adjacent signed radix-16 digits into one radix-256 digit
-    // `even + (odd << 4)`, magnitude at most `8 + 8*16 = 136` — which is exactly
-    // `BASEPOINT_TABLE_SIZE`, the number of base-point multiples tabulated.
-    // `pair` ranges over 0..32 (see `mul_base_minus_public`), so both
-    // indices are always in bounds for the 64-digit `Radix16`.
+    // Fold a radix-16 digit pair into a bounded radix-256 base-table digit.
     #[inline(always)]
     fn base_pair_digit(digits: &Radix16, pair: usize) -> i16 {
         digits[pair * 2] as i16 + ((digits[pair * 2 + 1] as i16) << 4)
@@ -439,12 +423,7 @@ pub(crate) mod avx512ifma {
                 ])
             })
         }
-        // Uses the full 2-pass `reduce64` (not `reduce_loose`) so the result is
-        // itself strict enough to feed straight into another `subtract`/
-        // `negate` (whose small `4*p`-scale biases need a strict operand) or
-        // to serve as a final coordinate. `add_loose` below is the
-        // deferred-reduction counterpart for operands only feeding another
-        // additive op.
+        // Full reduction keeps results strict enough for small-bias subtracts.
         fn add(&self, rhs: &Self) -> Self {
             unsafe {
                 let h = [
@@ -469,17 +448,8 @@ pub(crate) mod avx512ifma {
                 Self::reduce_loose(h)
             }
         }
-        // The `4*p` bias only exceeds a strict (`< 2^52`-per-limb) subtrahend
-        // (limb0 needs `rhs.limb0 <= 4*p.limb0`, i.e. `< 2^53 - 76`; limbs
-        // 1..4 need `< 2^53 - 4`) with a full extra bit of headroom to spare
-        // -- nowhere near enough for a `*_loose` subtrahend (limb0 up to
-        // `2^60`, see the deferred-reduction comment below `subtract`),
-        // which would underflow the bias and wrap around `u64`/`epi64`
-        // arithmetic instead of computing the intended difference. Every
-        // caller of this function passes operands that trace back to a
-        // `multiply`/`square`/`add`/`reduce64`-based op or a broadcast
-        // constant (all strict); callers needing a possibly-loose subtrahend
-        // use `subtract_wide` instead.
+        // The 4*p bias is only enough for strict subtrahends (`< 2^52` limbs);
+        // loose limb0 can reach < 2^60, so those callers use `subtract_wide`.
         fn subtract(&self, rhs: &Self) -> Self {
             unsafe {
                 let bias = [
@@ -499,28 +469,9 @@ pub(crate) mod avx512ifma {
                 Self::reduce_loose(h)
             }
         }
-        // Deferred-reduction (fused) field ops. A `*_loose` multiply/square skips
-        // the final `reduce_loose` pass of `reduce_ifma`, doing only the single
-        // IFMA carry pass; the additive op that consumes it folds that missing
-        // reduction into the carry pass it runs anyway, saving one whole pass per
-        // multiply→add/sub edge in the point formulas.
-        //
-        // Bounds. Inputs are < 2^52, so each 52x52 IFMA product is < 2^104 and a
-        // column sums at most five of them: lo[i], hi[i] < 5*2^52. After the one
-        // carry pass in `reduce_ifma_loose`, limbs 1..4 are masked to < 2^51,
-        // while limb0 = (masked < 2^51) + 19*carry4, with carry4 = (lo[4]>>51) +
-        // (hi[4]<<1) < 10 + 10*2^52 < 10*2^52, i.e. **limb0 < 2^51 + 190*2^52 <
-        // 256*2^52 = 2^60**. So a loose operand is < 2^60 in limb0 and < 2^51
-        // elsewhere — valid for an additive consumer but NOT a valid IFMA input
-        // (which needs < 2^52).
-        //
-        // The `*_wide` subtracts therefore widen the borrow bias from 4*p/8*p to
-        // 2048*p (limb0 = 2048*(2^51-19) ~= 2^62). That exceeds the sum of up to
-        // two loose subtrahends (< 2*2^60 = 2^61), so every limb stays
-        // non-negative; the trailing `reduce_loose` then folds the result (limbs
-        // < ~2^62) back below 2^52 in one pass, a valid IFMA input again.
-        // Shared accumulation for `square`/`square_loose`: they differ only in
-        // which `reduce_ifma*` pass is applied to the raw (lo, hi) columns.
+        // Deferred ops produce loose values: limb0 < 2^60, limbs 1..4 < 2^51.
+        // `_wide` subtracts use a 2048*p bias for up to two loose subtrahends.
+        // `square`/`square_loose` share accumulation and differ only in reduction.
         fn square_accum(&self) -> ([__m512i; 5], [__m512i; 5]) {
             unsafe {
                 let z = _mm512_setzero_si512();
@@ -757,13 +708,8 @@ pub(crate) mod avx512ifma {
             let h = g.square_repeat::<50>().multiply(&e);
             h.square_repeat::<5>().multiply(&z11)
         }
-        // Every squaring but the last stays loose (limb0 < 2^60, skipping the
-        // trailing reduce_loose pass of a strict square): `square_loose`'s own
-        // entry normalization absorbs that bound as valid input for the next
-        // squaring, whether loose or strict. Only the final squaring needs the
-        // full strict reduction, since every call site immediately feeds the
-        // result into a `multiply`, which requires tight (< 2^52) inputs and
-        // has no entry normalization of its own.
+        // Intermediate squarings stay loose; the final result is strict because
+        // callers feed it to `multiply`, which requires `< 2^52` inputs.
         fn square_repeat<const N: usize>(&self) -> Self {
             let mut out = *self;
             let mut i = 0;
@@ -778,9 +724,7 @@ pub(crate) mod avx512ifma {
             out
         }
 
-        // --- interleaved two-input variants: run two independent field-exp
-        // chains in lockstep so each fills the other's IFMA latency gaps. Used to
-        // fuse the key-decode and R-decode square roots (latency-bound chains). ---
+        // Interleave two exponentiation chains to hide IFMA latency.
         fn square_repeat_x2<const N: usize>(a: &Self, b: &Self) -> (Self, Self) {
             let (mut x, mut y) = (*a, *b);
             let mut i = 0;
@@ -843,22 +787,8 @@ pub(crate) mod avx512ifma {
                 mask_to_lanes(_mm512_test_epi64_mask(c.limbs[0], one))
             }
         }
-        /// Vectorized equivalent of the scalar `Fe51::canonical`: brings every
-        /// lane to its unique representative in `[0, p)`, across all 8 lanes at
-        /// once instead of a scalar per-lane loop.
-        ///
-        /// `reduce64` (its existing 2-pass cascade, already relied on by strict
-        /// `add`) leaves limbs 1..4 exactly in `[0, 2^51)` — the two passes are
-        /// needed for that guarantee; a single pass can leave a limb at exactly
-        /// `2^51` instead of properly carried into the next one. Limb 0 can
-        /// still be loose by a small residual (worst case a few dozen), but
-        /// that's harmless for what follows: since p's limbs are all `2^51 - 1`
-        /// except limb 0 (`2^51 - 19`), a value is `>= p` iff limbs 1..4 are
-        /// *exactly* `2^51 - 1` and limb 0 is `>= 2^51 - 19` — a plain, exact
-        /// equality check on the properly-bounded high limbs, unaffected by
-        /// limb 0's small residual. And when that holds, `limb0 - (2^51 - 19)`
-        /// never needs a borrow (limbs 1..4 become exactly 0), so the whole
-        /// conditional subtraction is branch-free elementwise arithmetic.
+        /// Vectorized `Fe51::canonical` for all lanes. `reduce64` bounds limbs
+        /// 1..4, making `>= p` an exact high-limb check plus limb0 threshold.
         fn canonical(&self) -> Self {
             unsafe {
                 let reduced = Self::reduce64(self.limbs);
@@ -917,22 +847,13 @@ pub(crate) mod avx512ifma {
                 lo[4] = _mm512_and_si512(lo[4], mask);
                 lo[0] = _mm512_add_epi64(lo[0], _mm512_mullo_epi64(carry, nineteen));
 
-                // One extra carry pass after the IFMA carry above leaves every limb
-                // < 2^52; multiply/square consumers tolerate that, and `square`
-                // re-normalizes its inputs. (Full 2-pass `reduce64` is unnecessary.)
+                // One extra carry pass leaves `< 2^52` limbs, enough for
+                // multiply/square consumers.
                 Self::reduce_loose(lo)
             }
         }
-        /// One pass of carry propagation. Limbs 1..4 are masked (`&= mask`)
-        /// *after* receiving their incoming carry, so they always end up
-        /// exactly `< 2^51` regardless of how loose the input was. Limb 0 is
-        /// masked *before* the final wraparound carry (`carry4 * 19`, from
-        /// limb 4's overflow) is folded into it, so it alone can come out
-        /// loose again by that carry's magnitude. Every call site here only
-        /// ever feeds this the sum/difference of at most two already-bounded
-        /// operands (fresh field values, or another loose/deferred result),
-        /// which keeps limb 0's residual small (at most a few dozen) — safe
-        /// as another additive op's input, which is all any caller needs.
+        /// One carry pass: limbs 1..4 become `< 2^51`; limb 0 may keep the
+        /// small wraparound residual needed by additive consumers.
         fn reduce_loose(mut h: [__m512i; 5]) -> Self {
             unsafe {
                 let mask = _mm512_set1_epi64(LIMB_MASK as i64);
@@ -953,16 +874,7 @@ pub(crate) mod avx512ifma {
                 Self { limbs: h }
             }
         }
-        /// Two full passes of `reduce_loose`'s carry propagation. Needed
-        /// because a single pass's residual on limb 0 (see `reduce_loose`)
-        /// is folded in *after* limb 0's own masking, so it isn't itself
-        /// re-masked; a second pass re-masks limb 0 and ripples its (now
-        /// tiny, `<= 1`-unit) overflow through limbs 1..4 again, tightening
-        /// limb 0's worst-case residual accordingly. Used by strict `add`
-        /// and `canonical`, both of which need every limb — including
-        /// limb 0 — as close to `< 2^51` as this representation allows (see
-        /// `canonical`'s doc for the exact residual bound and why it's still
-        /// harmless there).
+        /// Two carry passes, used when `add`/`canonical` need near-strict limbs.
         fn reduce64(mut h: [__m512i; 5]) -> Self {
             unsafe {
                 let mask = _mm512_set1_epi64(LIMB_MASK as i64);
@@ -1072,14 +984,8 @@ pub(crate) mod avx512ifma {
             let y_equal = self.y.equals_lanes(&y);
             core::array::from_fn(|lane| x_equal[lane] && y_equal[lane])
         }
-        // Every coordinate this reads (`self.*`/`rhs.*`) and every intermediate
-        // it computes (a, b, c, d) is the output of a strict `multiply`/`add`
-        // chain -- this function is only ever called on `WidePoint`s built by
-        // `build_tables_from_point`'s tree-doubling, which itself only ever
-        // produces strict coordinates -- so the plain (not `_wide`) `subtract`
-        // calls below always see operands well within its `4*p` bias. The
-        // per-verification hot path uses `add_cached_assign` instead, whose
-        // loose `multiply_loose` intermediates need the `_wide` subtracts.
+        // Table-building points are strict, so small-bias `subtract` is valid.
+        // The hot path uses `add_cached_assign` for loose intermediates.
         fn add(&self, rhs: &Self) -> Self {
             let a = self.y.subtract(&self.x).multiply(&rhs.y.subtract(&rhs.x));
             let b = self.y.add_loose(&self.x).multiply(&rhs.y.add_loose(&rhs.x));
@@ -1098,12 +1004,8 @@ pub(crate) mod avx512ifma {
             }
         }
         fn add_cached_assign(&mut self, rhs: &WideCachedPoint) {
-            // a,b,c,d feed only additive ops, so defer their final carry pass.
-            // Unlike `add` above, a/b/c/d here come from `multiply_loose` (not
-            // `multiply`), so they can be loose in limb0 (up to ~2^60, see the
-            // deferred-reduction comment on `WideFe::subtract`) -- `e`/`f` use
-            // `subtract_wide`, not plain `subtract`, specifically because its
-            // `4*p` bias isn't enough headroom for that.
+            // Loose products feed additive ops; use wide subtracts for limb0
+            // values up to ~2^60.
             let a = self.y.subtract(&self.x).multiply_loose(&rhs.y_minus_x);
             let b = self.y.add_loose(&self.x).multiply_loose(&rhs.y_plus_x);
             let e = b.subtract_wide(&a);
@@ -1145,11 +1047,8 @@ pub(crate) mod avx512ifma {
             doubled.double()
         }
         fn double_impl<const COMPUTE_T: bool>(&self) -> Self {
-            // The squares feed only additive ops, so defer their final carry
-            // pass. a/b/c come from `square_loose`, loose the same way
-            // `add_cached_assign`'s `multiply_loose` results are (limb0 up to
-            // ~2^60), so `g`/`f`/`h` below use the `_wide` subtract/negate
-            // variants, not the plain, small-bias `subtract`.
+            // Loose squares feed additive ops; use wide subtract/negate for
+            // limb0 values up to ~2^60.
             let a = self.x.square_loose();
             let b = self.y.square_loose();
             let c = self.z.square_loose().double_loose();
@@ -1326,11 +1225,7 @@ pub(crate) mod avx512ifma {
             }
         }
 
-        /// Checks the vectorized `canonical`/`is_zero_lanes`/`is_odd_lanes`
-        /// against two independent references for the given per-lane rows:
-        /// the scalar `canonicalize_field_limbs` (same algorithm, unvectorized)
-        /// and field.rs's separately-implemented `Fe51::from_limbs` (different
-        /// code, same mathematical target).
+        /// Cross-check vectorized canonical predicates against scalar references.
         fn check_canonical(rows: [[u64; LANES]; 5]) {
             let wide = wide_from_rows(rows);
             let canonical = wide.canonical();
@@ -1515,12 +1410,7 @@ pub(crate) mod avx512ifma {
 
         #[test]
         fn wide_pow_matches_scalar_reference() {
-            // `Fe51::pow_p_minus_5_over_8` (field.rs) and
-            // `WideFe::pow_p_minus_5_over_8` are independently written,
-            // structurally identical addition chains for the same exponent;
-            // nothing else cross-checks them, so a future fix or optimization
-            // applied to one but not the other would silently desync the
-            // scalar and SIMD decompression paths.
+            // Keep scalar and SIMD decompression exponent chains in sync.
             let mut state = 0x9e3779b97f4a7c15u64;
             let mut next = move || {
                 state = state
@@ -1535,7 +1425,9 @@ pub(crate) mod avx512ifma {
                     let limbs: [u64; 5] = core::array::from_fn(|_| next() & LIMB_MASK);
                     crate::field::Fe51::from_limbs(limbs)
                 });
-                let wide_result = WideFe::from_fields(&fields).pow_p_minus_5_over_8().to_fields();
+                let wide_result = WideFe::from_fields(&fields)
+                    .pow_p_minus_5_over_8()
+                    .to_fields();
 
                 for (lane, field) in fields.iter().enumerate() {
                     assert!(

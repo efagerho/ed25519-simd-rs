@@ -81,11 +81,8 @@ impl Fe51 {
         Some(Self::from_bytes_unchecked(bytes))
     }
 
-    // "Unchecked" refers only to canonicality (the represented value may be
-    // `>= p`, e.g. a non-canonical y encoding that ZIP-215/Dalek decoding
-    // treats as reduced mod p) — each limb is masked to exactly `< 2^51` by
-    // construction (`& MASK` below), so this is always safe to feed into any
-    // op that accepts canonical or loosely-reduced (`< 2^52`) operands.
+    // "Unchecked" means canonicality only; limb masking still yields `< 2^51`
+    // limbs, safe for every field op here.
     pub(crate) fn from_bytes_unchecked(bytes: &[u8; 32]) -> Self {
         Self {
             limbs: [
@@ -249,9 +246,7 @@ impl Fe51 {
         self.limbs
     }
 
-    // `pub(crate)` (not just used by `sqrt_ratio` below) so wide.rs's tests can
-    // cross-check it against `WideFe::pow_p_minus_5_over_8`'s independently
-    // written, structurally identical addition chain.
+    // Exposed to tests to cross-check the SIMD exponentiation chain.
     pub(crate) fn pow_p_minus_5_over_8(&self) -> Self {
         let t0 = self.square();
         let t1 = t0.square_repeat::<2>().multiply(self);
@@ -297,10 +292,8 @@ impl Fe51 {
         acc
     }
 
-    // Shared carry-propagation prefix for `carry_reduce`/`carry_reduce_fully`:
-    // masks limbs 0 and 2-4 to `< 2^51` and folds the wraparound bit into
-    // limb 0, leaving limb 1 with up to one extra carry bit. See callers for
-    // how each finishes and packs the result into `u64` limbs.
+    // Shared carry prefix: limbs 0 and 2-4 are `< 2^51`; limb 1 may retain one
+    // carry bit for callers to handle.
     fn carry_reduce_prefix(mut h: [u128; 5]) -> [u128; 5] {
         let mut i = 0;
         while i < 4 {
@@ -331,11 +324,7 @@ impl Fe51 {
         Self { limbs }
     }
 
-    // Leaves limb 1 with up to one extra carry bit beyond the `< 2^51`
-    // invariant (from `carry_reduce_prefix`'s final `h[0] -> h[1]` carry);
-    // every other limb is fully reduced. `canonical` needs limb 1 fully
-    // reduced too before its `>= p` comparison, so it uses
-    // `carry_reduce_fully` instead.
+    // Fast reduction used when limb 1's possible extra carry bit is acceptable.
     fn carry_reduce(h: [u128; 5]) -> Self {
         Self::pack_limbs(Self::carry_reduce_prefix(h))
     }
@@ -356,10 +345,7 @@ impl Fe51 {
         fe
     }
 
-    // Like `carry_reduce`, but carries limb 1's extra bit into limb 2 too,
-    // so every limb (not just 0 and 2-4) is `< 2^51`. Needed here, not in
-    // `carry_reduce`, because this is the only caller that compares limbs
-    // against `P_LIMBS` afterward and needs each one fully reduced first.
+    // Fully reduce every limb before comparing against `P_LIMBS`.
     fn carry_reduce_fully(h: [u128; 5]) -> Self {
         let mut h = Self::carry_reduce_prefix(h);
         let carry = h[1] >> LIMB_BITS;
