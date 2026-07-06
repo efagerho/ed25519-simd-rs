@@ -22,12 +22,10 @@ impl CachedPublicKey {
     }
 }
 
-/// Storage policy for decoded public keys.
+/// Storage policy for verifier-decoded public keys.
 ///
-/// [`NullKeyCache`] retains no decoded keys and is the verifier default.
-/// [`HotKeyCache`](crate::HotKeyCache) retains keys across batches for workloads
-/// with repeated hot keys. Decoding is owned by the verifier; caches only look
-/// up and retain already-decoded keys.
+/// [`NullKeyCache`] retains nothing; [`HotKeyCache`](crate::HotKeyCache)
+/// retains repeated keys across batches.
 pub trait KeyCache: private::Sealed {
     /// Borrow a cached key, or `None` if it is absent. Implementations may
     /// update hit counters or recency state through interior mutability.

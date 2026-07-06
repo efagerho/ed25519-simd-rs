@@ -95,21 +95,16 @@ fn should_bucket_by_block_count(inputs: &[VerifyInput<'_>]) -> bool {
     false
 }
 
-/// Build original input indices grouped by challenge block count. Only
-/// grouping same-block-count inputs together matters (see
-/// `for_each_bucketed_simd_chunk`), not the order buckets appear in, so a
-/// direct sort by block count suffices — no dense histogram needed.
+/// Group original input indices by challenge block count; bucket order itself
+/// is irrelevant.
 fn build_block_bucket_order(inputs: &[VerifyInput<'_>], order: &mut Vec<usize>) {
     order.clear();
     order.extend(0..inputs.len());
     order.sort_unstable_by_key(|&i| challenge_block_count(inputs[i].message.len()));
 }
 
-/// Number of SHA-512 blocks needed to hash the `R || A || M` Ed25519
-/// challenge preimage for a message of `message_len` bytes (`R` and `A` are
-/// 32 bytes each, `64`; `+ 1 + 16` accounts for the `0x80` padding byte and
-/// the 16-byte big-endian bit-length trailer). Shared with `sha512.rs`, which
-/// must bucket and hash messages using the exact same block count.
+/// SHA-512 block count for `R || A || M`, including padding and length trailer.
+/// Must stay in sync with the SIMD hasher.
 #[inline]
 pub(crate) fn challenge_block_count(message_len: usize) -> usize {
     message_len.saturating_add(64 + 1 + 16).div_ceil(128)

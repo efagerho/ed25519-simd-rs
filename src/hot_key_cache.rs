@@ -3,26 +3,21 @@ use crate::cache::{CachedPublicKey, KeyCache};
 use std::cell::Cell;
 use std::collections::HashMap;
 
-/// Number of eligible candidates `evict_to_capacity` examines per eviction,
-/// bounding its cost independent of cache size. See `evict_to_capacity`.
+/// Eligible eviction candidates sampled per eviction.
 const EVICTION_SAMPLE: usize = 8;
 
-/// Snapshot of a [`HotKeyCache`]'s counters and occupancy at the moment
-/// [`HotKeyCache::stats`] was called.
+/// Point-in-time [`HotKeyCache`] counters and occupancy.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CacheStats {
     /// Total resident keys, including pinned ones.
     pub keys: usize,
     /// Resident keys pinned by [`HotKeyCache::preload`]; not counted against `capacity`.
     pub pinned_keys: usize,
-    /// The evictable capacity passed to [`HotKeyCache::with_capacity`]/[`HotKeyCache::set_capacity`],
-    /// or `None` for an unbounded cache. Pinned keys may push `keys` above this.
+    /// Evictable-key capacity, or `None` for unbounded. Pinned keys may exceed it.
     pub capacity: Option<usize>,
-    /// Total lane-level [`KeyCache::get`] calls that found a resident key.
-    /// Padded SIMD lanes count separately, but same-chunk insert collisions do not.
+    /// Lane-level [`KeyCache::get`] calls that found a resident key.
     pub hits: u64,
-    /// Total keys newly decoded and inserted (cumulative; not reduced by eviction).
-    /// Duplicate missing lanes in the same SIMD chunk may share one retained entry.
+    /// Newly decoded keys inserted, cumulative across evictions.
     pub inserts: u64,
     /// Total keys evicted to stay within `capacity`.
     pub evictions: u64,
@@ -36,9 +31,7 @@ struct CacheEntry {
     pinned: Cell<bool>,
 }
 
-/// A provided [`KeyCache`]: keeps decoded keys in a map across batches, with
-/// optional capacity and least-valuable eviction. Best for workloads with a hot
-/// set of repeating keys.
+/// A [`KeyCache`] that retains hot decoded keys across batches.
 #[derive(Debug)]
 pub struct HotKeyCache {
     keys: HashMap<[u8; PUBLIC_KEY_LEN], CacheEntry>,
@@ -115,14 +108,10 @@ impl HotKeyCache {
             .collect()
     }
 
-    /// Decode and pin the given keys so they are retained outside the eviction
-    /// bound. Returns the keys that failed to decode (and so were not
-    /// pinned), in the order given; an empty vector means every key succeeded.
+    /// Decode and pin keys outside the eviction bound, returning undecodable
+    /// keys in input order.
     ///
-    /// Pinning has no expiry; call [`HotKeyCache::unpin`] to release keys
-    /// pinned by an earlier call (e.g. a validator set that has rotated out),
-    /// or repeated `preload` calls on an ever-growing key set will retain
-    /// every key ever pinned for the cache's lifetime.
+    /// Pins do not expire; call [`HotKeyCache::unpin`] for rotated-out key sets.
     #[must_use]
     pub fn preload(&mut self, keys: &[[u8; PUBLIC_KEY_LEN]]) -> Vec<[u8; PUBLIC_KEY_LEN]> {
         keys.iter()
@@ -131,10 +120,8 @@ impl HotKeyCache {
             .collect()
     }
 
-    /// Release the pin on the given keys, making them ordinary evictable
-    /// entries again (still resident until capacity pressure evicts them,
-    /// same as any other entry). Keys that are absent or were never pinned
-    /// are silently ignored.
+    /// Release pins; keys stay resident until normal eviction. Missing or
+    /// unpinned keys are ignored.
     pub fn unpin(&mut self, keys: &[[u8; PUBLIC_KEY_LEN]]) {
         for key in keys {
             if let Some(entry) = self.keys.get(key)
@@ -168,9 +155,7 @@ impl HotKeyCache {
         true
     }
 
-    /// Shared use-bookkeeping for a key already resident in the cache. `count_hit`
-    /// is reserved for `KeyCache::get`; insert/preload collisions update hot-key
-    /// ordering without inflating the public cache-hit counter.
+    /// Update resident-key recency; only [`KeyCache::get`] increments public hits.
     fn record_use(&self, entry: &CacheEntry, count_hit: bool) {
         let last_used = self.tick();
         if count_hit {
@@ -180,8 +165,7 @@ impl HotKeyCache {
         entry.last_used.set(last_used);
     }
 
-    /// Shared miss-bookkeeping: record the decoded key and evict if over
-    /// capacity. See `record_use` for the resident-key counterpart.
+    /// Record a decoded miss and evict if over capacity.
     fn record_miss(&mut self, key: CachedPublicKey, pinned: bool) {
         let last_used = self.tick();
         let encoded = key.encoded;
@@ -207,14 +191,8 @@ impl HotKeyCache {
         };
 
         while self.evictable_len() > capacity {
-            // Bound the scan to a fixed-size sample of eligible candidates
-            // instead of the whole map, the same approximation production
-            // caches (e.g. Redis's `maxmemory-samples`) make to keep eviction
-            // cost independent of cache size. `take` comes after `filter` so
-            // a sample skewed toward pinned/protected entries can't make this
-            // give up early while real candidates exist elsewhere; for caches
-            // at or under EVICTION_SAMPLE live entries (every case in this
-            // crate's tests), it's exactly equivalent to an exhaustive scan.
+            // Sample eligible victims instead of scanning the whole map; filter
+            // before `take` so pinned/protected entries do not hide candidates.
             let victim = self
                 .keys
                 .iter()

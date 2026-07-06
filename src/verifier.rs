@@ -22,15 +22,10 @@ pub struct VerifyInput<'a> {
 
 const SIMD_LANES: usize = batch::SIMD_LANES;
 
-// The base-point table (all 273 precomputed multiples used by the multi-scalar
-// ladder, ~43KB) is identical for every `Verifier` regardless of policy or
-// cache choice, so it's built once per process and shared by reference rather
-// than reconstructed (135 point doublings/additions) for every instance.
+// Shared once per process; the base-point table is policy- and cache-independent.
 static BASE_TABLE: LazyLock<BasepointTable> = LazyLock::new(BasepointTable::new);
 
-// Same reasoning as `BASE_TABLE`: the identity-point placeholder table used
-// for invalid/missing lanes is identical for every `Verifier`, so it's shared
-// by reference instead of rebuilt (17 `CachedPoint`s) per instance.
+// Placeholder table for invalid/missing lanes, also shared across verifiers.
 static IDENTITY_TABLE: LazyLock<PointTable> =
     LazyLock::new(|| PointTable::new(&EdwardsPoint::identity()));
 
@@ -42,10 +37,8 @@ struct ChunkParts<'a> {
     messages: [&'a [u8]; SIMD_LANES],
 }
 
-/// Batch Ed25519 signature verifier for a fixed [`VerifyPolicy`] and
-/// [`KeyCache`]. Construction is not free (it builds/shares the base-point
-/// table and validates AVX-512 support), so build one and reuse it across
-/// calls to [`verify_batch`](Verifier::verify_batch).
+/// Batch Ed25519 verifier for a fixed [`VerifyPolicy`] and [`KeyCache`].
+/// Reuse one across [`verify_batch`](Verifier::verify_batch) calls.
 #[derive(Debug)]
 pub struct Verifier<C: KeyCache = NullKeyCache> {
     policy: VerifyPolicy,
@@ -69,9 +62,7 @@ impl Verifier<NullKeyCache> {
     ///
     /// # Panics
     ///
-    /// Panics if this binary was not built with the AVX-512 features this
-    /// crate requires enabled for the running CPU; see the crate-level
-    /// [Requirements](crate#requirements) section.
+    /// Panics if required AVX-512 support is unavailable.
     pub fn new() -> Self {
         Self::with_policy(VerifyPolicy::default())
     }
@@ -87,17 +78,12 @@ impl Verifier<NullKeyCache> {
 }
 
 impl<C: KeyCache> Verifier<C> {
-    /// Create a verifier backed by a caller-provided cache. Use
-    /// [`HotKeyCache::with_capacity`](crate::HotKeyCache::with_capacity) for
-    /// a capacity-bounded evictable cache:
+    /// Create a verifier backed by a caller-provided cache. For a bounded cache:
     /// `Verifier::with_cache(policy, HotKeyCache::with_capacity(n))`.
     ///
     /// # Panics
     ///
-    /// Panics if this binary was not built with the AVX-512 features this
-    /// crate requires enabled for the running CPU; see the crate-level
-    /// [Requirements](crate#requirements) section. This is a guard against a
-    /// bare `SIGILL`, not a complete one — see that section for why.
+    /// Panics if required AVX-512 support is unavailable.
     pub fn with_cache(policy: VerifyPolicy, cache: C) -> Self {
         cpuid::assert_required_avx512_runtime_support();
         Self {
@@ -188,8 +174,7 @@ impl<C: KeyCache> Verifier<C> {
             if let Some(key) = cached_keys[lane] {
                 public_key_tables[lane] = &key.table;
             } else {
-                // A cache miss set `missing_key_lanes[lane]` above, which
-                // guarantees `decoded_key_tables` was populated.
+                // Cache misses populate `decoded_key_tables` above.
                 let (tables, key_valid_lanes) = decoded_key_tables
                     .as_ref()
                     .expect("a cache miss always triggers a decode");
@@ -322,8 +307,7 @@ fn dalek_legacy_excluded(public_key: &[u8; 32], r_bytes: &[u8; 32]) -> bool {
 }
 
 fn lane_flags_from_mask(mask: u8) -> [bool; SIMD_LANES] {
-    // `SIMD_LANES == 8` is const-asserted in `wide.rs`, so every lane index
-    // is in range for a `u8` mask without a bounds guard.
+    // `SIMD_LANES == 8`, so every lane fits in this `u8` mask.
     core::array::from_fn(|lane| mask & (1u8 << lane) != 0)
 }
 

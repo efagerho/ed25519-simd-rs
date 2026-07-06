@@ -252,18 +252,17 @@ fn block_count_bucketed_batches_match_solana_ed25519() {
     }
 }
 
-/// `block_count_bucketed_batches_match_solana_ed25519` above always uses a
-/// batch size that's an exact multiple of `SIMD_LANES` (8), so the bucketed
-/// path's tail-padding remainder branch (`for_each_bucketed_simd_chunk`'s
-/// `rem > 0` case) never runs there or in any other bucketing test. This uses
-/// 17 inputs (>= the 16-input bucketing threshold, mixed lengths, and not a
-/// multiple of 8) to force that branch and check it against solana-ed25519.
+/// Forces the bucketed tail-padding branch with 17 mixed-length inputs.
 #[test]
 fn block_count_bucketed_batch_with_non_multiple_of_eight_tail_matches_solana_ed25519() {
     let lengths = [
         1usize, 2048, 64, 1024, 2, 1536, 128, 4096, 3, 512, 65, 2047, 4, 256, 112, 3072, 5,
     ];
-    assert_eq!(lengths.len(), 17, "must not be a multiple of SIMD_LANES (8)");
+    assert_eq!(
+        lengths.len(),
+        17,
+        "must not be a multiple of SIMD_LANES (8)"
+    );
 
     let mut rng = Lcg(0xba7c_4ed0_7a11);
     let mut cases = Vec::with_capacity(lengths.len());
@@ -621,10 +620,7 @@ fn enumerate_divergences_vs_solana_ed25519() {
             "ord8d",
             hex_array::<32>("c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa"),
         ),
-        // The following four are LEGACY_EXCLUDED_R_ENCODINGS entries (policy.rs)
-        // that no other test exercises as an exact R value; ord8b/ord8d above
-        // are near-miss decoys (same tail byte, different leading byte) that
-        // don't actually cover them.
+        // Exact legacy blacklist entries not covered by the near-miss decoys above.
         (
             "legacy_excl_valid_pt1",
             hex_array::<32>("13e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85"),
@@ -779,27 +775,11 @@ fn noncanonical_encoding_now_matches_solana_ed25519() {
     );
 }
 
-/// The speccheck and Wycheproof vectors (security_vectors.rs) are proven
-/// forgeries/edge cases, but they only ever run through single-input
-/// `verify()` batches, which always build a fresh `NullKeyCache` verifier —
-/// i.e. always a uniform-key, cache-miss chunk. Under `VerifyPolicy::Dalek`
-/// that exercises exactly one of two structurally different acceptance
-/// checks: `verify_prepared_dalek`'s exact byte comparison (taken on a cache
-/// hit) vs `verify_prepared_dalek_projective`'s affine comparison plus an
-/// explicit canonical-encoding recheck (taken on a miss). A refactor that
-/// changes only *which* lanes take which path can silently stop validating
-/// one of them against these vectors without any test failing — which is
-/// exactly how the projective path once accepted speccheck vector 9, a forged
-/// signature over a non-canonically-signed encoding of the order-2 point
-/// (`x == 0` with the sign bit set), that the byte-compare path already
-/// rejected. This replays the same vectors through the two combinations that
-/// were previously untested: a non-uniform (mixed-key) batch, and a
-/// warm/preloaded `HotKeyCache`.
+/// Replays edge-case vectors through mixed-key batches and warm cache hits, so
+/// both Dalek acceptance paths stay covered.
 #[test]
 fn speccheck_and_wycheproof_vectors_survive_non_uniform_batches_and_warm_cache() {
-    // Seven ordinary, distinct, validly-signed lanes that never change:
-    // pairing a vector with these in one SIMD chunk guarantees
-    // `uniform_public_key == false`, forcing the non-uniform decode path.
+    // Stable filler lanes force the mixed-key decode path.
     let filler_message: &[u8] = b"filler lane";
     let fillers: Vec<Case> = (0..7u64)
         .map(|i| {

@@ -7,11 +7,8 @@ pub enum VerifyPolicy {
     Dalek,
 }
 
-/// These bytes are copied from solana-ed25519's `EXCLUDED_POINT_ENCODINGS`,
-/// which follows the Zcash/libsodium 1.0.15 compatibility blacklist. The list
-/// is a byte-level legacy filter, not a fresh mathematical rule: some entries
-/// are encodings of low-order Edwards points and some are invalid encodings that
-/// stay blacklisted only so `VerifyPolicy::Dalek` matches that entry point.
+/// solana-ed25519's legacy `R` blacklist, kept byte-for-byte for Dalek policy
+/// compatibility.
 const LEGACY_EXCLUDED_R_ENCODINGS: [[u8; 32]; 11] = [
     // Canonical encoding of a y=0 order-4 point.
     [0x00; 32],
