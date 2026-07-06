@@ -1,9 +1,10 @@
 mod support;
 
+use curve25519::ed_sigs::VerificationKeyBytes;
 use ed25519_simd::{
     CachedPublicKey, HotKeyCache, KeyCache, NullKeyCache, Verifier, VerifyInput, VerifyPolicy,
 };
-use support::hex_array;
+use support::{hex_array, signing_key_from_index};
 
 fn rfc8032_key0() -> [u8; 32] {
     hex_array("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
@@ -107,6 +108,47 @@ fn cached_verifier_rejects_bad_r_lane_in_simd_batch() {
     verifier.verify_batch(&inputs, &mut out);
 
     assert_eq!(out, [true, true, true, true, true, false, true, true]);
+}
+
+#[test]
+fn hot_key_cache_handles_mixed_hit_and_miss_lanes_in_one_chunk() {
+    let signing_keys: Vec<_> = (0..8u64).map(signing_key_from_index).collect();
+    let public_keys: Vec<[u8; 32]> = signing_keys
+        .iter()
+        .map(|sk| <[u8; 32]>::from(VerificationKeyBytes::from(sk)))
+        .collect();
+    let message = b"mixed hit/miss chunk";
+    let mut inputs: Vec<VerifyInput<'_>> = signing_keys
+        .iter()
+        .zip(public_keys.iter())
+        .map(|(sk, pk)| VerifyInput {
+            public_key: *pk,
+            signature: sk.sign(message.as_slice()).to_bytes(),
+            message: message.as_slice(),
+        })
+        .collect();
+
+    let mut verifier = Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::new());
+    // Preload every other key so half the lanes of the single 8-lane chunk
+    // below are cache hits and the other half are genuine cache misses,
+    // combined in one call to try_verify_chunk (every other HotKeyCache test
+    // is either fully preloaded or fully cold, never both in one chunk).
+    let preloaded: Vec<[u8; 32]> = public_keys.iter().step_by(2).copied().collect();
+    assert!(verifier.cache_mut().preload(&preloaded).is_empty());
+    assert_eq!(verifier.cache().stats().keys, 4);
+
+    // Corrupt one hit lane (index 2) and one miss lane (index 3) so the test
+    // proves each lane's decoded table is matched to that lane's own key,
+    // not swapped with a neighboring hit/miss lane during the per-lane merge.
+    inputs[2].signature[0] ^= 1;
+    inputs[3].signature[0] ^= 1;
+
+    let mut out = [false; 8];
+    verifier.verify_batch(&inputs, &mut out);
+    assert_eq!(out, [true, true, false, false, true, true, true, true]);
+
+    // The previously-missing keys are now cached too (all 8 resident).
+    assert_eq!(verifier.cache().stats().keys, 8);
 }
 
 #[test]
