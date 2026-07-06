@@ -299,7 +299,6 @@ fn small_sigma1(x: u64) -> u64 {
 }
 
 mod avx512 {
-    use core::mem::MaybeUninit;
 
     use super::{IV, K, SIMD_LANES};
     use std::arch::x86_64::*;
@@ -829,68 +828,64 @@ mod avx512 {
     }
 
     fn compress_block(state: &mut [__m512i; 8], block_words: [__m512i; 16]) {
-        unsafe {
-            let mut w: [MaybeUninit<__m512i>; 80] = MaybeUninit::uninit().assume_init();
-            let mut i = 0;
-            while i < 16 {
-                w[i].write(block_words[i]);
-                i += 1;
-            }
-            while i < 80 {
-                let word = add4(
-                    small_sigma1(read_schedule_word(&w, i - 2)),
-                    read_schedule_word(&w, i - 7),
-                    small_sigma0(read_schedule_word(&w, i - 15)),
-                    read_schedule_word(&w, i - 16),
+        // The schedule recurrence only ever looks back 16 steps (i-2, i-7,
+        // i-15, i-16), so a 16-word rolling buffer replaces the full 80-word,
+        // 5KB schedule array; `i & 15` cycles through it, and slot `i & 15`
+        // always holds word `i - 16` right before it's due to be overwritten
+        // with word `i`.
+        let mut w = block_words;
+
+        let mut a = state[0];
+        let mut b = state[1];
+        let mut c = state[2];
+        let mut d = state[3];
+        let mut e = state[4];
+        let mut f = state[5];
+        let mut g = state[6];
+        let mut h = state[7];
+
+        let mut i = 0;
+        while i < 80 {
+            let word = if i < 16 {
+                w[i]
+            } else {
+                let next = add4(
+                    small_sigma1(w[(i - 2) & 15]),
+                    w[(i - 7) & 15],
+                    small_sigma0(w[(i - 15) & 15]),
+                    w[(i - 16) & 15],
                 );
-                w[i].write(word);
-                i += 1;
-            }
+                w[i & 15] = next;
+                next
+            };
 
-            let mut a = state[0];
-            let mut b = state[1];
-            let mut c = state[2];
-            let mut d = state[3];
-            let mut e = state[4];
-            let mut f = state[5];
-            let mut g = state[6];
-            let mut h = state[7];
-
-            i = 0;
-            while i < 80 {
-                let t1 = add5(
-                    h,
-                    big_sigma1(e),
-                    ch(e, f, g),
-                    _mm512_set1_epi64(K[i] as i64),
-                    read_schedule_word(&w, i),
-                );
-                let t2 = add(big_sigma0(a), maj(a, b, c));
-                h = g;
-                g = f;
-                f = e;
-                e = add(d, t1);
-                d = c;
-                c = b;
-                b = a;
-                a = add(t1, t2);
-                i += 1;
-            }
-
-            state[0] = add(state[0], a);
-            state[1] = add(state[1], b);
-            state[2] = add(state[2], c);
-            state[3] = add(state[3], d);
-            state[4] = add(state[4], e);
-            state[5] = add(state[5], f);
-            state[6] = add(state[6], g);
-            state[7] = add(state[7], h);
+            let t1 = add5(
+                h,
+                big_sigma1(e),
+                ch(e, f, g),
+                unsafe { _mm512_set1_epi64(K[i] as i64) },
+                word,
+            );
+            let t2 = add(big_sigma0(a), maj(a, b, c));
+            h = g;
+            g = f;
+            f = e;
+            e = add(d, t1);
+            d = c;
+            c = b;
+            b = a;
+            a = add(t1, t2);
+            i += 1;
         }
-    }
 
-    #[inline(always)]
-    fn read_schedule_word(w: &[MaybeUninit<__m512i>; 80], index: usize) -> __m512i {
-        unsafe { w[index].assume_init() }
+        state[0] = add(state[0], a);
+        state[1] = add(state[1], b);
+        state[2] = add(state[2], c);
+        state[3] = add(state[3], d);
+        state[4] = add(state[4], e);
+        state[5] = add(state[5], f);
+        state[6] = add(state[6], g);
+        state[7] = add(state[7], h);
     }
     fn digests_from_state(state: [__m512i; 8]) -> [[u8; 64]; LANES] {
         let mut words = [[0u64; LANES]; 8];
