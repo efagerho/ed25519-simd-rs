@@ -1,31 +1,9 @@
 use crate::field::Fe51;
 
-#[cfg(test)]
+/// The standard RFC 8032 encoding of the Ed25519 base point `B`.
 const BASEPOINT_COMPRESSED: [u8; 32] = [
     0x58, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
     0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-];
-
-const BASEPOINT_X_LIMBS: [u64; 5] = [
-    1_738_742_601_995_546,
-    1_146_398_526_822_698,
-    2_070_867_633_025_821,
-    562_264_141_797_630,
-    587_772_402_128_613,
-];
-const BASEPOINT_Y_LIMBS: [u64; 5] = [
-    1_801_439_850_948_184,
-    1_351_079_888_211_148,
-    450_359_962_737_049,
-    900_719_925_474_099,
-    1_801_439_850_948_198,
-];
-const BASEPOINT_T_LIMBS: [u64; 5] = [
-    1_841_354_044_333_475,
-    16_398_895_984_059,
-    755_974_180_946_558,
-    900_171_276_175_154,
-    1_821_297_809_914_039,
 ];
 
 #[derive(Clone, Debug)]
@@ -202,12 +180,10 @@ impl EdwardsPoint {
     }
 
     pub(crate) fn basepoint() -> Self {
-        Self {
-            x: Fe51::from_limbs(BASEPOINT_X_LIMBS),
-            y: Fe51::from_limbs(BASEPOINT_Y_LIMBS),
-            z: Fe51::one(),
-            t: Fe51::from_limbs(BASEPOINT_T_LIMBS),
-        }
+        // Built once per process (see BASE_TABLE in verifier.rs), so a
+        // decompress here (instead of hardcoded limb constants) costs
+        // nothing worth avoiding.
+        Self::decompress(&BASEPOINT_COMPRESSED).expect("basepoint encoding is valid")
     }
 
     pub(crate) fn decompress(bytes: &[u8; 32]) -> Option<Self> {
@@ -306,20 +282,4 @@ fn multiples_of(point: &EdwardsPoint) -> [EdwardsPoint; 8] {
     let p7 = p6.add(point);
     let p8 = p4.double();
     [point.clone(), p2, p3, p4, p5, p6, p7, p8]
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn precomputed_basepoint_matches_decompression() {
-        let decompressed =
-            EdwardsPoint::decompress(&BASEPOINT_COMPRESSED).expect("basepoint is valid");
-        let precomputed = EdwardsPoint::basepoint();
-        assert!(precomputed.x.equals(&decompressed.x));
-        assert!(precomputed.y.equals(&decompressed.y));
-        assert!(precomputed.z.equals(&decompressed.z));
-        assert!(precomputed.t.equals(&decompressed.t));
-    }
 }
