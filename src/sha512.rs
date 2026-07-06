@@ -187,16 +187,41 @@ pub(crate) fn hash_slices(slices: &[&[u8]]) -> [u8; 64] {
     h.finalize()
 }
 
-/// SIMD SHA-512 of the Ed25519 challenges `SHA512(R || A || M)`.
+/// SIMD SHA-512 of the Ed25519 challenges `SHA512(R || A || M)`, as bytes.
+/// Kept as a scalar-comparable reference for tests; the verifier's hot path
+/// uses `hash_ed25519_challenge_words` to avoid the byte round trip this
+/// does internally.
+#[cfg(test)]
 pub(crate) fn hash_ed25519_challenges(
     r_bytes: &[[u8; 32]; SIMD_LANES],
     public_keys: &[[u8; 32]; SIMD_LANES],
     messages: [&[u8]; SIMD_LANES],
 ) -> [[u8; 64]; SIMD_LANES] {
+    let words = hash_ed25519_challenge_words(r_bytes, public_keys, messages);
+    core::array::from_fn(|lane| {
+        let mut digest = [0u8; 64];
+        let mut word = 0;
+        while word < 8 {
+            digest[word * 8..word * 8 + 8].copy_from_slice(&words[lane][word].to_le_bytes());
+            word += 1;
+        }
+        digest
+    })
+}
+
+/// Like `hash_ed25519_challenges`, but returns each lane's digest words
+/// already byte-swapped to the little-endian integer RFC 8032 reduces mod
+/// `L` (see `Scalar::from_wide_words`), skipping the byte round trip
+/// `hash_ed25519_challenges` + `Scalar::from_wide_bytes` would otherwise do.
+pub(crate) fn hash_ed25519_challenge_words(
+    r_bytes: &[[u8; 32]; SIMD_LANES],
+    public_keys: &[[u8; 32]; SIMD_LANES],
+    messages: [&[u8]; SIMD_LANES],
+) -> [[u64; 8]; SIMD_LANES] {
     if same_len(messages) {
-        avx512::hash_ed25519_challenges(r_bytes, public_keys, messages)
+        avx512::hash_ed25519_challenge_words(r_bytes, public_keys, messages)
     } else {
-        avx512::hash_ed25519_challenges_mixed(r_bytes, public_keys, messages)
+        avx512::hash_ed25519_challenge_words_mixed(r_bytes, public_keys, messages)
     }
 }
 
@@ -312,11 +337,11 @@ mod avx512 {
         length_start: usize,
     }
 
-    pub(super) fn hash_ed25519_challenges(
+    pub(super) fn hash_ed25519_challenge_words(
         r_bytes: &[[u8; 32]; LANES],
         public_keys: &[[u8; 32]; LANES],
         messages: [&[u8]; LANES],
-    ) -> [[u8; 64]; LANES] {
+    ) -> [[u64; 8]; LANES] {
         unsafe {
             let message_len = messages[0].len();
             let total_len = 64 + message_len;
@@ -338,7 +363,7 @@ mod avx512 {
                 let words =
                     single_block_words(r_bytes, public_keys, messages, message_len, bit_len);
                 compress_block(&mut state, words);
-                return digests_from_state(state);
+                return digest_words_from_state(state);
             }
 
             let mut block_index = 0;
@@ -356,7 +381,7 @@ mod avx512 {
                 block_index += 1;
             }
 
-            digests_from_state(state)
+            digest_words_from_state(state)
         }
     }
 
@@ -368,11 +393,11 @@ mod avx512 {
     /// lanes holding their digest) and are assembled per-lane, blending
     /// finished lanes' state back in via `active_mask`.
     #[inline(never)]
-    pub(super) fn hash_ed25519_challenges_mixed(
+    pub(super) fn hash_ed25519_challenge_words_mixed(
         r_bytes: &[[u8; 32]; LANES],
         public_keys: &[[u8; 32]; LANES],
         messages: [&[u8]; LANES],
-    ) -> [[u8; 64]; LANES] {
+    ) -> [[u64; 8]; LANES] {
         unsafe {
             let mut total_lens = [0usize; LANES];
             let mut bit_lens = [0u128; LANES];
@@ -440,7 +465,7 @@ mod avx512 {
                 block_index += 1;
             }
 
-            digests_from_state(state)
+            digest_words_from_state(state)
         }
     }
 
@@ -870,7 +895,13 @@ mod avx512 {
         state[6] = add(state[6], g);
         state[7] = add(state[7], h);
     }
-    fn digests_from_state(state: [__m512i; 8]) -> [[u8; 64]; LANES] {
+    /// Per-lane digest words, byte-swapped to the little-endian integer
+    /// RFC 8032's `k = H(...) mod L` reduces (`Scalar52::from_wide_words`
+    /// takes them directly). SHA-512 digest bytes are big-endian per word,
+    /// so swapping each word once here is exactly equivalent to writing
+    /// each word's big-endian bytes and reloading them little-endian, but
+    /// without ever materializing the intermediate byte array.
+    fn digest_words_from_state(state: [__m512i; 8]) -> [[u64; 8]; LANES] {
         let mut words = [[0u64; LANES]; 8];
         let mut word = 0;
         while word < 8 {
@@ -879,13 +910,7 @@ mod avx512 {
         }
 
         core::array::from_fn(|lane| {
-            let mut digest = [0u8; 64];
-            let mut word = 0;
-            while word < 8 {
-                digest[word * 8..word * 8 + 8].copy_from_slice(&words[word][lane].to_be_bytes());
-                word += 1;
-            }
-            digest
+            core::array::from_fn(|word| words[word][lane].swap_bytes())
         })
     }
 
