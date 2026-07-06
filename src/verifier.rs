@@ -187,14 +187,17 @@ impl<C: KeyCache> Verifier<C> {
         while lane < SIMD_LANES {
             if let Some(key) = cached_keys[lane] {
                 public_key_tables[lane] = &key.table;
-            } else if let Some((tables, key_valid_lanes)) = &decoded_key_tables {
+            } else {
+                // A cache miss set `missing_key_lanes[lane]` above, which
+                // guarantees `decoded_key_tables` was populated.
+                let (tables, key_valid_lanes) = decoded_key_tables
+                    .as_ref()
+                    .expect("a cache miss always triggers a decode");
                 if key_valid_lanes[lane] {
                     public_key_tables[lane] = &tables[lane];
                 } else {
                     valid[lane] = false;
                 }
-            } else {
-                valid[lane] = false;
             }
             lane += 1;
         }
