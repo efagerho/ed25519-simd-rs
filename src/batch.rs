@@ -1,8 +1,6 @@
 use crate::edwards::PointTable;
 use crate::scalar::Radix16;
 use crate::verifier::VerifyInput;
-// TODO: Could use a more efficient hash table here
-use std::collections::HashMap;
 
 /// Byte length of an encoded Ed25519 public key.
 pub const PUBLIC_KEY_LEN: usize = 32;
@@ -151,51 +149,13 @@ fn build_block_bucket_order(inputs: &[VerifyInput<'_>], order: &mut Vec<usize>) 
     }
 }
 
-#[derive(Clone, Copy)]
-struct SparseBucket {
-    block_count: usize,
-    count: usize,
-    next: usize,
-}
-
 /// Build bucket order without a dense count table for very long messages.
+/// Only grouping same-block-count inputs together matters (see
+/// `for_each_bucketed_simd_chunk`), not the order buckets appear in, so a
+/// direct sort by block count suffices — no hash table needed.
 fn build_sparse_block_bucket_order(inputs: &[VerifyInput<'_>], order: &mut Vec<usize>) {
-    let mut buckets = Vec::<SparseBucket>::new();
-    let mut bucket_by_block_count = HashMap::<usize, usize>::new();
-
-    for input in inputs {
-        let block_count = challenge_block_count(input.message.len());
-        if let Some(&bucket_index) = bucket_by_block_count.get(&block_count) {
-            buckets[bucket_index].count += 1;
-        } else {
-            let bucket_index = buckets.len();
-            bucket_by_block_count.insert(block_count, bucket_index);
-            buckets.push(SparseBucket {
-                block_count,
-                count: 1,
-                next: 0,
-            });
-        }
-    }
-
-    buckets.sort_unstable_by_key(|bucket| bucket.block_count);
-
-    bucket_by_block_count.clear();
-    let mut total = 0;
-    for (bucket_index, bucket) in buckets.iter_mut().enumerate() {
-        bucket_by_block_count.insert(bucket.block_count, bucket_index);
-        bucket.next = total;
-        total += bucket.count;
-    }
-
-    order.resize(inputs.len(), 0);
-    for (input_index, input) in inputs.iter().enumerate() {
-        let block_count = challenge_block_count(input.message.len());
-        let bucket_index = bucket_by_block_count[&block_count];
-        let bucket = &mut buckets[bucket_index];
-        order[bucket.next] = input_index;
-        bucket.next += 1;
-    }
+    order.extend(0..inputs.len());
+    order.sort_unstable_by_key(|&i| challenge_block_count(inputs[i].message.len()));
 }
 
 /// Number of SHA-512 blocks needed to hash the `R || A || M` Ed25519
