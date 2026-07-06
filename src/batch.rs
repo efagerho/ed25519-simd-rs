@@ -196,7 +196,12 @@ fn build_sparse_block_bucket_order(inputs: &[VerifyInput<'_>], order: &mut Vec<u
     }
 }
 
+/// Number of SHA-512 blocks needed to hash the `R || A || M` Ed25519
+/// challenge preimage for a message of `message_len` bytes (`R` and `A` are
+/// 32 bytes each, `64`; `+ 1 + 16` accounts for the `0x80` padding byte and
+/// the 16-byte big-endian bit-length trailer). Shared with `sha512.rs`, which
+/// must bucket and hash messages using the exact same block count.
 #[inline]
-fn challenge_block_count(message_len: usize) -> usize {
+pub(crate) fn challenge_block_count(message_len: usize) -> usize {
     message_len.saturating_add(64 + 1 + 16).div_ceil(128)
 }

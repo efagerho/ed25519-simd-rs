@@ -1,4 +1,4 @@
-use crate::batch::SIMD_LANES;
+use crate::batch::{SIMD_LANES, challenge_block_count};
 
 const IV: [u64; 8] = [
     0x6a09e667f3bcc908,
@@ -300,7 +300,7 @@ fn small_sigma1(x: u64) -> u64 {
 
 mod avx512 {
 
-    use super::{IV, K, SIMD_LANES};
+    use super::{IV, K, SIMD_LANES, challenge_block_count};
     use std::arch::x86_64::*;
 
     const LANES: usize = SIMD_LANES;
@@ -320,7 +320,7 @@ mod avx512 {
         unsafe {
             let message_len = messages[0].len();
             let total_len = 64 + message_len;
-            let block_count = (total_len + 1 + 16).div_ceil(128);
+            let block_count = challenge_block_count(message_len);
 
             let mut state = [
                 _mm512_set1_epi64(IV[0] as i64),
@@ -383,7 +383,7 @@ mod avx512 {
             let mut lane = 0;
             while lane < LANES {
                 let total_len = 64 + messages[lane].len();
-                let block_count = (total_len + 1 + 16).div_ceil(128);
+                let block_count = challenge_block_count(messages[lane].len());
                 total_lens[lane] = total_len;
                 bit_lens[lane] = (total_len as u128) << 3;
                 length_starts[lane] = block_count * 128 - 16;
@@ -484,30 +484,13 @@ mod avx512 {
                     if message_offset + 8 <= message_len {
                         read_be_u64_slice(messages[lane], message_offset)
                     } else {
-                        single_block_tail_word(messages[lane], message_len, message_offset)
+                        final_message_tail_word(messages[lane], 0, message_len, message_offset)
                     }
                 };
                 lane += 1;
             }
             loadu(lanes)
         })
-    }
-
-    fn single_block_tail_word(message: &[u8], message_len: usize, word_offset: usize) -> u64 {
-        let mut bytes = [0u8; 8];
-        let mut j = 0;
-        while j < 8 {
-            let offset = word_offset + j;
-            bytes[j] = if offset < message_len {
-                message[offset]
-            } else if offset == message_len {
-                0x80
-            } else {
-                0
-            };
-            j += 1;
-        }
-        u64::from_be_bytes(bytes)
     }
 
     fn block_words(
@@ -595,7 +578,7 @@ mod avx512 {
                     if message_offset + 8 <= message_len {
                         read_be_u64_slice(messages[lane], message_offset)
                     } else {
-                        single_block_tail_word(messages[lane], message_len, message_offset)
+                        final_message_tail_word(messages[lane], 0, message_len, message_offset)
                     }
                 };
                 lane += 1;
