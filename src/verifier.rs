@@ -145,11 +145,6 @@ impl<C: KeyCache> Verifier<C> {
     ) {
         let policy = self.policy;
 
-        let first_public_key = inputs[0].public_key;
-        let uniform_public_key = inputs[1..]
-            .iter()
-            .all(|input| input.public_key == first_public_key);
-
         // Parse R, public keys, and s (per-lane validity for non-canonical s).
         let mut valid = [true; SIMD_LANES];
         let mut r_bytes = [[0u8; 32]; SIMD_LANES];
@@ -170,58 +165,29 @@ impl<C: KeyCache> Verifier<C> {
             lane += 1;
         }
 
-        let mut decoded_r: Option<(avx512ifma::WideRPoints, [bool; SIMD_LANES])> = None;
-        let mut uniform_cached_key: Option<&CachedPublicKey> = None;
-        let mut uniform_decoded_key: Option<CachedPublicKey> = None;
-        let mut cached_keys: Option<[Option<&CachedPublicKey>; SIMD_LANES]> = None;
-        let mut decoded_keys: Option<([CachedPublicKey; SIMD_LANES], [bool; SIMD_LANES])> = None;
+        let cached_keys: [Option<&CachedPublicKey>; SIMD_LANES] =
+            core::array::from_fn(|lane| self.cache.get(&public_keys[lane]));
         let mut missing_key_lanes = [false; SIMD_LANES];
-        if uniform_public_key {
-            uniform_cached_key = self.cache.get(&first_public_key);
-            if uniform_cached_key.is_none() {
-                // Decode the (duplicated) key and R together through the same
-                // interleaved SIMD path the non-uniform miss branch below
-                // uses, instead of a solo scalar key decode followed by a
-                // separate solo R decompression: the two inverse-square-root
-                // chains share the same IFMA latency, so fusing them is
-                // strictly cheaper than running either alone. Redundant SIMD
-                // lanes on identical input are free, so only lane 0 is kept.
-                let uniform_keys = [first_public_key; SIMD_LANES];
-                let (tables, key_valid_bits, r_points, r_valid_bits) =
-                    avx512ifma::decode_keys_and_decompress_r(&uniform_keys, &r_bytes);
-                if key_valid_bits & 1 != 0 {
-                    uniform_decoded_key = Some(CachedPublicKey {
-                        encoded: first_public_key,
-                        table: tables.into_iter().next().unwrap(),
-                    });
-                }
-                decoded_r = Some((r_points, lane_flags_from_mask(r_valid_bits)));
-            }
-        } else {
-            let chunk_cached_keys: [Option<&CachedPublicKey>; SIMD_LANES] =
-                core::array::from_fn(|lane| self.cache.get(&public_keys[lane]));
-            lane = 0;
-            while lane < SIMD_LANES {
-                if chunk_cached_keys[lane].is_none() {
-                    missing_key_lanes[lane] = true;
-                }
-                lane += 1;
-            }
-            cached_keys = Some(chunk_cached_keys);
+        lane = 0;
+        while lane < SIMD_LANES {
+            missing_key_lanes[lane] = cached_keys[lane].is_none();
+            lane += 1;
+        }
 
-            if any_lane(&missing_key_lanes) {
-                let (tables, key_valid_bits, r_points, r_valid_bits) =
-                    avx512ifma::decode_keys_and_decompress_r(&public_keys, &r_bytes);
-                let mut tables = tables.into_iter();
-                decoded_keys = Some((
-                    core::array::from_fn(|lane| CachedPublicKey {
-                        encoded: public_keys[lane],
-                        table: tables.next().unwrap(),
-                    }),
-                    lane_flags_from_mask(key_valid_bits),
-                ));
-                decoded_r = Some((r_points, lane_flags_from_mask(r_valid_bits)));
-            }
+        let mut decoded_r: Option<(avx512ifma::WideRPoints, [bool; SIMD_LANES])> = None;
+        let mut decoded_keys: Option<([CachedPublicKey; SIMD_LANES], [bool; SIMD_LANES])> = None;
+        if any_lane(&missing_key_lanes) {
+            let (tables, key_valid_bits, r_points, r_valid_bits) =
+                avx512ifma::decode_keys_and_decompress_r(&public_keys, &r_bytes);
+            let mut tables = tables.into_iter();
+            decoded_keys = Some((
+                core::array::from_fn(|lane| CachedPublicKey {
+                    encoded: public_keys[lane],
+                    table: tables.next().unwrap(),
+                }),
+                lane_flags_from_mask(key_valid_bits),
+            ));
+            decoded_r = Some((r_points, lane_flags_from_mask(r_valid_bits)));
         }
 
         let mut messages = [inputs[0].message; SIMD_LANES];
@@ -240,37 +206,20 @@ impl<C: KeyCache> Verifier<C> {
         }
 
         let mut public_key_tables: [&PointTable; SIMD_LANES] = [self.identity_table; SIMD_LANES];
-        if uniform_public_key {
-            if let Some(key) = uniform_cached_key {
-                public_key_tables = [&key.table; SIMD_LANES];
-            } else if let Some(key) = &uniform_decoded_key {
-                // Every lane shares `first_public_key` (this is the
-                // uniform branch), and `uniform_decoded_key` decodes
-                // exactly that key (see the branch above), so
-                // broadcasting its table to all lanes is correct.
-                public_key_tables = [&key.table; SIMD_LANES];
-            } else {
-                valid = [false; SIMD_LANES];
-            }
-        } else {
-            let cached_keys = cached_keys
-                .as_ref()
-                .expect("non-uniform chunks are looked up");
-            lane = 0;
-            while lane < SIMD_LANES {
-                if let Some(key) = cached_keys[lane] {
-                    public_key_tables[lane] = &key.table;
-                } else if let Some((keys, key_valid_lanes)) = &decoded_keys {
-                    if key_valid_lanes[lane] {
-                        public_key_tables[lane] = &keys[lane].table;
-                    } else {
-                        valid[lane] = false;
-                    }
+        lane = 0;
+        while lane < SIMD_LANES {
+            if let Some(key) = cached_keys[lane] {
+                public_key_tables[lane] = &key.table;
+            } else if let Some((keys, key_valid_lanes)) = &decoded_keys {
+                if key_valid_lanes[lane] {
+                    public_key_tables[lane] = &keys[lane].table;
                 } else {
                     valid[lane] = false;
                 }
-                lane += 1;
+            } else {
+                valid[lane] = false;
             }
+            lane += 1;
         }
 
         let prepared = PreparedBatch {
@@ -333,11 +282,6 @@ impl<C: KeyCache> Verifier<C> {
             }
         }
 
-        if let Some(key) = uniform_decoded_key {
-            // Only ever constructed on a cache miss for `first_public_key`,
-            // so inserting here is always warranted.
-            self.cache.insert(key);
-        }
         if let Some((keys, key_valid_lanes)) = decoded_keys {
             for (lane, key) in keys.into_iter().enumerate() {
                 if missing_key_lanes[lane] && key_valid_lanes[lane] {
