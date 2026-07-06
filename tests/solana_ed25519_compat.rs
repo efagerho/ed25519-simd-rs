@@ -5,7 +5,7 @@
 mod support;
 
 use curve25519::ed_sigs::{Signature, VerificationKeyBytes, batch};
-use ed25519_simd::{KeyCache, LruKeyCache, NullKeyCache, Verifier, VerifyInput, VerifyPolicy};
+use ed25519_simd::{HotKeyCache, KeyCache, NullKeyCache, Verifier, VerifyInput, VerifyPolicy};
 use serde_json::Value;
 use support::{
     Case, hex_array, hex_vec, signing_key_from_index, solana_ed25519_verify_dalek,
@@ -240,10 +240,10 @@ fn block_count_bucketed_batches_match_solana_ed25519() {
             .map(|input| solana_ed25519(input.public_key, input.signature, input.message))
             .collect();
 
-        let mut cached = Verifier::with_cache(policy, LruKeyCache::new());
+        let mut cached = Verifier::with_cache(policy, HotKeyCache::new());
         let mut cached_out = vec![false; inputs.len()];
         cached.verify_batch(&inputs, &mut cached_out);
-        assert_eq!(cached_out, expected, "lru policy={policy:?}");
+        assert_eq!(cached_out, expected, "hot-key cache policy={policy:?}");
 
         let mut cold = Verifier::with_cache(policy, NullKeyCache::new());
         let mut cold_out = vec![false; inputs.len()];
@@ -337,7 +337,7 @@ fn batch_verify_matches_solana_ed25519() {
 
             let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|c| c.input()).collect();
 
-            let mut verifier = Verifier::with_cache(VerifyPolicy::Zip215, LruKeyCache::new());
+            let mut verifier = Verifier::with_cache(VerifyPolicy::Zip215, HotKeyCache::new());
             let keys: Vec<[u8; 32]> = cases.iter().map(|c| c.public_key).collect();
             assert!(verifier.cache_mut().preload(&keys).is_empty());
             let mut out = vec![false; inputs.len()];
@@ -404,7 +404,7 @@ fn batch_dalek_matches_solana_ed25519_simd() {
             }
 
             let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|c| c.input()).collect();
-            let mut verifier = Verifier::with_cache(Dalek, LruKeyCache::new());
+            let mut verifier = Verifier::with_cache(Dalek, HotKeyCache::new());
             let keys: Vec<[u8; 32]> = cases.iter().map(|c| c.public_key).collect();
             assert!(verifier.cache_mut().preload(&keys).is_empty());
             let mut out = vec![false; inputs.len()];
@@ -423,7 +423,7 @@ fn batch_dalek_matches_solana_ed25519_simd() {
 }
 
 #[test]
-fn lru_capacity_does_not_evict_current_simd_chunk() {
+fn hot_key_capacity_does_not_evict_current_simd_chunk() {
     let mut cases = Vec::with_capacity(8);
     for i in 0..8 {
         let message = vec![i as u8; 17 + i];
@@ -438,7 +438,7 @@ fn lru_capacity_does_not_evict_current_simd_chunk() {
     }
 
     let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|case| case.input()).collect();
-    let mut verifier = Verifier::with_cache(VerifyPolicy::Zip215, LruKeyCache::with_capacity(1));
+    let mut verifier = Verifier::with_cache(VerifyPolicy::Zip215, HotKeyCache::with_capacity(1));
     let mut out = vec![false; inputs.len()];
     verifier.verify_batch(&inputs, &mut out);
 
@@ -496,13 +496,13 @@ fn per_lane_masking_matches_solana_ed25519_under_heavy_garbage() {
                     })
                     .collect();
 
-                let mut verifier = Verifier::with_cache(policy, LruKeyCache::new());
+                let mut verifier = Verifier::with_cache(policy, HotKeyCache::new());
                 let mut out = vec![false; inputs.len()];
                 verifier.verify_batch(&inputs, &mut out);
                 for idx in 0..inputs.len() {
                     assert_eq!(
                         out[idx], solana_ed25519[idx],
-                        "lru lane {idx} (policy={policy:?}, size={size}, trial={trial}) disagrees"
+                        "hot-key cache lane {idx} (policy={policy:?}, size={size}, trial={trial}) disagrees"
                     );
                 }
 
@@ -718,7 +718,7 @@ fn noncanonical_encoding_now_matches_solana_ed25519() {
 /// (`x == 0` with the sign bit set), that the byte-compare path already
 /// rejected. This replays the same vectors through the two combinations that
 /// were previously untested: a non-uniform (mixed-key) batch, and a
-/// warm/preloaded `LruKeyCache`.
+/// warm/preloaded `HotKeyCache`.
 #[test]
 fn speccheck_and_wycheproof_vectors_survive_non_uniform_batches_and_warm_cache() {
     // Seven ordinary, distinct, validly-signed lanes that never change:
@@ -776,7 +776,7 @@ fn speccheck_and_wycheproof_vectors_survive_non_uniform_batches_and_warm_cache()
             // Warm cache: preload the key so the subsequent verify is a cache
             // hit, forcing the `decoded_r == None` branch
             // (`verify_prepared_dalek`'s byte comparison for Dalek).
-            let mut cached = Verifier::with_cache(policy, LruKeyCache::new());
+            let mut cached = Verifier::with_cache(policy, HotKeyCache::new());
             // `public_key` may be garbage/undecodable for some vectors here;
             // that's an expected preload failure, not a test bug.
             let _ = cached.cache_mut().preload(&[public_key]);
@@ -842,7 +842,10 @@ fn speccheck_and_wycheproof_vectors_survive_non_uniform_batches_and_warm_cache()
         eprintln!("WARM-CACHE MISMATCH {name} policy={policy:?} ours={ours} oracle={oracle}");
     }
 
-    assert!(checked > 100, "expected the full speccheck+Wycheproof corpus, got {checked}");
+    assert!(
+        checked > 100,
+        "expected the full speccheck+Wycheproof corpus, got {checked}"
+    );
     assert_eq!(
         non_uniform_mismatches.len(),
         0,
@@ -851,6 +854,6 @@ fn speccheck_and_wycheproof_vectors_survive_non_uniform_batches_and_warm_cache()
     assert_eq!(
         warm_cache_mismatches.len(),
         0,
-        "disagreements with a warm/preloaded LruKeyCache"
+        "disagreements with a warm/preloaded HotKeyCache"
     );
 }

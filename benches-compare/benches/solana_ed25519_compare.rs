@@ -11,8 +11,11 @@ use ed25519_dalek::{
     Signature as DalekSignature, Verifier as DalekVerifier, VerifyingKey as DalekVerifyingKey,
     verify_batch as dalek_verify_batch,
 };
-use ed25519_simd::{LruKeyCache, NullKeyCache, Verifier, VerifyInput, VerifyPolicy};
-use openssl::{pkey::{Id as OpenSslId, PKey}, sign::Verifier as OpenSslVerifier};
+use ed25519_simd::{HotKeyCache, NullKeyCache, Verifier, VerifyInput, VerifyPolicy};
+use openssl::{
+    pkey::{Id as OpenSslId, PKey},
+    sign::Verifier as OpenSslVerifier,
+};
 use sodiumoxide::crypto::sign::ed25519::{
     PublicKey as SodiumPublicKey, Signature as SodiumSignature, verify_detached as sodium_verify,
 };
@@ -78,7 +81,7 @@ fn generate_distinct_keys(n: usize, msg_len: MsgLen) -> Vec<Owned> {
 }
 
 /// Signatures over a small, fixed set of keys, cycled to fill the batch —
-/// the hot-key-repeat workload `LruKeyCache` is meant for.
+/// the hot-key-repeat workload `HotKeyCache` is meant for.
 fn generate_hot_keys(n: usize, hot_key_count: usize, msg_len: MsgLen) -> Vec<Owned> {
     let mut rng = SplitMix(0x5eed_1234);
     let hot_keys: Vec<SigningKey> = (0..hot_key_count)
@@ -196,7 +199,8 @@ fn aws_lc_loop(inputs: &[VerifyInput<'_>]) -> bool {
 
 fn ring_loop(inputs: &[VerifyInput<'_>]) -> bool {
     inputs.iter().fold(true, |acc, input| {
-        let key = ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, input.public_key);
+        let key =
+            ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, input.public_key);
         acc & key.verify(input.message, &input.signature).is_ok()
     })
 }
@@ -241,8 +245,8 @@ fn bench_ours_nocache(
 /// Unlike `bench_ours_nocache`, the verifier (and its cache) is reused
 /// unmodified across `b.iter()` calls, so after the first call every hot key
 /// is already resident and subsequent calls measure the steady-state,
-/// all-hits cost `LruKeyCache` is meant to buy back.
-fn bench_ours_lru_cache(
+/// all-hits cost `HotKeyCache` is meant to buy back.
+fn bench_ours_hot_key_cache(
     group: &mut BenchmarkGroup<'_, WallTime>,
     name: &str,
     policy: VerifyPolicy,
@@ -251,7 +255,7 @@ fn bench_ours_lru_cache(
     inputs: &[VerifyInput<'_>],
 ) {
     group.bench_with_input(BenchmarkId::new(name, n), &n, |b, _| {
-        let mut verifier = Verifier::with_cache(policy, LruKeyCache::with_capacity(hot_key_count));
+        let mut verifier = Verifier::with_cache(policy, HotKeyCache::with_capacity(hot_key_count));
         let mut out = vec![false; inputs.len()];
         b.iter(|| {
             verifier.verify_batch(black_box(inputs), &mut out);
@@ -260,7 +264,7 @@ fn bench_ours_lru_cache(
     });
 }
 
-/// Compares `NullKeyCache` against `LruKeyCache` on a batch that repeats a
+/// Compares `NullKeyCache` against `HotKeyCache` on a batch that repeats a
 /// small set of `hot_key_count` keys, quantifying the caching win the README
 /// only describes qualitatively.
 fn bench_hot_keys_scenario(c: &mut Criterion, group_name: &str, hot_key_count: usize) {
@@ -277,9 +281,9 @@ fn bench_hot_keys_scenario(c: &mut Criterion, group_name: &str, hot_key_count: u
             n,
             &inputs,
         );
-        bench_ours_lru_cache(
+        bench_ours_hot_key_cache(
             &mut group,
-            "ed25519_simd_lrucache/zip215",
+            "ed25519_simd_hotcache/zip215",
             VerifyPolicy::Zip215,
             n,
             hot_key_count,

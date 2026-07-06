@@ -1,7 +1,7 @@
 mod support;
 
 use curve25519::ed_sigs::VerificationKeyBytes;
-use ed25519_simd::{LruKeyCache, NullKeyCache, Verifier, VerifyInput, VerifyPolicy};
+use ed25519_simd::{HotKeyCache, NullKeyCache, Verifier, VerifyInput, VerifyPolicy};
 use support::{
     Case, signing_key_from_index, solana_ed25519_verify_dalek, solana_ed25519_verify_zebra,
     verify_batch,
@@ -51,10 +51,10 @@ fn long_message_sparse_buckets_match_solana_ed25519() {
             "null-cache {policy:?}"
         );
 
-        let mut verifier = Verifier::with_cache(policy, LruKeyCache::new());
+        let mut verifier = Verifier::with_cache(policy, HotKeyCache::new());
         let mut out = vec![false; inputs.len()];
         verifier.verify_batch(&inputs, &mut out);
-        assert_eq!(out, expected, "lru-cache {policy:?}");
+        assert_eq!(out, expected, "hot-key cache {policy:?}");
     }
 }
 

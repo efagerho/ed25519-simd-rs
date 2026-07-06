@@ -1,6 +1,10 @@
 use crate::batch::PUBLIC_KEY_LEN;
 use crate::edwards::{EdwardsPoint, PointTable};
 
+pub(crate) mod private {
+    pub trait Sealed {}
+}
+
 /// A decoded public key and its precomputed multiplication table.
 #[derive(Clone, Debug)]
 pub struct CachedPublicKey {
@@ -26,11 +30,10 @@ impl CachedPublicKey {
 /// Storage policy for decoded public keys.
 ///
 /// [`NullKeyCache`] retains no decoded keys and is the verifier default.
-/// [`LruKeyCache`](crate::LruKeyCache) retains keys across batches for workloads
-/// with repeated hot keys. Custom caches can keep an application-owned hot set
-/// by storing [`CachedPublicKey`] values. Decoding is owned by the verifier;
-/// caches only look up and retain already-decoded keys.
-pub trait KeyCache {
+/// [`HotKeyCache`](crate::HotKeyCache) retains keys across batches for workloads
+/// with repeated hot keys. Decoding is owned by the verifier; caches only look
+/// up and retain already-decoded keys.
+pub trait KeyCache: private::Sealed {
     /// Borrow a cached key, or `None` if it is absent. Implementations may
     /// update hit counters or recency state through interior mutability.
     fn get(&self, encoded: &[u8; PUBLIC_KEY_LEN]) -> Option<&CachedPublicKey>;
@@ -49,6 +52,8 @@ impl NullKeyCache {
         Self
     }
 }
+
+impl private::Sealed for NullKeyCache {}
 
 impl KeyCache for NullKeyCache {
     #[inline]
