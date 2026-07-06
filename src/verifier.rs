@@ -24,11 +24,20 @@ const SIMD_LANES: usize = batch::SIMD_LANES;
 // than reconstructed (135 point doublings/additions) for every instance.
 static BASE_TABLE: LazyLock<BasepointTable> = LazyLock::new(BasepointTable::new);
 
+// Same reasoning as `BASE_TABLE`: the identity-point placeholder table used
+// for invalid/missing lanes is identical for every `Verifier`, so it's shared
+// by reference instead of rebuilt (17 `CachedPoint`s) per instance.
+static IDENTITY_TABLE: LazyLock<PointTable> =
+    LazyLock::new(|| PointTable::new(&EdwardsPoint::identity()));
+
 #[derive(Debug)]
 pub struct Verifier<C: KeyCache = NullKeyCache> {
     policy: VerifyPolicy,
     base_table: &'static BasepointTable,
-    identity_table: PointTable,
+    // Placeholder table for lanes whose key failed decode/lookup; results for
+    // those lanes are masked out via `valid`, so its contents never affect
+    // the output, but the multiscalar ladder still needs a real table.
+    identity_table: &'static PointTable,
     bucket_order: Vec<usize>,
     cache: C,
 }
@@ -70,7 +79,7 @@ impl<C: KeyCache> Verifier<C> {
         Self {
             policy,
             base_table: &*BASE_TABLE,
-            identity_table: PointTable::new(&EdwardsPoint::identity()),
+            identity_table: &*IDENTITY_TABLE,
             bucket_order: Vec::new(),
             cache,
         }
@@ -149,7 +158,6 @@ impl<C: KeyCache> Verifier<C> {
         if uniform_public_key {
             uniform_cached_key = self.cache.get(&first_public_key);
             if uniform_cached_key.is_none() {
-                missing_key_lanes = [true; SIMD_LANES];
                 // Decode the (duplicated) key and R together through the same
                 // interleaved SIMD path the non-uniform miss branch below
                 // uses, instead of a solo scalar key decode followed by a
@@ -210,107 +218,103 @@ impl<C: KeyCache> Verifier<C> {
             lane += 1;
         }
 
-        {
-            let mut public_key_tables: [&PointTable; SIMD_LANES] =
-                [&self.identity_table; SIMD_LANES];
-            if uniform_public_key {
-                if let Some(key) = uniform_cached_key {
-                    public_key_tables = [&key.table; SIMD_LANES];
-                } else if let Some(key) = &uniform_decoded_key {
-                    // `uniform_decoded_key` is always built from `first_public_key`
-                    // (see below), so its `encoded` field is guaranteed to match.
-                    public_key_tables = [&key.table; SIMD_LANES];
-                } else {
-                    valid = [false; SIMD_LANES];
-                }
+        let mut public_key_tables: [&PointTable; SIMD_LANES] = [self.identity_table; SIMD_LANES];
+        if uniform_public_key {
+            if let Some(key) = uniform_cached_key {
+                public_key_tables = [&key.table; SIMD_LANES];
+            } else if let Some(key) = &uniform_decoded_key {
+                // Every lane shares `first_public_key` (this is the
+                // uniform branch), and `uniform_decoded_key` decodes
+                // exactly that key (see the branch above), so
+                // broadcasting its table to all lanes is correct.
+                public_key_tables = [&key.table; SIMD_LANES];
             } else {
-                let cached_keys = cached_keys
-                    .as_ref()
-                    .expect("non-uniform chunks are looked up");
-                lane = 0;
-                while lane < SIMD_LANES {
-                    if let Some(key) = cached_keys[lane] {
-                        public_key_tables[lane] = &key.table;
-                    } else if let Some((keys, key_valid_lanes)) = &decoded_keys {
-                        if key_valid_lanes[lane] {
-                            public_key_tables[lane] = &keys[lane].table;
-                        } else {
-                            valid[lane] = false;
-                        }
+                valid = [false; SIMD_LANES];
+            }
+        } else {
+            let cached_keys = cached_keys
+                .as_ref()
+                .expect("non-uniform chunks are looked up");
+            lane = 0;
+            while lane < SIMD_LANES {
+                if let Some(key) = cached_keys[lane] {
+                    public_key_tables[lane] = &key.table;
+                } else if let Some((keys, key_valid_lanes)) = &decoded_keys {
+                    if key_valid_lanes[lane] {
+                        public_key_tables[lane] = &keys[lane].table;
                     } else {
                         valid[lane] = false;
                     }
+                } else {
+                    valid[lane] = false;
+                }
+                lane += 1;
+            }
+        }
+
+        let prepared = PreparedBatch {
+            public_key_tables,
+            s_digits,
+            k_digits,
+        };
+        match policy {
+            VerifyPolicy::Zip215 => {
+                let (r_points, r_valid_lanes) = match decoded_r {
+                    Some(decoded) => decoded,
+                    None => {
+                        let (r_points, r_mask) = avx512ifma::decompress_r_points(&r_bytes);
+                        (r_points, lane_flags_from_mask(r_mask))
+                    }
+                };
+                let simd =
+                    avx512ifma::verify_prepared_zip215(&prepared, &r_points, self.base_table);
+                lane = 0;
+                while lane < SIMD_LANES {
+                    out[lane] = simd[lane] && valid[lane] && r_valid_lanes[lane];
                     lane += 1;
                 }
             }
-
-            let prepared = PreparedBatch {
-                public_key_tables,
-                s_digits,
-                k_digits,
-            };
-            match policy {
-                VerifyPolicy::Zip215 => {
-                    let (r_points, r_valid_lanes) = match decoded_r {
-                        Some(decoded) => decoded,
-                        None => {
-                            let (r_points, r_mask) = avx512ifma::decompress_r_points(&r_bytes);
-                            (r_points, lane_flags_from_mask(r_mask))
-                        }
-                    };
-                    let simd =
-                        avx512ifma::verify_prepared_zip215(&prepared, &r_points, self.base_table);
+            VerifyPolicy::Dalek => {
+                if let Some((r_points, r_valid_lanes)) = decoded_r {
+                    let simd = avx512ifma::verify_prepared_dalek_projective(
+                        &prepared,
+                        &r_points,
+                        self.base_table,
+                    );
+                    // Dalek requires an exact canonical `R`, not just an
+                    // affine match: re-encode the decompressed point and
+                    // require a byte-for-byte match against the input, so
+                    // a non-canonical encoding that happens to decode to
+                    // the same point (e.g. a set sign bit on `x == 0`) is
+                    // rejected exactly as the raw-byte comparison below
+                    // would reject it.
+                    let r_canonical = r_points.compress();
                     lane = 0;
                     while lane < SIMD_LANES {
-                        out[lane] = simd[lane] && valid[lane] && r_valid_lanes[lane];
+                        out[lane] = simd[lane]
+                            && valid[lane]
+                            && r_valid_lanes[lane]
+                            && r_canonical[lane] == r_bytes[lane]
+                            && !dalek_legacy_excluded(&public_keys[lane], &r_bytes[lane]);
                         lane += 1;
                     }
-                }
-                VerifyPolicy::Dalek => {
-                    if let Some((r_points, r_valid_lanes)) = decoded_r {
-                        let simd = avx512ifma::verify_prepared_dalek_projective(
-                            &prepared,
-                            &r_points,
-                            self.base_table,
-                        );
-                        // Dalek requires an exact canonical `R`, not just an
-                        // affine match: re-encode the decompressed point and
-                        // require a byte-for-byte match against the input, so
-                        // a non-canonical encoding that happens to decode to
-                        // the same point (e.g. a set sign bit on `x == 0`) is
-                        // rejected exactly as the raw-byte comparison below
-                        // would reject it.
-                        let r_canonical = r_points.compress();
-                        lane = 0;
-                        while lane < SIMD_LANES {
-                            out[lane] = simd[lane]
-                                && valid[lane]
-                                && r_valid_lanes[lane]
-                                && r_canonical[lane] == r_bytes[lane]
-                                && !dalek_legacy_excluded(&public_keys[lane], &r_bytes[lane]);
-                            lane += 1;
-                        }
-                    } else {
-                        let simd = avx512ifma::verify_prepared_dalek(
-                            &prepared,
-                            &r_bytes,
-                            self.base_table,
-                        );
-                        lane = 0;
-                        while lane < SIMD_LANES {
-                            out[lane] = simd[lane]
-                                && valid[lane]
-                                && !dalek_legacy_excluded(&public_keys[lane], &r_bytes[lane]);
-                            lane += 1;
-                        }
+                } else {
+                    let simd =
+                        avx512ifma::verify_prepared_dalek(&prepared, &r_bytes, self.base_table);
+                    lane = 0;
+                    while lane < SIMD_LANES {
+                        out[lane] = simd[lane]
+                            && valid[lane]
+                            && !dalek_legacy_excluded(&public_keys[lane], &r_bytes[lane]);
+                        lane += 1;
                     }
                 }
             }
         }
 
         if let Some(key) = uniform_decoded_key {
-            // Only ever constructed after a cache miss set every lane in
-            // `missing_key_lanes`, so inserting here is always warranted.
+            // Only ever constructed on a cache miss for `first_public_key`,
+            // so inserting here is always warranted.
             self.cache.insert(key);
         }
         if let Some((keys, key_valid_lanes)) = decoded_keys {
@@ -328,7 +332,9 @@ fn dalek_legacy_excluded(public_key: &[u8; 32], r_bytes: &[u8; 32]) -> bool {
 }
 
 fn lane_flags_from_mask(mask: u8) -> [bool; SIMD_LANES] {
-    core::array::from_fn(|lane| lane < u8::BITS as usize && mask & (1u8 << lane) != 0)
+    // `SIMD_LANES == 8` is const-asserted in `wide.rs`, so every lane index
+    // is in range for a `u8` mask without a bounds guard.
+    core::array::from_fn(|lane| mask & (1u8 << lane) != 0)
 }
 
 fn any_lane(lanes: &[bool; SIMD_LANES]) -> bool {
