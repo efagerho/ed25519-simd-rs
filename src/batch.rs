@@ -60,15 +60,9 @@ fn for_each_bucketed_simd_chunk<'a>(
 
     let mut i = 0;
     while i + SIMD_LANES <= order.len() {
-        let mut chunk = [inputs[order[i]]; SIMD_LANES];
-        let mut output_indices = [0usize; SIMD_LANES];
-        let mut lane = 0;
-        while lane < SIMD_LANES {
-            let index = order[i + lane];
-            chunk[lane] = inputs[index];
-            output_indices[lane] = index;
-            lane += 1;
-        }
+        let output_indices: [usize; SIMD_LANES] = core::array::from_fn(|lane| order[i + lane]);
+        let chunk: [VerifyInput<'a>; SIMD_LANES] =
+            core::array::from_fn(|lane| inputs[output_indices[lane]]);
         visit(&chunk, &output_indices, SIMD_LANES);
         i += SIMD_LANES;
     }
@@ -76,15 +70,10 @@ fn for_each_bucketed_simd_chunk<'a>(
     let rem = order.len() - i;
     if rem > 0 {
         let last = order[order.len() - 1];
-        let mut chunk = [inputs[last]; SIMD_LANES];
-        let mut output_indices = [0usize; SIMD_LANES];
-        let mut lane = 0;
-        while lane < rem {
-            let index = order[i + lane];
-            chunk[lane] = inputs[index];
-            output_indices[lane] = index;
-            lane += 1;
-        }
+        let output_indices: [usize; SIMD_LANES] =
+            core::array::from_fn(|lane| if lane < rem { order[i + lane] } else { last });
+        let chunk: [VerifyInput<'a>; SIMD_LANES] =
+            core::array::from_fn(|lane| inputs[output_indices[lane]]);
         visit(&chunk, &output_indices, rem);
     }
 }
