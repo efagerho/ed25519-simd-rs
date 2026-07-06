@@ -373,9 +373,15 @@ mod avx512 {
                 // total_lens[lane] >= min_total >= block_start + 128); skip
                 // the mask/blend work that active_mask would otherwise do.
                 if block_start == 0 && min_total >= 128 {
-                    compress_block(&mut state, first_data_block_words(r_bytes, public_keys, messages));
+                    compress_block(
+                        &mut state,
+                        first_data_block_words(r_bytes, public_keys, messages),
+                    );
                 } else if block_start >= 128 && block_start + 128 <= min_total {
-                    compress_block(&mut state, message_data_block_words(messages, block_start - 64));
+                    compress_block(
+                        &mut state,
+                        message_data_block_words(messages, block_start - 64),
+                    );
                 } else {
                     let active = active_mask(&block_counts, block_index);
                     let old_state = state;
@@ -631,9 +637,7 @@ mod avx512 {
             word += 1;
         }
 
-        core::array::from_fn(|lane| {
-            core::array::from_fn(|word| words[word][lane].swap_bytes())
-        })
+        core::array::from_fn(|lane| core::array::from_fn(|word| words[word][lane].swap_bytes()))
     }
 
     #[inline]
@@ -834,7 +838,9 @@ mod tests {
         // final block with the 0x80 marker at the boundary (64, 192), final
         // message tails (111, 112, 127, 128, 175), and a non-final block where
         // the message ends (176, 191).
-        let lengths = [47usize, 48, 55, 63, 64, 111, 112, 127, 128, 175, 176, 191, 192];
+        let lengths = [
+            47usize, 48, 55, 63, 64, 111, 112, 127, 128, 175, 176, 191, 192,
+        ];
         let storage: [[u8; 192]; 8] = core::array::from_fn(|lane| {
             core::array::from_fn(|i| (lane as u8).wrapping_mul(31).wrapping_add(i as u8))
         });
@@ -859,8 +865,8 @@ mod tests {
         // bulk read (min_total reaches every lane's final block) including
         // divergent block 0 (two-block hashes) and tails.
         let length_sets: [[usize; 8]; 4] = [
-            [0, 1, 7, 19, 30, 40, 46, 47],          // 1 block
-            [48, 55, 63, 64, 90, 128, 170, 175],    // 2 blocks
+            [0, 1, 7, 19, 30, 40, 46, 47],            // 1 block
+            [48, 55, 63, 64, 90, 128, 170, 175],      // 2 blocks
             [176, 180, 200, 220, 230, 240, 250, 255], // 3 blocks
             [496, 500, 510, 520, 530, 540, 550, 558], // 5 blocks
         ];
@@ -875,7 +881,11 @@ mod tests {
 
             let wide = hash_ed25519_challenges(&r, &public_keys, messages);
             let scalar = core::array::from_fn(|lane| {
-                hash_slices(&[&r[lane], &public_keys[lane], &storage[lane][..lengths[lane]]])
+                hash_slices(&[
+                    &r[lane],
+                    &public_keys[lane],
+                    &storage[lane][..lengths[lane]],
+                ])
             });
             assert_eq!(wide, scalar, "lengths {lengths:?}");
         }
@@ -898,7 +908,11 @@ mod tests {
 
         let wide = hash_ed25519_challenges(&r, &public_keys, messages);
         let scalar = core::array::from_fn(|lane| {
-            hash_slices(&[&r[lane], &public_keys[lane], &storage[lane][..lengths[lane]]])
+            hash_slices(&[
+                &r[lane],
+                &public_keys[lane],
+                &storage[lane][..lengths[lane]],
+            ])
         });
         assert_eq!(wide, scalar);
     }
