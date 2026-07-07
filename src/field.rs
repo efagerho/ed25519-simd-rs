@@ -132,7 +132,7 @@ impl Fe51 {
     pub(crate) fn add(&self, rhs: &Self) -> Self {
         let mut h = [0u128; LIMB_COUNT];
         let mut i = 0;
-        while i < 5 {
+        while i < LIMB_COUNT {
             h[i] = self.limbs[i] as u128 + rhs.limbs[i] as u128;
             i += 1;
         }
@@ -147,7 +147,7 @@ impl Fe51 {
             [16 * (MASK - 18), 16 * MASK, 16 * MASK, 16 * MASK, 16 * MASK];
         let mut h = [0u128; LIMB_COUNT];
         let mut i = 0;
-        while i < 5 {
+        while i < LIMB_COUNT {
             h[i] = (self.limbs[i] + BIAS[i] - rhs.limbs[i]) as u128;
             i += 1;
         }
@@ -271,15 +271,15 @@ impl Fe51 {
     // carry bit for callers to handle.
     fn carry_reduce_prefix(mut h: [u128; LIMB_COUNT]) -> [u128; LIMB_COUNT] {
         let mut i = 0;
-        while i < 4 {
+        while i < LIMB_COUNT - 1 {
             let carry = h[i] >> LIMB_BITS;
             h[i] &= MASK as u128;
             h[i + 1] += carry;
             i += 1;
         }
 
-        let carry = h[4] >> LIMB_BITS;
-        h[4] &= MASK as u128;
+        let carry = h[LIMB_COUNT - 1] >> LIMB_BITS;
+        h[LIMB_COUNT - 1] &= MASK as u128;
         h[0] += carry * 19;
 
         let carry = h[0] >> LIMB_BITS;
@@ -292,7 +292,7 @@ impl Fe51 {
     fn pack_limbs(h: [u128; LIMB_COUNT]) -> Self {
         let mut limbs = [0u64; LIMB_COUNT];
         let mut i = 0;
-        while i < 5 {
+        while i < LIMB_COUNT {
             limbs[i] = h[i] as u64;
             i += 1;
         }
@@ -307,7 +307,7 @@ impl Fe51 {
     fn canonical(&self) -> Self {
         let mut h = [0u128; LIMB_COUNT];
         let mut i = 0;
-        while i < 5 {
+        while i < LIMB_COUNT {
             h[i] = self.limbs[i] as u128;
             i += 1;
         }
@@ -400,7 +400,7 @@ fn sub_limbs(out: &mut [u64; LIMB_COUNT], a: &[u64; LIMB_COUNT], b: &[u64; LIMB_
     let mut borrow = 0i128;
     let base = 1i128 << LIMB_BITS;
     let mut i = 0;
-    while i < 5 {
+    while i < LIMB_COUNT {
         let value = a[i] as i128 - b[i] as i128 - borrow;
         if value < 0 {
             out[i] = (value + base) as u64;
