@@ -124,10 +124,8 @@ impl<C: KeyCache> Verifier<C> {
             let mut tmp = [false; SIMD_LANES];
             self.try_verify_chunk(chunk, &mut tmp);
 
-            let mut lane = 0;
-            while lane < lanes {
-                out[output_indices[lane]] = tmp[lane];
-                lane += 1;
+            for (&index, &value) in output_indices[..lanes].iter().zip(&tmp) {
+                out[index] = value;
             }
         });
         self.bucket_order = bucket_order;
@@ -153,12 +151,8 @@ impl<C: KeyCache> Verifier<C> {
 
         let cached_keys: [Option<&CachedPublicKey>; SIMD_LANES] =
             core::array::from_fn(|lane| self.cache.get(&public_keys[lane]));
-        let mut missing_key_lanes = [false; SIMD_LANES];
-        let mut lane = 0;
-        while lane < SIMD_LANES {
-            missing_key_lanes[lane] = cached_keys[lane].is_none();
-            lane += 1;
-        }
+        let missing_key_lanes: [bool; SIMD_LANES] =
+            core::array::from_fn(|lane| cached_keys[lane].is_none());
 
         let mut decoded_r: Option<(avx512ifma::WideRPoints, [bool; SIMD_LANES])> = None;
         let mut decoded_key_tables: Option<([PointTable; SIMD_LANES], [bool; SIMD_LANES])> = None;
@@ -169,24 +163,22 @@ impl<C: KeyCache> Verifier<C> {
             decoded_r = Some((r_points, lane_flags_from_mask(r_valid_bits)));
         }
 
-        let mut public_key_tables: [&PointTable; SIMD_LANES] = [self.identity_table; SIMD_LANES];
-        lane = 0;
-        while lane < SIMD_LANES {
+        let public_key_tables: [&PointTable; SIMD_LANES] = core::array::from_fn(|lane| {
             if let Some(key) = cached_keys[lane] {
-                public_key_tables[lane] = &key.table;
+                &key.table
             } else {
                 // Cache misses populate `decoded_key_tables` above.
                 let (tables, key_valid_lanes) = decoded_key_tables
                     .as_ref()
                     .expect("a cache miss always triggers a decode");
                 if key_valid_lanes[lane] {
-                    public_key_tables[lane] = &tables[lane];
+                    &tables[lane]
                 } else {
                     valid[lane] = false;
+                    self.identity_table
                 }
             }
-            lane += 1;
-        }
+        });
         if !any_lane(&valid) {
             return;
         }
@@ -209,10 +201,8 @@ impl<C: KeyCache> Verifier<C> {
                 };
                 let simd =
                     avx512ifma::verify_prepared_zip215(&prepared, &r_points, self.base_table);
-                lane = 0;
-                while lane < SIMD_LANES {
+                for lane in 0..SIMD_LANES {
                     out[lane] = simd[lane] && valid[lane] && r_valid_lanes[lane];
-                    lane += 1;
                 }
             }
             VerifyPolicy::Dalek => {
@@ -223,8 +213,7 @@ impl<C: KeyCache> Verifier<C> {
                         self.base_table,
                     );
                     let r_x_zero = r_points.x_zero_lanes();
-                    lane = 0;
-                    while lane < SIMD_LANES {
+                    for lane in 0..SIMD_LANES {
                         let signed_zero = r_x_zero[lane] && r_bytes[lane][31] & 0x80 != 0;
                         out[lane] = simd[lane]
                             && valid[lane]
@@ -232,17 +221,14 @@ impl<C: KeyCache> Verifier<C> {
                             && r_encoding_has_canonical_y(&r_bytes[lane])
                             && !signed_zero
                             && !dalek_legacy_excluded(&public_keys[lane], &r_bytes[lane]);
-                        lane += 1;
                     }
                 } else {
                     let simd =
                         avx512ifma::verify_prepared_dalek(&prepared, &r_bytes, self.base_table);
-                    lane = 0;
-                    while lane < SIMD_LANES {
+                    for lane in 0..SIMD_LANES {
                         out[lane] = simd[lane]
                             && valid[lane]
                             && !dalek_legacy_excluded(&public_keys[lane], &r_bytes[lane]);
-                        lane += 1;
                     }
                 }
             }
@@ -268,20 +254,18 @@ fn parse_chunk_inputs<'a>(inputs: &[VerifyInput<'a>; SIMD_LANES]) -> ChunkParts<
     let mut public_keys = [[0u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES];
     let mut s_digits = [[0i8; 64]; SIMD_LANES];
     let mut messages = [inputs[0].message; SIMD_LANES];
-    let mut lane = 0;
-    while lane < SIMD_LANES {
-        r_bytes[lane].copy_from_slice(&inputs[lane].signature[..R_ENCODING_LEN]);
+    for (lane, input) in inputs.iter().enumerate() {
+        r_bytes[lane].copy_from_slice(&input.signature[..R_ENCODING_LEN]);
 
         let mut s_bytes = [0u8; 32];
-        s_bytes.copy_from_slice(&inputs[lane].signature[R_ENCODING_LEN..]);
+        s_bytes.copy_from_slice(&input.signature[R_ENCODING_LEN..]);
         if scalar::is_canonical(&s_bytes) {
             s_digits[lane] = Scalar::from_canonical_bytes(s_bytes).to_radix16();
         } else {
             valid[lane] = false;
         }
-        public_keys[lane] = inputs[lane].public_key;
-        messages[lane] = inputs[lane].message;
-        lane += 1;
+        public_keys[lane] = input.public_key;
+        messages[lane] = input.message;
     }
 
     ChunkParts {
