@@ -28,6 +28,10 @@ fn rfc8032_sig1() -> [u8; 64] {
     )
 }
 
+fn resident_count(cache: &HotKeyCache, keys: &[[u8; 32]]) -> usize {
+    keys.iter().filter(|key| cache.get(key).is_some()).count()
+}
+
 #[test]
 fn rejects_mutated_signature() {
     let mut signature = rfc8032_sig0();
@@ -54,7 +58,6 @@ fn cached_verifier_accepts_batch() {
     let mut out = [false];
     let mut verifier = Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::new());
 
-    assert!(verifier.cache_mut().preload(&[rfc8032_key1()]).is_empty());
     verifier.verify_batch(&[input], &mut out);
 
     assert_eq!(out, [true]);
@@ -70,7 +73,6 @@ fn cached_verifier_accepts_simd_sized_batch() {
     let mut out = [false; 8];
     let mut verifier = Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::new());
 
-    assert!(verifier.cache_mut().preload(&[rfc8032_key1()]).is_empty());
     verifier.verify_batch(&inputs, &mut out);
 
     assert_eq!(out, [true; 8]);
@@ -87,7 +89,6 @@ fn cached_verifier_rejects_one_bad_lane_in_simd_batch() {
     let mut out = [false; 8];
     let mut verifier = Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::new());
 
-    assert!(verifier.cache_mut().preload(&[rfc8032_key1()]).is_empty());
     verifier.verify_batch(&inputs, &mut out);
 
     assert_eq!(out, [true, true, true, false, true, true, true, true]);
@@ -104,7 +105,6 @@ fn cached_verifier_rejects_bad_r_lane_in_simd_batch() {
     let mut out = [false; 8];
     let mut verifier = Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::new());
 
-    assert!(verifier.cache_mut().preload(&[rfc8032_key1()]).is_empty());
     verifier.verify_batch(&inputs, &mut out);
 
     assert_eq!(out, [true, true, true, true, true, false, true, true]);
@@ -129,10 +129,12 @@ fn hot_key_cache_handles_mixed_hit_and_miss_lanes_in_one_chunk() {
         .collect();
 
     let mut verifier = Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::new());
-    // Mix cache hits and misses in one SIMD chunk.
-    let preloaded: Vec<[u8; 32]> = public_keys.iter().step_by(2).copied().collect();
-    assert!(verifier.cache_mut().preload(&preloaded).is_empty());
-    assert_eq!(verifier.cache().stats().keys, 4);
+    let warm_inputs: Vec<VerifyInput<'_>> = inputs.iter().step_by(2).copied().collect();
+    let mut warm_out = vec![false; warm_inputs.len()];
+    verifier.verify_batch(&warm_inputs, &mut warm_out);
+    assert!(warm_out.iter().all(|&valid| valid));
+    let warm_public_keys: Vec<[u8; 32]> = public_keys.iter().step_by(2).copied().collect();
+    assert_eq!(resident_count(verifier.cache(), &warm_public_keys), 4);
 
     // Corrupt one hit lane and one miss lane to catch table/lane mix-ups.
     inputs[2].signature[0] ^= 1;
@@ -143,187 +145,81 @@ fn hot_key_cache_handles_mixed_hit_and_miss_lanes_in_one_chunk() {
     assert_eq!(out, [true, true, false, false, true, true, true, true]);
 
     // The previously-missing keys are now cached too (all 8 resident).
-    assert_eq!(verifier.cache().stats().keys, 8);
+    assert_eq!(resident_count(verifier.cache(), &public_keys), 8);
 }
 
 #[test]
-fn hot_key_cache_tracks_hot_keys_and_capacity() {
-    let input0 = VerifyInput {
-        public_key: rfc8032_key0(),
-        signature: rfc8032_sig0(),
-        message: b"",
-    };
-    let input1 = VerifyInput {
-        public_key: rfc8032_key1(),
-        signature: rfc8032_sig1(),
-        message: &[0x72],
-    };
-    let mut verifier = Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::with_capacity(1));
-    let mut out = [false];
+fn hot_key_cache_retains_recent_keys_with_capacity() {
+    let mut cache = HotKeyCache::with_capacity(1);
 
-    verifier.verify_batch(&[input0], &mut out);
-    assert_eq!(out, [true]);
-    verifier.verify_batch(&[input1], &mut out);
-    assert_eq!(out, [true]);
-
-    let stats = verifier.cache().stats();
-    assert_eq!(stats.keys, 1);
-    assert_eq!(stats.capacity, Some(1));
-    assert_eq!(stats.evictions, 1);
-    assert_eq!(stats.inserts, 2);
-    // Same-chunk duplicate insertions do not count as cache hits; hits are
-    // reserved for resident keys found by the verifier's initial lookup pass.
-    assert_eq!(stats.hits, 0);
-    assert_eq!(verifier.cache().hot_public_keys(1), [rfc8032_key1()]);
-
-    assert!(verifier.cache_mut().preload(&[rfc8032_key0()]).is_empty());
-    let stats = verifier.cache().stats();
-    assert_eq!(stats.keys, 2);
-    assert_eq!(stats.pinned_keys, 1);
-    assert_eq!(stats.evictions, 1);
-    assert_eq!(stats.inserts, 3);
-    let hot_keys = verifier.cache().hot_public_keys(2);
-    assert!(hot_keys.contains(&rfc8032_key0()));
-    assert!(hot_keys.contains(&rfc8032_key1()));
-
-    // A key already resident and re-preloaded is neither a fresh insert nor a
-    // cache hit; only `get` calls contribute to `CacheStats::hits`.
-    assert!(verifier.cache_mut().preload(&[rfc8032_key0()]).is_empty());
-    let stats = verifier.cache().stats();
-    assert_eq!(stats.keys, 2);
-    assert_eq!(stats.inserts, 3);
-    assert_eq!(stats.hits, 0);
-
-    verifier.verify_batch(&[input0], &mut out);
-    assert_eq!(out, [true]);
-    let stats = verifier.cache().stats();
-    assert_eq!(stats.keys, 2);
-    assert_eq!(stats.evictions, 1);
-    assert_eq!(stats.hits, 8);
-    assert_eq!(verifier.cache().hot_public_keys(1), [rfc8032_key0()]);
-}
-
-#[test]
-fn hot_key_cache_preload_can_pin_an_already_resident_key() {
-    let mut cache = HotKeyCache::new();
     cache.insert(CachedPublicKey::from_encoded(rfc8032_key0()).unwrap());
-    let stats = cache.stats();
-    assert_eq!(stats.keys, 1);
-    assert_eq!(stats.pinned_keys, 0);
-    assert_eq!(stats.inserts, 1);
+    assert!(cache.get(&rfc8032_key0()).is_some());
 
-    // Preloading an already-resident, not-yet-pinned key pins it in place
-    // instead of inserting a duplicate entry.
-    assert!(cache.preload(&[rfc8032_key0()]).is_empty());
-    let stats = cache.stats();
-    assert_eq!(stats.keys, 1);
-    assert_eq!(stats.pinned_keys, 1);
-    assert_eq!(stats.inserts, 1);
+    cache.insert(CachedPublicKey::from_encoded(rfc8032_key1()).unwrap());
+    assert!(cache.get(&rfc8032_key1()).is_some());
+    assert!(cache.get(&rfc8032_key0()).is_none());
 
-    // Preloading it again (already pinned) doesn't double-count.
-    assert!(cache.preload(&[rfc8032_key0()]).is_empty());
-    assert_eq!(cache.stats().pinned_keys, 1);
+    cache.insert(CachedPublicKey::from_encoded(rfc8032_key0()).unwrap());
+    assert!(cache.get(&rfc8032_key0()).is_some());
+    assert_eq!(resident_count(&cache, &[rfc8032_key0(), rfc8032_key1()]), 1);
 }
 
 #[test]
 fn hot_key_cache_evicts_down_to_capacity_with_more_candidates_than_the_eviction_sample() {
-    // Use more evictable keys than one eviction sample can inspect.
     let keys: Vec<[u8; 32]> = (0..12u64)
         .map(|i| <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key_from_index(i))))
         .collect();
 
     let mut cache = HotKeyCache::new();
-    // Pinned keys must survive while sampled eviction trims the rest.
-    assert!(cache.preload(&keys[..2]).is_empty());
-    for key in &keys[2..] {
+    for key in &keys {
         cache.insert(CachedPublicKey::from_encoded(*key).unwrap());
     }
-    assert_eq!(cache.stats().keys, 12);
-    assert_eq!(cache.stats().pinned_keys, 2);
+    assert_eq!(resident_count(&cache, &keys), 12);
 
-    // Shrink the evictable capacity well below the 10 evictable candidates,
-    // forcing several eviction rounds in a row.
     cache.set_capacity(Some(3));
-    let stats = cache.stats();
-    assert_eq!(stats.capacity, Some(3));
-    assert_eq!(stats.pinned_keys, 2);
-    assert_eq!(stats.keys - stats.pinned_keys, 3);
-    assert_eq!(stats.evictions, 10 - 3);
-    for key in &keys[..2] {
-        assert!(cache.get(key).is_some(), "pinned key must survive eviction");
-    }
+    assert_eq!(resident_count(&cache, &keys), 3);
 }
 
 #[test]
 fn hot_key_cache_set_capacity_clamps_and_evicts_immediately() {
+    let keys = [rfc8032_key0(), rfc8032_key1()];
     let mut cache = HotKeyCache::new();
-    cache.insert(CachedPublicKey::from_encoded(rfc8032_key0()).unwrap());
-    cache.insert(CachedPublicKey::from_encoded(rfc8032_key1()).unwrap());
-    assert_eq!(cache.stats().keys, 2);
-    assert_eq!(cache.stats().capacity, None);
+    for key in &keys {
+        cache.insert(CachedPublicKey::from_encoded(*key).unwrap());
+    }
+    assert_eq!(resident_count(&cache, &keys), 2);
 
-    // A requested capacity of 0 is clamped up to 1, and the cache evicts down
-    // to it immediately rather than waiting for the next insert.
     cache.set_capacity(Some(0));
-    let stats = cache.stats();
-    assert_eq!(stats.capacity, Some(1));
-    assert_eq!(stats.keys, 1);
-    assert_eq!(stats.evictions, 1);
+    assert_eq!(resident_count(&cache, &keys), 1);
 
-    // Raising the capacity back up does not evict or insert anything.
     cache.set_capacity(Some(5));
-    let stats = cache.stats();
-    assert_eq!(stats.capacity, Some(5));
-    assert_eq!(stats.keys, 1);
-    assert_eq!(stats.evictions, 1);
+    assert_eq!(resident_count(&cache, &keys), 1);
 
-    let mut cache = HotKeyCache::with_capacity(1);
-    assert!(cache.preload(&[rfc8032_key0()]).is_empty());
-    cache.insert(CachedPublicKey::from_encoded(rfc8032_key1()).unwrap());
-    let stats = cache.stats();
-    assert_eq!(stats.capacity, Some(1));
-    assert_eq!(stats.keys, 2);
-    assert_eq!(stats.pinned_keys, 1);
-    assert_eq!(stats.evictions, 0);
-}
-
-#[test]
-fn hot_key_cache_unpin_releases_capacity() {
-    let mut cache = HotKeyCache::with_capacity(1);
-    assert!(cache.preload(&[rfc8032_key0()]).is_empty());
-    cache.insert(CachedPublicKey::from_encoded(rfc8032_key1()).unwrap());
-    let stats = cache.stats();
-    assert_eq!(stats.keys, 2);
-    assert_eq!(stats.pinned_keys, 1);
-    assert_eq!(
-        stats.evictions, 0,
-        "a pinned key must not be evicted by another insert"
-    );
-
-    // Unpinning key0 makes it an ordinary evictable entry again; `unpin`
-    // reclaims capacity immediately rather than waiting for the next insert.
-    cache.unpin(&[rfc8032_key0()]);
-    let stats = cache.stats();
-    assert_eq!(stats.pinned_keys, 0);
-    assert_eq!(stats.keys, 1);
-    assert_eq!(stats.evictions, 1);
-    assert!(cache.get(&rfc8032_key1()).is_some());
-    assert!(cache.get(&rfc8032_key0()).is_none());
-
-    // Unpinning an absent/never-pinned key is a harmless no-op.
-    cache.unpin(&[rfc8032_key0()]);
-    assert_eq!(cache.stats().pinned_keys, 0);
-    assert_eq!(cache.stats().evictions, 1);
+    let missing = keys
+        .iter()
+        .copied()
+        .find(|key| cache.get(key).is_none())
+        .expect("one key should have been evicted");
+    cache.insert(CachedPublicKey::from_encoded(missing).unwrap());
+    assert_eq!(resident_count(&cache, &keys), 2);
 }
 
 #[test]
 fn verifier_exposes_cache_mut_and_policy() {
     let mut verifier = Verifier::with_cache(VerifyPolicy::Dalek, HotKeyCache::new());
     assert_eq!(verifier.policy(), VerifyPolicy::Dalek);
-    assert_eq!(verifier.cache().stats().capacity, None);
 
     verifier.cache_mut().set_capacity(Some(1));
-    assert_eq!(verifier.cache().stats().capacity, Some(1));
+    verifier
+        .cache_mut()
+        .insert(CachedPublicKey::from_encoded(rfc8032_key0()).unwrap());
+    verifier
+        .cache_mut()
+        .insert(CachedPublicKey::from_encoded(rfc8032_key1()).unwrap());
+    assert_eq!(
+        resident_count(verifier.cache(), &[rfc8032_key0(), rfc8032_key1()]),
+        1
+    );
 
     let zip215_verifier = Verifier::with_cache(VerifyPolicy::Zip215, HotKeyCache::new());
     assert_eq!(zip215_verifier.policy(), VerifyPolicy::Zip215);

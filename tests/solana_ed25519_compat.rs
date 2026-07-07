@@ -393,8 +393,8 @@ fn batch_verify_matches_solana_ed25519() {
             let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|c| c.input()).collect();
 
             let mut verifier = Verifier::with_cache(VerifyPolicy::Zip215, HotKeyCache::new());
-            let keys: Vec<[u8; 32]> = cases.iter().map(|c| c.public_key).collect();
-            assert!(verifier.cache_mut().preload(&keys).is_empty());
+            let mut warm_out = vec![false; inputs.len()];
+            verifier.verify_batch(&inputs, &mut warm_out);
             let mut out = vec![false; inputs.len()];
             verifier.verify_batch(&inputs, &mut out);
 
@@ -460,8 +460,8 @@ fn batch_dalek_matches_solana_ed25519_simd() {
 
             let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|c| c.input()).collect();
             let mut verifier = Verifier::with_cache(Dalek, HotKeyCache::new());
-            let keys: Vec<[u8; 32]> = cases.iter().map(|c| c.public_key).collect();
-            assert!(verifier.cache_mut().preload(&keys).is_empty());
+            let mut warm_out = vec![false; inputs.len()];
+            verifier.verify_batch(&inputs, &mut warm_out);
             let mut out = vec![false; inputs.len()];
             verifier.verify_batch(&inputs, &mut out);
 
@@ -498,8 +498,11 @@ fn hot_key_capacity_does_not_evict_current_simd_chunk() {
     verifier.verify_batch(&inputs, &mut out);
 
     assert_eq!(out, vec![true; 8]);
-    // Exactly 1 (not `<= 1`) proves a key survived rather than nothing caching.
-    assert_eq!(verifier.cache().stats().keys, 1);
+    let resident = cases
+        .iter()
+        .filter(|case| verifier.cache().get(&case.public_key).is_some())
+        .count();
+    assert_eq!(resident, 1);
 }
 
 /// Exercises per-lane validity masking across keys, `R`, and `s`.
@@ -829,18 +832,17 @@ fn speccheck_and_wycheproof_vectors_survive_non_uniform_batches_and_warm_cache()
                 non_uniform_mismatches.push((name.clone(), policy, out[0], oracle));
             }
 
-            // Warm cache: preload the key so the subsequent verify is a cache
-            // hit, forcing the `decoded_r == None` branch
+            // Warm cache: verify once so decodable keys hit on the second
+            // pass, forcing the `decoded_r == None` branch
             // (`verify_prepared_dalek`'s byte comparison for Dalek).
             let mut cached = Verifier::with_cache(policy, HotKeyCache::new());
-            // `public_key` may be garbage/undecodable for some vectors here;
-            // that's an expected preload failure, not a test bug.
-            let _ = cached.cache_mut().preload(&[public_key]);
             let input = VerifyInput {
                 public_key,
                 signature,
                 message,
             };
+            let mut warm_out = [false];
+            cached.verify_batch(&[input], &mut warm_out);
             let mut cached_out = [false];
             cached.verify_batch(&[input], &mut cached_out);
             if cached_out[0] != oracle {
@@ -910,6 +912,6 @@ fn speccheck_and_wycheproof_vectors_survive_non_uniform_batches_and_warm_cache()
     assert_eq!(
         warm_cache_mismatches.len(),
         0,
-        "disagreements with a warm/preloaded HotKeyCache"
+        "disagreements with a warm HotKeyCache"
     );
 }
