@@ -3,7 +3,7 @@ pub(crate) mod avx512ifma {
     #[cfg(test)]
     use crate::edwards::EdwardsPoint;
     use crate::edwards::{BasepointTable, CachedPoint, PointTable};
-    use crate::field::Fe51;
+    use crate::field::{Fe51, LIMB_COUNT};
     use crate::scalar::Radix16;
     use std::arch::x86_64::*;
 
@@ -14,7 +14,8 @@ pub(crate) mod avx512ifma {
     const _: () = assert!(LANES == 8, "avx512ifma assumes exactly 8 SIMD lanes");
     const LIMB_MASK: u64 = (1u64 << 51) - 1;
     #[cfg(test)]
-    const FIELD_P_LIMBS: [u64; 5] = [LIMB_MASK - 18, LIMB_MASK, LIMB_MASK, LIMB_MASK, LIMB_MASK];
+    const FIELD_P_LIMBS: [u64; LIMB_COUNT] =
+        [LIMB_MASK - 18, LIMB_MASK, LIMB_MASK, LIMB_MASK, LIMB_MASK];
 
     pub(crate) struct WideRPoints(WidePoint);
 
@@ -322,14 +323,16 @@ pub(crate) mod avx512ifma {
 
     #[derive(Clone, Copy)]
     struct WideFe {
-        limbs: [__m512i; 5],
+        limbs: [__m512i; LIMB_COUNT],
     }
 
     impl WideFe {
         fn zero() -> Self {
             unsafe {
                 let z = _mm512_setzero_si512();
-                Self { limbs: [z; 5] }
+                Self {
+                    limbs: [z; LIMB_COUNT],
+                }
             }
         }
         fn one() -> Self {
@@ -341,7 +344,7 @@ pub(crate) mod avx512ifma {
             }
         }
         fn from_fields(fields: &[Fe51; LANES]) -> Self {
-            let mut by_limb = [[0u64; LANES]; 5];
+            let mut by_limb = [[0u64; LANES]; LIMB_COUNT];
             let mut lane = 0;
             while lane < LANES {
                 let limbs = fields[lane].reduced_limbs();
@@ -364,7 +367,7 @@ pub(crate) mod avx512ifma {
             }
         }
         fn from_field_refs(fields: &[&Fe51; LANES]) -> Self {
-            let mut by_limb = [[0u64; LANES]; 5];
+            let mut by_limb = [[0u64; LANES]; LIMB_COUNT];
             let mut lane = 0;
             while lane < LANES {
                 let limbs = fields[lane].reduced_limbs();
@@ -387,7 +390,7 @@ pub(crate) mod avx512ifma {
             }
         }
         fn to_fields(self) -> [Fe51; LANES] {
-            let mut by_limb = [[0u64; LANES]; 5];
+            let mut by_limb = [[0u64; LANES]; LIMB_COUNT];
             storeu(self.limbs[0], &mut by_limb[0]);
             storeu(self.limbs[1], &mut by_limb[1]);
             storeu(self.limbs[2], &mut by_limb[2]);
@@ -408,7 +411,7 @@ pub(crate) mod avx512ifma {
         /// Like `to_fields` but stores loosely-reduced limbs (no canonicalize);
         /// valid because a reduce leaves each limb `< 2^52`.
         fn to_fields_loose(self) -> [Fe51; LANES] {
-            let mut by_limb = [[0u64; LANES]; 5];
+            let mut by_limb = [[0u64; LANES]; LIMB_COUNT];
             storeu(self.limbs[0], &mut by_limb[0]);
             storeu(self.limbs[1], &mut by_limb[1]);
             storeu(self.limbs[2], &mut by_limb[2]);
@@ -474,11 +477,11 @@ pub(crate) mod avx512ifma {
         // Deferred ops produce loose values: limb0 < 2^60, limbs 1..4 < 2^51.
         // `_wide` subtracts use a 2048*p bias for up to two loose subtrahends.
         // `square`/`square_loose` share accumulation and differ only in reduction.
-        fn square_accum(&self) -> ([__m512i; 5], [__m512i; 5]) {
+        fn square_accum(&self) -> ([__m512i; LIMB_COUNT], [__m512i; LIMB_COUNT]) {
             unsafe {
                 let z = _mm512_setzero_si512();
-                let mut lo = [z; 5];
-                let mut hi = [z; 5];
+                let mut lo = [z; LIMB_COUNT];
+                let mut hi = [z; LIMB_COUNT];
 
                 // Normalize loose limb0 before squaring; torsion cases can represent
                 // zero as p, and doubled IFMA inputs must stay under 52 bits.
@@ -537,11 +540,11 @@ pub(crate) mod avx512ifma {
         }
         // Shared accumulation for `multiply`/`multiply_loose`: they differ only
         // in which `reduce_ifma*` pass is applied to the raw (lo, hi) columns.
-        fn multiply_accum(&self, rhs: &Self) -> ([__m512i; 5], [__m512i; 5]) {
+        fn multiply_accum(&self, rhs: &Self) -> ([__m512i; LIMB_COUNT], [__m512i; LIMB_COUNT]) {
             unsafe {
                 let z = _mm512_setzero_si512();
-                let mut lo = [z; 5];
-                let mut hi = [z; 5];
+                let mut lo = [z; LIMB_COUNT];
+                let mut hi = [z; LIMB_COUNT];
 
                 madd_one(&mut lo[0], &mut hi[0], self.limbs[0], rhs.limbs[0]);
                 let (mut wlo, mut whi) = (z, z);
@@ -591,7 +594,7 @@ pub(crate) mod avx512ifma {
 
         // `reduce_ifma` without the trailing `reduce_loose` pass: one IFMA carry
         // pass only. Leaves limb0 < 2^60, limbs 1..4 < 2^51.
-        fn reduce_ifma_loose(mut lo: [__m512i; 5], hi: [__m512i; 5]) -> Self {
+        fn reduce_ifma_loose(mut lo: [__m512i; LIMB_COUNT], hi: [__m512i; LIMB_COUNT]) -> Self {
             unsafe {
                 let mask = _mm512_set1_epi64(LIMB_MASK as i64);
                 let nineteen = _mm512_set1_epi64(19);
@@ -830,7 +833,7 @@ pub(crate) mod avx512ifma {
                 }
             }
         }
-        fn reduce_ifma(mut lo: [__m512i; 5], hi: [__m512i; 5]) -> Self {
+        fn reduce_ifma(mut lo: [__m512i; LIMB_COUNT], hi: [__m512i; LIMB_COUNT]) -> Self {
             unsafe {
                 let mask = _mm512_set1_epi64(LIMB_MASK as i64);
                 let nineteen = _mm512_set1_epi64(19);
@@ -856,7 +859,7 @@ pub(crate) mod avx512ifma {
         }
         /// One carry pass: limbs 1..4 become `< 2^51`; limb 0 may keep the
         /// small wraparound residual needed by additive consumers.
-        fn reduce_loose(mut h: [__m512i; 5]) -> Self {
+        fn reduce_loose(mut h: [__m512i; LIMB_COUNT]) -> Self {
             unsafe {
                 let mask = _mm512_set1_epi64(LIMB_MASK as i64);
                 let nineteen = _mm512_set1_epi64(19);
@@ -877,7 +880,7 @@ pub(crate) mod avx512ifma {
             }
         }
         /// Two carry passes, used when `add`/`canonical` need near-strict limbs.
-        fn reduce64(mut h: [__m512i; 5]) -> Self {
+        fn reduce64(mut h: [__m512i; LIMB_COUNT]) -> Self {
             unsafe {
                 let mask = _mm512_set1_epi64(LIMB_MASK as i64);
                 let nineteen = _mm512_set1_epi64(19);
@@ -1084,7 +1087,7 @@ pub(crate) mod avx512ifma {
     }
 
     impl WideFe {
-        fn constant(limbs: [u64; 5]) -> Self {
+        fn constant(limbs: [u64; LIMB_COUNT]) -> Self {
             unsafe {
                 Self {
                     limbs: [
@@ -1135,7 +1138,7 @@ pub(crate) mod avx512ifma {
     /// Scalar reference for `WideFe::canonical`, kept only as a test check for
     /// the vectorized path.
     #[cfg(test)]
-    fn canonicalize_field_limbs(limbs: [u64; 5]) -> [u64; 5] {
+    fn canonicalize_field_limbs(limbs: [u64; LIMB_COUNT]) -> [u64; LIMB_COUNT] {
         // The partial carry chain below relies on limbs already being < 2^52.
         debug_assert!(limbs.iter().all(|&l| l < (1u64 << 52)));
         let mut h = [
@@ -1180,7 +1183,7 @@ pub(crate) mod avx512ifma {
     }
 
     #[cfg(test)]
-    fn cmp_field_limbs(lhs: &[u64; 5], rhs: &[u64; 5]) -> core::cmp::Ordering {
+    fn cmp_field_limbs(lhs: &[u64; LIMB_COUNT], rhs: &[u64; LIMB_COUNT]) -> core::cmp::Ordering {
         let mut i = 5;
         while i > 0 {
             i -= 1;
@@ -1193,7 +1196,7 @@ pub(crate) mod avx512ifma {
     }
 
     #[cfg(test)]
-    fn sub_field_limbs(lhs: &mut [u64; 5], rhs: &[u64; 5]) {
+    fn sub_field_limbs(lhs: &mut [u64; LIMB_COUNT], rhs: &[u64; LIMB_COUNT]) {
         let mut borrow = 0i128;
         let base = 1i128 << 51;
         let mut i = 0;
@@ -1222,17 +1225,17 @@ pub(crate) mod avx512ifma {
             out
         }
 
-        fn wide_from_rows(rows: [[u64; LANES]; 5]) -> WideFe {
+        fn wide_from_rows(rows: [[u64; LANES]; LIMB_COUNT]) -> WideFe {
             WideFe {
                 limbs: core::array::from_fn(|i| loadu(rows[i])),
             }
         }
 
         /// Cross-check vectorized canonical predicates against scalar references.
-        fn check_canonical(rows: [[u64; LANES]; 5]) {
+        fn check_canonical(rows: [[u64; LANES]; LIMB_COUNT]) {
             let wide = wide_from_rows(rows);
             let canonical = wide.canonical();
-            let mut canonical_rows = [[0u64; LANES]; 5];
+            let mut canonical_rows = [[0u64; LANES]; LIMB_COUNT];
             for (limb, row) in canonical_rows.iter_mut().enumerate() {
                 storeu(canonical.limbs[limb], row);
             }
@@ -1240,16 +1243,17 @@ pub(crate) mod avx512ifma {
             let is_odd = wide.is_odd_lanes();
 
             for lane in 0..LANES {
-                let input: [u64; 5] = core::array::from_fn(|limb| rows[limb][lane]);
+                let input: [u64; LIMB_COUNT] = core::array::from_fn(|limb| rows[limb][lane]);
                 let expected = canonicalize_field_limbs(input);
-                let actual: [u64; 5] = core::array::from_fn(|limb| canonical_rows[limb][lane]);
+                let actual: [u64; LIMB_COUNT] =
+                    core::array::from_fn(|limb| canonical_rows[limb][lane]);
                 assert_eq!(
                     actual, expected,
                     "lane {lane} diverged from scalar reference"
                 );
                 assert_eq!(
                     is_zero[lane],
-                    expected == [0u64; 5],
+                    expected == [0u64; LIMB_COUNT],
                     "is_zero_lanes lane {lane}"
                 );
                 assert_eq!(
@@ -1269,7 +1273,7 @@ pub(crate) mod avx512ifma {
 
         #[test]
         fn canonical_matches_references_on_boundary_values() {
-            let zero = [0u64; 5];
+            let zero = [0u64; LIMB_COUNT];
             let p = FIELD_P_LIMBS;
             let p_minus_1 = {
                 let mut l = p;
@@ -1282,7 +1286,7 @@ pub(crate) mod avx512ifma {
                 l
             };
             // Every limb at its documented max input bound (2^52 - 1).
-            let max_limbs = [(1u64 << 52) - 1; 5];
+            let max_limbs = [(1u64 << 52) - 1; LIMB_COUNT];
             let hand_picked = [zero, p, p_minus_1, p_plus_1, max_limbs];
 
             let mut state = 0x2545f4914f6cdd1du64;
@@ -1293,7 +1297,7 @@ pub(crate) mod avx512ifma {
                 state
             };
 
-            let mut rows = [[0u64; LANES]; 5];
+            let mut rows = [[0u64; LANES]; LIMB_COUNT];
             for lane in 0..LANES {
                 let limbs = if lane < hand_picked.len() {
                     hand_picked[lane]
@@ -1319,7 +1323,7 @@ pub(crate) mod avx512ifma {
 
             let mut round = 0;
             while round < 512 {
-                let mut rows = [[0u64; LANES]; 5];
+                let mut rows = [[0u64; LANES]; LIMB_COUNT];
                 for row in &mut rows {
                     for value in row {
                         *value = next() & ((1u64 << 52) - 1);
@@ -1425,7 +1429,7 @@ pub(crate) mod avx512ifma {
             let mut round = 0;
             while round < 200 {
                 let fields: [crate::field::Fe51; LANES] = core::array::from_fn(|_| {
-                    let limbs: [u64; 5] = core::array::from_fn(|_| next() & LIMB_MASK);
+                    let limbs: [u64; LIMB_COUNT] = core::array::from_fn(|_| next() & LIMB_MASK);
                     crate::field::Fe51::from_limbs(limbs)
                 });
                 let wide_result = WideFe::from_fields(&fields)
