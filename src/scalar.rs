@@ -16,15 +16,6 @@ impl Scalar {
         Self { bytes }
     }
 
-    /// Kept as a scalar reference for tests; the verifier's hot path uses
-    /// `from_wide_words` to avoid the byte round trip this does internally.
-    #[cfg(test)]
-    pub(crate) fn from_wide_bytes(bytes: [u8; 64]) -> Self {
-        Self {
-            bytes: reduce_wide(bytes),
-        }
-    }
-
     /// Reduce pre-swapped wide hash words, avoiding a byte round trip.
     pub(crate) fn from_wide_words(words: [u64; 8]) -> Self {
         Self {
@@ -58,6 +49,15 @@ impl Scalar {
         // digit 63 (which would need a 65th digit) is provably always zero.
         debug_assert_eq!(carry, 0, "radix-16 carry out of a scalar reduced mod L");
         digits
+    }
+
+    /// Kept as a scalar reference for tests; the verifier's hot path uses
+    /// `from_wide_words` to avoid the byte round trip this does internally.
+    #[cfg(test)]
+    pub(crate) fn from_wide_bytes(bytes: [u8; 64]) -> Self {
+        Self {
+            bytes: reduce_wide(bytes),
+        }
     }
 }
 
@@ -108,21 +108,6 @@ const SCALAR_RR: Scalar52 = Scalar52([
 struct Scalar52([u64; 5]);
 
 impl Scalar52 {
-    #[cfg(test)]
-    fn from_wide_bytes(bytes: &[u8; 64]) -> Self {
-        let words = [
-            load_u64(bytes, 0),
-            load_u64(bytes, 8),
-            load_u64(bytes, 16),
-            load_u64(bytes, 24),
-            load_u64(bytes, 32),
-            load_u64(bytes, 40),
-            load_u64(bytes, 48),
-            load_u64(bytes, 56),
-        ];
-        Self::from_wide_words(&words)
-    }
-
     #[rustfmt::skip]
     fn from_wide_words(words: &[u64; 8]) -> Self {
         let lo = Scalar52([
@@ -274,6 +259,21 @@ impl Scalar52 {
         let r4 = carry as u64;
 
         Self([r0, r1, r2, r3, r4]).sub(&SCALAR_L)
+    }
+
+    #[cfg(test)]
+    fn from_wide_bytes(bytes: &[u8; 64]) -> Self {
+        let words = [
+            load_u64(bytes, 0),
+            load_u64(bytes, 8),
+            load_u64(bytes, 16),
+            load_u64(bytes, 24),
+            load_u64(bytes, 32),
+            load_u64(bytes, 40),
+            load_u64(bytes, 48),
+            load_u64(bytes, 56),
+        ];
+        Self::from_wide_words(&words)
     }
 }
 
