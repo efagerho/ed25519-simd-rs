@@ -1,5 +1,5 @@
 pub(crate) mod avx512ifma {
-    use crate::batch::PreparedBatch;
+    use crate::batch::{PUBLIC_KEY_LEN, PreparedBatch, R_ENCODING_LEN};
     #[cfg(test)]
     use crate::edwards::EdwardsPoint;
     use crate::edwards::{BasepointTable, CachedPoint, PointTable};
@@ -28,7 +28,9 @@ pub(crate) mod avx512ifma {
     }
 
     /// Decompress one SIMD chunk of `R` points and return a per-lane validity mask.
-    pub(crate) fn decompress_r_points(r_bytes: &[[u8; 32]; LANES]) -> (WideRPoints, u8) {
+    pub(crate) fn decompress_r_points(
+        r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
+    ) -> (WideRPoints, u8) {
         let (point, mask) = decompress_points_wide(r_bytes);
         (WideRPoints(point), mask)
     }
@@ -37,8 +39,8 @@ pub(crate) mod avx512ifma {
     /// two inverse-square-root chains (the latency-bound part of decompression).
     /// Returns the key tables + validity and the decompressed `R` + validity.
     pub(crate) fn decode_keys_and_decompress_r(
-        keys: &[[u8; 32]; LANES],
-        r_bytes: &[[u8; 32]; LANES],
+        keys: &[[u8; PUBLIC_KEY_LEN]; LANES],
+        r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
     ) -> ([PointTable; LANES], u8, WideRPoints, u8) {
         let ((kp, kmask), (rp, rmask)) = decompress_point_batches_wide(keys, r_bytes);
         (build_tables_from_point(kp), kmask, WideRPoints(rp), rmask)
@@ -116,7 +118,7 @@ pub(crate) mod avx512ifma {
 
     pub(crate) fn verify_prepared_dalek(
         prepared: &PreparedBatch<'_>,
-        r_bytes: &[[u8; 32]; LANES],
+        r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
         base_table: &BasepointTable,
     ) -> [bool; LANES] {
         let combined = mul_base_minus_public(base_table, prepared);

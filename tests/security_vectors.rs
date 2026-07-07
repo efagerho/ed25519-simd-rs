@@ -3,7 +3,7 @@ mod support;
 use core::convert::TryInto;
 
 use curve25519::ed_sigs::VerificationKeyBytes;
-use ed25519_simd::{VerifyInput, VerifyPolicy};
+use ed25519_simd::{SIGNATURE_LEN, VerifyInput, VerifyPolicy};
 use serde_json::Value;
 use support::{
     Case, hex_array, hex_vec, signing_key_from_index, solana_ed25519_verify_dalek,
@@ -161,7 +161,7 @@ fn signatures_malleated_by_adding_group_order_are_rejected() {
     }
 }
 
-fn add_group_order_to_s(signature: &mut [u8; 64]) {
+fn add_group_order_to_s(signature: &mut [u8; SIGNATURE_LEN]) {
     let mut carry = 0u16;
     for (byte, addend) in signature[32..].iter_mut().zip(L_BYTES) {
         let sum = *byte as u16 + addend as u16 + carry;

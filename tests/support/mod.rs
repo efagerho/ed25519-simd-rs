@@ -3,7 +3,9 @@
 use core::convert::TryFrom;
 
 use curve25519::ed_sigs::{Signature, SigningKey, VerificationKey, VerificationKeyBytes};
-use ed25519_simd::{NullKeyCache, Verifier, VerifyInput, VerifyPolicy};
+use ed25519_simd::{
+    NullKeyCache, PUBLIC_KEY_LEN, SIGNATURE_LEN, Verifier, VerifyInput, VerifyPolicy,
+};
 
 pub fn hex_vec(s: &str) -> Vec<u8> {
     let digits: Vec<u8> = s.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
@@ -46,8 +48,8 @@ pub fn verify_batch(policy: VerifyPolicy, inputs: &[VerifyInput<'_>]) -> Vec<boo
 }
 
 pub fn solana_ed25519_verify_zebra(
-    public_key: [u8; 32],
-    signature: [u8; 64],
+    public_key: [u8; PUBLIC_KEY_LEN],
+    signature: [u8; SIGNATURE_LEN],
     message: &[u8],
 ) -> bool {
     let vk_bytes = VerificationKeyBytes::from(public_key);
@@ -58,8 +60,8 @@ pub fn solana_ed25519_verify_zebra(
 }
 
 pub fn solana_ed25519_verify_dalek(
-    public_key: [u8; 32],
-    signature: [u8; 64],
+    public_key: [u8; PUBLIC_KEY_LEN],
+    signature: [u8; SIGNATURE_LEN],
     message: &[u8],
 ) -> bool {
     let vk_bytes = VerificationKeyBytes::from(public_key);
@@ -77,8 +79,8 @@ pub fn signing_key_from_index(index: u64) -> SigningKey {
 
 #[derive(Clone)]
 pub struct Case {
-    pub public_key: [u8; 32],
-    pub signature: [u8; 64],
+    pub public_key: [u8; PUBLIC_KEY_LEN],
+    pub signature: [u8; SIGNATURE_LEN],
     pub message: Vec<u8>,
 }
 

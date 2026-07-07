@@ -2,33 +2,34 @@ mod support;
 
 use curve25519::ed_sigs::VerificationKeyBytes;
 use ed25519_simd::{
-    CachedPublicKey, HotKeyCache, KeyCache, NullKeyCache, Verifier, VerifyInput, VerifyPolicy,
+    CachedPublicKey, HotKeyCache, KeyCache, NullKeyCache, PUBLIC_KEY_LEN, SIGNATURE_LEN, Verifier,
+    VerifyInput, VerifyPolicy,
 };
 use support::{hex_array, signing_key_from_index};
 
-fn rfc8032_key0() -> [u8; 32] {
+fn rfc8032_key0() -> [u8; PUBLIC_KEY_LEN] {
     hex_array("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
 }
 
-fn rfc8032_sig0() -> [u8; 64] {
+fn rfc8032_sig0() -> [u8; SIGNATURE_LEN] {
     hex_array(
         "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e06522490155\
          5fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b",
     )
 }
 
-fn rfc8032_key1() -> [u8; 32] {
+fn rfc8032_key1() -> [u8; PUBLIC_KEY_LEN] {
     hex_array("3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c")
 }
 
-fn rfc8032_sig1() -> [u8; 64] {
+fn rfc8032_sig1() -> [u8; SIGNATURE_LEN] {
     hex_array(
         "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da\
          085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00",
     )
 }
 
-fn resident_count(cache: &HotKeyCache, keys: &[[u8; 32]]) -> usize {
+fn resident_count(cache: &HotKeyCache, keys: &[[u8; PUBLIC_KEY_LEN]]) -> usize {
     keys.iter().filter(|key| cache.get(key).is_some()).count()
 }
 
@@ -113,7 +114,7 @@ fn cached_verifier_rejects_bad_r_lane_in_simd_batch() {
 #[test]
 fn hot_key_cache_handles_mixed_hit_and_miss_lanes_in_one_chunk() {
     let signing_keys: Vec<_> = (0..8u64).map(signing_key_from_index).collect();
-    let public_keys: Vec<[u8; 32]> = signing_keys
+    let public_keys: Vec<[u8; PUBLIC_KEY_LEN]> = signing_keys
         .iter()
         .map(|sk| <[u8; 32]>::from(VerificationKeyBytes::from(sk)))
         .collect();
@@ -133,7 +134,8 @@ fn hot_key_cache_handles_mixed_hit_and_miss_lanes_in_one_chunk() {
     let mut warm_out = vec![false; warm_inputs.len()];
     verifier.verify_batch(&warm_inputs, &mut warm_out);
     assert!(warm_out.iter().all(|&valid| valid));
-    let warm_public_keys: Vec<[u8; 32]> = public_keys.iter().step_by(2).copied().collect();
+    let warm_public_keys: Vec<[u8; PUBLIC_KEY_LEN]> =
+        public_keys.iter().step_by(2).copied().collect();
     assert_eq!(resident_count(verifier.cache(), &warm_public_keys), 4);
 
     // Corrupt one hit lane and one miss lane to catch table/lane mix-ups.
@@ -166,7 +168,7 @@ fn hot_key_cache_retains_recent_keys_with_capacity() {
 
 #[test]
 fn hot_key_cache_evicts_down_to_capacity_with_more_candidates_than_the_eviction_sample() {
-    let keys: Vec<[u8; 32]> = (0..12u64)
+    let keys: Vec<[u8; PUBLIC_KEY_LEN]> = (0..12u64)
         .map(|i| <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key_from_index(i))))
         .collect();
 

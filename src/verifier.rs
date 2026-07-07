@@ -21,6 +21,7 @@ pub struct VerifyInput<'a> {
 }
 
 const SIMD_LANES: usize = batch::SIMD_LANES;
+const R_ENCODING_LEN: usize = batch::R_ENCODING_LEN;
 
 // Shared once per process; the base-point table is policy- and cache-independent.
 static BASE_TABLE: LazyLock<BasepointTable> = LazyLock::new(BasepointTable::new);
@@ -31,8 +32,8 @@ static IDENTITY_TABLE: LazyLock<PointTable> =
 
 struct ChunkParts<'a> {
     valid: [bool; SIMD_LANES],
-    r_bytes: [[u8; 32]; SIMD_LANES],
-    public_keys: [[u8; 32]; SIMD_LANES],
+    r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
+    public_keys: [[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
     s_digits: [Radix16; SIMD_LANES],
     messages: [&'a [u8]; SIMD_LANES],
 }
@@ -263,16 +264,16 @@ impl<C: KeyCache> Verifier<C> {
 #[inline(always)]
 fn parse_chunk_inputs<'a>(inputs: &[VerifyInput<'a>; SIMD_LANES]) -> ChunkParts<'a> {
     let mut valid = [true; SIMD_LANES];
-    let mut r_bytes = [[0u8; 32]; SIMD_LANES];
-    let mut public_keys = [[0u8; 32]; SIMD_LANES];
+    let mut r_bytes = [[0u8; R_ENCODING_LEN]; SIMD_LANES];
+    let mut public_keys = [[0u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES];
     let mut s_digits = [[0i8; 64]; SIMD_LANES];
     let mut messages = [inputs[0].message; SIMD_LANES];
     let mut lane = 0;
     while lane < SIMD_LANES {
-        r_bytes[lane].copy_from_slice(&inputs[lane].signature[..32]);
+        r_bytes[lane].copy_from_slice(&inputs[lane].signature[..R_ENCODING_LEN]);
 
         let mut s_bytes = [0u8; 32];
-        s_bytes.copy_from_slice(&inputs[lane].signature[32..]);
+        s_bytes.copy_from_slice(&inputs[lane].signature[R_ENCODING_LEN..]);
         if scalar::is_canonical(&s_bytes) {
             s_digits[lane] = Scalar::from_canonical_bytes(s_bytes).to_radix16();
         } else {
@@ -294,16 +295,19 @@ fn parse_chunk_inputs<'a>(inputs: &[VerifyInput<'a>; SIMD_LANES]) -> ChunkParts<
 
 #[inline(always)]
 fn challenge_digits(
-    r_bytes: &[[u8; 32]; SIMD_LANES],
-    public_keys: &[[u8; 32]; SIMD_LANES],
+    r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
+    public_keys: &[[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
     messages: [&[u8]; SIMD_LANES],
 ) -> [Radix16; SIMD_LANES] {
     let digests = sha512::hash_ed25519_challenge_words(r_bytes, public_keys, messages);
     core::array::from_fn(|lane| Scalar::from_wide_words(digests[lane]).to_radix16())
 }
 
-fn dalek_legacy_excluded(public_key: &[u8; 32], r_bytes: &[u8; 32]) -> bool {
-    *public_key == [0u8; 32] || r_encoding_is_legacy_excluded(r_bytes)
+fn dalek_legacy_excluded(
+    public_key: &[u8; batch::PUBLIC_KEY_LEN],
+    r_bytes: &[u8; R_ENCODING_LEN],
+) -> bool {
+    *public_key == [0u8; batch::PUBLIC_KEY_LEN] || r_encoding_is_legacy_excluded(r_bytes)
 }
 
 fn lane_flags_from_mask(mask: u8) -> [bool; SIMD_LANES] {
