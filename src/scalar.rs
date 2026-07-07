@@ -236,12 +236,14 @@ impl Scalar52 {
     }
 
     fn montgomery_reduce(limbs: &[u128; 2 * LIMB_COUNT - 1]) -> Self {
+        // Fold one Montgomery quotient limb into the accumulator.
         #[inline(always)]
         fn part1(sum: u128) -> (u128, u64) {
             let p = (sum as u64).wrapping_mul(SCALAR_LFACTOR) & LIMB52_MASK;
             ((sum + m(p, SCALAR_L.0[0])) >> 52, p)
         }
 
+        // Split a reduced accumulator column into carry and output limb.
         #[inline(always)]
         fn part2(sum: u128) -> (u128, u64) {
             (sum >> 52, (sum as u64) & LIMB52_MASK)
