@@ -1,4 +1,4 @@
-use crate::batch::{SIMD_LANES, challenge_block_count};
+use crate::batch::{PUBLIC_KEY_LEN, R_ENCODING_LEN, SIMD_LANES, challenge_block_count};
 
 const IV: [u64; 8] = [
     0x6a09e667f3bcc908,
@@ -190,8 +190,8 @@ pub(crate) fn hash_slices(slices: &[&[u8]]) -> [u8; 64] {
 /// Test reference returning challenge hashes as bytes.
 #[cfg(test)]
 pub(crate) fn hash_ed25519_challenges(
-    r_bytes: &[[u8; 32]; SIMD_LANES],
-    public_keys: &[[u8; 32]; SIMD_LANES],
+    r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
+    public_keys: &[[u8; PUBLIC_KEY_LEN]; SIMD_LANES],
     messages: [&[u8]; SIMD_LANES],
 ) -> [[u8; 64]; SIMD_LANES] {
     let words = hash_ed25519_challenge_words(r_bytes, public_keys, messages);
@@ -297,7 +297,7 @@ fn small_sigma1(x: u64) -> u64 {
 
 mod avx512 {
 
-    use super::{IV, K, SIMD_LANES, challenge_block_count};
+    use super::{IV, K, PUBLIC_KEY_LEN, R_ENCODING_LEN, SIMD_LANES, challenge_block_count};
     use std::arch::x86_64::*;
 
     const LANES: usize = SIMD_LANES;
@@ -313,8 +313,8 @@ mod avx512 {
     /// blending per-lane tails through `active_mask`.
     #[inline(never)]
     pub(crate) fn hash_ed25519_challenge_words(
-        r_bytes: &[[u8; 32]; LANES],
-        public_keys: &[[u8; 32]; LANES],
+        r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
+        public_keys: &[[u8; PUBLIC_KEY_LEN]; LANES],
         messages: [&[u8]; LANES],
     ) -> [[u64; 8]; LANES] {
         unsafe {
@@ -407,8 +407,8 @@ mod avx512 {
     }
 
     fn generic_block_words_mixed(
-        r_bytes: &[[u8; 32]; LANES],
-        public_keys: &[[u8; 32]; LANES],
+        r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
+        public_keys: &[[u8; PUBLIC_KEY_LEN]; LANES],
         messages: [&[u8]; LANES],
         total_lens: &[usize; LANES],
         bit_lens: &[u64; LANES],
@@ -435,8 +435,8 @@ mod avx512 {
     }
 
     fn mixed_block_word(
-        r_bytes: &[[u8; 32]; LANES],
-        public_keys: &[[u8; 32]; LANES],
+        r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
+        public_keys: &[[u8; PUBLIC_KEY_LEN]; LANES],
         messages: [&[u8]; LANES],
         lane: usize,
         word_offset: usize,
@@ -483,8 +483,8 @@ mod avx512 {
         u64::from_be_bytes(bytes)
     }
     fn first_data_block_words(
-        r_bytes: &[[u8; 32]; LANES],
-        public_keys: &[[u8; 32]; LANES],
+        r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
+        public_keys: &[[u8; PUBLIC_KEY_LEN]; LANES],
         messages: [&[u8]; LANES],
     ) -> [__m512i; 16] {
         // Called only when each message has its first 64 bytes; convert once
@@ -740,7 +740,7 @@ mod tests {
     fn avx512_challenge_hash_matches_scalar() {
         let r = core::array::from_fn(|lane| [lane as u8; 32]);
         let public_keys = core::array::from_fn(|lane| [(lane as u8).wrapping_mul(3); 32]);
-        let messages_storage: [[u8; 19]; 8] = core::array::from_fn(|lane| {
+        let messages_storage: [[u8; 19]; SIMD_LANES] = core::array::from_fn(|lane| {
             core::array::from_fn(|i| (lane as u8).wrapping_mul(17).wrapping_add(i as u8))
         });
         let messages = core::array::from_fn(|lane| messages_storage[lane].as_slice());
@@ -760,7 +760,7 @@ mod tests {
     fn avx512_challenge_hash_matches_scalar_with_spilled_padding() {
         let r = core::array::from_fn(|lane| [(lane as u8).wrapping_add(9); 32]);
         let public_keys = core::array::from_fn(|lane| [(lane as u8).wrapping_mul(5); 32]);
-        let messages_storage: [[u8; 64]; 8] = core::array::from_fn(|lane| {
+        let messages_storage: [[u8; 64]; SIMD_LANES] = core::array::from_fn(|lane| {
             core::array::from_fn(|i| (lane as u8).wrapping_mul(11).wrapping_add(i as u8))
         });
         let messages = core::array::from_fn(|lane| messages_storage[lane].as_slice());
@@ -780,7 +780,7 @@ mod tests {
     fn avx512_challenge_hash_matches_scalar_with_full_message_blocks() {
         let r = core::array::from_fn(|lane| [(lane as u8).wrapping_add(13); 32]);
         let public_keys = core::array::from_fn(|lane| [(lane as u8).wrapping_mul(7); 32]);
-        let messages_storage: [[u8; 257]; 8] = core::array::from_fn(|lane| {
+        let messages_storage: [[u8; 257]; SIMD_LANES] = core::array::from_fn(|lane| {
             core::array::from_fn(|i| (lane as u8).wrapping_mul(19).wrapping_add(i as u8))
         });
         let messages = core::array::from_fn(|lane| messages_storage[lane].as_slice());
@@ -802,7 +802,7 @@ mod tests {
         let lengths = [
             47usize, 48, 55, 63, 64, 111, 112, 127, 128, 175, 176, 191, 192,
         ];
-        let storage: [[u8; 192]; 8] = core::array::from_fn(|lane| {
+        let storage: [[u8; 192]; SIMD_LANES] = core::array::from_fn(|lane| {
             core::array::from_fn(|i| (lane as u8).wrapping_mul(31).wrapping_add(i as u8))
         });
 
@@ -822,13 +822,13 @@ mod tests {
     #[test]
     fn avx512_challenge_hash_matches_scalar_with_uniform_block_counts() {
         // Mixed lengths with shared block counts, including bulk reads and tails.
-        let length_sets: [[usize; 8]; 4] = [
+        let length_sets: [[usize; SIMD_LANES]; 4] = [
             [0, 1, 7, 19, 30, 40, 46, 47],            // 1 block
             [48, 55, 63, 64, 90, 128, 170, 175],      // 2 blocks
             [176, 180, 200, 220, 230, 240, 250, 255], // 3 blocks
             [496, 500, 510, 520, 530, 540, 550, 558], // 5 blocks
         ];
-        let storage: [[u8; 558]; 8] = core::array::from_fn(|lane| {
+        let storage: [[u8; 558]; SIMD_LANES] = core::array::from_fn(|lane| {
             core::array::from_fn(|i| (lane as u8).wrapping_mul(41).wrapping_add(i as u8))
         });
 
@@ -853,7 +853,7 @@ mod tests {
     fn avx512_challenge_hash_matches_scalar_with_shared_prefix_and_different_block_counts() {
         // Different block counts with a long common prefix, still using bulk reads.
         let lengths = [200usize, 200, 250, 300, 400, 500, 600, 900];
-        let storage: [[u8; 900]; 8] = core::array::from_fn(|lane| {
+        let storage: [[u8; 900]; SIMD_LANES] = core::array::from_fn(|lane| {
             core::array::from_fn(|i| (lane as u8).wrapping_mul(43).wrapping_add(i as u8))
         });
         let r = core::array::from_fn(|lane| [(lane as u8).wrapping_add(61); 32]);
@@ -875,7 +875,7 @@ mod tests {
     fn avx512_challenge_hash_matches_scalar_with_mixed_lengths() {
         let r = core::array::from_fn(|lane| [(lane as u8).wrapping_add(21); 32]);
         let public_keys = core::array::from_fn(|lane| [(lane as u8).wrapping_mul(23); 32]);
-        let messages_storage: [[u8; 257]; 8] = core::array::from_fn(|lane| {
+        let messages_storage: [[u8; 257]; SIMD_LANES] = core::array::from_fn(|lane| {
             core::array::from_fn(|i| (lane as u8).wrapping_mul(29).wrapping_add(i as u8))
         });
         let lengths = [0usize, 1, 19, 63, 64, 65, 127, 257];

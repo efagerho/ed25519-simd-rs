@@ -6,6 +6,10 @@ use crate::verifier::VerifyInput;
 pub const PUBLIC_KEY_LEN: usize = 32;
 /// Byte length of an encoded Ed25519 signature.
 pub const SIGNATURE_LEN: usize = 64;
+/// Byte length of a signature's compressed `R` point. Numerically the same as
+/// `PUBLIC_KEY_LEN` (both are compressed Edwards points), but kept as a
+/// separate constant since an `R` value is never a public key.
+pub(crate) const R_ENCODING_LEN: usize = 32;
 /// Number of verification lanes processed by one SIMD chunk.
 pub(crate) const SIMD_LANES: usize = 8;
 

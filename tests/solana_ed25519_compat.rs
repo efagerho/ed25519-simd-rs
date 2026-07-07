@@ -5,7 +5,10 @@
 mod support;
 
 use curve25519::ed_sigs::{Signature, VerificationKeyBytes, batch};
-use ed25519_simd::{HotKeyCache, KeyCache, NullKeyCache, Verifier, VerifyInput, VerifyPolicy};
+use ed25519_simd::{
+    HotKeyCache, KeyCache, NullKeyCache, PUBLIC_KEY_LEN, SIGNATURE_LEN, Verifier, VerifyInput,
+    VerifyPolicy,
+};
 use serde_json::Value;
 use support::{
     Case, hex_array, hex_vec, signing_key_from_index, solana_ed25519_verify_dalek,
@@ -39,7 +42,7 @@ impl Lcg {
     }
 }
 
-type SolanaEd25519VerifyFn = fn([u8; 32], [u8; 64], &[u8]) -> bool;
+type SolanaEd25519VerifyFn = fn([u8; PUBLIC_KEY_LEN], [u8; SIGNATURE_LEN], &[u8]) -> bool;
 
 fn build_corpus(count: usize) -> Vec<Case> {
     let mut rng = Lcg(0x0123_4567_89ab_cdef);
@@ -803,8 +806,8 @@ fn speccheck_and_wycheproof_vectors_survive_non_uniform_batches_and_warm_cache()
 
     fn check(
         name: String,
-        public_key: [u8; 32],
-        signature: [u8; 64],
+        public_key: [u8; PUBLIC_KEY_LEN],
+        signature: [u8; SIGNATURE_LEN],
         message: &[u8],
         fillers: &[Case],
         non_uniform_mismatches: &mut Vec<(String, VerifyPolicy, bool, bool)>,
@@ -854,8 +857,8 @@ fn speccheck_and_wycheproof_vectors_survive_non_uniform_batches_and_warm_cache()
     let speccheck: Value =
         serde_json::from_str(include_str!("vectors/ed25519_speccheck.json")).unwrap();
     for (idx, case) in speccheck.as_array().unwrap().iter().enumerate() {
-        let public_key = hex_array::<32>(case["pub_key"].as_str().unwrap());
-        let signature = hex_array::<64>(case["signature"].as_str().unwrap());
+        let public_key = hex_array::<PUBLIC_KEY_LEN>(case["pub_key"].as_str().unwrap());
+        let signature = hex_array::<SIGNATURE_LEN>(case["signature"].as_str().unwrap());
         let message = hex_vec(case["message"].as_str().unwrap());
         check(
             format!("speccheck[{idx}]"),
@@ -872,13 +875,13 @@ fn speccheck_and_wycheproof_vectors_survive_non_uniform_batches_and_warm_cache()
     let wycheproof: Value =
         serde_json::from_str(include_str!("vectors/ed25519_wycheproof.json")).unwrap();
     for group in wycheproof["testGroups"].as_array().unwrap() {
-        let public_key = hex_array::<32>(group["publicKey"]["pk"].as_str().unwrap());
+        let public_key = hex_array::<PUBLIC_KEY_LEN>(group["publicKey"]["pk"].as_str().unwrap());
         for (idx, test) in group["tests"].as_array().unwrap().iter().enumerate() {
             let sig = hex_vec(test["sig"].as_str().unwrap());
             if sig.len() != 64 {
                 continue;
             }
-            let signature: [u8; 64] = sig.try_into().unwrap();
+            let signature: [u8; SIGNATURE_LEN] = sig.try_into().unwrap();
             let message = hex_vec(test["msg"].as_str().unwrap());
             check(
                 format!("wycheproof tcId={} (group idx {idx})", test["tcId"]),

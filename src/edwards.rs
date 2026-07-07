@@ -275,7 +275,7 @@ impl EdwardsPoint {
     }
 }
 
-fn multiples_of(point: &EdwardsPoint) -> [EdwardsPoint; 8] {
+fn multiples_of(point: &EdwardsPoint) -> [EdwardsPoint; POINT_TABLE_SIZE] {
     let p2 = point.double();
     let p3 = p2.add(point);
     let p4 = p2.double();
