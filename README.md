@@ -134,28 +134,21 @@ that does repeat a small key set; measure your own workload before relying on
 it, since the win shrinks or disappears as the hot set gets larger or less
 repetitive:
 
-- `HotKeyCache::with_capacity(...)` bounds the evictable retained key set;
-  pass it to `Verifier::with_cache(...)`.
-- `verifier.cache_mut().preload(...)` decodes and pins known hot keys; pinned
-  keys are retained outside the capacity bound and are not evicted. It
-  returns the keys that failed to decode instead of silently dropping them.
-- `verifier.cache_mut().unpin(...)` releases a pin (e.g. keys from a rotated-out
-  validator set) so they become ordinary evictable entries again; pinning has
-  no automatic expiry, so a workload that repeatedly preloads a changing key
-  set should unpin the keys it no longer needs.
-- `verifier.cache()` returns `&HotKeyCache`, which exposes optional cache
-  stats and hot-key reporting.
+- `HotKeyCache::with_capacity(...)` bounds the retained key set; pass it to
+  `Verifier::with_cache(...)`.
+- Successful key decodes are retained after verification, so reuse the same
+  verifier across batches when the key distribution is hot.
 
 The verifier keeps any per-chunk decoded tables in local scratch while a chunk
 is being verified, even with `NullKeyCache`:
 
 ```rust,no_run
 use ed25519_simd::{HotKeyCache, Verifier, VerifyPolicy};
-# let hot_keys: Vec<[u8; 32]> = Vec::new();
 
-let mut verifier = Verifier::with_cache(VerifyPolicy::Zip215, HotKeyCache::new());
-let rejected = verifier.cache_mut().preload(&hot_keys);
-assert!(rejected.is_empty(), "some hot keys failed to decode: {rejected:?}");
+let mut verifier = Verifier::with_cache(
+    VerifyPolicy::Zip215,
+    HotKeyCache::with_capacity(256),
+);
 ```
 
 ## SIMD Path

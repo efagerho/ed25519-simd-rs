@@ -28,7 +28,7 @@ impl CachedPublicKey {
 /// retains repeated keys across batches.
 pub trait KeyCache: private::Sealed {
     /// Borrow a cached key, or `None` if it is absent. Implementations may
-    /// update hit counters or recency state through interior mutability.
+    /// update recency state through interior mutability.
     fn get(&self, encoded: &[u8; PUBLIC_KEY_LEN]) -> Option<&CachedPublicKey>;
 
     /// Optionally retain an already-decoded key for later chunks or batches.
