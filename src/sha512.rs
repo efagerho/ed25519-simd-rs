@@ -94,97 +94,16 @@ const K: [u64; 80] = [
     0x6c44198c4a475817,
 ];
 
-/// Scalar SHA-512, kept only as a test reference for the AVX-512 path.
-#[cfg(test)]
-#[derive(Clone)]
-struct Sha512 {
-    state: [u64; 8],
-    buffer: [u8; 128],
-    buffer_len: usize,
-    len_bytes: u128,
-}
-
-#[cfg(test)]
-impl Sha512 {
-    fn new() -> Self {
-        Self {
-            state: IV,
-            buffer: [0; 128],
-            buffer_len: 0,
-            len_bytes: 0,
-        }
-    }
-
-    fn update(&mut self, mut input: &[u8]) {
-        self.len_bytes += input.len() as u128;
-
-        if self.buffer_len != 0 {
-            let take = core::cmp::min(128 - self.buffer_len, input.len());
-            self.buffer[self.buffer_len..self.buffer_len + take].copy_from_slice(&input[..take]);
-            self.buffer_len += take;
-            input = &input[take..];
-            if self.buffer_len == 128 {
-                compress(&mut self.state, &self.buffer);
-                self.buffer_len = 0;
-            }
-        }
-
-        while input.len() >= 128 {
-            let mut block = [0u8; 128];
-            block.copy_from_slice(&input[..128]);
-            compress(&mut self.state, &block);
-            input = &input[128..];
-        }
-
-        if !input.is_empty() {
-            self.buffer[..input.len()].copy_from_slice(input);
-            self.buffer_len = input.len();
-        }
-    }
-
-    fn finalize(mut self) -> [u8; 64] {
-        self.buffer[self.buffer_len] = 0x80;
-        self.buffer_len += 1;
-
-        if self.buffer_len > 112 {
-            let mut i = self.buffer_len;
-            while i < 128 {
-                self.buffer[i] = 0;
-                i += 1;
-            }
-            compress(&mut self.state, &self.buffer);
-            self.buffer_len = 0;
-        }
-
-        let mut i = self.buffer_len;
-        while i < 112 {
-            self.buffer[i] = 0;
-            i += 1;
-        }
-
-        let bit_len = self.len_bytes << 3;
-        self.buffer[112..128].copy_from_slice(&bit_len.to_be_bytes());
-        compress(&mut self.state, &self.buffer);
-
-        let mut out = [0u8; 64];
-        let mut i = 0;
-        while i < 8 {
-            out[i * 8..i * 8 + 8].copy_from_slice(&self.state[i].to_be_bytes());
-            i += 1;
-        }
-        out
-    }
-}
-
+/// Independent test reference for the AVX-512 path, backed by the `sha2` crate
+/// rather than any SHA-512 code written in this repo.
 #[cfg(test)]
 pub(crate) fn hash_slices(slices: &[&[u8]]) -> [u8; 64] {
-    let mut h = Sha512::new();
-    let mut i = 0;
-    while i < slices.len() {
-        h.update(slices[i]);
-        i += 1;
+    use sha2::Digest;
+    let mut hasher = sha2::Sha512::new();
+    for slice in slices {
+        hasher.update(slice);
     }
-    h.finalize()
+    hasher.finalize().into()
 }
 
 /// Test reference returning challenge hashes as bytes.
@@ -208,92 +127,6 @@ pub(crate) fn hash_ed25519_challenges(
 
 /// Challenge hashes as pre-swapped words for `Scalar::from_wide_words`.
 pub(crate) use avx512::hash_ed25519_challenge_words;
-
-#[cfg(test)]
-fn compress(state: &mut [u64; 8], block: &[u8; 128]) {
-    let mut w = [0u64; 80];
-    let mut i = 0;
-    while i < 16 {
-        let mut bytes = [0u8; 8];
-        bytes.copy_from_slice(&block[i * 8..i * 8 + 8]);
-        w[i] = u64::from_be_bytes(bytes);
-        i += 1;
-    }
-    while i < 80 {
-        w[i] = small_sigma1(w[i - 2])
-            .wrapping_add(w[i - 7])
-            .wrapping_add(small_sigma0(w[i - 15]))
-            .wrapping_add(w[i - 16]);
-        i += 1;
-    }
-
-    let mut a = state[0];
-    let mut b = state[1];
-    let mut c = state[2];
-    let mut d = state[3];
-    let mut e = state[4];
-    let mut f = state[5];
-    let mut g = state[6];
-    let mut h = state[7];
-
-    i = 0;
-    while i < 80 {
-        let t1 = h
-            .wrapping_add(big_sigma1(e))
-            .wrapping_add(ch(e, f, g))
-            .wrapping_add(K[i])
-            .wrapping_add(w[i]);
-        let t2 = big_sigma0(a).wrapping_add(maj(a, b, c));
-        h = g;
-        g = f;
-        f = e;
-        e = d.wrapping_add(t1);
-        d = c;
-        c = b;
-        b = a;
-        a = t1.wrapping_add(t2);
-        i += 1;
-    }
-
-    state[0] = state[0].wrapping_add(a);
-    state[1] = state[1].wrapping_add(b);
-    state[2] = state[2].wrapping_add(c);
-    state[3] = state[3].wrapping_add(d);
-    state[4] = state[4].wrapping_add(e);
-    state[5] = state[5].wrapping_add(f);
-    state[6] = state[6].wrapping_add(g);
-    state[7] = state[7].wrapping_add(h);
-}
-
-#[cfg(test)]
-fn ch(x: u64, y: u64, z: u64) -> u64 {
-    (x & y) ^ (!x & z)
-}
-
-#[cfg(test)]
-fn maj(x: u64, y: u64, z: u64) -> u64 {
-    (x & y) ^ (x & z) ^ (y & z)
-}
-
-#[cfg(test)]
-fn big_sigma0(x: u64) -> u64 {
-    x.rotate_right(28) ^ x.rotate_right(34) ^ x.rotate_right(39)
-}
-
-#[cfg(test)]
-fn big_sigma1(x: u64) -> u64 {
-    x.rotate_right(14) ^ x.rotate_right(18) ^ x.rotate_right(41)
-}
-
-#[cfg(test)]
-fn small_sigma0(x: u64) -> u64 {
-    x.rotate_right(1) ^ x.rotate_right(8) ^ (x >> 7)
-}
-
-#[cfg(test)]
-fn small_sigma1(x: u64) -> u64 {
-    x.rotate_right(19) ^ x.rotate_right(61) ^ (x >> 6)
-}
 
 mod avx512 {
 
