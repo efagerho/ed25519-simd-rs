@@ -73,14 +73,6 @@ impl Fe51 {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn from_canonical_bytes(bytes: &[u8; 32]) -> Option<Self> {
-        if !is_canonical_bytes(bytes) {
-            return None;
-        }
-        Some(Self::from_bytes_unchecked(bytes))
-    }
-
     // "Unchecked" means canonicality only; limb masking still yields `< 2^51`
     // limbs, safe for every field op here.
     pub(crate) fn from_bytes_unchecked(bytes: &[u8; 32]) -> Self {
@@ -203,14 +195,6 @@ impl Fe51 {
         Self::carry_reduce([h0, h1, h2, h3, h4])
     }
 
-    #[cfg(test)]
-    pub(crate) fn invert(&self) -> Self {
-        let mut exp = [0xffu8; 32];
-        exp[0] = 0xeb;
-        exp[31] = 0x7f;
-        self.pow(&exp)
-    }
-
     pub(crate) fn sqrt_ratio(u: &Self, v: &Self) -> Option<Self> {
         let v2 = v.square();
         let v3 = v2.multiply(v);
@@ -278,20 +262,6 @@ impl Fe51 {
         out
     }
 
-    #[cfg(test)]
-    fn pow(&self, exp: &[u8; 32]) -> Self {
-        let mut acc = Self::one();
-        let mut i = 255;
-        while i > 0 {
-            i -= 1;
-            acc = acc.square();
-            if get_bit(exp, i) {
-                acc = acc.multiply(self);
-            }
-        }
-        acc
-    }
-
     // Shared carry prefix: limbs 0 and 2-4 are `< 2^51`; limb 1 may retain one
     // carry bit for callers to handle.
     fn carry_reduce_prefix(mut h: [u128; 5]) -> [u128; 5] {
@@ -352,6 +322,36 @@ impl Fe51 {
         h[1] &= MASK as u128;
         h[2] += carry;
         Self::pack_limbs(h)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_canonical_bytes(bytes: &[u8; 32]) -> Option<Self> {
+        if !is_canonical_bytes(bytes) {
+            return None;
+        }
+        Some(Self::from_bytes_unchecked(bytes))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn invert(&self) -> Self {
+        let mut exp = [0xffu8; 32];
+        exp[0] = 0xeb;
+        exp[31] = 0x7f;
+        self.pow(&exp)
+    }
+
+    #[cfg(test)]
+    fn pow(&self, exp: &[u8; 32]) -> Self {
+        let mut acc = Self::one();
+        let mut i = 255;
+        while i > 0 {
+            i -= 1;
+            acc = acc.square();
+            if get_bit(exp, i) {
+                acc = acc.multiply(self);
+            }
+        }
+        acc
     }
 }
 

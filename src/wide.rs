@@ -941,30 +941,6 @@ pub(crate) mod avx512ifma {
                 t: WideFe::zero(),
             }
         }
-        #[cfg(test)]
-        fn from_points(points: &[EdwardsPoint; LANES]) -> Self {
-            let xs = core::array::from_fn(|lane| *points[lane].coords().0);
-            let ys = core::array::from_fn(|lane| *points[lane].coords().1);
-            let zs = core::array::from_fn(|lane| *points[lane].coords().2);
-            let ts = core::array::from_fn(|lane| *points[lane].coords().3);
-            Self {
-                x: WideFe::from_fields(&xs),
-                y: WideFe::from_fields(&ys),
-                z: WideFe::from_fields(&zs),
-                t: WideFe::from_fields(&ts),
-            }
-        }
-        #[cfg(test)]
-        fn to_points(self) -> [EdwardsPoint; LANES] {
-            let xs = self.x.to_fields();
-            let ys = self.y.to_fields();
-            let zs = self.z.to_fields();
-            let ts = self.t.to_fields();
-            core::array::from_fn(|lane| {
-                EdwardsPoint::from_coords_unchecked(xs[lane], ys[lane], zs[lane], ts[lane])
-            })
-        }
-
         fn compress(&self) -> [[u8; 32]; LANES] {
             let zinv = self.z.invert();
             let x = self.x.multiply(&zinv);
@@ -1077,6 +1053,31 @@ pub(crate) mod avx512ifma {
             let x_zero = self.x.is_zero_lanes();
             let yz_equal = self.y.equals_lanes(&self.z);
             core::array::from_fn(|lane| x_zero[lane] && yz_equal[lane])
+        }
+
+        #[cfg(test)]
+        fn from_points(points: &[EdwardsPoint; LANES]) -> Self {
+            let xs = core::array::from_fn(|lane| *points[lane].coords().0);
+            let ys = core::array::from_fn(|lane| *points[lane].coords().1);
+            let zs = core::array::from_fn(|lane| *points[lane].coords().2);
+            let ts = core::array::from_fn(|lane| *points[lane].coords().3);
+            Self {
+                x: WideFe::from_fields(&xs),
+                y: WideFe::from_fields(&ys),
+                z: WideFe::from_fields(&zs),
+                t: WideFe::from_fields(&ts),
+            }
+        }
+
+        #[cfg(test)]
+        fn to_points(self) -> [EdwardsPoint; LANES] {
+            let xs = self.x.to_fields();
+            let ys = self.y.to_fields();
+            let zs = self.z.to_fields();
+            let ts = self.t.to_fields();
+            core::array::from_fn(|lane| {
+                EdwardsPoint::from_coords_unchecked(xs[lane], ys[lane], zs[lane], ts[lane])
+            })
         }
     }
 

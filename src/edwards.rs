@@ -115,10 +115,10 @@ impl BasepointTable {
         // no reason to special-case even m via double() to save a handful of
         // multiplies: this whole computation runs once ever.
         let basepoint = EdwardsPoint::basepoint();
-        let mut points = Vec::with_capacity(BASEPOINT_TABLE_SIZE);
-        points.push(basepoint.clone());
-        for _ in 2..=BASEPOINT_TABLE_SIZE {
-            points.push(points.last().unwrap().add(&basepoint));
+        let mut points: [EdwardsPoint; BASEPOINT_TABLE_SIZE] =
+            core::array::from_fn(|_| basepoint.clone());
+        for i in 1..BASEPOINT_TABLE_SIZE {
+            points[i] = points[i - 1].add(&basepoint);
         }
         let cached_points: [CachedPoint; BASEPOINT_TABLE_SIZE] =
             core::array::from_fn(|i| CachedPoint::new(&points[i]));
@@ -162,16 +162,6 @@ fn signed_cached_entries<const N: usize, const OUT: usize>(
 }
 
 impl EdwardsPoint {
-    #[cfg(test)]
-    pub(crate) fn coords(&self) -> (&Fe51, &Fe51, &Fe51, &Fe51) {
-        (&self.x, &self.y, &self.z, &self.t)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn from_coords_unchecked(x: Fe51, y: Fe51, z: Fe51, t: Fe51) -> Self {
-        Self { x, y, z, t }
-    }
-
     pub(crate) fn identity() -> Self {
         Self {
             x: Fe51::zero(),
@@ -231,21 +221,6 @@ impl EdwardsPoint {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn subtract(&self, rhs: &Self) -> Self {
-        self.add(&rhs.negate())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn negate(&self) -> Self {
-        Self {
-            x: self.x.negate(),
-            y: self.y,
-            z: self.z,
-            t: self.t.negate(),
-        }
-    }
-
     pub(crate) fn double(&self) -> Self {
         let a = self.x.square();
         let b = self.y.square();
@@ -261,6 +236,31 @@ impl EdwardsPoint {
             y: g.multiply(&h),
             t: e.multiply(&h),
             z: f.multiply(&g),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn coords(&self) -> (&Fe51, &Fe51, &Fe51, &Fe51) {
+        (&self.x, &self.y, &self.z, &self.t)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_coords_unchecked(x: Fe51, y: Fe51, z: Fe51, t: Fe51) -> Self {
+        Self { x, y, z, t }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn subtract(&self, rhs: &Self) -> Self {
+        self.add(&rhs.negate())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn negate(&self) -> Self {
+        Self {
+            x: self.x.negate(),
+            y: self.y,
+            z: self.z,
+            t: self.t.negate(),
         }
     }
 
