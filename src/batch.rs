@@ -34,12 +34,14 @@ fn for_each_in_order_simd_chunk<'a>(
     inputs: &[VerifyInput<'a>],
     mut visit: impl FnMut(&[VerifyInput<'a>; SIMD_LANES], &[usize; SIMD_LANES], usize),
 ) {
+    // Process full SIMD-width chunks directly before padding any tail lanes.
     let (chunks, _) = inputs.as_chunks::<SIMD_LANES>();
     for (chunk_index, chunk) in chunks.iter().enumerate() {
         let output_indices = core::array::from_fn(|lane| chunk_index * SIMD_LANES + lane);
         visit(chunk, &output_indices, SIMD_LANES);
     }
 
+    // Pad and process any trailing partial chunk for the fixed-width SIMD visitor.
     let i = chunks.len() * SIMD_LANES;
     let rem = inputs.len() - i;
     if rem > 0 {
@@ -56,8 +58,9 @@ fn for_each_bucketed_simd_chunk<'a>(
     order: &mut Vec<usize>,
     mut visit: impl FnMut(&[VerifyInput<'a>; SIMD_LANES], &[usize; SIMD_LANES], usize),
 ) {
-    build_block_bucket_order(inputs, order);
+    sort_indices_by_block_count(inputs, order);
 
+    // Process full SIMD-width chunks in bucketed order while preserving original output indices.
     let mut i = 0;
     while i + SIMD_LANES <= order.len() {
         let output_indices: [usize; SIMD_LANES] = core::array::from_fn(|lane| order[i + lane]);
@@ -67,6 +70,7 @@ fn for_each_bucketed_simd_chunk<'a>(
         i += SIMD_LANES;
     }
 
+    // Pad the trailing bucketed inputs with the last index for the fixed-width SIMD visitor.
     let rem = order.len() - i;
     if rem > 0 {
         let last = order[order.len() - 1];
@@ -84,6 +88,7 @@ fn should_bucket_by_block_count(inputs: &[VerifyInput<'_>]) -> bool {
         return false;
     }
 
+    // Check if all messages have the same block count.
     let first = challenge_block_count(inputs[0].message.len());
     let mut i = 1;
     while i < inputs.len() {
@@ -97,7 +102,7 @@ fn should_bucket_by_block_count(inputs: &[VerifyInput<'_>]) -> bool {
 
 /// Group original input indices by challenge block count; bucket order itself
 /// is irrelevant.
-fn build_block_bucket_order(inputs: &[VerifyInput<'_>], order: &mut Vec<usize>) {
+fn sort_indices_by_block_count(inputs: &[VerifyInput<'_>], order: &mut Vec<usize>) {
     order.clear();
     order.extend(0..inputs.len());
     order.sort_unstable_by_key(|&i| challenge_block_count(inputs[i].message.len()));
