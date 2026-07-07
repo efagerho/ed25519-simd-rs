@@ -154,6 +154,7 @@ impl<C: KeyCache> Verifier<C> {
         let missing_key_lanes: [bool; SIMD_LANES] =
             core::array::from_fn(|lane| cached_keys[lane].is_none());
 
+        // Decode uncached public keys and batch the R decompression only when a lane missed the cache.
         let mut decoded_r: Option<(avx512ifma::WideRPoints, [bool; SIMD_LANES])> = None;
         let mut decoded_key_tables: Option<([PointTable; SIMD_LANES], [bool; SIMD_LANES])> = None;
         if any_lane(&missing_key_lanes) {
@@ -163,6 +164,7 @@ impl<C: KeyCache> Verifier<C> {
             decoded_r = Some((r_points, lane_flags_from_mask(r_valid_bits)));
         }
 
+        // Build per-lane public key tables from cache hits or freshly decoded misses.
         let public_key_tables: [&PointTable; SIMD_LANES] = core::array::from_fn(|lane| {
             if let Some(key) = cached_keys[lane] {
                 &key.table
@@ -179,10 +181,12 @@ impl<C: KeyCache> Verifier<C> {
                 }
             }
         });
+        // Stop if every lane failed public-key validation.
         if !any_lane(&valid) {
             return;
         }
 
+        // Build shared challenge digits before dispatching to the policy-specific verifier.
         let k_digits = challenge_digits(&r_bytes, &public_keys, messages);
 
         let prepared = PreparedBatch {
@@ -192,48 +196,14 @@ impl<C: KeyCache> Verifier<C> {
         };
         match policy {
             VerifyPolicy::Zip215 => {
-                let (r_points, r_valid_lanes) = match decoded_r {
-                    Some(decoded) => decoded,
-                    None => {
-                        let (r_points, r_mask) = avx512ifma::decompress_r_points(&r_bytes);
-                        (r_points, lane_flags_from_mask(r_mask))
-                    }
-                };
-                let simd =
-                    avx512ifma::verify_prepared_zip215(&prepared, &r_points, self.base_table);
-                for lane in 0..SIMD_LANES {
-                    out[lane] = simd[lane] && valid[lane] && r_valid_lanes[lane];
-                }
+                self.verify_zip215_lanes(&prepared, decoded_r, &r_bytes, &valid, out)
             }
             VerifyPolicy::Dalek => {
-                if let Some((r_points, r_valid_lanes)) = decoded_r {
-                    let simd = avx512ifma::verify_prepared_dalek_projective(
-                        &prepared,
-                        &r_points,
-                        self.base_table,
-                    );
-                    let r_x_zero = r_points.x_zero_lanes();
-                    for lane in 0..SIMD_LANES {
-                        let signed_zero = r_x_zero[lane] && r_bytes[lane][31] & 0x80 != 0;
-                        out[lane] = simd[lane]
-                            && valid[lane]
-                            && r_valid_lanes[lane]
-                            && r_encoding_has_canonical_y(&r_bytes[lane])
-                            && !signed_zero
-                            && !dalek_legacy_excluded(&public_keys[lane], &r_bytes[lane]);
-                    }
-                } else {
-                    let simd =
-                        avx512ifma::verify_prepared_dalek(&prepared, &r_bytes, self.base_table);
-                    for lane in 0..SIMD_LANES {
-                        out[lane] = simd[lane]
-                            && valid[lane]
-                            && !dalek_legacy_excluded(&public_keys[lane], &r_bytes[lane]);
-                    }
-                }
+                self.verify_dalek_lanes(&prepared, decoded_r, &r_bytes, &public_keys, &valid, out)
             }
         }
 
+        // Try to insert any recently decoded keys into the cache.
         if let Some((tables, key_valid_lanes)) = decoded_key_tables {
             for (lane, table) in tables.into_iter().enumerate() {
                 if missing_key_lanes[lane] && key_valid_lanes[lane] {
@@ -242,6 +212,66 @@ impl<C: KeyCache> Verifier<C> {
                         table,
                     });
                 }
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn verify_zip215_lanes(
+        &self,
+        prepared: &PreparedBatch<'_>,
+        decoded_r: Option<(avx512ifma::WideRPoints, [bool; SIMD_LANES])>,
+        r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
+        valid: &[bool; SIMD_LANES],
+        out: &mut [bool; SIMD_LANES],
+    ) {
+        // Reuse the R points decompressed above on a cache miss; decompress them here otherwise.
+        let (r_points, r_valid_lanes) = match decoded_r {
+            Some(decoded) => decoded,
+            None => {
+                let (r_points, r_mask) = avx512ifma::decompress_r_points(r_bytes);
+                (r_points, lane_flags_from_mask(r_mask))
+            }
+        };
+
+        // Run the batched verification equation, then mask with per-lane input/R validity.
+        let simd = avx512ifma::verify_prepared_zip215(prepared, &r_points, self.base_table);
+        for lane in 0..SIMD_LANES {
+            out[lane] = simd[lane] && valid[lane] && r_valid_lanes[lane];
+        }
+    }
+
+    #[inline(always)]
+    fn verify_dalek_lanes(
+        &self,
+        prepared: &PreparedBatch<'_>,
+        decoded_r: Option<(avx512ifma::WideRPoints, [bool; SIMD_LANES])>,
+        r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
+        public_keys: &[[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
+        valid: &[bool; SIMD_LANES],
+        out: &mut [bool; SIMD_LANES],
+    ) {
+        if let Some((r_points, r_valid_lanes)) = decoded_r {
+            // R already decompressed on a cache miss: compare points directly.
+            let simd =
+                avx512ifma::verify_prepared_dalek_projective(prepared, &r_points, self.base_table);
+            let r_x_zero = r_points.x_zero_lanes();
+            for lane in 0..SIMD_LANES {
+                let signed_zero = r_x_zero[lane] && r_bytes[lane][31] & 0x80 != 0;
+                out[lane] = simd[lane]
+                    && valid[lane]
+                    && r_valid_lanes[lane]
+                    && r_encoding_has_canonical_y(&r_bytes[lane])
+                    && !signed_zero
+                    && !dalek_legacy_excluded(&public_keys[lane], &r_bytes[lane]);
+            }
+        } else {
+            // All cache hits, nothing decompressed yet: recompute R and compare bytes.
+            let simd = avx512ifma::verify_prepared_dalek(prepared, r_bytes, self.base_table);
+            for lane in 0..SIMD_LANES {
+                out[lane] = simd[lane]
+                    && valid[lane]
+                    && !dalek_legacy_excluded(&public_keys[lane], &r_bytes[lane]);
             }
         }
     }
