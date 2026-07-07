@@ -81,6 +81,8 @@ fn reduce_wide(bytes: [u8; 64]) -> [u8; 32] {
 }
 
 const LIMB52_MASK: u64 = (1u64 << 52) - 1;
+// Number of 52-bit limbs needed to represent a value modulo L, the group order.
+const LIMB_COUNT: usize = 5;
 const SCALAR_L: Scalar52 = Scalar52([
     0x0002631a5cf5d3ed,
     0x000dea2f79cd6581,
@@ -105,7 +107,7 @@ const SCALAR_RR: Scalar52 = Scalar52([
 ]);
 
 #[derive(Clone, Copy)]
-struct Scalar52([u64; 5]);
+struct Scalar52([u64; LIMB_COUNT]);
 
 impl Scalar52 {
     #[rustfmt::skip]
@@ -171,7 +173,7 @@ impl Scalar52 {
     }
 
     fn add(a: &Self, b: &Self) -> Self {
-        let mut out = [0u64; 5];
+        let mut out = [0u64; LIMB_COUNT];
         let mut carry = 0u64;
         let mut i = 0;
         while i < 5 {
@@ -184,7 +186,7 @@ impl Scalar52 {
     }
 
     fn sub(&self, rhs: &Self) -> Self {
-        let mut out = [0u64; 5];
+        let mut out = [0u64; LIMB_COUNT];
         let mut borrow = 0u64;
         let mut i = 0;
         while i < 5 {
@@ -216,7 +218,7 @@ impl Scalar52 {
         Self::montgomery_reduce(&Self::mul_internal(self, rhs))
     }
 
-    fn mul_internal(a: &Self, b: &Self) -> [u128; 9] {
+    fn mul_internal(a: &Self, b: &Self) -> [u128; 2 * LIMB_COUNT - 1] {
         let a = &a.0;
         let b = &b.0;
 
@@ -233,7 +235,7 @@ impl Scalar52 {
         ]
     }
 
-    fn montgomery_reduce(limbs: &[u128; 9]) -> Self {
+    fn montgomery_reduce(limbs: &[u128; 2 * LIMB_COUNT - 1]) -> Self {
         #[inline(always)]
         fn part1(sum: u128) -> (u128, u64) {
             let p = (sum as u64).wrapping_mul(SCALAR_LFACTOR) & LIMB52_MASK;

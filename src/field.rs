@@ -1,25 +1,27 @@
 const LIMB_BITS: usize = 51;
 const MASK: u64 = (1u64 << LIMB_BITS) - 1;
-const P_LIMBS: [u64; 5] = [MASK - 18, MASK, MASK, MASK, MASK];
+// Number of 51-bit limbs needed to represent a value modulo p = 2^255 - 19.
+pub(crate) const LIMB_COUNT: usize = 5;
+const P_LIMBS: [u64; LIMB_COUNT] = [MASK - 18, MASK, MASK, MASK, MASK];
 
 // Curve constants in 51-bit limbs. These are the single source of truth for both
 // the scalar path here and the AVX-512 field in `wide.rs` (which broadcasts them
 // into SIMD lanes via `WideFe::constant`), so the two paths can never drift.
-pub(crate) const D_LIMBS: [u64; 5] = [
+pub(crate) const D_LIMBS: [u64; LIMB_COUNT] = [
     929_955_233_495_203,
     466_365_720_129_213,
     1_662_059_464_998_953,
     2_033_849_074_728_123,
     1_442_794_654_840_575,
 ];
-pub(crate) const TWO_D_LIMBS: [u64; 5] = [
+pub(crate) const TWO_D_LIMBS: [u64; LIMB_COUNT] = [
     1_859_910_466_990_425,
     932_731_440_258_426,
     1_072_319_116_312_658,
     1_815_898_335_770_999,
     633_789_495_995_903,
 ];
-pub(crate) const SQRT_M1_LIMBS: [u64; 5] = [
+pub(crate) const SQRT_M1_LIMBS: [u64; LIMB_COUNT] = [
     1_718_705_420_411_056,
     234_908_883_556_509,
     2_233_514_472_574_048,
@@ -34,23 +36,25 @@ const P_BYTES: [u8; 32] = [
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Fe51 {
-    limbs: [u64; 5],
+    limbs: [u64; LIMB_COUNT],
 }
 
 impl Fe51 {
-    pub(crate) fn from_limbs(limbs: [u64; 5]) -> Self {
+    pub(crate) fn from_limbs(limbs: [u64; LIMB_COUNT]) -> Self {
         Self { limbs }.canonical()
     }
 
     /// Store limbs without canonicalizing. Valid only when each limb is already
     /// `< 2^52` (the loosely-reduced invariant), e.g. straight from a wide reduce.
-    pub(crate) fn from_limbs_unchecked(limbs: [u64; 5]) -> Self {
+    pub(crate) fn from_limbs_unchecked(limbs: [u64; LIMB_COUNT]) -> Self {
         debug_assert!(limbs.iter().all(|&limb| limb < (1u64 << 52)));
         Self { limbs }
     }
 
     pub(crate) fn zero() -> Self {
-        Self { limbs: [0; 5] }
+        Self {
+            limbs: [0; LIMB_COUNT],
+        }
     }
 
     pub(crate) fn one() -> Self {
@@ -126,7 +130,7 @@ impl Fe51 {
     }
 
     pub(crate) fn add(&self, rhs: &Self) -> Self {
-        let mut h = [0u128; 5];
+        let mut h = [0u128; LIMB_COUNT];
         let mut i = 0;
         while i < 5 {
             h[i] = self.limbs[i] as u128 + rhs.limbs[i] as u128;
@@ -139,8 +143,9 @@ impl Fe51 {
         // Bias by 16*p so the limb-wise difference cannot underflow: operand
         // limbs are < 2^52 (the loosely-reduced invariant) while every bias
         // limb is >= 2^55 - 304, and the sums stay well below 2^64.
-        const BIAS: [u64; 5] = [16 * (MASK - 18), 16 * MASK, 16 * MASK, 16 * MASK, 16 * MASK];
-        let mut h = [0u128; 5];
+        const BIAS: [u64; LIMB_COUNT] =
+            [16 * (MASK - 18), 16 * MASK, 16 * MASK, 16 * MASK, 16 * MASK];
+        let mut h = [0u128; LIMB_COUNT];
         let mut i = 0;
         while i < 5 {
             h[i] = (self.limbs[i] + BIAS[i] - rhs.limbs[i]) as u128;
@@ -225,7 +230,7 @@ impl Fe51 {
     }
 
     /// Loosely reduced limbs for AVX-512 IFMA field arithmetic.
-    pub(crate) fn reduced_limbs(&self) -> [u64; 5] {
+    pub(crate) fn reduced_limbs(&self) -> [u64; LIMB_COUNT] {
         debug_assert!(self.limbs.iter().all(|&limb| limb < (1u64 << 52)));
         self.limbs
     }
@@ -264,7 +269,7 @@ impl Fe51 {
 
     // Shared carry prefix: limbs 0 and 2-4 are `< 2^51`; limb 1 may retain one
     // carry bit for callers to handle.
-    fn carry_reduce_prefix(mut h: [u128; 5]) -> [u128; 5] {
+    fn carry_reduce_prefix(mut h: [u128; LIMB_COUNT]) -> [u128; LIMB_COUNT] {
         let mut i = 0;
         while i < 4 {
             let carry = h[i] >> LIMB_BITS;
@@ -284,8 +289,8 @@ impl Fe51 {
         h
     }
 
-    fn pack_limbs(h: [u128; 5]) -> Self {
-        let mut limbs = [0u64; 5];
+    fn pack_limbs(h: [u128; LIMB_COUNT]) -> Self {
+        let mut limbs = [0u64; LIMB_COUNT];
         let mut i = 0;
         while i < 5 {
             limbs[i] = h[i] as u64;
@@ -295,12 +300,12 @@ impl Fe51 {
     }
 
     // Fast reduction used when limb 1's possible extra carry bit is acceptable.
-    fn carry_reduce(h: [u128; 5]) -> Self {
+    fn carry_reduce(h: [u128; LIMB_COUNT]) -> Self {
         Self::pack_limbs(Self::carry_reduce_prefix(h))
     }
 
     fn canonical(&self) -> Self {
-        let mut h = [0u128; 5];
+        let mut h = [0u128; LIMB_COUNT];
         let mut i = 0;
         while i < 5 {
             h[i] = self.limbs[i] as u128;
@@ -308,7 +313,7 @@ impl Fe51 {
         }
         let mut fe = Self::carry_reduce_fully(h);
         if cmp_limbs(&fe.limbs, &P_LIMBS) != core::cmp::Ordering::Less {
-            let mut out = [0u64; 5];
+            let mut out = [0u64; LIMB_COUNT];
             sub_limbs(&mut out, &fe.limbs, &P_LIMBS);
             fe.limbs = out;
         }
@@ -316,7 +321,7 @@ impl Fe51 {
     }
 
     // Fully reduce every limb before comparing against `P_LIMBS`.
-    fn carry_reduce_fully(h: [u128; 5]) -> Self {
+    fn carry_reduce_fully(h: [u128; LIMB_COUNT]) -> Self {
         let mut h = Self::carry_reduce_prefix(h);
         let carry = h[1] >> LIMB_BITS;
         h[1] &= MASK as u128;
@@ -379,7 +384,7 @@ fn get_bit(bytes: &[u8], bit: usize) -> bool {
     ((bytes[bit / 8] >> (bit % 8)) & 1) != 0
 }
 
-fn cmp_limbs(a: &[u64; 5], b: &[u64; 5]) -> core::cmp::Ordering {
+fn cmp_limbs(a: &[u64; LIMB_COUNT], b: &[u64; LIMB_COUNT]) -> core::cmp::Ordering {
     let mut i = 5;
     while i > 0 {
         i -= 1;
@@ -391,7 +396,7 @@ fn cmp_limbs(a: &[u64; 5], b: &[u64; 5]) -> core::cmp::Ordering {
     core::cmp::Ordering::Equal
 }
 
-fn sub_limbs(out: &mut [u64; 5], a: &[u64; 5], b: &[u64; 5]) {
+fn sub_limbs(out: &mut [u64; LIMB_COUNT], a: &[u64; LIMB_COUNT], b: &[u64; LIMB_COUNT]) {
     let mut borrow = 0i128;
     let base = 1i128 << LIMB_BITS;
     let mut i = 0;
