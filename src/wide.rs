@@ -150,14 +150,12 @@ pub(crate) mod avx512ifma {
         let mut y_fields = core::array::from_fn(|_| Fe51::zero());
         let mut x_signs = [false; LANES];
 
-        let mut lane = 0;
-        while lane < LANES {
-            x_signs[lane] = (bytes[lane][31] >> 7) != 0;
-            let mut y_bytes = bytes[lane];
+        for (lane, byte_arr) in bytes.iter().enumerate() {
+            x_signs[lane] = (byte_arr[31] >> 7) != 0;
+            let mut y_bytes = *byte_arr;
             y_bytes[31] &= 0x7f;
             // ZIP-215/Dalek decoding treats y modulo p.
             y_fields[lane] = Fe51::from_bytes_unchecked(&y_bytes);
-            lane += 1;
         }
 
         let y = WideFe::from_fields(&y_fields);
@@ -191,15 +189,13 @@ pub(crate) mod avx512ifma {
 
         let mut alt_mask = 0u8;
         let mut valid_mask = 0u8;
-        let mut lane = 0;
-        while lane < LANES {
-            if first_ok[lane] {
+        for (lane, &f_ok) in first_ok.iter().enumerate() {
+            if f_ok {
                 valid_mask |= 1 << lane;
             } else if second_ok[lane] {
                 alt_mask |= 1 << lane;
                 valid_mask |= 1 << lane;
             }
-            lane += 1;
         }
 
         x = x.blend(alt_mask, &x_alt);
@@ -209,12 +205,10 @@ pub(crate) mod avx512ifma {
         let x_odd = x.is_odd_lanes();
         let x_neg = x.negate();
         let mut negate_mask = 0u8;
-        lane = 0;
-        while lane < LANES {
-            if x_odd[lane] != s.x_signs[lane] {
+        for (lane, &odd) in x_odd.iter().enumerate() {
+            if odd != s.x_signs[lane] {
                 negate_mask |= 1 << lane;
             }
-            lane += 1;
         }
         x = x.blend(negate_mask, &x_neg);
 
@@ -264,9 +258,7 @@ pub(crate) mod avx512ifma {
         add_base_pair_digit(&mut acc, base_table, s_digits, 31);
         add_public_digit(&mut acc, public_key_tables, k_digits, 62);
 
-        let mut pair = 31;
-        while pair > 0 {
-            pair -= 1;
+        for pair in (0..31).rev() {
             acc = acc.double4();
             add_public_digit(&mut acc, public_key_tables, k_digits, pair * 2 + 1);
 
@@ -284,14 +276,9 @@ pub(crate) mod avx512ifma {
         s_digits: &[Radix16; LANES],
         pair: usize,
     ) {
-        let first = base_table.select_signed_cached_ref(base_pair_digit(&s_digits[0], pair));
-        let mut selected = [first; LANES];
-        let mut lane = 1;
-        while lane < LANES {
-            selected[lane] =
-                base_table.select_signed_cached_ref(base_pair_digit(&s_digits[lane], pair));
-            lane += 1;
-        }
+        let selected: [_; LANES] = core::array::from_fn(|lane| {
+            base_table.select_signed_cached_ref(base_pair_digit(&s_digits[lane], pair))
+        });
         let selected = WideCachedPoint::from_cached_refs(&selected);
         acc.add_cached_assign(&selected);
     }
@@ -303,14 +290,9 @@ pub(crate) mod avx512ifma {
         k_digits: &[Radix16; LANES],
         index: usize,
     ) {
-        let first = public_key_tables[0].select_signed_cached_ref(-k_digits[0][index]);
-        let mut selected = [first; LANES];
-        let mut lane = 1;
-        while lane < LANES {
-            selected[lane] =
-                public_key_tables[lane].select_signed_cached_ref(-k_digits[lane][index]);
-            lane += 1;
-        }
+        let selected: [_; LANES] = core::array::from_fn(|lane| {
+            public_key_tables[lane].select_signed_cached_ref(-k_digits[lane][index])
+        });
         let selected = WideCachedPoint::from_cached_refs(&selected);
         acc.add_cached_assign(&selected);
     }
@@ -717,14 +699,12 @@ pub(crate) mod avx512ifma {
         // callers feed it to `multiply`, which requires `< 2^52` inputs.
         fn square_repeat<const N: usize>(&self) -> Self {
             let mut out = *self;
-            let mut i = 0;
-            while i < N {
+            for i in 0..N {
                 out = if i + 1 < N {
                     out.square_loose()
                 } else {
                     out.square()
                 };
-                i += 1;
             }
             out
         }
@@ -732,8 +712,7 @@ pub(crate) mod avx512ifma {
         // Interleave two exponentiation chains to hide IFMA latency.
         fn square_repeat_x2<const N: usize>(a: &Self, b: &Self) -> (Self, Self) {
             let (mut x, mut y) = (*a, *b);
-            let mut i = 0;
-            while i < N {
+            for i in 0..N {
                 if i + 1 < N {
                     x = x.square_loose();
                     y = y.square_loose();
@@ -741,7 +720,6 @@ pub(crate) mod avx512ifma {
                     x = x.square();
                     y = y.square();
                 }
-                i += 1;
             }
             (x, y)
         }
