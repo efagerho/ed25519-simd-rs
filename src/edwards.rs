@@ -1,7 +1,10 @@
 use crate::field::Fe51;
 
+/// Byte length of a compressed Edwards point encoding (sign bit + `y`).
+pub(crate) const POINT_ENCODING_LEN: usize = 32;
+
 /// The standard RFC 8032 encoding of the Ed25519 base point `B`.
-const BASEPOINT_COMPRESSED: [u8; 32] = [
+const BASEPOINT_COMPRESSED: [u8; POINT_ENCODING_LEN] = [
     0x58, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
     0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
 ];
@@ -178,7 +181,7 @@ impl EdwardsPoint {
         Self::decompress(&BASEPOINT_COMPRESSED).expect("basepoint encoding is valid")
     }
 
-    pub(crate) fn decompress(bytes: &[u8; 32]) -> Option<Self> {
+    pub(crate) fn decompress(bytes: &[u8; POINT_ENCODING_LEN]) -> Option<Self> {
         let x_sign = (bytes[31] >> 7) != 0;
         let mut y_bytes = *bytes;
         y_bytes[31] &= 0x7f;
@@ -265,7 +268,7 @@ impl EdwardsPoint {
     }
 
     #[cfg(test)]
-    pub(crate) fn compress(&self) -> [u8; 32] {
+    pub(crate) fn compress(&self) -> [u8; POINT_ENCODING_LEN] {
         let zinv = self.z.invert();
         let x = self.x.multiply(&zinv);
         let y = self.y.multiply(&zinv);
