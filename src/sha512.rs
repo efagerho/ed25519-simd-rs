@@ -116,10 +116,8 @@ pub(crate) fn hash_ed25519_challenges(
     let words = hash_ed25519_challenge_words(r_bytes, public_keys, messages);
     core::array::from_fn(|lane| {
         let mut digest = [0u8; 64];
-        let mut word = 0;
-        while word < 8 {
-            digest[word * 8..word * 8 + 8].copy_from_slice(&words[lane][word].to_le_bytes());
-            word += 1;
+        for (word, w) in words[lane].iter().enumerate() {
+            digest[word * 8..word * 8 + 8].copy_from_slice(&w.to_le_bytes());
         }
         digest
     })
@@ -157,8 +155,7 @@ mod avx512 {
             let mut block_counts = [0usize; LANES];
             let mut max_block_count = 0usize;
             let mut min_total = usize::MAX;
-            let mut lane = 0;
-            while lane < LANES {
+            for lane in 0..LANES {
                 let total_len = 64 + messages[lane].len();
                 let block_count = challenge_block_count(messages[lane].len());
                 total_lens[lane] = total_len;
@@ -170,7 +167,6 @@ mod avx512 {
                 block_counts[lane] = block_count;
                 max_block_count = core::cmp::max(max_block_count, block_count);
                 min_total = core::cmp::min(min_total, total_len);
-                lane += 1;
             }
 
             let mut state = [
@@ -184,8 +180,7 @@ mod avx512 {
                 _mm512_set1_epi64(IV[7] as i64),
             ];
 
-            let mut block_index = 0;
-            while block_index < max_block_count {
+            for block_index in 0..max_block_count {
                 let block_start = block_index * 128;
                 // Common full-data blocks are active in every lane; skip blend work.
                 if block_start == 0 && min_total >= 128 {
@@ -212,15 +207,12 @@ mod avx512 {
                     );
                     compress_block(&mut state, words);
                     if active != 0xff {
-                        let mut word = 0;
-                        while word < 8 {
+                        for word in 0..8 {
                             state[word] =
                                 _mm512_mask_blend_epi64(active, old_state[word], state[word]);
-                            word += 1;
                         }
                     }
                 }
-                block_index += 1;
             }
 
             digest_words_from_state(state)
@@ -229,12 +221,10 @@ mod avx512 {
 
     fn active_mask(block_counts: &[usize; LANES], block_index: usize) -> __mmask8 {
         let mut mask = 0u8;
-        let mut lane = 0;
-        while lane < LANES {
-            if block_index < block_counts[lane] {
+        for (lane, &count) in block_counts.iter().enumerate() {
+            if block_index < count {
                 mask |= 1 << lane;
             }
-            lane += 1;
         }
         mask as __mmask8
     }
@@ -252,8 +242,7 @@ mod avx512 {
         core::array::from_fn(|word| {
             let mut lanes = [0u64; LANES];
             let word_offset = block_start + word * 8;
-            let mut lane = 0;
-            while lane < LANES {
+            for lane in 0..LANES {
                 let padding = Padding {
                     total_len: total_lens[lane],
                     bit_len: bit_lens[lane],
@@ -261,7 +250,6 @@ mod avx512 {
                 };
                 lanes[lane] =
                     mixed_block_word(r_bytes, public_keys, messages, lane, word_offset, padding);
-                lane += 1;
             }
             loadu(lanes)
         })
@@ -301,17 +289,15 @@ mod avx512 {
     fn mixed_message_tail_word(message: &[u8], word_offset: usize, padding: Padding) -> u64 {
         debug_assert!(word_offset >= 64);
         let mut bytes = [0u8; 8];
-        let mut j = 0;
-        while j < 8 {
+        for (j, byte) in bytes.iter_mut().enumerate() {
             let offset = word_offset + j;
-            bytes[j] = if offset < padding.total_len {
+            *byte = if offset < padding.total_len {
                 message[offset - 64]
             } else if offset == padding.total_len {
                 0x80
             } else {
                 0
             };
-            j += 1;
         }
         u64::from_be_bytes(bytes)
     }
@@ -326,8 +312,7 @@ mod avx512 {
             core::array::from_fn(|lane| messages[lane][..64].try_into().unwrap());
         core::array::from_fn(|word| {
             let mut lanes = [0u64; LANES];
-            let mut lane = 0;
-            while lane < LANES {
+            for lane in 0..LANES {
                 lanes[lane] = if word < 4 {
                     read_be_u64(&r_bytes[lane], word * 8)
                 } else if word < 8 {
@@ -335,7 +320,6 @@ mod avx512 {
                 } else {
                     read_be_u64(&message_heads[lane], (word - 8) * 8)
                 };
-                lane += 1;
             }
             loadu(lanes)
         })
@@ -350,10 +334,8 @@ mod avx512 {
         core::array::from_fn(|word| {
             let mut lanes = [0u64; LANES];
             let offset = word * 8;
-            let mut lane = 0;
-            while lane < LANES {
-                lanes[lane] = read_be_u64(&blocks[lane], offset);
-                lane += 1;
+            for (lane, block) in blocks.iter().enumerate() {
+                lanes[lane] = read_be_u64(block, offset);
             }
             loadu(lanes)
         })
@@ -429,10 +411,8 @@ mod avx512 {
     /// Digest words pre-swapped to the little-endian integer reduced by RFC 8032.
     fn digest_words_from_state(state: [__m512i; 8]) -> [[u64; 8]; LANES] {
         let mut words = [[0u64; LANES]; 8];
-        let mut word = 0;
-        while word < 8 {
-            storeu(state[word], &mut words[word]);
-            word += 1;
+        for (word, &s) in state.iter().enumerate() {
+            storeu(s, &mut words[word]);
         }
 
         core::array::from_fn(|lane| core::array::from_fn(|word| words[word][lane].swap_bytes()))
@@ -516,10 +496,8 @@ mod tests {
     fn hex<const N: usize>(s: &str) -> [u8; N] {
         let mut out = [0u8; N];
         let bytes = s.as_bytes();
-        let mut i = 0;
-        while i < N {
+        for i in 0..N {
             out[i] = (nibble(bytes[i * 2]) << 4) | nibble(bytes[i * 2 + 1]);
-            i += 1;
         }
         out
     }
