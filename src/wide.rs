@@ -2,7 +2,7 @@ pub(crate) mod avx512ifma {
     use crate::batch::{PUBLIC_KEY_LEN, PreparedBatch, R_ENCODING_LEN};
     #[cfg(test)]
     use crate::edwards::EdwardsPoint;
-    use crate::edwards::{BasepointTable, CachedPoint, PointTable};
+    use crate::edwards::{BasepointTable, CachedPoint, POINT_ENCODING_LEN, PointTable};
     use crate::field::{Fe51, LIMB_COUNT};
     use crate::scalar::Radix16;
     use std::arch::x86_64::*;
@@ -146,7 +146,7 @@ pub(crate) mod avx512ifma {
         x_signs: [bool; LANES],
     }
 
-    fn decompress_setup(bytes: &[[u8; 32]; LANES]) -> DecompressSetup {
+    fn decompress_setup(bytes: &[[u8; POINT_ENCODING_LEN]; LANES]) -> DecompressSetup {
         let mut y_fields = core::array::from_fn(|_| Fe51::zero());
         let mut x_signs = [false; LANES];
 
@@ -225,7 +225,7 @@ pub(crate) mod avx512ifma {
     }
 
     /// Decompress one SIMD chunk of compressed Edwards points with per-lane validity.
-    fn decompress_points_wide(bytes: &[[u8; 32]; LANES]) -> (WidePoint, u8) {
+    fn decompress_points_wide(bytes: &[[u8; POINT_ENCODING_LEN]; LANES]) -> (WidePoint, u8) {
         let s = decompress_setup(bytes);
         let pow = s.exp.pow_p_minus_5_over_8();
         decompress_finish(s, pow)
@@ -234,8 +234,8 @@ pub(crate) mod avx512ifma {
     /// Decompress two independent SIMD chunks, interleaving the two
     /// inverse-square-root chains so each fills the other's IFMA latency gaps.
     fn decompress_point_batches_wide(
-        a_bytes: &[[u8; 32]; LANES],
-        b_bytes: &[[u8; 32]; LANES],
+        a_bytes: &[[u8; POINT_ENCODING_LEN]; LANES],
+        b_bytes: &[[u8; POINT_ENCODING_LEN]; LANES],
     ) -> ((WidePoint, u8), (WidePoint, u8)) {
         let sa = decompress_setup(a_bytes);
         let sb = decompress_setup(b_bytes);
@@ -924,7 +924,7 @@ pub(crate) mod avx512ifma {
                 t: WideFe::zero(),
             }
         }
-        fn compress(&self) -> [[u8; 32]; LANES] {
+        fn compress(&self) -> [[u8; POINT_ENCODING_LEN]; LANES] {
             let zinv = self.z.invert();
             let x = self.x.multiply(&zinv);
             let y = self.y.multiply(&zinv);
