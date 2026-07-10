@@ -26,7 +26,7 @@ pub(crate) struct PointTable {
 
 #[derive(Clone, Debug)]
 pub(crate) struct BasepointTable {
-    entries: [CachedPoint; SIGNED_BASEPOINT_TABLE_SIZE],
+    entries: [AffineCachedPoint; SIGNED_BASEPOINT_TABLE_SIZE],
 }
 
 // `base_pair_digit` folds two radix-16 digits into a radix-256 digit with
@@ -84,13 +84,81 @@ impl CachedPoint {
     }
 }
 
+/// Affine cached precomputed point: the basepoint multiples are normalized to
+/// `Z = 1` at table construction, so the projective `z2 = 2·Z` field collapses
+/// to the constant `2` and is dropped. In the ladder the `Z₁·z2` product of a
+/// mixed addition then becomes a doubling of the accumulator's `Z` — 7 M per
+/// add instead of 8 — and the table is 25 % smaller (3 fields, not 4).
+#[derive(Clone, Debug)]
+pub(crate) struct AffineCachedPoint {
+    y_plus_x: Fe51,
+    y_minus_x: Fe51,
+    t2d: Fe51,
+}
+
+impl AffineCachedPoint {
+    /// Build from affine coordinates (`Z = 1`): `t = x·y`, so `t2d = 2d·x·y`.
+    fn from_affine(x: &Fe51, y: &Fe51) -> Self {
+        Self {
+            y_plus_x: y.add(x),
+            y_minus_x: y.subtract(x),
+            t2d: x.multiply(y).multiply(&Fe51::two_d()),
+        }
+    }
+
+    /// Affine identity `(x, y) = (0, 1)`.
+    fn identity() -> Self {
+        Self {
+            y_plus_x: Fe51::one(),
+            y_minus_x: Fe51::one(),
+            t2d: Fe51::zero(),
+        }
+    }
+
+    /// Cached form of `-P`: swap `y+x`/`y-x` and negate `t2d` (no `z2` to touch).
+    fn negate(&self) -> Self {
+        Self {
+            y_plus_x: self.y_minus_x,
+            y_minus_x: self.y_plus_x,
+            t2d: self.t2d.negate(),
+        }
+    }
+
+    pub(crate) fn coords(&self) -> (&Fe51, &Fe51, &Fe51) {
+        (&self.y_plus_x, &self.y_minus_x, &self.t2d)
+    }
+}
+
+/// Montgomery batch inversion of the `Z` coordinates, then normalize each point
+/// to affine cached form. One field inversion for the whole table.
+fn to_affine_cached_batch<const N: usize>(points: &[EdwardsPoint; N]) -> [AffineCachedPoint; N] {
+    // Forward pass: zinv[i] holds the running product of Z[0..i].
+    let mut zinv: [Fe51; N] = core::array::from_fn(|_| Fe51::one());
+    let mut acc = Fe51::one();
+    for i in 0..N {
+        zinv[i] = acc;
+        acc = acc.multiply(&points[i].z);
+    }
+    // Single inversion of the full product, then backward pass distributes it.
+    acc = acc.invert();
+    for i in (0..N).rev() {
+        zinv[i] = zinv[i].multiply(&acc);
+        acc = acc.multiply(&points[i].z);
+    }
+    core::array::from_fn(|i| {
+        let x = points[i].x.multiply(&zinv[i]);
+        let y = points[i].y.multiply(&zinv[i]);
+        AffineCachedPoint::from_affine(&x, &y)
+    })
+}
+
 impl PointTable {
     pub(crate) fn from_cached(
         cached_points: [CachedPoint; POINT_TABLE_SIZE],
         negative_cached_points: [CachedPoint; POINT_TABLE_SIZE],
         identity_cached: CachedPoint,
     ) -> Self {
-        let entries = signed_cached_entries(cached_points, negative_cached_points, identity_cached);
+        let entries = signed_entries(cached_points, negative_cached_points, identity_cached);
         Self { entries }
     }
 
@@ -123,18 +191,18 @@ impl BasepointTable {
         for i in 1..BASEPOINT_TABLE_SIZE {
             points[i] = points[i - 1].add(&basepoint);
         }
-        let cached_points: [CachedPoint; BASEPOINT_TABLE_SIZE] =
-            core::array::from_fn(|i| CachedPoint::new(&points[i]));
-        let negative_cached_points: [CachedPoint; BASEPOINT_TABLE_SIZE] =
-            core::array::from_fn(|i| cached_points[i].negate());
-        let identity_cached = CachedPoint::new(&EdwardsPoint::identity());
-        let entries = signed_cached_entries(cached_points, negative_cached_points, identity_cached);
+        // Normalize all multiples to affine cached form with one batch inversion.
+        let affine_points = to_affine_cached_batch(&points);
+        let negative_points: [AffineCachedPoint; BASEPOINT_TABLE_SIZE] =
+            core::array::from_fn(|i| affine_points[i].negate());
+        let identity = AffineCachedPoint::identity();
+        let entries = signed_entries(affine_points, negative_points, identity);
         Self { entries }
     }
 
-    /// Select the cached point for a signed digit in
+    /// Select the affine point for a signed digit in
     /// `-BASEPOINT_TABLE_SIZE..=BASEPOINT_TABLE_SIZE`.
-    pub(crate) fn select_signed_cached_ref(&self, digit: i16) -> &CachedPoint {
+    pub(crate) fn select_signed_affine_ref(&self, digit: i16) -> &AffineCachedPoint {
         debug_assert!(
             (-(BASEPOINT_TABLE_SIZE as i16)..=(BASEPOINT_TABLE_SIZE as i16)).contains(&digit)
         );
@@ -147,19 +215,23 @@ impl BasepointTable {
     }
 }
 
-fn signed_cached_entries<const N: usize, const OUT: usize>(
-    cached_points: [CachedPoint; N],
-    negative_cached_points: [CachedPoint; N],
-    identity_cached: CachedPoint,
-) -> [CachedPoint; OUT] {
+/// Lay out `2N+1` table entries in signed-digit order: negatives `[-N..-1]`
+/// descending, identity at the center, positives `[1..N]` ascending. Generic
+/// over the entry type so both `CachedPoint` (projective) and
+/// `AffineCachedPoint` tables share the layout.
+fn signed_entries<T: Clone, const N: usize, const OUT: usize>(
+    positives: [T; N],
+    negatives: [T; N],
+    identity: T,
+) -> [T; OUT] {
     debug_assert_eq!(OUT, 2 * N + 1);
     core::array::from_fn(|i| {
         if i < N {
-            negative_cached_points[N - 1 - i].clone()
+            negatives[N - 1 - i].clone()
         } else if i == N {
-            identity_cached.clone()
+            identity.clone()
         } else {
-            cached_points[i - N - 1].clone()
+            positives[i - N - 1].clone()
         }
     })
 }
@@ -287,4 +359,48 @@ fn multiples_of(point: &EdwardsPoint) -> [EdwardsPoint; POINT_TABLE_SIZE] {
     let p7 = p6.add(point);
     let p8 = p4.double();
     [point.clone(), p2, p3, p4, p5, p6, p7, p8]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Golden equivalence (Phase 1a): every entry of the affine-cached basepoint
+    /// table must represent exactly `[d]B` for its signed digit `d`. Cross-checks
+    /// the batch-inversion normalization against an independent projective
+    /// reference computed by repeated addition — the "old table" the affine one
+    /// replaces. Covers identity (`d = 0`), all positives, and all negatives.
+    #[test]
+    fn affine_basepoint_table_matches_projective_multiples() {
+        let table = BasepointTable::new();
+        let basepoint = EdwardsPoint::basepoint();
+
+        // Reference [1]B..[N]B built projectively, independent of the table path.
+        let mut multiples = vec![basepoint.clone()];
+        for _ in 1..BASEPOINT_TABLE_SIZE {
+            multiples.push(multiples.last().unwrap().add(&basepoint));
+        }
+
+        let n = BASEPOINT_TABLE_SIZE as i16;
+        for d in -n..=n {
+            let reference = if d == 0 {
+                EdwardsPoint::identity()
+            } else {
+                let m = multiples[(d.unsigned_abs() as usize) - 1].clone();
+                if d < 0 { m.negate() } else { m }
+            };
+            // Normalize the reference to affine and derive its cached fields.
+            let zinv = reference.z.invert();
+            let x = reference.x.multiply(&zinv);
+            let y = reference.y.multiply(&zinv);
+            let expect_ypx = y.add(&x);
+            let expect_ymx = y.subtract(&x);
+            let expect_t2d = x.multiply(&y).multiply(&Fe51::two_d());
+
+            let (ypx, ymx, t2d) = table.select_signed_affine_ref(d).coords();
+            assert!(ypx.equals(&expect_ypx), "y+x mismatch at digit {d}");
+            assert!(ymx.equals(&expect_ymx), "y-x mismatch at digit {d}");
+            assert!(t2d.equals(&expect_t2d), "t2d mismatch at digit {d}");
+        }
+    }
 }

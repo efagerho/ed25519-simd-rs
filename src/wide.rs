@@ -2,7 +2,9 @@ pub(crate) mod avx512ifma {
     use crate::batch::{PUBLIC_KEY_LEN, PreparedBatch, R_ENCODING_LEN};
     #[cfg(test)]
     use crate::edwards::EdwardsPoint;
-    use crate::edwards::{BasepointTable, CachedPoint, POINT_ENCODING_LEN, PointTable};
+    use crate::edwards::{
+        AffineCachedPoint, BasepointTable, CachedPoint, POINT_ENCODING_LEN, PointTable,
+    };
     use crate::field::{Fe51, LIMB_COUNT};
     use crate::scalar::Radix16;
     use std::arch::x86_64::*;
@@ -277,10 +279,10 @@ pub(crate) mod avx512ifma {
         pair: usize,
     ) {
         let selected: [_; LANES] = core::array::from_fn(|lane| {
-            base_table.select_signed_cached_ref(base_pair_digit(&s_digits[lane], pair))
+            base_table.select_signed_affine_ref(base_pair_digit(&s_digits[lane], pair))
         });
-        let selected = WideCachedPoint::from_cached_refs(&selected);
-        acc.add_cached_assign(&selected);
+        let selected = WideAffineCachedPoint::from_affine_refs(&selected);
+        acc.add_affine_cached_assign(&selected);
     }
 
     #[inline]
@@ -915,6 +917,28 @@ pub(crate) mod avx512ifma {
         }
     }
 
+    /// Affine (`Z = 1`) precomputed point — the basepoint table's entry form.
+    /// No `z2` field: the mixed addition doubles the accumulator's `Z` instead.
+    #[derive(Clone, Copy)]
+    struct WideAffineCachedPoint {
+        y_plus_x: WideFe,
+        y_minus_x: WideFe,
+        t2d: WideFe,
+    }
+
+    impl WideAffineCachedPoint {
+        fn from_affine_refs(points: &[&AffineCachedPoint; LANES]) -> Self {
+            let y_plus_x = core::array::from_fn(|lane| points[lane].coords().0);
+            let y_minus_x = core::array::from_fn(|lane| points[lane].coords().1);
+            let t2d = core::array::from_fn(|lane| points[lane].coords().2);
+            Self {
+                y_plus_x: WideFe::from_field_refs(&y_plus_x),
+                y_minus_x: WideFe::from_field_refs(&y_minus_x),
+                t2d: WideFe::from_field_refs(&t2d),
+            }
+        }
+    }
+
     impl WidePoint {
         fn identity() -> Self {
             Self {
@@ -971,6 +995,24 @@ pub(crate) mod avx512ifma {
             let h = b.add_loose(&a);
             let c = self.t.multiply_loose(&rhs.t2d);
             let d = self.z.multiply_loose(&rhs.z2);
+            let f = d.subtract_wide(&c);
+            let g = d.add_loose(&c);
+
+            self.x = e.multiply(&f);
+            self.t = e.multiply(&h);
+            self.z = f.multiply(&g);
+            self.y = g.multiply(&h);
+        }
+        /// Mixed addition with an affine (`Z = 1`) cached point. Identical to
+        /// `add_cached_assign` except the `Z₁·z2` product collapses to
+        /// `Z₁.double()` — one fewer multiply, since `z2 = 2·Z₂ = 2`.
+        fn add_affine_cached_assign(&mut self, rhs: &WideAffineCachedPoint) {
+            let a = self.y.subtract(&self.x).multiply_loose(&rhs.y_minus_x);
+            let b = self.y.add_loose(&self.x).multiply_loose(&rhs.y_plus_x);
+            let e = b.subtract_wide(&a);
+            let h = b.add_loose(&a);
+            let c = self.t.multiply_loose(&rhs.t2d);
+            let d = self.z.double_loose();
             let f = d.subtract_wide(&c);
             let g = d.add_loose(&c);
 
