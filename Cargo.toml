@@ -30,3 +30,4 @@ codegen-units = 1
 [[bench]]
 name = "cold_profile"
 harness = false
+
