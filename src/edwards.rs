@@ -156,6 +156,73 @@ fn to_affine_cached_batch<const N: usize>(points: &[EdwardsPoint; N]) -> [Affine
     })
 }
 
+/// Heap variant of `to_affine_cached_batch` for tables too large to build on
+/// the stack (Phase 3's ±2184-multiple radix-4096 table). Same Montgomery
+/// batch inversion: one field inversion for the whole table.
+fn to_affine_cached_batch_vec(points: &[EdwardsPoint]) -> Vec<AffineCachedPoint> {
+    let n = points.len();
+    let mut zinv = vec![Fe51::one(); n];
+    let mut acc = Fe51::one();
+    for i in 0..n {
+        zinv[i] = acc;
+        acc = acc.multiply(&points[i].z);
+    }
+    acc = acc.invert();
+    for i in (0..n).rev() {
+        zinv[i] = zinv[i].multiply(&acc);
+        acc = acc.multiply(&points[i].z);
+    }
+    (0..n)
+        .map(|i| {
+            let x = points[i].x.multiply(&zinv[i]);
+            let y = points[i].y.multiply(&zinv[i]);
+            AffineCachedPoint::from_affine(&x, &y)
+        })
+        .collect()
+}
+
+/// Phase 3: radix-4096 fixed-base table — affine entries for `[d]B`,
+/// `d ∈ [−2184, 2184]` (three folded radix-16 digits: |d₀+16d₁+256d₂| ≤
+/// 8+128+2048). 4369 entries ≈ 524 KB, heap-allocated, built once per process.
+#[derive(Debug)]
+pub(crate) struct BasepointTable4096 {
+    entries: Vec<AffineCachedPoint>,
+}
+
+/// Maximum magnitude of a 3-digit radix-16 fold.
+pub(crate) const TRIPLE_FOLD_MAX: i16 = 2184;
+
+impl BasepointTable4096 {
+    pub(crate) fn from_point(base: &EdwardsPoint) -> Self {
+        // Built once per process; plain repeated addition, then one batch
+        // inversion normalizes everything to affine cached form.
+        let mut points = Vec::with_capacity(TRIPLE_FOLD_MAX as usize);
+        points.push(base.clone());
+        for i in 1..TRIPLE_FOLD_MAX as usize {
+            let next = points[i - 1].add(base);
+            points.push(next);
+        }
+        let positives = to_affine_cached_batch_vec(&points);
+        let mut entries = Vec::with_capacity(2 * TRIPLE_FOLD_MAX as usize + 1);
+        entries.extend(positives.iter().rev().map(AffineCachedPoint::negate));
+        entries.push(AffineCachedPoint::identity());
+        entries.extend(positives);
+        Self { entries }
+    }
+
+    /// Select the affine point for a folded digit in `-2184..=2184`.
+    #[inline]
+    pub(crate) fn select_signed_affine_ref(&self, digit: i16) -> &AffineCachedPoint {
+        debug_assert!((-TRIPLE_FOLD_MAX..=TRIPLE_FOLD_MAX).contains(&digit));
+        // SAFETY: the triple fold bounds `digit` to ±TRIPLE_FOLD_MAX, and the
+        // table holds exactly 2·TRIPLE_FOLD_MAX + 1 entries.
+        unsafe {
+            self.entries
+                .get_unchecked((digit + TRIPLE_FOLD_MAX) as usize)
+        }
+    }
+}
+
 impl PointTable {
     pub(crate) fn from_cached(
         cached_points: [CachedPoint; POINT_TABLE_SIZE],
@@ -181,6 +248,9 @@ impl PointTable {
     ///
     /// Each entry stores `z2 = 2·Z`, so `1/Z = 2·z2⁻¹`. Scaling `y±x` and `t2d`
     /// by `1/Z` and setting `z2 = 2` yields the affine cached point.
+    ///
+    /// Note: normalizing to 2Z = 1 instead of Z = 1 would also delete the
+    /// d = 2Z step in the ladder add, though improvements would be negligible.
     pub(crate) fn normalized_affine(&self) -> Self {
         let mut z2_inv: [Fe51; SIGNED_POINT_TABLE_SIZE] =
             core::array::from_fn(|_| Fe51::one());
@@ -514,6 +584,50 @@ mod tests {
             assert!(ypx.equals(&expect_ypx), "y+x mismatch at digit {d}");
             assert!(ymx.equals(&expect_ymx), "y-x mismatch at digit {d}");
             assert!(t2d.equals(&expect_t2d), "t2d mismatch at digit {d}");
+        }
+    }
+
+    /// Phase 3 golden: sampled entries of the radix-4096 table equal `[d]B`
+    /// against an independent projective addition chain (full-range digit
+    /// sample: identity, all |d| ≤ 8, radix boundaries, extremes, and a
+    /// deterministic random sample).
+    #[test]
+    fn radix4096_table_matches_multiples() {
+        let b = EdwardsPoint::basepoint();
+        let table = BasepointTable4096::from_point(&b);
+        // Reference chain [1..2184]B.
+        let mut multiples = vec![b.clone()];
+        for _ in 1..TRIPLE_FOLD_MAX as usize {
+            multiples.push(multiples.last().unwrap().add(&b));
+        }
+        let mut digits: Vec<i16> = (-8..=8).collect();
+        digits.extend([
+            15, 16, 17, 255, 256, 257, 2047, 2048, 2049, 2183, 2184, -16, -255, -256, -2048,
+            -2184, -1000, 1000,
+        ]);
+        let mut st = 0x5eed_3096u64;
+        for _ in 0..64 {
+            st = st.wrapping_mul(0xd134_2543_de82_ef95).wrapping_add(1);
+            let d = ((st >> 16) % (2 * TRIPLE_FOLD_MAX as u64 + 1)) as i16 - TRIPLE_FOLD_MAX;
+            digits.push(d);
+        }
+        for d in digits {
+            let reference = if d == 0 {
+                EdwardsPoint::identity()
+            } else {
+                let m = multiples[(d.unsigned_abs() as usize) - 1].clone();
+                if d < 0 { m.negate() } else { m }
+            };
+            let zinv = reference.z.invert();
+            let x = reference.x.multiply(&zinv);
+            let y = reference.y.multiply(&zinv);
+            let (ypx, ymx, t2d) = table.select_signed_affine_ref(d).coords();
+            assert!(ypx.equals(&y.add(&x)), "y+x mismatch at digit {d}");
+            assert!(ymx.equals(&y.subtract(&x)), "y-x mismatch at digit {d}");
+            assert!(
+                t2d.equals(&x.multiply(&y).multiply(&Fe51::two_d())),
+                "t2d mismatch at digit {d}"
+            );
         }
     }
 
