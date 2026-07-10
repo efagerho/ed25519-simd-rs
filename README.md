@@ -127,17 +127,34 @@ shape of the workload to be safe.
 
 Only reach for `HotKeyCache` if you have actual knowledge of your key
 distribution — specifically, that a small set of keys repeats often enough
-across batches to be worth retaining. Caching a hot set you don't actually
-have wastes memory and bookkeeping for no benefit. The [Hot Key
-Repeats](#hot-key-repeats) benchmark below quantifies the win on a workload
-that does repeat a small key set; measure your own workload before relying on
-it, since the win shrinks or disappears as the hot set gets larger or less
-repetitive:
+across batches to be worth retaining. The [Hot Key Repeats](#hot-key-repeats)
+benchmark below quantifies both directions on this host: a genuinely hot key
+set verifies ~35 % faster than `NullKeyCache` (5.5 vs 8.5 µs/signature),
+while a churning key set (working set far beyond capacity, so entries are
+evicted before reuse) **costs nothing**: all per-key table work is deferred
+until a key has actually been seen again, so misses pay only the map insert
+and land within a few percent of `NullKeyCache`. A mis-sized cache wastes
+memory, not throughput.
+
+How retention works (and how to size it):
 
 - `HotKeyCache::with_capacity(...)` bounds the retained key set; pass it to
-  `Verifier::with_cache(...)`.
-- Successful key decodes are retained after verification, so reuse the same
-  verifier across batches when the key distribution is hot.
+  `Verifier::with_cache(...)`. Successful key decodes are retained after
+  verification, so reuse the same verifier across batches.
+- **Two-hit promotion hysteresis.** A retained key is upgraded to the fast
+  split-ladder form (an extra `[2^127]·A` table, built SIMD-batched) only on
+  its **second cache hit**, never at insert. Single-use keys therefore pay
+  almost nothing beyond the insert itself, and keys that oscillate between
+  hit and eviction never trigger rebuild loops. The full win arrives from a
+  key's second reuse onward.
+- **Sizing guidance (this host; the crossover scales with L2).** Retention
+  wins while the resident set stays small: −35 % at 4 hot keys, −23 % at 256
+  fully-resident keys. It breaks even around **~900 resident keys** (promoted
+  entries are ~5.4 KB each) and loses beyond that, where the retained tables
+  thrash cache and fresh decode wins. `NullKeyCache` is flat
+  (~8.5 µs/signature) at any key count. Bound the capacity to your genuinely
+  recurring key set — in the low hundreds at most — rather than the total
+  key universe.
 
 The verifier keeps any per-chunk decoded tables in local scratch while a chunk
 is being verified, even with `NullKeyCache`:
@@ -161,8 +178,10 @@ gate (see [Requirements](#requirements)).
 ## Benchmark Snapshot
 
 The following numbers are Criterion medians in microseconds per signature for
-distinct-key batches. The `ed25519-simd` rows use `NullKeyCache`, so decoded keys
-are not retained across batches.
+distinct-key batches, measured 2026-07-10 on **AWS c8i.2xlarge (Intel Xeon
+6975P-C, Granite Rapids), ~3.78 GHz sustained, kernel 6.17.0-1017-aws,
+rustc 1.97.0, `RUSTFLAGS="-C target-cpu=native"`**. The `ed25519-simd` rows use
+`NullKeyCache`, so decoded keys are not retained across batches.
 
 Command. The comparison bench lives in the `benches-compare` workspace member
 (it depends on several other Ed25519/crypto libraries purely for comparison,
@@ -179,50 +198,55 @@ Message length 1:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 5.18 | 5.16 | 5.16 | 5.16 |
-| ed25519-simd Dalek null-cache | 5.14 | 5.14 | 5.14 | 5.14 |
-| solana-ed25519 Zip215 batch[^batch-api] | 14.05 | 13.03 | 12.58 | 12.33 |
-| solana-ed25519 Dalek loop | 22.40 | 22.40 | 22.41 | 22.41 |
-| ed25519-dalek batch[^batch-api] | 14.35 | 13.24 | 12.73 | 12.47 |
-| ed25519-dalek loop | 20.22 | 20.15 | 20.19 | 20.19 |
-| aws-lc-rs parsed loop | 22.56 | 22.60 | 22.57 | 22.60 |
-| ring loop | 30.63 | 30.53 | 30.54 | 31.71 |
-| sodiumoxide loop | 35.60 | 35.46 | 35.49 | 35.62 |
-| openssl loop | 59.14 | 58.77 | 59.31 | 59.24 |
+| ed25519-simd Zip215 null-cache | 8.49 | 8.48 | 8.50 | 8.50 |
+| ed25519-simd Dalek null-cache | 8.44 | 8.42 | 8.45 | 8.45 |
+| solana-ed25519 Zip215 batch[^batch-api] | 17.78[^p0] | 16.36[^p0] | 15.64[^p0] | 15.28[^p0] |
+| solana-ed25519 Dalek loop | 32.53[^p0] | 32.52[^p0] | 32.57[^p0] | 32.92[^p0] |
+| ed25519-dalek batch[^batch-api] | 18.14[^p0] | 16.55[^p0] | 16.32[^p0] | 16.29[^p0] |
+| ed25519-dalek loop | 26.82[^p0] | 26.77[^p0] | 26.81[^p0] | 27.29[^p0] |
+| aws-lc-rs parsed loop | 31.05[^p0] | 31.01[^p0] | 31.05[^p0] | 31.02[^p0] |
+| ring loop | 34.38[^p0] | 34.91[^p0] | 35.70[^p0] | 36.17[^p0] |
+| sodiumoxide loop | 37.73[^p0] | 38.28[^p0] | 38.93[^p0] | 39.19[^p0] |
+| openssl loop | 90.92[^p0] | 91.99[^p0] | 92.52[^p0] | 92.81[^p0] |
 
 Message length 1024:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 5.46 | 5.46 | 5.46 | 5.48 |
-| ed25519-simd Dalek null-cache | 5.40 | 5.42 | 5.42 | 5.40 |
-| solana-ed25519 Zip215 batch[^batch-api] | 15.01 | 14.04 | 13.59 | 13.32 |
-| solana-ed25519 Dalek loop | 23.52 | 23.52 | 23.41 | 23.45 |
-| ed25519-dalek batch[^batch-api] | 15.41 | 14.30 | 13.70 | 13.46 |
-| ed25519-dalek loop | 21.18 | 21.22 | 21.19 | 21.20 |
-| aws-lc-rs parsed loop | 23.70 | 23.71 | 23.78 | 23.68 |
-| ring loop | 31.68 | 31.66 | 31.78 | 32.60 |
-| sodiumoxide loop | 36.77 | 36.77 | 36.79 | 36.81 |
-| openssl loop | 59.80 | 60.35 | 59.65 | 59.76 |
+| ed25519-simd Zip215 null-cache | 8.86 | 8.87 | 8.86 | 8.86 |
+| ed25519-simd Dalek null-cache | 8.82 | 8.84 | 8.82 | 8.83 |
+| solana-ed25519 Zip215 batch[^batch-api] | 19.21[^p0] | 17.78[^p0] | 17.08[^p0] | 16.71[^p0] |
+| solana-ed25519 Dalek loop | 34.00[^p0] | 34.00[^p0] | 34.04[^p0] | 34.38[^p0] |
+| ed25519-dalek batch[^batch-api] | 19.60[^p0] | 18.04[^p0] | 17.77[^p0] | 17.73[^p0] |
+| ed25519-dalek loop | 28.24[^p0] | 28.28[^p0] | 28.28[^p0] | 28.76[^p0] |
+| aws-lc-rs parsed loop | 32.51[^p0] | 32.50[^p0] | 32.52[^p0] | 32.54[^p0] |
+| ring loop | 35.83[^p0] | 36.47[^p0] | 37.14[^p0] | 37.49[^p0] |
+| sodiumoxide loop | 39.37[^p0] | 39.98[^p0] | 40.67[^p0] | 40.88[^p0] |
+| openssl loop | 92.66[^p0] | 93.29[^p0] | 93.73[^p0] | 93.48[^p0] |
 
 Mixed message lengths:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 5.31 | 5.25 | 5.26 | 5.23 |
-| ed25519-simd Dalek null-cache | 5.25 | 5.21 | 5.21 | 5.19 |
-| solana-ed25519 Zip215 batch[^batch-api] | 14.25 | 13.16 | 12.72 | 12.49 |
-| solana-ed25519 Dalek loop | 22.54 | 22.51 | 22.60 | 22.64 |
-| ed25519-dalek batch[^batch-api] | 14.46 | 13.44 | 12.93 | 12.63 |
-| ed25519-dalek loop | 20.33 | 20.32 | 20.36 | 20.34 |
-| aws-lc-rs parsed loop | 22.74 | 22.86 | 22.85 | 22.83 |
-| ring loop | 30.77 | 30.85 | 30.84 | 31.67 |
-| sodiumoxide loop | 35.73 | 35.78 | 35.75 | 35.80 |
-| openssl loop | 59.27 | 59.90 | 59.17 | 59.65 |
+| ed25519-simd Zip215 null-cache | 8.67 | 8.63 | 8.62 | 8.64 |
+| ed25519-simd Dalek null-cache | 8.63 | 8.56 | 8.59 | 8.57 |
+| solana-ed25519 Zip215 batch[^batch-api] | 18.01[^p0] | 16.60[^p0] | 15.87[^p0] | 15.49[^p0] |
+| solana-ed25519 Dalek loop | 32.71[^p0] | 32.71[^p0] | 32.85[^p0] | 33.20[^p0] |
+| ed25519-dalek batch[^batch-api] | 18.32[^p0] | 16.84[^p0] | 16.59[^p0] | 16.50[^p0] |
+| ed25519-dalek loop | 26.99[^p0] | 26.99[^p0] | 27.02[^p0] | 27.57[^p0] |
+| aws-lc-rs parsed loop | 31.31[^p0] | 31.26[^p0] | 31.26[^p0] | 31.27[^p0] |
+| ring loop | 34.51[^p0] | 35.19[^p0] | 35.93[^p0] | 36.44[^p0] |
+| sodiumoxide loop | 37.89[^p0] | 38.56[^p0] | 39.18[^p0] | 39.40[^p0] |
+| openssl loop | 91.57[^p0] | 92.21[^p0] | 92.19[^p0] | 92.37[^p0] |
 
 [^batch-api]: The batch APIs for `solana-ed25519` and `ed25519-dalek` return a
     single pass/fail result for the whole batch. They do not identify exactly
     which signatures in the batch were invalid.
+
+[^p0]: Third-party rows were measured once on this host (2026-07-09 session,
+    identical build flags) and are not re-run per crate change; the
+    `ed25519-simd` rows are from the 2026-07-10 session. Cross-session drift
+    on this host is ~1–3 %, immaterial at these ratios.
 
 ### Hot Key Repeats
 
@@ -236,14 +260,17 @@ RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f,+avx512dq,+avx512ifma
 
 This scenario cycles through 4 distinct keys to fill each batch and reuses
 the same `Verifier` across benchmark iterations, so `HotKeyCache` is warm
-(all hits) after the first iteration. It quantifies the `HotKeyCache` win
-referenced in [Key Caching](#key-caching) for a workload that actually
-repeats a small key set:
+after the first iterations (entries are promoted to the split-ladder form on
+their second hit; see [Key Caching](#key-caching)). The churn row is the
+adversarial opposite: every batch is distinct keys with `capacity(4)`, so the
+steady state is all-miss:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 5.19 | 5.20 | 5.19 | 5.20 |
-| ed25519-simd Zip215 hot-key cache (warm) | 4.72 | 4.72 | 4.72 | 4.72 |
+| ed25519-simd Zip215 null-cache | 8.49 | 8.51 | 8.49 | 8.49 |
+| ed25519-simd Zip215 hot-key cache (warm) | 5.52 | 5.53 | 5.52 | 5.52 |
+| ed25519-simd Dalek hot-key cache (warm) | 5.38 | 5.39 | 5.39 | 5.38 |
+| ed25519-simd Zip215 hot-key cache (churn, capacity 4, all-miss) | 8.69 | 8.78 | 8.79 | 8.79 |
 
 ## Compatibility Target
 

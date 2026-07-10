@@ -96,18 +96,81 @@ impl HotKeyCache {
 
 impl crate::cache::private::Sealed for HotKeyCache {}
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::edwards::{EdwardsPoint, PointTable};
+
+    /// Phase 2h lazy-promotion semantics at the cache level: a fresh insert
+    /// builds NO split table (single-use keys pay nothing); a re-insert
+    /// carrying one — the verifier's promotion hand-back — is adopted into
+    /// the resident entry with recency preserved.
+    #[test]
+    fn split_table_is_lazy_and_adopted_on_reinsert() {
+        let encoded = EdwardsPoint::basepoint().compress();
+        let mut cache = HotKeyCache::new();
+        cache.insert(CachedPublicKey::from_encoded(encoded).expect("valid key"));
+
+        let entry = cache.get(&encoded).expect("just inserted");
+        assert!(
+            !entry.table.is_affine(),
+            "1b-fix: insert must store the table as decoded (lazy normalization)"
+        );
+        assert!(
+            entry.table_hi.is_none(),
+            "insert must not build the split table (lazy promotion)"
+        );
+
+        // Simulate the verifier's promotion hand-back (both tables upgraded).
+        let a_prime = EdwardsPoint::decompress(&encoded)
+            .expect("valid key")
+            .mul_by_pow2_127();
+        let mut upgraded = CachedPublicKey::from_encoded(encoded).expect("valid key");
+        upgraded.table = upgraded.table.normalized_affine();
+        upgraded.table_hi = Some(PointTable::new(&a_prime).normalized_affine());
+        cache.insert(upgraded);
+
+        let entry = cache.get(&encoded).expect("still resident");
+        assert!(entry.table.is_affine(), "main table adopted at promotion");
+        let hi = entry.table_hi.as_ref().expect("split table adopted");
+        assert!(hi.is_affine());
+        assert_eq!(
+            hi.recover_base_point().compress(),
+            a_prime.compress(),
+            "adopted table_hi base is not [2^127]A"
+        );
+    }
+}
+
 impl KeyCache for HotKeyCache {
     #[inline]
     fn get(&self, encoded: &[u8; PUBLIC_KEY_LEN]) -> Option<&CachedPublicKey> {
         let entry = self.keys.get(encoded)?;
         self.touch(entry);
+        // Hit counter drives the verifier's promotion hysteresis (see cache.rs).
+        entry.key.hits.set(entry.key.hits.get().saturating_add(1));
         Some(&entry.key)
     }
 
     fn insert(&mut self, key: CachedPublicKey) {
-        if let Some(entry) = self.keys.get(&key.encoded) {
-            self.touch(entry);
+        let now = self.tick();
+        if let Some(entry) = self.keys.get_mut(&key.encoded) {
+            // Lazy promotion (2h + 1b-fix): the verifier hands back an
+            // upgraded entry on the key's second hit, carrying BOTH the
+            // affine-normalized main table (1b, moved here from insert) and
+            // the SIMD-built split table A′ = [2¹²⁷]A. Adopt both atomically
+            // (recency preserved); repeats are ignored.
+            if key.table_hi.is_some() && entry.key.table_hi.is_none() {
+                entry.key.table = key.table;
+                entry.key.table_hi = key.table_hi;
+            }
+            entry.last_used.set(now);
         } else {
+            // Fresh key: stored AS DECODED (projective). No normalization and
+            // no A′ here — inserts cost only the map insert, so single-use
+            // keys and churn workloads (evicted before reuse) pay nothing
+            // beyond retention bookkeeping. All per-key table work happens at
+            // promotion, amortized behind two observed hits.
             self.insert_cached(key);
         }
     }

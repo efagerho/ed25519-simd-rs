@@ -22,11 +22,15 @@ pub(crate) struct EdwardsPoint {
 #[derive(Clone, Debug)]
 pub(crate) struct PointTable {
     entries: [CachedPoint; SIGNED_POINT_TABLE_SIZE],
+    /// `true` iff every entry is affine (`Z = 1`, so `z2 = 2`). Set by
+    /// [`PointTable::normalized_affine`] for retained hot-key tables; the ladder
+    /// uses the cheaper affine mixed-add only when all 8 lanes are affine.
+    affine: bool,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct BasepointTable {
-    entries: [CachedPoint; SIGNED_BASEPOINT_TABLE_SIZE],
+    entries: [AffineCachedPoint; SIGNED_BASEPOINT_TABLE_SIZE],
 }
 
 // `base_pair_digit` folds two radix-16 digits into a radix-256 digit with
@@ -84,14 +88,197 @@ impl CachedPoint {
     }
 }
 
+/// Affine cached precomputed point: the basepoint multiples are normalized to
+/// `Z = 1` at table construction, so the projective `z2 = 2·Z` field collapses
+/// to the constant `2` and is dropped. In the ladder the `Z₁·z2` product of a
+/// mixed addition then becomes a doubling of the accumulator's `Z` — 7 M per
+/// add instead of 8 — and the table is 25 % smaller (3 fields, not 4).
+#[derive(Clone, Debug)]
+pub(crate) struct AffineCachedPoint {
+    y_plus_x: Fe51,
+    y_minus_x: Fe51,
+    t2d: Fe51,
+}
+
+impl AffineCachedPoint {
+    /// Build from affine coordinates (`Z = 1`): `t = x·y`, so `t2d = 2d·x·y`.
+    fn from_affine(x: &Fe51, y: &Fe51) -> Self {
+        Self {
+            y_plus_x: y.add(x),
+            y_minus_x: y.subtract(x),
+            t2d: x.multiply(y).multiply(&Fe51::two_d()),
+        }
+    }
+
+    /// Affine identity `(x, y) = (0, 1)`.
+    fn identity() -> Self {
+        Self {
+            y_plus_x: Fe51::one(),
+            y_minus_x: Fe51::one(),
+            t2d: Fe51::zero(),
+        }
+    }
+
+    /// Cached form of `-P`: swap `y+x`/`y-x` and negate `t2d` (no `z2` to touch).
+    fn negate(&self) -> Self {
+        Self {
+            y_plus_x: self.y_minus_x,
+            y_minus_x: self.y_plus_x,
+            t2d: self.t2d.negate(),
+        }
+    }
+
+    pub(crate) fn coords(&self) -> (&Fe51, &Fe51, &Fe51) {
+        (&self.y_plus_x, &self.y_minus_x, &self.t2d)
+    }
+}
+
+/// Montgomery batch inversion of the `Z` coordinates, then normalize each point
+/// to affine cached form. One field inversion for the whole table.
+fn to_affine_cached_batch<const N: usize>(points: &[EdwardsPoint; N]) -> [AffineCachedPoint; N] {
+    // Forward pass: zinv[i] holds the running product of Z[0..i].
+    let mut zinv: [Fe51; N] = core::array::from_fn(|_| Fe51::one());
+    let mut acc = Fe51::one();
+    for i in 0..N {
+        zinv[i] = acc;
+        acc = acc.multiply(&points[i].z);
+    }
+    // Single inversion of the full product, then backward pass distributes it.
+    acc = acc.invert();
+    for i in (0..N).rev() {
+        zinv[i] = zinv[i].multiply(&acc);
+        acc = acc.multiply(&points[i].z);
+    }
+    core::array::from_fn(|i| {
+        let x = points[i].x.multiply(&zinv[i]);
+        let y = points[i].y.multiply(&zinv[i]);
+        AffineCachedPoint::from_affine(&x, &y)
+    })
+}
+
+/// Heap variant of `to_affine_cached_batch` for tables too large to build on
+/// the stack (Phase 3's ±2184-multiple radix-4096 table). Same Montgomery
+/// batch inversion: one field inversion for the whole table.
+fn to_affine_cached_batch_vec(points: &[EdwardsPoint]) -> Vec<AffineCachedPoint> {
+    let n = points.len();
+    let mut zinv = vec![Fe51::one(); n];
+    let mut acc = Fe51::one();
+    for i in 0..n {
+        zinv[i] = acc;
+        acc = acc.multiply(&points[i].z);
+    }
+    acc = acc.invert();
+    for i in (0..n).rev() {
+        zinv[i] = zinv[i].multiply(&acc);
+        acc = acc.multiply(&points[i].z);
+    }
+    (0..n)
+        .map(|i| {
+            let x = points[i].x.multiply(&zinv[i]);
+            let y = points[i].y.multiply(&zinv[i]);
+            AffineCachedPoint::from_affine(&x, &y)
+        })
+        .collect()
+}
+
+/// Phase 3: radix-4096 fixed-base table — affine entries for `[d]B`,
+/// `d ∈ [−2184, 2184]` (three folded radix-16 digits: |d₀+16d₁+256d₂| ≤
+/// 8+128+2048). 4369 entries ≈ 524 KB, heap-allocated, built once per process.
+#[derive(Debug)]
+pub(crate) struct BasepointTable4096 {
+    entries: Vec<AffineCachedPoint>,
+}
+
+/// Maximum magnitude of a 3-digit radix-16 fold.
+pub(crate) const TRIPLE_FOLD_MAX: i16 = 2184;
+
+impl BasepointTable4096 {
+    pub(crate) fn from_point(base: &EdwardsPoint) -> Self {
+        // Built once per process; plain repeated addition, then one batch
+        // inversion normalizes everything to affine cached form.
+        let mut points = Vec::with_capacity(TRIPLE_FOLD_MAX as usize);
+        points.push(base.clone());
+        for i in 1..TRIPLE_FOLD_MAX as usize {
+            let next = points[i - 1].add(base);
+            points.push(next);
+        }
+        let positives = to_affine_cached_batch_vec(&points);
+        let mut entries = Vec::with_capacity(2 * TRIPLE_FOLD_MAX as usize + 1);
+        entries.extend(positives.iter().rev().map(AffineCachedPoint::negate));
+        entries.push(AffineCachedPoint::identity());
+        entries.extend(positives);
+        Self { entries }
+    }
+
+    /// Select the affine point for a folded digit in `-2184..=2184`.
+    #[inline]
+    pub(crate) fn select_signed_affine_ref(&self, digit: i16) -> &AffineCachedPoint {
+        debug_assert!((-TRIPLE_FOLD_MAX..=TRIPLE_FOLD_MAX).contains(&digit));
+        // SAFETY: the triple fold bounds `digit` to ±TRIPLE_FOLD_MAX, and the
+        // table holds exactly 2·TRIPLE_FOLD_MAX + 1 entries.
+        unsafe {
+            self.entries
+                .get_unchecked((digit + TRIPLE_FOLD_MAX) as usize)
+        }
+    }
+}
+
 impl PointTable {
     pub(crate) fn from_cached(
         cached_points: [CachedPoint; POINT_TABLE_SIZE],
         negative_cached_points: [CachedPoint; POINT_TABLE_SIZE],
         identity_cached: CachedPoint,
     ) -> Self {
-        let entries = signed_cached_entries(cached_points, negative_cached_points, identity_cached);
-        Self { entries }
+        let entries = signed_entries(cached_points, negative_cached_points, identity_cached);
+        Self {
+            entries,
+            affine: false,
+        }
+    }
+
+    /// Whether every entry is affine (`Z = 1`); see [`PointTable::affine`].
+    pub(crate) fn is_affine(&self) -> bool {
+        self.affine
+    }
+
+    /// Normalize all entries to affine (`Z = 1`) form with one batch inversion,
+    /// so the ladder's mixed addition can double the accumulator's `Z` instead
+    /// of multiplying by `z2`. Called once per key on insert into a retaining
+    /// cache; the `NullKeyCache` single-use path never pays this.
+    ///
+    /// Each entry stores `z2 = 2·Z`, so `1/Z = 2·z2⁻¹`. Scaling `y±x` and `t2d`
+    /// by `1/Z` and setting `z2 = 2` yields the affine cached point.
+    ///
+    /// Note: normalizing to 2Z = 1 instead of Z = 1 would also delete the
+    /// d = 2Z step in the ladder add, though improvements would be negligible.
+    pub(crate) fn normalized_affine(&self) -> Self {
+        let mut z2_inv: [Fe51; SIGNED_POINT_TABLE_SIZE] =
+            core::array::from_fn(|_| Fe51::one());
+        let mut acc = Fe51::one();
+        for i in 0..SIGNED_POINT_TABLE_SIZE {
+            z2_inv[i] = acc;
+            acc = acc.multiply(&self.entries[i].z2);
+        }
+        acc = acc.invert();
+        for i in (0..SIGNED_POINT_TABLE_SIZE).rev() {
+            z2_inv[i] = z2_inv[i].multiply(&acc);
+            acc = acc.multiply(&self.entries[i].z2);
+        }
+        let two = Fe51::one().double();
+        let entries = core::array::from_fn(|i| {
+            let e = &self.entries[i];
+            let z_inv = z2_inv[i].double(); // 1/Z = 2·z2⁻¹
+            CachedPoint::from_fields(
+                e.y_plus_x.multiply(&z_inv),
+                e.y_minus_x.multiply(&z_inv),
+                two,
+                e.t2d.multiply(&z_inv),
+            )
+        });
+        Self {
+            entries,
+            affine: true,
+        }
     }
 
     pub(crate) fn new(point: &EdwardsPoint) -> Self {
@@ -110,31 +297,52 @@ impl PointTable {
         // in bounds for this 17-entry table.
         unsafe { self.entries.get_unchecked((digit + 8) as usize) }
     }
+
+    /// Recover the table's base point from its digit-1 entry. The cached
+    /// fields give `y+x`, `y−x`, `2Z`, so `(2X : 2Y : 2Z)` — a valid
+    /// projective representative of the point (extended coordinates are
+    /// projective). The input `T` is set to zero: `double()` never reads it,
+    /// and the Phase 2h consumer immediately doubles, which recomputes `T`.
+    /// Valid for both projective and affine-normalized (1b) tables.
+    pub(crate) fn recover_base_point(&self) -> EdwardsPoint {
+        let one = self.select_signed_cached_ref(1);
+        EdwardsPoint {
+            x: one.y_plus_x.subtract(&one.y_minus_x), // 2X
+            y: one.y_plus_x.add(&one.y_minus_x),      // 2Y
+            z: one.z2,                                // 2Z
+            t: Fe51::zero(),
+        }
+    }
 }
 
 impl BasepointTable {
     pub(crate) fn new() -> Self {
-        // Built once per process (see BASE_TABLE in verifier.rs), so there's
-        // no reason to special-case even m via double() to save a handful of
-        // multiplies: this whole computation runs once ever.
-        let basepoint = EdwardsPoint::basepoint();
+        Self::from_point(&EdwardsPoint::basepoint())
+    }
+
+    /// Build the 273-entry signed affine table for an arbitrary fixed base.
+    /// Used for `B` itself and for `B′ = [2¹²⁷]B` (Phase 2h split ladder).
+    pub(crate) fn from_point(base: &EdwardsPoint) -> Self {
+        // Built once per process (see BASE_TABLE / BASE_TABLE_PRIME in
+        // verifier.rs), so there's no reason to special-case even m via
+        // double() to save a handful of multiplies: this runs once ever.
         let mut points: [EdwardsPoint; BASEPOINT_TABLE_SIZE] =
-            core::array::from_fn(|_| basepoint.clone());
+            core::array::from_fn(|_| base.clone());
         for i in 1..BASEPOINT_TABLE_SIZE {
-            points[i] = points[i - 1].add(&basepoint);
+            points[i] = points[i - 1].add(base);
         }
-        let cached_points: [CachedPoint; BASEPOINT_TABLE_SIZE] =
-            core::array::from_fn(|i| CachedPoint::new(&points[i]));
-        let negative_cached_points: [CachedPoint; BASEPOINT_TABLE_SIZE] =
-            core::array::from_fn(|i| cached_points[i].negate());
-        let identity_cached = CachedPoint::new(&EdwardsPoint::identity());
-        let entries = signed_cached_entries(cached_points, negative_cached_points, identity_cached);
+        // Normalize all multiples to affine cached form with one batch inversion.
+        let affine_points = to_affine_cached_batch(&points);
+        let negative_points: [AffineCachedPoint; BASEPOINT_TABLE_SIZE] =
+            core::array::from_fn(|i| affine_points[i].negate());
+        let identity = AffineCachedPoint::identity();
+        let entries = signed_entries(affine_points, negative_points, identity);
         Self { entries }
     }
 
-    /// Select the cached point for a signed digit in
+    /// Select the affine point for a signed digit in
     /// `-BASEPOINT_TABLE_SIZE..=BASEPOINT_TABLE_SIZE`.
-    pub(crate) fn select_signed_cached_ref(&self, digit: i16) -> &CachedPoint {
+    pub(crate) fn select_signed_affine_ref(&self, digit: i16) -> &AffineCachedPoint {
         debug_assert!(
             (-(BASEPOINT_TABLE_SIZE as i16)..=(BASEPOINT_TABLE_SIZE as i16)).contains(&digit)
         );
@@ -147,19 +355,23 @@ impl BasepointTable {
     }
 }
 
-fn signed_cached_entries<const N: usize, const OUT: usize>(
-    cached_points: [CachedPoint; N],
-    negative_cached_points: [CachedPoint; N],
-    identity_cached: CachedPoint,
-) -> [CachedPoint; OUT] {
+/// Lay out `2N+1` table entries in signed-digit order: negatives `[-N..-1]`
+/// descending, identity at the center, positives `[1..N]` ascending. Generic
+/// over the entry type so both `CachedPoint` (projective) and
+/// `AffineCachedPoint` tables share the layout.
+fn signed_entries<T: Clone, const N: usize, const OUT: usize>(
+    positives: [T; N],
+    negatives: [T; N],
+    identity: T,
+) -> [T; OUT] {
     debug_assert_eq!(OUT, 2 * N + 1);
     core::array::from_fn(|i| {
         if i < N {
-            negative_cached_points[N - 1 - i].clone()
+            negatives[N - 1 - i].clone()
         } else if i == N {
-            identity_cached.clone()
+            identity.clone()
         } else {
-            cached_points[i - N - 1].clone()
+            positives[i - N - 1].clone()
         }
     })
 }
@@ -206,6 +418,19 @@ impl EdwardsPoint {
         })
     }
 
+    /// `[2¹²⁷]·self` by 127 doublings — the Phase 2h split-table base
+    /// (`A′ = [2¹²⁷]A` at cache insert, `B′ = [2¹²⁷]B` once per process).
+    /// Note `double()` ignores the input `t`, so a zero-`t` representative
+    /// from `PointTable::recover_base_point` is a valid starting point; the
+    /// result carries a correct `t` from the final doubling.
+    pub(crate) fn mul_by_pow2_127(&self) -> Self {
+        let mut p = self.double();
+        for _ in 1..127 {
+            p = p.double();
+        }
+        p
+    }
+
     pub(crate) fn add(&self, rhs: &Self) -> Self {
         let a = self.y.subtract(&self.x).multiply(&rhs.y.subtract(&rhs.x));
         let b = self.y.add(&self.x).multiply(&rhs.y.add(&rhs.x));
@@ -242,7 +467,8 @@ impl EdwardsPoint {
         }
     }
 
-    #[cfg(test)]
+    /// Extended coordinates; production use: lane-packing for the Phase 2h
+    /// SIMD promotion pass (`WidePoint::from_points`).
     pub(crate) fn coords(&self) -> (&Fe51, &Fe51, &Fe51, &Fe51) {
         (&self.x, &self.y, &self.z, &self.t)
     }
@@ -287,4 +513,192 @@ fn multiples_of(point: &EdwardsPoint) -> [EdwardsPoint; POINT_TABLE_SIZE] {
     let p7 = p6.add(point);
     let p8 = p4.double();
     [point.clone(), p2, p3, p4, p5, p6, p7, p8]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Phase 2h: recovering a table's base point from its digit-1 entry must
+    /// round-trip, for projective and affine-normalized (1b) tables, on
+    /// ordinary and small-order points. (`T` is not recovered; `compress`
+    /// only needs `x, y, z`.)
+    #[test]
+    fn recover_base_point_roundtrips() {
+        // An order-8 point (torsion recovery must work too — ZIP-215 keys).
+        let ord8 = EdwardsPoint::decompress(&[
+            0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef,
+            0x98, 0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88,
+            0x6d, 0x53, 0xfc, 0x05,
+        ])
+        .expect("order-8 point decodes");
+        for point in [
+            EdwardsPoint::basepoint(),
+            EdwardsPoint::basepoint().double(),
+            EdwardsPoint::identity(),
+            ord8,
+        ] {
+            let projective = PointTable::new(&point);
+            assert_eq!(
+                projective.recover_base_point().compress(),
+                point.compress(),
+                "projective-table recovery diverged"
+            );
+            assert_eq!(
+                projective.normalized_affine().recover_base_point().compress(),
+                point.compress(),
+                "affine-table recovery diverged"
+            );
+        }
+    }
+
+    /// Phase 2h golden: the generalized fixed-base table for `B′ = [2¹²⁷]B`
+    /// must hold exactly `[d]B′` at every signed digit — the 1a golden shape
+    /// applied to `from_point` (batch-inversion normalization vs an
+    /// independent per-entry projective reference).
+    #[test]
+    fn affine_table_from_point_matches_multiples_of_b_prime() {
+        let b_prime = EdwardsPoint::basepoint().mul_by_pow2_127();
+        let table = BasepointTable::from_point(&b_prime);
+
+        let mut multiples = vec![b_prime.clone()];
+        for _ in 1..BASEPOINT_TABLE_SIZE {
+            multiples.push(multiples.last().unwrap().add(&b_prime));
+        }
+        let n = BASEPOINT_TABLE_SIZE as i16;
+        for d in -n..=n {
+            let reference = if d == 0 {
+                EdwardsPoint::identity()
+            } else {
+                let m = multiples[(d.unsigned_abs() as usize) - 1].clone();
+                if d < 0 { m.negate() } else { m }
+            };
+            let zinv = reference.z.invert();
+            let x = reference.x.multiply(&zinv);
+            let y = reference.y.multiply(&zinv);
+            let expect_ypx = y.add(&x);
+            let expect_ymx = y.subtract(&x);
+            let expect_t2d = x.multiply(&y).multiply(&Fe51::two_d());
+
+            let (ypx, ymx, t2d) = table.select_signed_affine_ref(d).coords();
+            assert!(ypx.equals(&expect_ypx), "y+x mismatch at digit {d}");
+            assert!(ymx.equals(&expect_ymx), "y-x mismatch at digit {d}");
+            assert!(t2d.equals(&expect_t2d), "t2d mismatch at digit {d}");
+        }
+    }
+
+    /// Phase 3 golden: sampled entries of the radix-4096 table equal `[d]B`
+    /// against an independent projective addition chain (full-range digit
+    /// sample: identity, all |d| ≤ 8, radix boundaries, extremes, and a
+    /// deterministic random sample).
+    #[test]
+    fn radix4096_table_matches_multiples() {
+        let b = EdwardsPoint::basepoint();
+        let table = BasepointTable4096::from_point(&b);
+        // Reference chain [1..2184]B.
+        let mut multiples = vec![b.clone()];
+        for _ in 1..TRIPLE_FOLD_MAX as usize {
+            multiples.push(multiples.last().unwrap().add(&b));
+        }
+        let mut digits: Vec<i16> = (-8..=8).collect();
+        digits.extend([
+            15, 16, 17, 255, 256, 257, 2047, 2048, 2049, 2183, 2184, -16, -255, -256, -2048,
+            -2184, -1000, 1000,
+        ]);
+        let mut st = 0x5eed_3096u64;
+        for _ in 0..64 {
+            st = st.wrapping_mul(0xd134_2543_de82_ef95).wrapping_add(1);
+            let d = ((st >> 16) % (2 * TRIPLE_FOLD_MAX as u64 + 1)) as i16 - TRIPLE_FOLD_MAX;
+            digits.push(d);
+        }
+        for d in digits {
+            let reference = if d == 0 {
+                EdwardsPoint::identity()
+            } else {
+                let m = multiples[(d.unsigned_abs() as usize) - 1].clone();
+                if d < 0 { m.negate() } else { m }
+            };
+            let zinv = reference.z.invert();
+            let x = reference.x.multiply(&zinv);
+            let y = reference.y.multiply(&zinv);
+            let (ypx, ymx, t2d) = table.select_signed_affine_ref(d).coords();
+            assert!(ypx.equals(&y.add(&x)), "y+x mismatch at digit {d}");
+            assert!(ymx.equals(&y.subtract(&x)), "y-x mismatch at digit {d}");
+            assert!(
+                t2d.equals(&x.multiply(&y).multiply(&Fe51::two_d())),
+                "t2d mismatch at digit {d}"
+            );
+        }
+    }
+
+    /// Golden equivalence (Phase 1a): every entry of the affine-cached basepoint
+    /// table must represent exactly `[d]B` for its signed digit `d`. Cross-checks
+    /// the batch-inversion normalization against an independent projective
+    /// reference computed by repeated addition — the "old table" the affine one
+    /// replaces. Covers identity (`d = 0`), all positives, and all negatives.
+    #[test]
+    fn affine_basepoint_table_matches_projective_multiples() {
+        let table = BasepointTable::new();
+        let basepoint = EdwardsPoint::basepoint();
+
+        // Reference [1]B..[N]B built projectively, independent of the table path.
+        let mut multiples = vec![basepoint.clone()];
+        for _ in 1..BASEPOINT_TABLE_SIZE {
+            multiples.push(multiples.last().unwrap().add(&basepoint));
+        }
+
+        let n = BASEPOINT_TABLE_SIZE as i16;
+        for d in -n..=n {
+            let reference = if d == 0 {
+                EdwardsPoint::identity()
+            } else {
+                let m = multiples[(d.unsigned_abs() as usize) - 1].clone();
+                if d < 0 { m.negate() } else { m }
+            };
+            // Normalize the reference to affine and derive its cached fields.
+            let zinv = reference.z.invert();
+            let x = reference.x.multiply(&zinv);
+            let y = reference.y.multiply(&zinv);
+            let expect_ypx = y.add(&x);
+            let expect_ymx = y.subtract(&x);
+            let expect_t2d = x.multiply(&y).multiply(&Fe51::two_d());
+
+            let (ypx, ymx, t2d) = table.select_signed_affine_ref(d).coords();
+            assert!(ypx.equals(&expect_ypx), "y+x mismatch at digit {d}");
+            assert!(ymx.equals(&expect_ymx), "y-x mismatch at digit {d}");
+            assert!(t2d.equals(&expect_t2d), "t2d mismatch at digit {d}");
+        }
+    }
+
+    /// Golden equivalence (Phase 1b): normalizing a projective public-key table
+    /// to affine must preserve every entry's point. Each affine entry equals the
+    /// projective one divided by `Z = z2/2`; verified by cross-multiplication
+    /// (`affine · z2 == 2 · projective`) so the check is independent of `invert`.
+    /// Uses the basepoint's radix-16 table, whose multiples `[2..8]B` have `Z ≠ 1`.
+    #[test]
+    fn normalized_affine_pointtable_matches_projective() {
+        let projective = PointTable::new(&EdwardsPoint::basepoint());
+        let affine = projective.normalized_affine();
+        assert!(affine.is_affine());
+        assert!(!projective.is_affine());
+
+        let two = Fe51::one().double();
+        for d in -8..=8i8 {
+            let (pypx, pymx, pz2, pt2d) = projective.select_signed_cached_ref(d).coords();
+            let (aypx, aymx, az2, at2d) = affine.select_signed_cached_ref(d).coords();
+            assert!(az2.equals(&two), "affine z2 != 2 at digit {d}");
+            assert!(
+                aypx.multiply(pz2).equals(&pypx.double()),
+                "y+x mismatch at digit {d}"
+            );
+            assert!(
+                aymx.multiply(pz2).equals(&pymx.double()),
+                "y-x mismatch at digit {d}"
+            );
+            assert!(
+                at2d.multiply(pz2).equals(&pt2d.double()),
+                "t2d mismatch at digit {d}"
+            );
+        }
+    }
 }

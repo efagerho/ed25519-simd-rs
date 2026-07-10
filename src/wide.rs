@@ -1,10 +1,12 @@
 pub(crate) mod avx512ifma {
-    use crate::batch::{PUBLIC_KEY_LEN, PreparedBatch, R_ENCODING_LEN};
-    #[cfg(test)]
+    use crate::batch::{PUBLIC_KEY_LEN, PreparedBatch, PreparedSplitBatch, R_ENCODING_LEN};
     use crate::edwards::EdwardsPoint;
-    use crate::edwards::{BasepointTable, CachedPoint, POINT_ENCODING_LEN, PointTable};
+    use crate::edwards::{
+        AffineCachedPoint, BasepointTable, BasepointTable4096, CachedPoint, POINT_ENCODING_LEN,
+        PointTable,
+    };
     use crate::field::{Fe51, LIMB_COUNT};
-    use crate::scalar::Radix16;
+    use crate::scalar::{Radix16, Radix16Half};
     use std::arch::x86_64::*;
 
     const LANES: usize = crate::batch::SIMD_LANES;
@@ -49,6 +51,22 @@ pub(crate) mod avx512ifma {
 
     /// Build the per-lane radix-16 cached tables from an already-decompressed
     /// SIMD point.
+    /// Phase 2h lazy promotion: one wide 127-doubling pass over the chunk's
+    /// promoting lanes (idle lanes carry the identity), then the same SIMD
+    /// radix-16 table builder the miss path uses. Returned tables are
+    /// projective; the caller normalizes the promoted lanes (1b form).
+    /// `double()` ignores the input `t`, so zero-`t` representatives from
+    /// `PointTable::recover_base_point` are valid inputs.
+    pub(crate) fn build_promoted_split_tables(
+        points: &[EdwardsPoint; LANES],
+    ) -> [PointTable; LANES] {
+        let mut p = WidePoint::from_points(points);
+        for _ in 0..126 {
+            p = p.double_without_t();
+        }
+        build_tables_from_point(p.double())
+    }
+
     fn build_tables_from_point(p: WidePoint) -> [PointTable; LANES] {
         // Tree-balanced multiples (P..8P): critical path ~4 deep instead of the
         // serial 7, with independent adds at each level to expose ILP.
@@ -102,11 +120,49 @@ pub(crate) mod avx512ifma {
         })
     }
 
+    // Phase 2h split-ladder variants: identical acceptance semantics (the
+    // ladder computes the same group element [s]B - [k]A via a halved
+    // doubling chain), so the policy tails mirror the fns below verbatim.
+    // Gating guarantees every lane was a cache hit, so R was never
+    // decompressed earlier in the chunk (no miss -> no decode): the Zip215
+    // variant decompresses R here and the Dalek variant recompresses, exactly
+    // like the all-hit paths of the current ladder.
+    pub(crate) fn verify_prepared_split_zip215(
+        prepared: &PreparedSplitBatch<'_>,
+        r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
+        base_table: &BasepointTable,
+        base_table_hi: &BasepointTable,
+    ) -> ([bool; LANES], [bool; LANES]) {
+        let (r_points, r_mask) = decompress_r_points(r_bytes);
+        let combined = mul_split(base_table, base_table_hi, prepared);
+        let mut check = combined.subtract(&r_points.0);
+        check = check
+            .double_without_t()
+            .double_without_t()
+            .double_without_t();
+        (check.identity_lanes(), lane_flags_from_mask_u8(r_mask))
+    }
+
+    pub(crate) fn verify_prepared_split_dalek(
+        prepared: &PreparedSplitBatch<'_>,
+        r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
+        base_table: &BasepointTable,
+        base_table_hi: &BasepointTable,
+    ) -> [bool; LANES] {
+        let combined = mul_split(base_table, base_table_hi, prepared);
+        let recomputed = combined.compress();
+        core::array::from_fn(|lane| recomputed[lane] == r_bytes[lane])
+    }
+
+    fn lane_flags_from_mask_u8(mask: u8) -> [bool; LANES] {
+        core::array::from_fn(|lane| mask & (1u8 << lane) != 0)
+    }
+
     // ZIP-215 cofactored verification: [8](sB - kA - R) == identity.
     pub(crate) fn verify_prepared_zip215(
         prepared: &PreparedBatch<'_>,
         r: &WideRPoints,
-        base_table: &BasepointTable,
+        base_table: &BasepointTable4096,
     ) -> [bool; LANES] {
         let combined = mul_base_minus_public(base_table, prepared);
         let mut check = combined.subtract(&r.0);
@@ -120,7 +176,7 @@ pub(crate) mod avx512ifma {
     pub(crate) fn verify_prepared_dalek(
         prepared: &PreparedBatch<'_>,
         r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
-        base_table: &BasepointTable,
+        base_table: &BasepointTable4096,
     ) -> [bool; LANES] {
         let combined = mul_base_minus_public(base_table, prepared);
         let recomputed = combined.compress();
@@ -130,7 +186,7 @@ pub(crate) mod avx512ifma {
     pub(crate) fn verify_prepared_dalek_projective(
         prepared: &PreparedBatch<'_>,
         r: &WideRPoints,
-        base_table: &BasepointTable,
+        base_table: &BasepointTable4096,
     ) -> [bool; LANES] {
         let combined = mul_base_minus_public(base_table, prepared);
         combined.equals_affine_lanes(&r.0)
@@ -242,7 +298,153 @@ pub(crate) mod avx512ifma {
         let (pa, pb) = WideFe::pow_p_minus_5_over_8_x2(&sa.exp, &sb.exp);
         (decompress_finish(sa, pa), decompress_finish(sb, pb))
     }
+    /// Phase 2h split ladder (design addendum §3): [s₀]B + [s₁]B′ − [k₀]A −
+    /// [k₁]A′ over four 32-digit scalars — 31 × double4 = 124 doublings and
+    /// 96 affine adds. Computes exactly [s]B − [k]A (integer split identity),
+    /// so acceptance semantics are unchanged for both policies.
+    fn mul_split(
+        base_table: &BasepointTable,
+        base_table_hi: &BasepointTable,
+        prepared: &PreparedSplitBatch<'_>,
+    ) -> WidePoint {
+        let mut acc = WidePoint::identity();
+
+        // Top digits 31, then pair 15 after the first double4 (weights match
+        // the full ladder's convention: digit d carries 16^d).
+        add_split_public_digit(&mut acc, &prepared.a_tables, prepared.k0_digits, 31);
+        add_split_public_digit(&mut acc, &prepared.a_hi_tables, prepared.k1_digits, 31);
+        acc = acc.double4();
+        add_split_base_pair(&mut acc, base_table, prepared.s0_digits, 15);
+        add_split_base_pair(&mut acc, base_table_hi, prepared.s1_digits, 15);
+        add_split_public_digit(&mut acc, &prepared.a_tables, prepared.k0_digits, 30);
+        add_split_public_digit(&mut acc, &prepared.a_hi_tables, prepared.k1_digits, 30);
+
+        for pair in (0..15).rev() {
+            acc = acc.double4();
+            add_split_public_digit(&mut acc, &prepared.a_tables, prepared.k0_digits, pair * 2 + 1);
+            add_split_public_digit(
+                &mut acc,
+                &prepared.a_hi_tables,
+                prepared.k1_digits,
+                pair * 2 + 1,
+            );
+
+            acc = acc.double4();
+            add_split_base_pair(&mut acc, base_table, prepared.s0_digits, pair);
+            add_split_base_pair(&mut acc, base_table_hi, prepared.s1_digits, pair);
+            add_split_public_digit(&mut acc, &prepared.a_tables, prepared.k0_digits, pair * 2);
+            add_split_public_digit(&mut acc, &prepared.a_hi_tables, prepared.k1_digits, pair * 2);
+        }
+        acc
+    }
+
+    /// Split-path public add: gating guarantees affine tables, so this is the
+    /// 7 M mixed-add unconditionally. Digits are negated at selection (the
+    /// ladder subtracts [k]A), exactly like `add_public_digit`.
+    #[inline]
+    fn add_split_public_digit(
+        acc: &mut WidePoint,
+        tables: &[&PointTable; LANES],
+        digits: &[Radix16Half; LANES],
+        index: usize,
+    ) {
+        let selected: [_; LANES] = core::array::from_fn(|lane| {
+            tables[lane].select_signed_cached_ref(-digits[lane][index])
+        });
+        let selected = WideAffineCachedPoint::from_cached_refs(&selected);
+        acc.add_affine_cached_assign(&selected);
+    }
+
+    /// Split-path fixed-base add with the usual radix-256 pair fold
+    /// (|d₂ₚ + 16·d₂ₚ₊₁| ≤ 136, same 273-entry table range).
+    #[inline]
+    fn add_split_base_pair(
+        acc: &mut WidePoint,
+        table: &BasepointTable,
+        digits: &[Radix16Half; LANES],
+        pair: usize,
+    ) {
+        let selected: [_; LANES] = core::array::from_fn(|lane| {
+            let d = &digits[lane];
+            let folded = d[2 * pair] as i16 + 16 * d[2 * pair + 1] as i16;
+            table.select_signed_affine_ref(folded)
+        });
+        let selected = WideAffineCachedPoint::from_affine_refs(&selected);
+        acc.add_affine_cached_assign(&selected);
+    }
+
     fn mul_base_minus_public(
+        base_table: &BasepointTable4096,
+        prepared: &PreparedBatch<'_>,
+    ) -> WidePoint {
+        // Monomorphize the whole ladder on whether the public-key tables are
+        // affine, so the per-digit add path carries no runtime branch.
+        if prepared.all_affine {
+            mul_base_minus_public_impl::<true>(base_table, prepared)
+        } else {
+            mul_base_minus_public_impl::<false>(base_table, prepared)
+        }
+    }
+
+    /// Phase 3 shape: fixed-base adds fold THREE radix-16 digits into one
+    /// radix-4096 digit — 21 triples (digits 0..62) + the lone top digit 63,
+    /// 22 base adds instead of 32 pair-folds. Doublings unchanged (63 ×
+    /// double4). Triple p is added when 3p doubling-blocks remain, carrying
+    /// weight 16^{3p}; digit 63 rides the top add (weight 16⁶³).
+    fn mul_base_minus_public_impl<const AFFINE: bool>(
+        base_table: &BasepointTable4096,
+        prepared: &PreparedBatch<'_>,
+    ) -> WidePoint {
+        let public_key_tables = &prepared.public_key_tables;
+        let s_digits = prepared.s_digits;
+        let k_digits = prepared.k_digits;
+
+        let mut acc = WidePoint::identity();
+
+        // Top: digit 63 for both scalars (no fold partners above 62).
+        add_public_digit::<AFFINE>(&mut acc, public_key_tables, k_digits, 63);
+        add_base_triple_digit(&mut acc, base_table, s_digits, 21);
+
+        for pos in (0..63).rev() {
+            acc = acc.double4();
+            add_public_digit::<AFFINE>(&mut acc, public_key_tables, k_digits, pos);
+            if pos % 3 == 0 {
+                add_base_triple_digit(&mut acc, base_table, s_digits, pos / 3);
+            }
+        }
+        acc
+    }
+
+    /// Fold three radix-16 digits into a radix-4096 digit. Triple 21 is the
+    /// lone digit 63. Bound: |d₀ + 16d₁ + 256d₂| ≤ 8 + 128 + 2048 = 2184.
+    #[inline]
+    fn base_triple_digit(digits: &Radix16, triple: usize) -> i16 {
+        if triple == 21 {
+            return digits[63] as i16;
+        }
+        let base = 3 * triple;
+        digits[base] as i16 + 16 * digits[base + 1] as i16 + 256 * digits[base + 2] as i16
+    }
+
+    #[inline]
+    fn add_base_triple_digit(
+        acc: &mut WidePoint,
+        base_table: &BasepointTable4096,
+        s_digits: &[Radix16; LANES],
+        triple: usize,
+    ) {
+        let selected: [_; LANES] = core::array::from_fn(|lane| {
+            base_table.select_signed_affine_ref(base_triple_digit(&s_digits[lane], triple))
+        });
+        let selected = WideAffineCachedPoint::from_affine_refs(&selected);
+        acc.add_affine_cached_assign(&selected);
+    }
+
+    /// Pre-Phase-3 pair-fold ladder, kept as the differential oracle for the
+    /// old-vs-new ladder golden (CLAUDE.md: every ladder/table change ships
+    /// with an old-vs-new differential).
+    #[cfg(test)]
+    fn mul_base_minus_public_pairfold(
         base_table: &BasepointTable,
         prepared: &PreparedBatch<'_>,
     ) -> WidePoint {
@@ -252,24 +454,24 @@ pub(crate) mod avx512ifma {
 
         let mut acc = WidePoint::identity();
 
-        // Start at top digits 63/62; reduced scalars have no digit above 63.
-        add_public_digit(&mut acc, public_key_tables, k_digits, 63);
+        add_public_digit::<false>(&mut acc, public_key_tables, k_digits, 63);
         acc = acc.double4();
         add_base_pair_digit(&mut acc, base_table, s_digits, 31);
-        add_public_digit(&mut acc, public_key_tables, k_digits, 62);
+        add_public_digit::<false>(&mut acc, public_key_tables, k_digits, 62);
 
         for pair in (0..31).rev() {
             acc = acc.double4();
-            add_public_digit(&mut acc, public_key_tables, k_digits, pair * 2 + 1);
+            add_public_digit::<false>(&mut acc, public_key_tables, k_digits, pair * 2 + 1);
 
             acc = acc.double4();
             add_base_pair_digit(&mut acc, base_table, s_digits, pair);
-            add_public_digit(&mut acc, public_key_tables, k_digits, pair * 2);
+            add_public_digit::<false>(&mut acc, public_key_tables, k_digits, pair * 2);
         }
         acc
     }
 
-    #[inline]
+    // Post-Phase-3 the pair-fold path survives only as the test oracle.
+    #[cfg(test)]
     fn add_base_pair_digit(
         acc: &mut WidePoint,
         base_table: &BasepointTable,
@@ -277,14 +479,14 @@ pub(crate) mod avx512ifma {
         pair: usize,
     ) {
         let selected: [_; LANES] = core::array::from_fn(|lane| {
-            base_table.select_signed_cached_ref(base_pair_digit(&s_digits[lane], pair))
+            base_table.select_signed_affine_ref(base_pair_digit(&s_digits[lane], pair))
         });
-        let selected = WideCachedPoint::from_cached_refs(&selected);
-        acc.add_cached_assign(&selected);
+        let selected = WideAffineCachedPoint::from_affine_refs(&selected);
+        acc.add_affine_cached_assign(&selected);
     }
 
     #[inline]
-    fn add_public_digit(
+    fn add_public_digit<const AFFINE: bool>(
         acc: &mut WidePoint,
         public_key_tables: &[&PointTable; LANES],
         k_digits: &[Radix16; LANES],
@@ -293,11 +495,19 @@ pub(crate) mod avx512ifma {
         let selected: [_; LANES] = core::array::from_fn(|lane| {
             public_key_tables[lane].select_signed_cached_ref(-k_digits[lane][index])
         });
-        let selected = WideCachedPoint::from_cached_refs(&selected);
-        acc.add_cached_assign(&selected);
+        // All lanes affine (`Z = 1`): the `Z₁·z2` product becomes a doubling,
+        // 7 M/add instead of 8. Otherwise fall back to the projective add.
+        if AFFINE {
+            let selected = WideAffineCachedPoint::from_cached_refs(&selected);
+            acc.add_affine_cached_assign(&selected);
+        } else {
+            let selected = WideCachedPoint::from_cached_refs(&selected);
+            acc.add_cached_assign(&selected);
+        }
     }
 
     // Fold a radix-16 digit pair into a bounded radix-256 base-table digit.
+    #[cfg(test)]
     #[inline(always)]
     fn base_pair_digit(digits: &Radix16, pair: usize) -> i16 {
         digits[pair * 2] as i16 + ((digits[pair * 2 + 1] as i16) << 4)
@@ -915,6 +1125,41 @@ pub(crate) mod avx512ifma {
         }
     }
 
+    /// Affine (`Z = 1`) precomputed point — the basepoint table's entry form.
+    /// No `z2` field: the mixed addition doubles the accumulator's `Z` instead.
+    #[derive(Clone, Copy)]
+    struct WideAffineCachedPoint {
+        y_plus_x: WideFe,
+        y_minus_x: WideFe,
+        t2d: WideFe,
+    }
+
+    impl WideAffineCachedPoint {
+        fn from_affine_refs(points: &[&AffineCachedPoint; LANES]) -> Self {
+            let y_plus_x = core::array::from_fn(|lane| points[lane].coords().0);
+            let y_minus_x = core::array::from_fn(|lane| points[lane].coords().1);
+            let t2d = core::array::from_fn(|lane| points[lane].coords().2);
+            Self {
+                y_plus_x: WideFe::from_field_refs(&y_plus_x),
+                y_minus_x: WideFe::from_field_refs(&y_minus_x),
+                t2d: WideFe::from_field_refs(&t2d),
+            }
+        }
+
+        /// Read affine-normalized `CachedPoint`s (public-key tables) as affine
+        /// cached form, discarding the constant `z2 = 2`. Caller guarantees `Z = 1`.
+        fn from_cached_refs(points: &[&CachedPoint; LANES]) -> Self {
+            let y_plus_x = core::array::from_fn(|lane| points[lane].coords().0);
+            let y_minus_x = core::array::from_fn(|lane| points[lane].coords().1);
+            let t2d = core::array::from_fn(|lane| points[lane].coords().3);
+            Self {
+                y_plus_x: WideFe::from_field_refs(&y_plus_x),
+                y_minus_x: WideFe::from_field_refs(&y_minus_x),
+                t2d: WideFe::from_field_refs(&t2d),
+            }
+        }
+    }
+
     impl WidePoint {
         fn identity() -> Self {
             Self {
@@ -979,6 +1224,24 @@ pub(crate) mod avx512ifma {
             self.z = f.multiply(&g);
             self.y = g.multiply(&h);
         }
+        /// Mixed addition with an affine (`Z = 1`) cached point. Identical to
+        /// `add_cached_assign` except the `Z₁·z2` product collapses to
+        /// `Z₁.double()` — one fewer multiply, since `z2 = 2·Z₂ = 2`.
+        fn add_affine_cached_assign(&mut self, rhs: &WideAffineCachedPoint) {
+            let a = self.y.subtract(&self.x).multiply_loose(&rhs.y_minus_x);
+            let b = self.y.add_loose(&self.x).multiply_loose(&rhs.y_plus_x);
+            let e = b.subtract_wide(&a);
+            let h = b.add_loose(&a);
+            let c = self.t.multiply_loose(&rhs.t2d);
+            let d = self.z.double_loose();
+            let f = d.subtract_wide(&c);
+            let g = d.add_loose(&c);
+
+            self.x = e.multiply(&f);
+            self.t = e.multiply(&h);
+            self.z = f.multiply(&g);
+            self.y = g.multiply(&h);
+        }
         fn subtract(&self, rhs: &Self) -> Self {
             self.add(&rhs.negate())
         }
@@ -991,21 +1254,33 @@ pub(crate) mod avx512ifma {
             }
         }
         fn double(&self) -> Self {
-            self.double_impl::<true>()
+            self.double_impl::<true, false>()
         }
+        /// Strict-output doubling, UNCHANGED by F1: the decide path's cofactor
+        /// doublings feed `identity_lanes`/`equals_lanes`, which compare limb
+        /// representations and need strict operands.
         fn double_without_t(&self) -> Self {
-            self.double_impl::<false>()
+            self.double_impl::<false, false>()
         }
 
         #[inline(never)]
         fn double4(&self) -> Self {
+            // F1 (audit): the three interior doublings emit LOOSE x, y, z
+            // (limb0 < 2^60, limbs 1..4 < 2^51 via reduce_ifma_loose) — their
+            // only consumer is the next double_impl, whose squares
+            // pre-normalize, whose e-term add keeps limb0 sums < 2^61, and
+            // whose subtracts carry the 2048p wide bias. The FOURTH doubling
+            // stays strict: its output feeds the mixed adds, where y±x uses
+            // the small 4p-bias subtract and t is a multiply operand (52-bit
+            // invariant). Saves one reduce_loose pass × 3 fields × 3 steps
+            // per double4.
             let doubled = self
-                .double_without_t()
-                .double_without_t()
-                .double_without_t();
+                .double_impl::<false, true>()
+                .double_impl::<false, true>()
+                .double_impl::<false, true>();
             doubled.double()
         }
-        fn double_impl<const COMPUTE_T: bool>(&self) -> Self {
+        fn double_impl<const COMPUTE_T: bool, const LOOSE_OUT: bool>(&self) -> Self {
             // Loose squares feed additive ops; use wide subtract/negate for
             // limb0 values up to ~2^60.
             let a = self.x.square_loose();
@@ -1019,17 +1294,30 @@ pub(crate) mod avx512ifma {
             let g = b.subtract_wide(&a);
             let f = b.subtract_sum_wide(&a, &c);
             let h = WideFe::negate_sum_wide(&a, &b);
+            // e, f, g, h come through subtract_wide/negate (reduce_loose
+            // tails): all limbs < 2^52 — strict, valid multiply operands.
             let t = if COMPUTE_T {
                 e.multiply(&h)
             } else {
                 WideFe::zero()
             };
 
-            Self {
-                x: e.multiply(&f),
-                y: g.multiply(&h),
-                t,
-                z: f.multiply(&g),
+            if LOOSE_OUT {
+                // F1 interior form: skip the trailing reduce_loose pass;
+                // outputs are loose (limb0 < 2^60) per reduce_ifma_loose.
+                Self {
+                    x: e.multiply_loose(&f),
+                    y: g.multiply_loose(&h),
+                    t,
+                    z: f.multiply_loose(&g),
+                }
+            } else {
+                Self {
+                    x: e.multiply(&f),
+                    y: g.multiply(&h),
+                    t,
+                    z: f.multiply(&g),
+                }
             }
         }
         fn identity_lanes(self) -> [bool; LANES] {
@@ -1038,7 +1326,6 @@ pub(crate) mod avx512ifma {
             core::array::from_fn(|lane| x_zero[lane] && yz_equal[lane])
         }
 
-        #[cfg(test)]
         fn from_points(points: &[EdwardsPoint; LANES]) -> Self {
             let xs = core::array::from_fn(|lane| *points[lane].coords().0);
             let ys = core::array::from_fn(|lane| *points[lane].coords().1);
@@ -1450,7 +1737,7 @@ pub(crate) mod avx512ifma {
         fn wide_multiscalar_identity_key_is_identity() {
             let id = EdwardsPoint::identity();
             let table = PointTable::new(&id);
-            let base_table = BasepointTable::new();
+            let base_table = BasepointTable4096::from_point(&EdwardsPoint::basepoint());
             let s_digits = [[0i8; 64]; LANES];
             let mut one_bytes = [0u8; 32];
             one_bytes[0] = 1;
@@ -1460,6 +1747,7 @@ pub(crate) mod avx512ifma {
                 public_key_tables: [&table; LANES],
                 s_digits: &s_digits,
                 k_digits: &k_digits,
+                all_affine: false,
             };
             let combined = mul_base_minus_public(&base_table, &prepared);
             let pts = combined.to_points();
@@ -1467,6 +1755,192 @@ pub(crate) mod avx512ifma {
                 pts[0].compress(),
                 id.compress(),
                 "sB - kA for s=0, A=identity must be identity"
+            );
+        }
+
+        /// Phase 3 differential (CLAUDE.md ladder-change rule): the radix-4096
+        /// triple-fold ladder must produce the SAME point as the pre-Phase-3
+        /// pair-fold ladder, on ordinary and order-8 torsion keys and
+        /// boundary + random scalars, projective and affine key tables.
+        #[test]
+        fn radix4096_ladder_matches_pairfold_ladder() {
+            let base_pair = BasepointTable::new();
+            let base_4096 = BasepointTable4096::from_point(&EdwardsPoint::basepoint());
+
+            let mut scalar_cases: Vec<[u8; 32]> = vec![[0u8; 32]];
+            let mut one = [0u8; 32];
+            one[0] = 1;
+            scalar_cases.push(one);
+            scalar_cases.push([
+                0xec, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde,
+                0xf9, 0xde, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
+            ]); // ℓ − 1
+            let mut st = 0x5eed_4096u64;
+            for _ in 0..5 {
+                let mut bytes = [0u8; 32];
+                for chunk in bytes.chunks_mut(8) {
+                    st = st.wrapping_mul(0xd134_2543_de82_ef95).wrapping_add(1);
+                    chunk.copy_from_slice(&st.to_le_bytes());
+                }
+                bytes[31] &= 0x0f;
+                scalar_cases.push(bytes);
+            }
+
+            for a_point in [EdwardsPoint::basepoint(), ord8a()] {
+                let table_proj = PointTable::new(&a_point);
+                let table_aff = table_proj.normalized_affine();
+                for s_bytes in &scalar_cases {
+                    for k_bytes in &scalar_cases {
+                        let s = crate::scalar::Scalar::from_canonical_bytes(*s_bytes);
+                        let k = crate::scalar::Scalar::from_canonical_bytes(*k_bytes);
+                        let s_digits = [s.to_radix16(); LANES];
+                        let k_digits = [k.to_radix16(); LANES];
+                        for (table, affine) in [(&table_proj, false), (&table_aff, true)] {
+                            let prepared = PreparedBatch {
+                                public_key_tables: [table; LANES],
+                                s_digits: &s_digits,
+                                k_digits: &k_digits,
+                                all_affine: affine,
+                            };
+                            let new = mul_base_minus_public(&base_4096, &prepared);
+                            let old = mul_base_minus_public_pairfold(&base_pair, &prepared);
+                            assert_eq!(
+                                new.to_points()[0].compress(),
+                                old.to_points()[0].compress(),
+                                "triple-fold ladder diverges from pair-fold"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        /// Phase 2h golden: the split ladder must produce the SAME point as the
+        /// full ladder (not merely the same accept bit) — [s₀]B + [s₁]B′ −
+        /// [k₀]A − [k₁]A′ = [s]B − [k]A by the integer split identity. Covers
+        /// an ordinary key, an order-8 torsion key, and boundary scalars.
+        #[test]
+        fn split_ladder_matches_full_ladder() {
+            let base_table = BasepointTable4096::from_point(&EdwardsPoint::basepoint());
+            let base_pair = BasepointTable::new();
+            let base_table_hi =
+                BasepointTable::from_point(&EdwardsPoint::basepoint().mul_by_pow2_127());
+
+            let mut scalar_cases: Vec<[u8; 32]> = vec![[0u8; 32]];
+            let mut one = [0u8; 32];
+            one[0] = 1;
+            scalar_cases.push(one);
+            // ℓ − 1 (canonical maximum).
+            scalar_cases.push([
+                0xec, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde,
+                0xf9, 0xde, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
+            ]);
+            // Pseudo-random canonical values with bits on both sides of 127.
+            let mut st = 0x5eed_2050_u64;
+            for _ in 0..4 {
+                let mut b = [0u8; 32];
+                for chunk in b.chunks_mut(8) {
+                    st = st.wrapping_mul(0xd134_2543_de82_ef95).wrapping_add(1);
+                    chunk.copy_from_slice(&st.to_le_bytes());
+                }
+                b[31] &= 0x0f;
+                scalar_cases.push(b);
+            }
+
+            for a_point in [EdwardsPoint::basepoint(), ord8a()] {
+                let a_table = PointTable::new(&a_point).normalized_affine();
+                let a_hi_table =
+                    PointTable::new(&a_point.mul_by_pow2_127()).normalized_affine();
+
+                for s_bytes in &scalar_cases {
+                    for k_bytes in &scalar_cases {
+                        let s = crate::scalar::Scalar::from_canonical_bytes(*s_bytes);
+                        let k = crate::scalar::Scalar::from_canonical_bytes(*k_bytes);
+
+                        let s_digits = [s.to_radix16(); LANES];
+                        let k_digits = [k.to_radix16(); LANES];
+                        let full = mul_base_minus_public(
+                            &base_table,
+                            &PreparedBatch {
+                                public_key_tables: [&a_table; LANES],
+                                s_digits: &s_digits,
+                                k_digits: &k_digits,
+                                all_affine: true,
+                            },
+                        );
+
+                        let (s0, s1) = s.split_radix16();
+                        let (k0, k1) = k.split_radix16();
+                        let split = mul_split(
+                            &base_pair,
+                            &base_table_hi,
+                            &PreparedSplitBatch {
+                                a_tables: [&a_table; LANES],
+                                a_hi_tables: [&a_hi_table; LANES],
+                                k0_digits: &[k0; LANES],
+                                k1_digits: &[k1; LANES],
+                                s0_digits: &[s0; LANES],
+                                s1_digits: &[s1; LANES],
+                            },
+                        );
+                        assert_eq!(
+                            split.to_points()[0].compress(),
+                            full.to_points()[0].compress(),
+                            "split ladder diverges from full ladder"
+                        );
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn wide_affine_public_ladder_matches_projective() {
+            // A real key point; its radix-16 multiples [2..8]A have Z != 1, so
+            // the affine-normalized table genuinely differs in representation.
+            let a = EdwardsPoint::basepoint();
+            let table = PointTable::new(&a);
+            let table_affine = table.normalized_affine();
+            assert!(table_affine.is_affine());
+            let base_table = BasepointTable4096::from_point(&EdwardsPoint::basepoint());
+
+            // Canonical scalars (high bytes zero => < L) with scattered digits.
+            let mut s_bytes = [0u8; 32];
+            s_bytes[0] = 0x42;
+            s_bytes[1] = 0x17;
+            s_bytes[5] = 0x9c;
+            let s = crate::scalar::Scalar::from_canonical_bytes(s_bytes);
+            let s_digits = [s.to_radix16(); LANES];
+            let mut k_bytes = [0u8; 32];
+            k_bytes[0] = 0x9d;
+            k_bytes[2] = 0xab;
+            k_bytes[7] = 0x3e;
+            let k = crate::scalar::Scalar::from_canonical_bytes(k_bytes);
+            let k_digits = [k.to_radix16(); LANES];
+
+            let projective = mul_base_minus_public(
+                &base_table,
+                &PreparedBatch {
+                    public_key_tables: [&table; LANES],
+                    s_digits: &s_digits,
+                    k_digits: &k_digits,
+                    all_affine: false,
+                },
+            );
+            let affine = mul_base_minus_public(
+                &base_table,
+                &PreparedBatch {
+                    public_key_tables: [&table_affine; LANES],
+                    s_digits: &s_digits,
+                    k_digits: &k_digits,
+                    all_affine: true,
+                },
+            );
+            assert_eq!(
+                projective.to_points()[0].compress(),
+                affine.to_points()[0].compress(),
+                "affine public-key ladder diverges from projective"
             );
         }
 
@@ -1502,7 +1976,7 @@ pub(crate) mod avx512ifma {
             a_bytes[0] = 1;
             let id = EdwardsPoint::decompress(&a_bytes).unwrap();
             let table = PointTable::new(&id);
-            let base_table = BasepointTable::new();
+            let base_table = BasepointTable4096::from_point(&EdwardsPoint::basepoint());
             let s_digits = [[0i8; 64]; LANES];
             let digest =
                 crate::sha512::hash_slices(&[&r_bytes, &a_bytes, b"taming the many eddsas"]);
@@ -1512,6 +1986,7 @@ pub(crate) mod avx512ifma {
                 public_key_tables: [&table; LANES],
                 s_digits: &s_digits,
                 k_digits: &k_digits,
+                all_affine: false,
             };
             let (r_point, r_mask) = decompress_points_wide(&[r_bytes; LANES]);
             assert_eq!(r_mask, 0xff, "torsion R must decode");

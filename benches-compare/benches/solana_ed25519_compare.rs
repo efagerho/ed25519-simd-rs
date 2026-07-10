@@ -273,6 +273,16 @@ fn bench_hot_keys_scenario(c: &mut Criterion, group_name: &str, hot_key_count: u
             hot_key_count,
             &inputs,
         );
+        // Phase 2h touches both policies (the split ladder computes the same
+        // point); the report asserts Dalek improves consistently with Zip215.
+        bench_ours_hot_key_cache(
+            &mut group,
+            "ed25519_simd_hotcache/dalek",
+            VerifyPolicy::Dalek,
+            n,
+            hot_key_count,
+            &inputs,
+        );
     }
     group.finish();
 }
@@ -404,6 +414,59 @@ fn bench_hot_keys_4(c: &mut Criterion) {
     bench_hot_keys_scenario(c, "hot_keys/distinct_4", 4);
 }
 
+/// Cache churn: every key in the batch is distinct and the capacity is far
+/// smaller, so the steady state is all-miss (keys are evicted before reuse).
+/// Guard for Phase 2h lazy promotion: no A′ is ever built here, so this must
+/// stay at Phase 1b levels.
+fn bench_hot_keys_churn(c: &mut Criterion) {
+    let mut group = c.benchmark_group("hot_keys/churn_cap4");
+    for n in SIZES {
+        let cases = generate_hot_keys(n, n, MsgLen::Fixed(1));
+        let inputs = inputs_of(&cases);
+        group.throughput(Throughput::Elements(n as u64));
+        bench_ours_hot_key_cache(
+            &mut group,
+            "ed25519_simd_hotcache/zip215",
+            VerifyPolicy::Zip215,
+            n,
+            4,
+            &inputs,
+        );
+    }
+    group.finish();
+}
+
+/// Large hot-key working sets: fully distinct keys (`hot_key_count == n`), all
+/// resident after warmup. At 256/1024 keys the retained tables spill L1/L2, so
+/// the affine cache's smaller per-key gather footprint (Phase 1c) can show up —
+/// unlike `distinct_4`, whose 4 tables fit L1. `HotKeyCache` vs `NullKeyCache`,
+/// Zip215, msg_len 1.
+fn bench_hot_keys_large(c: &mut Criterion) {
+    let mut group = c.benchmark_group("hot_keys/large_distinct");
+    for n in [256usize, 1024] {
+        let cases = generate_hot_keys(n, n, MsgLen::Fixed(1));
+        let inputs = inputs_of(&cases);
+        group.throughput(Throughput::Elements(n as u64));
+
+        bench_ours_nocache(
+            &mut group,
+            "ed25519_simd_nullcache/zip215",
+            VerifyPolicy::Zip215,
+            n,
+            &inputs,
+        );
+        bench_ours_hot_key_cache(
+            &mut group,
+            "ed25519_simd_hotcache/zip215",
+            VerifyPolicy::Zip215,
+            n,
+            n,
+            &inputs,
+        );
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_distinct_keys_len1,
@@ -411,6 +474,8 @@ criterion_group!(
     bench_distinct_keys_mixed_len,
     bench_garbage_25,
     bench_garbage_50,
-    bench_hot_keys_4
+    bench_hot_keys_4,
+    bench_hot_keys_large,
+    bench_hot_keys_churn
 );
 criterion_main!(benches);
