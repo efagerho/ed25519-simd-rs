@@ -328,49 +328,17 @@ pub(crate) mod avx512ifma {
             }
         }
         fn from_fields(fields: &[Fe51; LANES]) -> Self {
-            let mut by_limb = [[0u64; LANES]; LIMB_COUNT];
-            let mut lane = 0;
-            while lane < LANES {
-                let limbs = fields[lane].reduced_limbs();
-                let mut limb = 0;
-                while limb < 5 {
-                    by_limb[limb][lane] = limbs[limb];
-                    limb += 1;
-                }
-                lane += 1;
-            }
-
+            let lane_ptrs: [*const i64; LANES] =
+                core::array::from_fn(|lane| fields[lane].limbs_ref().as_ptr() as *const i64);
             Self {
-                limbs: [
-                    loadu(by_limb[0]),
-                    loadu(by_limb[1]),
-                    loadu(by_limb[2]),
-                    loadu(by_limb[3]),
-                    loadu(by_limb[4]),
-                ],
+                limbs: transpose_lane_limbs(lane_ptrs),
             }
         }
         fn from_field_refs(fields: &[&Fe51; LANES]) -> Self {
-            let mut by_limb = [[0u64; LANES]; LIMB_COUNT];
-            let mut lane = 0;
-            while lane < LANES {
-                let limbs = fields[lane].reduced_limbs();
-                let mut limb = 0;
-                while limb < 5 {
-                    by_limb[limb][lane] = limbs[limb];
-                    limb += 1;
-                }
-                lane += 1;
-            }
-
+            let lane_ptrs: [*const i64; LANES] =
+                core::array::from_fn(|lane| fields[lane].limbs_ref().as_ptr() as *const i64);
             Self {
-                limbs: [
-                    loadu(by_limb[0]),
-                    loadu(by_limb[1]),
-                    loadu(by_limb[2]),
-                    loadu(by_limb[3]),
-                    loadu(by_limb[4]),
-                ],
+                limbs: transpose_lane_limbs(lane_ptrs),
             }
         }
         fn to_fields(self) -> [Fe51; LANES] {
@@ -1147,6 +1115,62 @@ pub(crate) mod avx512ifma {
     }
     fn loadu(values: [u64; LANES]) -> __m512i {
         unsafe { _mm512_loadu_si512(values.as_ptr() as *const __m512i) }
+    }
+
+    /// Transpose eight lanes' `Fe51` limbs (each pointed at by `lane_ptrs`) into
+    /// the five limb-planes of a `WideFe`, entirely in registers.
+    ///
+    /// Each lane is pulled in with one masked 512-bit load (five valid qwords,
+    /// top three zeroed), then a standard AVX-512 8×8 qword transpose
+    /// (`unpack` + `shuffle_i64x2`) rearranges lane-major limbs into limb-major
+    /// planes. This replaces the previous scalar-store-then-wide-`loadu` round
+    /// trip, whose 512-bit loads each read eight distinct 64-bit stores and so
+    /// stalled store-to-load forwarding on znver5 (~+400 cycles per base add).
+    /// The pointed-at `Fe51`s are cold table/scratch memory, so their loads do
+    /// not themselves create a forwarding hazard.
+    #[inline]
+    fn transpose_lane_limbs(lane_ptrs: [*const i64; LANES]) -> [__m512i; LIMB_COUNT] {
+        unsafe {
+            // Lane-major: r_j holds lane j's [limb0..limb4, 0, 0, 0].
+            let r0 = _mm512_maskz_loadu_epi64(0x1F, lane_ptrs[0]);
+            let r1 = _mm512_maskz_loadu_epi64(0x1F, lane_ptrs[1]);
+            let r2 = _mm512_maskz_loadu_epi64(0x1F, lane_ptrs[2]);
+            let r3 = _mm512_maskz_loadu_epi64(0x1F, lane_ptrs[3]);
+            let r4 = _mm512_maskz_loadu_epi64(0x1F, lane_ptrs[4]);
+            let r5 = _mm512_maskz_loadu_epi64(0x1F, lane_ptrs[5]);
+            let r6 = _mm512_maskz_loadu_epi64(0x1F, lane_ptrs[6]);
+            let r7 = _mm512_maskz_loadu_epi64(0x1F, lane_ptrs[7]);
+
+            // Stage 1: interleave adjacent lanes within each 128-bit block.
+            let t0 = _mm512_unpacklo_epi64(r0, r1);
+            let t1 = _mm512_unpackhi_epi64(r0, r1);
+            let t2 = _mm512_unpacklo_epi64(r2, r3);
+            let t3 = _mm512_unpackhi_epi64(r2, r3);
+            let t4 = _mm512_unpacklo_epi64(r4, r5);
+            let t5 = _mm512_unpackhi_epi64(r4, r5);
+            let t6 = _mm512_unpacklo_epi64(r6, r7);
+            let t7 = _mm512_unpackhi_epi64(r6, r7);
+
+            // Stage 2: gather 128-bit lanes across lane-pairs (0x88 = even
+            // 128-bit lanes, 0xDD = odd).
+            let v0 = _mm512_shuffle_i64x2::<0x88>(t0, t2);
+            let v1 = _mm512_shuffle_i64x2::<0xDD>(t0, t2);
+            let v2 = _mm512_shuffle_i64x2::<0x88>(t1, t3);
+            let v3 = _mm512_shuffle_i64x2::<0xDD>(t1, t3);
+            let v4 = _mm512_shuffle_i64x2::<0x88>(t4, t6);
+            let v5 = _mm512_shuffle_i64x2::<0xDD>(t4, t6);
+            let v6 = _mm512_shuffle_i64x2::<0x88>(t5, t7);
+            let v7 = _mm512_shuffle_i64x2::<0xDD>(t5, t7);
+
+            // Stage 3: merge the two 4-lane halves into full limb-planes.
+            [
+                _mm512_shuffle_i64x2::<0x88>(v0, v4), // limb 0
+                _mm512_shuffle_i64x2::<0x88>(v2, v6), // limb 1
+                _mm512_shuffle_i64x2::<0x88>(v1, v5), // limb 2
+                _mm512_shuffle_i64x2::<0x88>(v3, v7), // limb 3
+                _mm512_shuffle_i64x2::<0xDD>(v0, v4), // limb 4
+            ]
+        }
     }
     fn storeu(value: __m512i, out: &mut [u64; LANES]) {
         unsafe { _mm512_storeu_si512(out.as_mut_ptr() as *mut __m512i, value) }

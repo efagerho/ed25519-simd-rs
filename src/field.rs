@@ -235,6 +235,14 @@ impl Fe51 {
         self.limbs
     }
 
+    /// Borrow the raw limbs for a direct SIMD load (see `WideFe::from_field_refs`),
+    /// avoiding the by-value copy `reduced_limbs` would make. Limbs satisfy the
+    /// loosely-reduced invariant (`< 2^52`).
+    pub(crate) fn limbs_ref(&self) -> &[u64; LIMB_COUNT] {
+        debug_assert!(self.limbs.iter().all(|&limb| limb < (1u64 << 52)));
+        &self.limbs
+    }
+
     // Exposed to tests to cross-check the SIMD exponentiation chain.
     pub(crate) fn pow_p_minus_5_over_8(&self) -> Self {
         let t0 = self.square();
