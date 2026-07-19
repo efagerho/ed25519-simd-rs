@@ -229,15 +229,7 @@ impl Fe51 {
         self.canonical().limbs == rhs.canonical().limbs
     }
 
-    /// Loosely reduced limbs for AVX-512 IFMA field arithmetic.
-    pub(crate) fn reduced_limbs(&self) -> [u64; LIMB_COUNT] {
-        debug_assert!(self.limbs.iter().all(|&limb| limb < (1u64 << 52)));
-        self.limbs
-    }
-
-    /// Borrow the raw limbs for a direct SIMD load (see `WideFe::from_field_refs`),
-    /// avoiding the by-value copy `reduced_limbs` would make. Limbs satisfy the
-    /// loosely-reduced invariant (`< 2^52`).
+    /// Loosely reduced limbs (`< 2^52`), borrowed for direct SIMD loads.
     pub(crate) fn limbs_ref(&self) -> &[u64; LIMB_COUNT] {
         debug_assert!(self.limbs.iter().all(|&limb| limb < (1u64 << 52)));
         &self.limbs

@@ -1113,23 +1113,26 @@ pub(crate) mod avx512ifma {
             *hi = _mm512_add_epi64(*hi, _mm512_mullo_epi64(wrap_hi, nineteen));
         }
     }
+    #[cfg(test)]
     fn loadu(values: [u64; LANES]) -> __m512i {
         unsafe { _mm512_loadu_si512(values.as_ptr() as *const __m512i) }
     }
 
     /// Transpose eight lanes' `Fe51` limbs (each pointed at by `lane_ptrs`) into
-    /// the five limb-planes of a `WideFe`, entirely in registers.
+    /// the five limb-planes of a `WideFe`, entirely in registers: one masked
+    /// 512-bit load per lane (five valid qwords, top three zeroed), then a
+    /// standard AVX-512 8×8 qword transpose (`unpack` + `shuffle_i64x2`).
     ///
-    /// Each lane is pulled in with one masked 512-bit load (five valid qwords,
-    /// top three zeroed), then a standard AVX-512 8×8 qword transpose
-    /// (`unpack` + `shuffle_i64x2`) rearranges lane-major limbs into limb-major
-    /// planes. This replaces the previous scalar-store-then-wide-`loadu` round
-    /// trip, whose 512-bit loads each read eight distinct 64-bit stores and so
-    /// stalled store-to-load forwarding on znver5 (~+400 cycles per base add).
-    /// The pointed-at `Fe51`s are cold table/scratch memory, so their loads do
-    /// not themselves create a forwarding hazard.
+    /// Replaces a scalar-store-then-wide-reload transpose whose larger code
+    /// footprint pushed the base-add loop past Zen 5's op-cache capacity
+    /// (µops spilling to the legacy decoder; several percent per signature).
+    /// The in-register form keeps the loop inside the op cache on both vendors.
     #[inline]
     fn transpose_lane_limbs(lane_ptrs: [*const i64; LANES]) -> [__m512i; LIMB_COUNT] {
+        // SAFETY: every pointer references a live `Fe51` (five contiguous
+        // qwords). The 0x1F mask architecturally suppresses access to the
+        // three qwords past the end, so a 40-byte field at an allocation
+        // boundary cannot fault under the 64-byte-wide load.
         unsafe {
             // Lane-major: r_j holds lane j's [limb0..limb4, 0, 0, 0].
             let r0 = _mm512_maskz_loadu_epi64(0x1F, lane_ptrs[0]);
