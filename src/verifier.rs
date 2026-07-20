@@ -193,16 +193,17 @@ impl<C: KeyCache> Verifier<C> {
         let promote_lanes: [bool; SIMD_LANES] = core::array::from_fn(|lane| {
             cached_keys[lane].is_some_and(|key| key.table_hi.is_none() && key.hits.get() >= 2)
         });
-        let promote_points: [EdwardsPoint; SIMD_LANES] = core::array::from_fn(|lane| {
-            if promote_lanes[lane] {
-                cached_keys[lane]
-                    .expect("promote lane is a cache hit")
-                    .table
-                    .recover_base_point()
-            } else {
-                EdwardsPoint::identity()
-            }
-        });
+        // Nothing promotes on the cold path (no hits at all) or on any chunk
+        // whose keys are still short of their second hit, which is the common
+        // case. One mask test skips the recovery entirely: materializing eight
+        // points unconditionally cost ~1.3 KB of stores per chunk and inlined
+        // that dead code into the shared body, displacing the ladder from the
+        // op cache.
+        let promote_points: Option<[EdwardsPoint; SIMD_LANES]> = if any_lane(&promote_lanes) {
+            Some(recover_promote_points(&cached_keys, &promote_lanes))
+        } else {
+            None
+        };
 
         // Decode uncached public keys and batch the R decompression only when a lane missed the cache.
         let mut decoded_r: Option<(avx512ifma::WideRPoints, [bool; SIMD_LANES])> = None;
@@ -278,28 +279,41 @@ impl<C: KeyCache> Verifier<C> {
         // promoting lane in the chunk, then hand the upgraded entries back
         // through the cache (which adopts table_hi; NullKeyCache drops it).
         // Once per key ever; the split ladder engages from the next chunk on.
-        if any_lane(&promote_lanes) {
-            let hi_tables = avx512ifma::build_promoted_split_tables(&promote_points);
-            for (lane, hi_table) in hi_tables.into_iter().enumerate() {
-                if !promote_lanes[lane] {
-                    continue;
-                }
-                // Duplicate (padded) lanes may already have been promoted by
-                // an earlier lane this loop; the adopt path ignores repeats.
-                let Some(existing) = self.cache.get(&public_keys[lane]) else {
-                    continue; // evicted mid-batch by an insert above
-                };
-                let upgraded = CachedPublicKey {
-                    encoded: public_keys[lane],
-                    // 1b-fix: the main table is normalized HERE, at promotion,
-                    // not at insert — resident entries are projective until
-                    // their second hit, so churn inserts pay nothing.
-                    table: existing.table.normalized_affine(),
-                    table_hi: Some(hi_table.normalized_affine()),
-                    hits: existing.hits.clone(),
-                };
-                self.cache.insert(upgraded);
+        if let Some(promote_points) = promote_points {
+            self.run_promotion(&promote_points, &promote_lanes, &public_keys);
+        }
+    }
+
+    /// Build and adopt the promoted `A′` tables for the lanes that reached
+    /// their second hit. Outlined: this runs once per key ever, so its code
+    /// has no business sitting in the per-chunk body next to the ladder.
+    #[inline(never)]
+    fn run_promotion(
+        &mut self,
+        promote_points: &[EdwardsPoint; SIMD_LANES],
+        promote_lanes: &[bool; SIMD_LANES],
+        public_keys: &[[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
+    ) {
+        let hi_tables = avx512ifma::build_promoted_split_tables(promote_points);
+        for (lane, hi_table) in hi_tables.into_iter().enumerate() {
+            if !promote_lanes[lane] {
+                continue;
             }
+            // Duplicate (padded) lanes may already have been promoted by
+            // an earlier lane this loop; the adopt path ignores repeats.
+            let Some(existing) = self.cache.get(&public_keys[lane]) else {
+                continue; // evicted mid-batch by an insert above
+            };
+            let upgraded = CachedPublicKey {
+                encoded: public_keys[lane],
+                // 1b-fix: the main table is normalized HERE, at promotion,
+                // not at insert — resident entries are projective until
+                // their second hit, so churn inserts pay nothing.
+                table: existing.table.normalized_affine(),
+                table_hi: Some(hi_table.normalized_affine()),
+                hits: existing.hits.clone(),
+            };
+            self.cache.insert(upgraded);
         }
     }
 
@@ -507,6 +521,27 @@ fn lane_flags_from_mask(mask: u8) -> [bool; SIMD_LANES] {
 
 fn any_lane(lanes: &[bool; SIMD_LANES]) -> bool {
     lanes.iter().any(|&lane| lane)
+}
+
+/// Recover the affine base point behind each promoting lane's table. Outlined
+/// and called only under `any_lane(promote_lanes)`: the non-promoting lanes
+/// still need an identity filler, and writing eight of those inline cost the
+/// cold path ~1.3 KB of stores per chunk for nothing.
+#[inline(never)]
+fn recover_promote_points(
+    cached_keys: &[Option<&CachedPublicKey>; SIMD_LANES],
+    promote_lanes: &[bool; SIMD_LANES],
+) -> [EdwardsPoint; SIMD_LANES] {
+    core::array::from_fn(|lane| {
+        if promote_lanes[lane] {
+            cached_keys[lane]
+                .expect("promote lane is a cache hit")
+                .table
+                .recover_base_point()
+        } else {
+            EdwardsPoint::identity()
+        }
+    })
 }
 
 #[cfg(test)]
