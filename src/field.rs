@@ -229,6 +229,13 @@ impl Fe51 {
         self.canonical().limbs == rhs.canonical().limbs
     }
 
+    /// Loosely reduced limbs for AVX-512 IFMA field arithmetic.
+    #[allow(unused)]
+    pub(crate) fn reduced_limbs(&self) -> [u64; LIMB_COUNT] {
+        debug_assert!(self.limbs.iter().all(|&limb| limb < (1u64 << 52)));
+        self.limbs
+    }
+
     /// Loosely reduced limbs (`< 2^52`), borrowed for direct SIMD loads.
     pub(crate) fn limbs_ref(&self) -> &[u64; LIMB_COUNT] {
         debug_assert!(self.limbs.iter().all(|&limb| limb < (1u64 << 52)));
@@ -337,9 +344,6 @@ impl Fe51 {
         Some(Self::from_bytes_unchecked(bytes))
     }
 
-    /// Multiplicative inverse via `x^(p-2)`. Used once per process to normalize
-    /// the basepoint table to affine form (`edwards::to_affine_cached_batch`);
-    /// the naive square-and-multiply ladder is fine at that cadence.
     pub(crate) fn invert(&self) -> Self {
         let mut exp = [0xffu8; 32];
         exp[0] = 0xeb;

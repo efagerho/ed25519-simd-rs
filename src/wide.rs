@@ -279,7 +279,7 @@ pub(crate) mod avx512ifma {
         pair: usize,
     ) {
         let selected: [_; LANES] = core::array::from_fn(|lane| {
-            base_table.select_signed_affine_ref(base_pair_digit(&s_digits[lane], pair))
+            base_table.select_signed_affine_cached_ref(base_pair_digit(&s_digits[lane], pair))
         });
         let selected = WideAffineCachedPoint::from_affine_refs(&selected);
         acc.add_affine_cached_assign(&selected);
@@ -886,7 +886,7 @@ pub(crate) mod avx512ifma {
     }
 
     /// Affine (`Z = 1`) precomputed point — the basepoint table's entry form.
-    /// No `z2` field: the mixed addition doubles the accumulator's `Z` instead.
+    /// No `z2` field which is equal to 2.
     #[derive(Clone, Copy)]
     struct WideAffineCachedPoint {
         y_plus_x: WideFe,
@@ -954,6 +954,7 @@ pub(crate) mod avx512ifma {
                 z: f.multiply(&g),
             }
         }
+        // Mixed addition with a cached point.
         fn add_cached_assign(&mut self, rhs: &WideCachedPoint) {
             // Loose products feed additive ops; use wide subtracts for limb0
             // values up to ~2^60.
@@ -972,8 +973,7 @@ pub(crate) mod avx512ifma {
             self.y = g.multiply(&h);
         }
         /// Mixed addition with an affine (`Z = 1`) cached point. Identical to
-        /// `add_cached_assign` except the `Z₁·z2` product collapses to
-        /// `Z₁.double()` — one fewer multiply, since `z2 = 2·Z₂ = 2`.
+        /// `add_cached_assign` except the `d = Z₁·2Z₂` product collapses to `Z₁.double()`.
         fn add_affine_cached_assign(&mut self, rhs: &WideAffineCachedPoint) {
             let a = self.y.subtract(&self.x).multiply_loose(&rhs.y_minus_x);
             let b = self.y.add_loose(&self.x).multiply_loose(&rhs.y_plus_x);
@@ -1122,17 +1122,11 @@ pub(crate) mod avx512ifma {
     /// the five limb-planes of a `WideFe`, entirely in registers: one masked
     /// 512-bit load per lane (five valid qwords, top three zeroed), then a
     /// standard AVX-512 8×8 qword transpose (`unpack` + `shuffle_i64x2`).
-    ///
-    /// Replaces a scalar-store-then-wide-reload transpose whose larger code
-    /// footprint pushed the base-add loop past Zen 5's op-cache capacity
-    /// (µops spilling to the legacy decoder; several percent per signature).
-    /// The in-register form keeps the loop inside the op cache on both vendors.
     #[inline]
     fn transpose_lane_limbs(lane_ptrs: [*const i64; LANES]) -> [__m512i; LIMB_COUNT] {
-        // SAFETY: every pointer references a live `Fe51` (five contiguous
-        // qwords). The 0x1F mask architecturally suppresses access to the
-        // three qwords past the end, so a 40-byte field at an allocation
-        // boundary cannot fault under the 64-byte-wide load.
+        // Since a `Fe51` is made of five contiguous qwords, the 0x1F mask architecturally
+        // suppresses access to the three qwords past the end, so a 40-byte field at an 
+        // allocation boundary cannot fault under the 64-byte-wide load.
         unsafe {
             // Lane-major: r_j holds lane j's [limb0..limb4, 0, 0, 0].
             let r0 = _mm512_maskz_loadu_epi64(0x1F, lane_ptrs[0]);
