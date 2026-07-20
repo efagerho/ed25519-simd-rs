@@ -1135,6 +1135,12 @@ pub(crate) mod avx512ifma {
         }
         /// Mixed addition with an affine (`Z = 1`) cached point. Identical to
         /// `add_cached_assign` except the `d = Z₁·2Z₂` product collapses to `Z₁.double()`.
+        ///
+        /// `inline(always)`: the split ladder added call sites, which pushed
+        /// LLVM into keeping this out of line and splitting what used to be one
+        /// fused `add_base_pair_digit` body into two. Fusing it back keeps the
+        /// digit-add a single region for the front end.
+        #[inline(always)]
         fn add_affine_cached_assign(&mut self, rhs: &WideAffineCachedPoint) {
             let a = self.y.subtract(&self.x).multiply_loose(&rhs.y_minus_x);
             let b = self.y.add_loose(&self.x).multiply_loose(&rhs.y_plus_x);
