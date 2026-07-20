@@ -26,7 +26,7 @@ const R_ENCODING_LEN: usize = batch::R_ENCODING_LEN;
 // Shared once per process; the base-point table is policy- and cache-independent.
 static BASE_TABLE: LazyLock<BasepointTable> = LazyLock::new(BasepointTable::new);
 
-// Phase 2h: B′ = [2¹²⁷]B for the split ladder's s₁ digits — same 273-entry
+// B′ = [2¹²⁷]B for the split ladder's s₁ digits — same 273-entry
 // affine layout as BASE_TABLE (~33 KB), policy- and cache-independent.
 static BASE_TABLE_PRIME: LazyLock<BasepointTable> =
     LazyLock::new(|| BasepointTable::from_point(&EdwardsPoint::basepoint().mul_by_pow2_127()));
@@ -40,7 +40,7 @@ struct ChunkParts<'a> {
     r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
     public_keys: [[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
     s_digits: [Radix16; SIMD_LANES],
-    /// The canonical scalars behind `s_digits`, kept for the Phase 2h split
+    /// The canonical scalars behind `s_digits`, kept for the split
     /// path (zero for invalid lanes, which are masked out downstream).
     s_scalars: [Scalar; SIMD_LANES],
     messages: [&'a [u8]; SIMD_LANES],
@@ -165,7 +165,7 @@ impl<C: KeyCache> Verifier<C> {
         let missing_key_lanes: [bool; SIMD_LANES] =
             core::array::from_fn(|lane| cached_keys[lane].is_none());
 
-        // Phase 2h split ladder: every lane is a hit whose entry carries the
+        // every lane is a hit whose entry carries the
         // promoted A′ table — run the halved-doubling ladder (both policies;
         // it computes the same group element). No misses means nothing to
         // decode, insert, or promote afterwards.
@@ -185,10 +185,10 @@ impl<C: KeyCache> Verifier<C> {
             return;
         }
 
-        // Phase 2h lazy promotion with hysteresis: promote a key on its
+        // Lazy promotion with hysteresis: promote a key on its
         // SECOND hit since insert. Keys oscillating between hit and eviction
         // (capacity churn) never reach two hits, so churn never rebuilds A′
-        // and stays at exact 1b cost. Recover base points now (cheap; the
+        // and stays at the non-promoting cost. Recover base points now (cheap; the
         // cache borrow is live) — the SIMD pass runs after verification.
         let promote_lanes: [bool; SIMD_LANES] = core::array::from_fn(|lane| {
             cached_keys[lane].is_some_and(|key| key.table_hi.is_none() && key.hits.get() >= 2)
@@ -275,7 +275,7 @@ impl<C: KeyCache> Verifier<C> {
             }
         }
 
-        // Phase 2h lazy promotion: one wide 127-doubling pass shared by every
+        // Lazy promotion: one wide 127-doubling pass shared by every
         // promoting lane in the chunk, then hand the upgraded entries back
         // through the cache (which adopts table_hi; NullKeyCache drops it).
         // Once per key ever; the split ladder engages from the next chunk on.
@@ -306,7 +306,7 @@ impl<C: KeyCache> Verifier<C> {
             };
             let upgraded = CachedPublicKey {
                 encoded: public_keys[lane],
-                // 1b-fix: the main table is normalized HERE, at promotion,
+                // the main table is normalized HERE, at promotion,
                 // not at insert — resident entries are projective until
                 // their second hit, so churn inserts pay nothing.
                 table: existing.table.normalized_affine(),
@@ -317,7 +317,7 @@ impl<C: KeyCache> Verifier<C> {
         }
     }
 
-    /// Phase 2h split-ladder chunk (design addendum §3/§5): all lanes are
+    /// Split-ladder chunk: all lanes are
     /// cache hits with promoted entries; k and s are integer-split at bit 127
     /// and the four 32-digit halves drive the 124-doubling ladder over
     /// (A, A′, B, B′). Computes exactly [s]B − [k]A, so the policy tails are
@@ -496,7 +496,7 @@ fn challenge_digits(
 }
 
 /// The reduced challenge scalars k = SHA-512(R‖A‖M) mod ℓ, shared by the
-/// full-ladder digit path and the Phase 2h split path.
+/// full-ladder digit path and the split path.
 #[inline(always)]
 fn challenge_scalars(
     r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
@@ -583,7 +583,7 @@ mod tests {
             .collect()
     }
 
-    /// Phase 2h end-to-end semantics, both policies:
+    /// End-to-end semantics, both policies:
     /// round 1 (all miss)   -> insert, no split tables (lazy);
     /// round 2 (hit #1)     -> full ladder, NO promotion (hysteresis);
     /// round 3 (hit #2)     -> full ladder, promotion after the chunk;
@@ -636,7 +636,7 @@ mod tests {
                             0,
                             "insert must not promote (lazy)"
                         );
-                        // 1b-fix: freshly inserted entries stay as decoded.
+                        // freshly inserted entries stay as decoded.
                         assert!(
                             cases.iter().all(|c| warm
                                 .cache()

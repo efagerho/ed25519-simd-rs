@@ -60,8 +60,8 @@ impl Scalar {
         }
     }
 
-    /// Phase 2h integer split `x = x₀ + 2¹²⁷·x₁` (no mod-ℓ wrap), each half as
-    /// exactly 32 signed radix-16 digits. Bounds (design addendum §2):
+    /// Integer split `x = x₀ + 2¹²⁷·x₁` (no mod-ℓ wrap), each half as
+    /// exactly 32 signed radix-16 digits. Bounds:
     /// `x₀ < 2¹²⁷` by construction and `x₁ ≤ 2¹²⁵` (canonical `x < ℓ`), so the
     /// top nibble of each half is ≤ 7 and the signed carry cannot escape
     /// digit 31 — no 33rd digit.
@@ -76,7 +76,7 @@ impl Scalar {
     }
 }
 
-/// Halves of the Phase 2h split: exactly 32 signed radix-16 digits.
+/// Halves of the split: exactly 32 signed radix-16 digits.
 pub(crate) type Radix16Half = [i8; 32];
 
 /// Signed radix-16 recoding of a 16-byte little-endian value < 2¹²⁷.
@@ -444,7 +444,7 @@ mod tests {
         assert!(is_canonical(&below));
     }
 
-    /// Phase 2h split correctness: the halves recompose to the original bytes
+    /// split correctness: the halves recompose to the original bytes
     /// (x = lo + hi·2¹²⁷) and every digit obeys the addendum §2 bounds, over
     /// boundary scalars and a deterministic random corpus.
     #[test]

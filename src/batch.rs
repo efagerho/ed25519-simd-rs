@@ -23,7 +23,7 @@ pub(crate) struct PreparedBatch<'a> {
     pub(crate) all_affine: bool,
 }
 
-/// Phase 2h split-ladder inputs: every lane is a cache hit whose entry carries
+/// Split-ladder inputs: every lane is a cache hit whose entry carries
 /// the promoted `A′ = [2¹²⁷]A` table, and both scalars are integer-split into
 /// exact 32-digit halves (`k = k₀ + 2¹²⁷k₁`, `s = s₀ + 2¹²⁷s₁`). All tables on
 /// this path are affine (A/A′ normalized at promotion, B/B′ static).

@@ -50,7 +50,7 @@ pub(crate) mod avx512ifma {
 
     /// Build the per-lane radix-16 cached tables from an already-decompressed
     /// SIMD point.
-    /// Phase 2h lazy promotion: one wide 127-doubling pass over the chunk's
+    /// Lazy promotion: one wide 127-doubling pass over the chunk's
     /// promoting lanes (idle lanes carry the identity), then the same SIMD
     /// radix-16 table builder the miss path uses. Returned tables are
     /// projective; the caller normalizes the promoted lanes (1b form).
@@ -119,7 +119,7 @@ pub(crate) mod avx512ifma {
         })
     }
 
-    // Phase 2h split-ladder variants: identical acceptance semantics (the
+    // Split-ladder variants: identical acceptance semantics (the
     // ladder computes the same group element [s]B - [k]A via a halved
     // doubling chain), so the policy tails mirror the fns below verbatim.
     // Gating guarantees every lane was a cache hit, so R was never
@@ -297,7 +297,7 @@ pub(crate) mod avx512ifma {
         let (pa, pb) = WideFe::pow_p_minus_5_over_8_x2(&sa.exp, &sb.exp);
         (decompress_finish(sa, pa), decompress_finish(sb, pb))
     }
-    /// Phase 2h split ladder (design addendum §3): [s₀]B + [s₁]B′ − [k₀]A −
+    /// [s₀]B + [s₁]B′ − [k₀]A −
     /// [k₁]A′ over four 32-digit scalars — 31 × double4 = 124 doublings and
     /// 96 affine adds. Computes exactly [s]B − [k]A (integer split identity),
     /// so acceptance semantics are unchanged for both policies.
@@ -1700,7 +1700,7 @@ pub(crate) mod avx512ifma {
             );
         }
 
-        /// Phase 2h golden: the split ladder must produce the SAME point as the
+        /// the split ladder must produce the SAME point as the
         /// full ladder (not merely the same accept bit) — [s₀]B + [s₁]B′ −
         /// [k₀]A − [k₁]A′ = [s]B − [k]A by the integer split identity. Covers
         /// an ordinary key, an order-8 torsion key, and boundary scalars.

@@ -228,7 +228,7 @@ impl PointTable {
     /// fields give `y+x`, `y−x`, `2Z`, so `(2X : 2Y : 2Z)` — a valid
     /// projective representative of the point (extended coordinates are
     /// projective). The input `T` is set to zero: `double()` never reads it,
-    /// and the Phase 2h consumer immediately doubles, which recomputes `T`.
+    /// and the consumer immediately doubles, which recomputes `T`.
     /// Valid for both projective and affine-normalized (1b) tables.
     pub(crate) fn recover_base_point(&self) -> EdwardsPoint {
         let one = self.select_signed_cached_ref(1);
@@ -247,7 +247,7 @@ impl BasepointTable {
     }
 
     /// Build the 273-entry signed affine table for an arbitrary fixed base.
-    /// Used for `B` itself and for `B′ = [2¹²⁷]B` (Phase 2h split ladder).
+    /// Used for `B` itself and for `B′ = [2¹²⁷]B` (split ladder).
     pub(crate) fn from_point(base: &EdwardsPoint) -> Self {
         // Built once per process (see BASE_TABLE / BASE_TABLE_PRIME in
         // verifier.rs), so there's no reason to special-case even m via
@@ -343,7 +343,7 @@ impl EdwardsPoint {
         })
     }
 
-    /// `[2¹²⁷]·self` by 127 doublings — the Phase 2h split-table base
+    /// `[2¹²⁷]·self` by 127 doublings — the split-table base
     /// (`A′ = [2¹²⁷]A` at cache insert, `B′ = [2¹²⁷]B` once per process).
     /// Note `double()` ignores the input `t`, so a zero-`t` representative
     /// from `PointTable::recover_base_point` is a valid starting point; the
@@ -392,8 +392,8 @@ impl EdwardsPoint {
         }
     }
 
-    /// Extended coordinates; production use: lane-packing for the Phase 2h
-    /// SIMD promotion pass (`WidePoint::from_points`).
+    /// Extended coordinates; production use: lane-packing for the SIMD
+    /// promotion pass (`WidePoint::from_points`).
     pub(crate) fn coords(&self) -> (&Fe51, &Fe51, &Fe51, &Fe51) {
         (&self.x, &self.y, &self.z, &self.t)
     }
@@ -444,7 +444,7 @@ fn multiples_of(point: &EdwardsPoint) -> [EdwardsPoint; POINT_TABLE_SIZE] {
 mod tests {
     use super::*;
 
-    /// Phase 2h: recovering a table's base point from its digit-1 entry must
+    /// recovering a table's base point from its digit-1 entry must
     /// round-trip, for projective and affine-normalized (1b) tables, on
     /// ordinary and small-order points. (`T` is not recovered; `compress`
     /// only needs `x, y, z`.)
@@ -477,7 +477,7 @@ mod tests {
         }
     }
 
-    /// Phase 2h golden: the generalized fixed-base table for `B′ = [2¹²⁷]B`
+    /// the generalized fixed-base table for `B′ = [2¹²⁷]B`
     /// must hold exactly `[d]B′` at every signed digit — the 1a golden shape
     /// applied to `from_point` (batch-inversion normalization vs an
     /// independent per-entry projective reference).
@@ -512,7 +512,7 @@ mod tests {
         }
     }
 
-    /// Golden equivalence (Phase 1a): every entry of the affine-cached basepoint
+    /// Golden equivalence: every entry of the affine-cached basepoint
     /// table must represent exactly `[d]B` for its signed digit `d`. Cross-checks
     /// the batch-inversion normalization against an independent projective
     /// reference computed by repeated addition — the "old table" the affine one
@@ -551,7 +551,7 @@ mod tests {
         }
     }
 
-    /// Golden equivalence (Phase 1b): normalizing a projective public-key table
+    /// Golden equivalence: normalizing a projective public-key table
     /// to affine must preserve every entry's point. Each affine entry equals the
     /// projective one divided by `Z = z2/2`; verified by cross-multiplication
     /// (`affine · z2 == 2 · projective`) so the check is independent of `invert`.

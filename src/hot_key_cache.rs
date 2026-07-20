@@ -101,7 +101,7 @@ mod tests {
     use super::*;
     use crate::edwards::{EdwardsPoint, PointTable};
 
-    /// Phase 2h lazy-promotion semantics at the cache level: a fresh insert
+    /// Lazy-promotion semantics at the cache level: a fresh insert
     /// builds NO split table (single-use keys pay nothing); a re-insert
     /// carrying one — the verifier's promotion hand-back — is adopted into
     /// the resident entry with recency preserved.
@@ -114,7 +114,7 @@ mod tests {
         let entry = cache.get(&encoded).expect("just inserted");
         assert!(
             !entry.table.is_affine(),
-            "1b-fix: insert must store the table as decoded (lazy normalization)"
+            "insert must store the table as decoded (lazy normalization)"
         );
         assert!(
             entry.table_hi.is_none(),
@@ -155,7 +155,7 @@ impl KeyCache for HotKeyCache {
     fn insert(&mut self, key: CachedPublicKey) {
         let now = self.tick();
         if let Some(entry) = self.keys.get_mut(&key.encoded) {
-            // Lazy promotion (2h + 1b-fix): the verifier hands back an
+            // Lazy promotion: the verifier hands back an
             // upgraded entry on the key's second hit, carrying BOTH the
             // affine-normalized main table (1b, moved here from insert) and
             // the SIMD-built split table A′ = [2¹²⁷]A. Adopt both atomically
