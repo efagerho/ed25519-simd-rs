@@ -2,7 +2,9 @@ pub(crate) mod avx512ifma {
     use crate::batch::{PUBLIC_KEY_LEN, PreparedBatch, R_ENCODING_LEN};
     #[cfg(test)]
     use crate::edwards::EdwardsPoint;
-    use crate::edwards::{BasepointTable, CachedPoint, POINT_ENCODING_LEN, PointTable};
+    use crate::edwards::{
+        AffineCachedPoint, BasepointTable, CachedPoint, POINT_ENCODING_LEN, PointTable,
+    };
     use crate::field::{Fe51, LIMB_COUNT};
     use crate::scalar::Radix16;
     use std::arch::x86_64::*;
@@ -277,10 +279,10 @@ pub(crate) mod avx512ifma {
         pair: usize,
     ) {
         let selected: [_; LANES] = core::array::from_fn(|lane| {
-            base_table.select_signed_cached_ref(base_pair_digit(&s_digits[lane], pair))
+            base_table.select_signed_affine_cached_ref(base_pair_digit(&s_digits[lane], pair))
         });
-        let selected = WideCachedPoint::from_cached_refs(&selected);
-        acc.add_cached_assign(&selected);
+        let selected = WideAffineCachedPoint::from_affine_refs(&selected);
+        acc.add_affine_cached_assign(&selected);
     }
 
     #[inline]
@@ -326,49 +328,17 @@ pub(crate) mod avx512ifma {
             }
         }
         fn from_fields(fields: &[Fe51; LANES]) -> Self {
-            let mut by_limb = [[0u64; LANES]; LIMB_COUNT];
-            let mut lane = 0;
-            while lane < LANES {
-                let limbs = fields[lane].reduced_limbs();
-                let mut limb = 0;
-                while limb < 5 {
-                    by_limb[limb][lane] = limbs[limb];
-                    limb += 1;
-                }
-                lane += 1;
-            }
-
+            let lane_ptrs: [*const i64; LANES] =
+                core::array::from_fn(|lane| fields[lane].limbs_ref().as_ptr() as *const i64);
             Self {
-                limbs: [
-                    loadu(by_limb[0]),
-                    loadu(by_limb[1]),
-                    loadu(by_limb[2]),
-                    loadu(by_limb[3]),
-                    loadu(by_limb[4]),
-                ],
+                limbs: transpose_lane_limbs(lane_ptrs),
             }
         }
         fn from_field_refs(fields: &[&Fe51; LANES]) -> Self {
-            let mut by_limb = [[0u64; LANES]; LIMB_COUNT];
-            let mut lane = 0;
-            while lane < LANES {
-                let limbs = fields[lane].reduced_limbs();
-                let mut limb = 0;
-                while limb < 5 {
-                    by_limb[limb][lane] = limbs[limb];
-                    limb += 1;
-                }
-                lane += 1;
-            }
-
+            let lane_ptrs: [*const i64; LANES] =
+                core::array::from_fn(|lane| fields[lane].limbs_ref().as_ptr() as *const i64);
             Self {
-                limbs: [
-                    loadu(by_limb[0]),
-                    loadu(by_limb[1]),
-                    loadu(by_limb[2]),
-                    loadu(by_limb[3]),
-                    loadu(by_limb[4]),
-                ],
+                limbs: transpose_lane_limbs(lane_ptrs),
             }
         }
         fn to_fields(self) -> [Fe51; LANES] {
@@ -915,6 +885,28 @@ pub(crate) mod avx512ifma {
         }
     }
 
+    /// Affine (`Z = 1`) precomputed point — the basepoint table's entry form.
+    /// No `z2` field which is equal to 2.
+    #[derive(Clone, Copy)]
+    struct WideAffineCachedPoint {
+        y_plus_x: WideFe,
+        y_minus_x: WideFe,
+        t2d: WideFe,
+    }
+
+    impl WideAffineCachedPoint {
+        fn from_affine_refs(points: &[&AffineCachedPoint; LANES]) -> Self {
+            let y_plus_x = core::array::from_fn(|lane| points[lane].coords().0);
+            let y_minus_x = core::array::from_fn(|lane| points[lane].coords().1);
+            let t2d = core::array::from_fn(|lane| points[lane].coords().2);
+            Self {
+                y_plus_x: WideFe::from_field_refs(&y_plus_x),
+                y_minus_x: WideFe::from_field_refs(&y_minus_x),
+                t2d: WideFe::from_field_refs(&t2d),
+            }
+        }
+    }
+
     impl WidePoint {
         fn identity() -> Self {
             Self {
@@ -962,6 +954,7 @@ pub(crate) mod avx512ifma {
                 z: f.multiply(&g),
             }
         }
+        // Mixed addition with a cached point.
         fn add_cached_assign(&mut self, rhs: &WideCachedPoint) {
             // Loose products feed additive ops; use wide subtracts for limb0
             // values up to ~2^60.
@@ -971,6 +964,23 @@ pub(crate) mod avx512ifma {
             let h = b.add_loose(&a);
             let c = self.t.multiply_loose(&rhs.t2d);
             let d = self.z.multiply_loose(&rhs.z2);
+            let f = d.subtract_wide(&c);
+            let g = d.add_loose(&c);
+
+            self.x = e.multiply(&f);
+            self.t = e.multiply(&h);
+            self.z = f.multiply(&g);
+            self.y = g.multiply(&h);
+        }
+        /// Mixed addition with an affine (`Z = 1`) cached point. Identical to
+        /// `add_cached_assign` except the `d = Z₁·2Z₂` product collapses to `Z₁.double()`.
+        fn add_affine_cached_assign(&mut self, rhs: &WideAffineCachedPoint) {
+            let a = self.y.subtract(&self.x).multiply_loose(&rhs.y_minus_x);
+            let b = self.y.add_loose(&self.x).multiply_loose(&rhs.y_plus_x);
+            let e = b.subtract_wide(&a);
+            let h = b.add_loose(&a);
+            let c = self.t.multiply_loose(&rhs.t2d);
+            let d = self.z.double_loose();
             let f = d.subtract_wide(&c);
             let g = d.add_loose(&c);
 
@@ -1103,8 +1113,61 @@ pub(crate) mod avx512ifma {
             *hi = _mm512_add_epi64(*hi, _mm512_mullo_epi64(wrap_hi, nineteen));
         }
     }
+    #[cfg(test)]
     fn loadu(values: [u64; LANES]) -> __m512i {
         unsafe { _mm512_loadu_si512(values.as_ptr() as *const __m512i) }
+    }
+
+    /// Transpose eight lanes' `Fe51` limbs (each pointed at by `lane_ptrs`) into
+    /// the five limb-planes of a `WideFe`, entirely in registers: one masked
+    /// 512-bit load per lane (five valid qwords, top three zeroed), then a
+    /// standard AVX-512 8×8 qword transpose (`unpack` + `shuffle_i64x2`).
+    #[inline]
+    fn transpose_lane_limbs(lane_ptrs: [*const i64; LANES]) -> [__m512i; LIMB_COUNT] {
+        // Since a `Fe51` is made of five contiguous qwords, the 0x1F mask architecturally
+        // suppresses access to the three qwords past the end, so a 40-byte field at an 
+        // allocation boundary cannot fault under the 64-byte-wide load.
+        unsafe {
+            // Lane-major: r_j holds lane j's [limb0..limb4, 0, 0, 0].
+            let r0 = _mm512_maskz_loadu_epi64(0x1F, lane_ptrs[0]);
+            let r1 = _mm512_maskz_loadu_epi64(0x1F, lane_ptrs[1]);
+            let r2 = _mm512_maskz_loadu_epi64(0x1F, lane_ptrs[2]);
+            let r3 = _mm512_maskz_loadu_epi64(0x1F, lane_ptrs[3]);
+            let r4 = _mm512_maskz_loadu_epi64(0x1F, lane_ptrs[4]);
+            let r5 = _mm512_maskz_loadu_epi64(0x1F, lane_ptrs[5]);
+            let r6 = _mm512_maskz_loadu_epi64(0x1F, lane_ptrs[6]);
+            let r7 = _mm512_maskz_loadu_epi64(0x1F, lane_ptrs[7]);
+
+            // Stage 1: interleave adjacent lanes within each 128-bit block.
+            let t0 = _mm512_unpacklo_epi64(r0, r1);
+            let t1 = _mm512_unpackhi_epi64(r0, r1);
+            let t2 = _mm512_unpacklo_epi64(r2, r3);
+            let t3 = _mm512_unpackhi_epi64(r2, r3);
+            let t4 = _mm512_unpacklo_epi64(r4, r5);
+            let t5 = _mm512_unpackhi_epi64(r4, r5);
+            let t6 = _mm512_unpacklo_epi64(r6, r7);
+            let t7 = _mm512_unpackhi_epi64(r6, r7);
+
+            // Stage 2: gather 128-bit lanes across lane-pairs (0x88 = even
+            // 128-bit lanes, 0xDD = odd).
+            let v0 = _mm512_shuffle_i64x2::<0x88>(t0, t2);
+            let v1 = _mm512_shuffle_i64x2::<0xDD>(t0, t2);
+            let v2 = _mm512_shuffle_i64x2::<0x88>(t1, t3);
+            let v3 = _mm512_shuffle_i64x2::<0xDD>(t1, t3);
+            let v4 = _mm512_shuffle_i64x2::<0x88>(t4, t6);
+            let v5 = _mm512_shuffle_i64x2::<0xDD>(t4, t6);
+            let v6 = _mm512_shuffle_i64x2::<0x88>(t5, t7);
+            let v7 = _mm512_shuffle_i64x2::<0xDD>(t5, t7);
+
+            // Stage 3: merge the two 4-lane halves into full limb-planes.
+            [
+                _mm512_shuffle_i64x2::<0x88>(v0, v4), // limb 0
+                _mm512_shuffle_i64x2::<0x88>(v2, v6), // limb 1
+                _mm512_shuffle_i64x2::<0x88>(v1, v5), // limb 2
+                _mm512_shuffle_i64x2::<0x88>(v3, v7), // limb 3
+                _mm512_shuffle_i64x2::<0xDD>(v0, v4), // limb 4
+            ]
+        }
     }
     fn storeu(value: __m512i, out: &mut [u64; LANES]) {
         unsafe { _mm512_storeu_si512(out.as_mut_ptr() as *mut __m512i, value) }
