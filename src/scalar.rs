@@ -59,6 +59,52 @@ impl Scalar {
             bytes: reduce_wide(bytes),
         }
     }
+
+    /// Integer split `x = x₀ + 2¹²⁷·x₁` (no mod-ℓ wrap), each half as
+    /// exactly 32 signed radix-16 digits. Bounds:
+    /// `x₀ < 2¹²⁷` by construction and `x₁ ≤ 2¹²⁵` (canonical `x < ℓ`), so the
+    /// top nibble of each half is ≤ 7 and the signed carry cannot escape
+    /// digit 31 — no 33rd digit.
+    pub(crate) fn split_radix16(self) -> (Radix16Half, Radix16Half) {
+        let b = self.bytes;
+        let mut lo = [0u8; 16];
+        lo.copy_from_slice(&b[..16]);
+        lo[15] &= 0x7f; // clear bit 127: lo = x mod 2¹²⁷
+        // hi = x >> 127: bit 7 of byte 15+i supplies bit 0, byte 16+i the rest.
+        let hi: [u8; 16] = core::array::from_fn(|i| (b[15 + i] >> 7) | (b[16 + i] << 1));
+        (radix16_half(&lo), radix16_half(&hi))
+    }
+}
+
+/// Halves of the split: exactly 32 signed radix-16 digits.
+pub(crate) type Radix16Half = [i8; 32];
+
+/// Signed radix-16 recoding of a 16-byte little-endian value < 2¹²⁷.
+fn radix16_half(bytes: &[u8; 16]) -> Radix16Half {
+    let mut digits = [0i8; 32];
+    let mut i = 0;
+    while i < 16 {
+        digits[2 * i] = (bytes[i] & 0x0f) as i8;
+        digits[2 * i + 1] = (bytes[i] >> 4) as i8;
+        i += 1;
+    }
+    let mut carry = 0i8;
+    i = 0;
+    while i < 32 {
+        let digit = digits[i] + carry;
+        if digit > 8 {
+            digits[i] = digit - 16;
+            carry = 1;
+        } else {
+            digits[i] = digit;
+            carry = 0;
+        }
+        i += 1;
+    }
+    // Values are < 2¹²⁷ (top nibble ≤ 7), so digit 31 absorbs any carry
+    // without generating one — provably no 33rd digit.
+    debug_assert_eq!(carry, 0, "radix-16 carry out of a 127-bit split half");
+    digits
 }
 
 pub(crate) fn is_canonical(bytes: &[u8; 32]) -> bool {
@@ -396,6 +442,85 @@ mod tests {
         let mut below = L_BYTES;
         below[0] -= 1;
         assert!(is_canonical(&below));
+    }
+
+    /// split correctness: the halves recompose to the original bytes
+    /// (x = lo + hi·2¹²⁷) and every digit obeys the addendum §2 bounds, over
+    /// boundary scalars and a deterministic random corpus.
+    #[test]
+    fn split_radix16_recomposes_and_stays_in_bounds() {
+        fn digits_to_bytes16(digits: &Radix16Half) -> ([u8; 17], bool) {
+            // Reassemble the signed digits into a little-endian value; a
+            // 17th byte and sign flag would flag any out-of-spec digit 31.
+            let mut acc = [0i32; 17];
+            for (i, &d) in digits.iter().enumerate() {
+                let byte = i / 2;
+                let shift = 4 * (i % 2);
+                acc[byte] += (d as i32) << shift;
+            }
+            let mut out = [0u8; 17];
+            let mut carry = 0i32;
+            for i in 0..17 {
+                let v = acc[i] + carry;
+                out[i] = (v & 0xff) as u8;
+                carry = v >> 8;
+            }
+            (out, carry != 0)
+        }
+        fn check(bytes: [u8; 32]) {
+            let s = Scalar::from_canonical_bytes(bytes);
+            let (lo, hi) = s.split_radix16();
+            for d in lo.iter().chain(hi.iter()) {
+                assert!((-8..=8).contains(d), "digit out of range");
+            }
+            let (lo_b, lo_of) = digits_to_bytes16(&lo);
+            let (hi_b, hi_of) = digits_to_bytes16(&hi);
+            assert!(!lo_of && !hi_of && lo_b[16] == 0 && hi_b[16] == 0);
+            // x = lo + hi·2¹²⁷, recomposed byte-wise.
+            let mut recomposed = [0u8; 32];
+            recomposed[..16].copy_from_slice(&lo_b[..16]);
+            let mut carry = 0u16;
+            for i in 0..16 {
+                let shifted =
+                    ((hi_b[i] as u16) << 7) | if i > 0 { (hi_b[i - 1] as u16) >> 1 } else { 0 };
+                let v = recomposed[15 + i] as u16 + (shifted & 0xff) + carry;
+                recomposed[15 + i] = (v & 0xff) as u8;
+                carry = v >> 8;
+            }
+            let v = (hi_b[15] as u16 >> 1) + carry;
+            recomposed[31] = v as u8;
+            assert_eq!(recomposed, bytes, "split does not recompose");
+        }
+
+        // Boundaries: 0, 1, 2¹²⁷ − 1, 2¹²⁷, 2¹²⁷ + 1, ℓ − 1.
+        check([0u8; 32]);
+        let mut one = [0u8; 32];
+        one[0] = 1;
+        check(one);
+        let mut below = [0u8; 32];
+        below[..16].copy_from_slice(&[0xff; 16]);
+        below[15] = 0x7f;
+        check(below); // 2¹²⁷ − 1
+        let mut exact = [0u8; 32];
+        exact[15] = 0x80;
+        check(exact); // 2¹²⁷
+        exact[0] = 1;
+        check(exact); // 2¹²⁷ + 1
+        let mut l_minus_1 = L_BYTES;
+        l_minus_1[0] -= 1;
+        check(l_minus_1);
+
+        // Deterministic random corpus (< 2²⁵² ≤ ℓ, hence canonical).
+        let mut state = 0x5eed_1234u64;
+        for _ in 0..1000 {
+            let mut bytes = [0u8; 32];
+            for chunk in bytes.chunks_mut(8) {
+                state = state.wrapping_mul(0xd134_2543_de82_ef95).wrapping_add(1);
+                chunk.copy_from_slice(&state.to_le_bytes());
+            }
+            bytes[31] &= 0x0f;
+            check(bytes);
+        }
     }
 
     #[test]

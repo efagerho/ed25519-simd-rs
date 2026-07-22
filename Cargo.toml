@@ -18,9 +18,9 @@ sha2 = "0.11"
 [workspace]
 # The comparison bench against other Ed25519 libraries needs a handful of
 # heavy C/asm-backed crates (openssl, sodiumoxide, aws-lc-rs, ring,
-# ed25519-dalek) that the correctness test suite and cold-cache profiling
-# harness don't; keeping it a separate workspace member means `cargo test`
-# and `cargo bench --bench cold_profile` don't pull in that toolchain.
+# ed25519-dalek) that the correctness test suite and the lean profiling
+# harnesses don't; keeping it a separate workspace member means `cargo test`
+# and `cargo bench --bench {cold,hot}_profile` don't pull in that toolchain.
 members = ["benches-compare"]
 
 [profile.release]
@@ -29,4 +29,8 @@ codegen-units = 1
 
 [[bench]]
 name = "cold_profile"
+harness = false
+
+[[bench]]
+name = "hot_profile"
 harness = false

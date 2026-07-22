@@ -1,5 +1,5 @@
 use crate::edwards::PointTable;
-use crate::scalar::Radix16;
+use crate::scalar::{Radix16, Radix16Half};
 use crate::verifier::VerifyInput;
 
 /// Byte length of an encoded Ed25519 public key: a compressed Edwards point.
@@ -17,6 +17,23 @@ pub(crate) struct PreparedBatch<'a> {
     pub(crate) public_key_tables: [&'a PointTable; SIMD_LANES],
     pub(crate) s_digits: &'a [Radix16; SIMD_LANES],
     pub(crate) k_digits: &'a [Radix16; SIMD_LANES],
+    /// Every lane's key table is affine-normalized, so the public-key ladder
+    /// can use the cheaper affine mixed-add. Set only when all 8 lanes are
+    /// hits from a normalizing cache; false for any miss or projective table.
+    pub(crate) all_affine: bool,
+}
+
+/// Split-ladder inputs: every lane is a cache hit whose entry carries
+/// the promoted `A′ = [2¹²⁷]A` table, and both scalars are integer-split into
+/// exact 32-digit halves (`k = k₀ + 2¹²⁷k₁`, `s = s₀ + 2¹²⁷s₁`). All tables on
+/// this path are affine (A/A′ normalized at promotion, B/B′ static).
+pub(crate) struct PreparedSplitBatch<'a> {
+    pub(crate) a_tables: [&'a PointTable; SIMD_LANES],
+    pub(crate) a_hi_tables: [&'a PointTable; SIMD_LANES],
+    pub(crate) k0_digits: &'a [Radix16Half; SIMD_LANES],
+    pub(crate) k1_digits: &'a [Radix16Half; SIMD_LANES],
+    pub(crate) s0_digits: &'a [Radix16Half; SIMD_LANES],
+    pub(crate) s1_digits: &'a [Radix16Half; SIMD_LANES],
 }
 
 /// Visit inputs as padded SIMD chunks, grouping mixed message lengths by
