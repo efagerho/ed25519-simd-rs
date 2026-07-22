@@ -17,10 +17,6 @@ pub(crate) struct PreparedBatch<'a> {
     pub(crate) public_key_tables: [&'a PointTable; SIMD_LANES],
     pub(crate) s_digits: &'a [Radix16; SIMD_LANES],
     pub(crate) k_digits: &'a [Radix16; SIMD_LANES],
-    /// Every lane's key table is affine-normalized, so the public-key ladder
-    /// can use the cheaper affine mixed-add. Set only when all 8 lanes are
-    /// hits from a normalizing cache; false for any miss or projective table.
-    pub(crate) all_affine: bool,
 }
 
 /// Split-ladder inputs: every lane is a cache hit whose entry carries

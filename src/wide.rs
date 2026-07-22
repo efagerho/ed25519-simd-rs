@@ -368,19 +368,6 @@ pub(crate) mod avx512ifma {
         base_table: &BasepointTable,
         prepared: &PreparedBatch<'_>,
     ) -> WidePoint {
-        // One branch per chunk via two monomorphized ladders.
-        // TO-DO: group cache hits together before chunking.
-        if prepared.all_affine {
-            mul_base_minus_public_impl::<true>(base_table, prepared)
-        } else {
-            mul_base_minus_public_impl::<false>(base_table, prepared)
-        }
-    }
-
-    fn mul_base_minus_public_impl<const AFFINE: bool>(
-        base_table: &BasepointTable,
-        prepared: &PreparedBatch<'_>,
-    ) -> WidePoint {
         let public_key_tables = &prepared.public_key_tables;
         let s_digits = prepared.s_digits;
         let k_digits = prepared.k_digits;
@@ -388,18 +375,18 @@ pub(crate) mod avx512ifma {
         let mut acc = WidePoint::identity();
 
         // Start at top digits 63/62; reduced scalars have no digit above 63.
-        add_public_digit::<AFFINE>(&mut acc, public_key_tables, k_digits, 63);
+        add_public_digit(&mut acc, public_key_tables, k_digits, 63);
         acc = acc.double4();
         add_base_pair_digit(&mut acc, base_table, s_digits, 31);
-        add_public_digit::<AFFINE>(&mut acc, public_key_tables, k_digits, 62);
+        add_public_digit(&mut acc, public_key_tables, k_digits, 62);
 
         for pair in (0..31).rev() {
             acc = acc.double4();
-            add_public_digit::<AFFINE>(&mut acc, public_key_tables, k_digits, pair * 2 + 1);
+            add_public_digit(&mut acc, public_key_tables, k_digits, pair * 2 + 1);
 
             acc = acc.double4();
             add_base_pair_digit(&mut acc, base_table, s_digits, pair);
-            add_public_digit::<AFFINE>(&mut acc, public_key_tables, k_digits, pair * 2);
+            add_public_digit(&mut acc, public_key_tables, k_digits, pair * 2);
         }
         acc
     }
@@ -419,7 +406,7 @@ pub(crate) mod avx512ifma {
     }
 
     #[inline]
-    fn add_public_digit<const AFFINE: bool>(
+    fn add_public_digit(
         acc: &mut WidePoint,
         public_key_tables: &[&PointTable; LANES],
         k_digits: &[Radix16; LANES],
@@ -428,13 +415,8 @@ pub(crate) mod avx512ifma {
         let selected: [_; LANES] = core::array::from_fn(|lane| {
             public_key_tables[lane].select_signed_cached_ref(-k_digits[lane][index])
         });
-        if AFFINE {
-            let selected = WideAffineCachedPoint::from_cached_refs(&selected);
-            acc.add_affine_cached_assign(&selected);
-        } else {
-            let selected = WideCachedPoint::from_cached_refs(&selected);
-            acc.add_cached_assign(&selected);
-        }
+        let selected = WideCachedPoint::from_cached_refs(&selected);
+        acc.add_cached_assign(&selected);
     }
 
     // Fold a radix-16 digit pair into a bounded radix-256 base-table digit.
@@ -1679,7 +1661,6 @@ pub(crate) mod avx512ifma {
                 public_key_tables: [&table; LANES],
                 s_digits: &s_digits,
                 k_digits: &k_digits,
-                all_affine: false,
             };
             let combined = mul_base_minus_public(&base_table, &prepared);
             let pts = combined.to_points();
@@ -1740,7 +1721,6 @@ pub(crate) mod avx512ifma {
                                 public_key_tables: [&a_table; LANES],
                                 s_digits: &s_digits,
                                 k_digits: &k_digits,
-                                all_affine: true,
                             },
                         );
 
@@ -1769,9 +1749,11 @@ pub(crate) mod avx512ifma {
         }
 
         #[test]
-        fn wide_affine_public_ladder_matches_projective() {
+        fn wide_public_ladder_accepts_affine_tables() {
             // A real key point; its radix-16 multiples [2..8]A have Z != 1, so
             // the affine-normalized table genuinely differs in representation.
+            // Mixed chunks feed promoted (affine) tables to this ladder, so it
+            // must produce the identical point for both representations.
             let a = EdwardsPoint::basepoint();
             let table = PointTable::new(&a);
             let table_affine = table.normalized_affine();
@@ -1798,7 +1780,6 @@ pub(crate) mod avx512ifma {
                     public_key_tables: [&table; LANES],
                     s_digits: &s_digits,
                     k_digits: &k_digits,
-                    all_affine: false,
                 },
             );
             let affine = mul_base_minus_public(
@@ -1807,13 +1788,12 @@ pub(crate) mod avx512ifma {
                     public_key_tables: [&table_affine; LANES],
                     s_digits: &s_digits,
                     k_digits: &k_digits,
-                    all_affine: true,
                 },
             );
             assert_eq!(
                 projective.to_points()[0].compress(),
                 affine.to_points()[0].compress(),
-                "affine public-key ladder diverges from projective"
+                "public-key ladder diverges between table representations"
             );
         }
 
@@ -1859,7 +1839,6 @@ pub(crate) mod avx512ifma {
                 public_key_tables: [&table; LANES],
                 s_digits: &s_digits,
                 k_digits: &k_digits,
-                all_affine: false,
             };
             let (r_point, r_mask) = decompress_points_wide(&[r_bytes; LANES]);
             assert_eq!(r_mask, 0xff, "torsion R must decode");

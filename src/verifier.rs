@@ -240,16 +240,10 @@ impl<C: KeyCache> Verifier<C> {
         // Build shared challenge digits before dispatching to the policy-specific verifier.
         let k_digits = challenge_digits(&r_bytes, &public_keys, messages);
 
-        // The affine public-key ladder is valid only when every lane's table is
-        // affine-normalized (all cache hits from a normalizing cache); a single
-        // projective miss table forces the projective add for the whole chunk.
-        let all_affine = public_key_tables.iter().all(|table| table.is_affine());
-
         let prepared = PreparedBatch {
             public_key_tables,
             s_digits: &s_digits,
             k_digits: &k_digits,
-            all_affine,
         };
         match policy {
             VerifyPolicy::Zip215 => {
