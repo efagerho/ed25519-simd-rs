@@ -48,14 +48,9 @@ pub(crate) mod avx512ifma {
         (build_tables_from_point(kp), kmask, WideRPoints(rp), rmask)
     }
 
-    /// Build the per-lane radix-16 cached tables from an already-decompressed
-    /// SIMD point.
-    /// Lazy promotion: one wide 127-doubling pass over the chunk's
-    /// promoting lanes (idle lanes carry the identity), then the same SIMD
-    /// radix-16 table builder the miss path uses. Returned tables are
-    /// projective; the caller normalizes the promoted lanes (1b form).
-    /// `double()` ignores the input `t`, so zero-`t` representatives from
-    /// `PointTable::recover_base_point` are valid inputs.
+    /// Build `A′ = [2¹²⁷]A` tables for a chunk's promoting lanes in one
+    /// wide pass. The first 127 doublings do not need the `t` coordinate,
+    /// the last .double() computes it. Tables come back projective.
     pub(crate) fn build_promoted_split_tables(
         points: &[EdwardsPoint; LANES],
     ) -> [PointTable; LANES] {
@@ -66,6 +61,8 @@ pub(crate) mod avx512ifma {
         build_tables_from_point(p.double())
     }
 
+    /// Build the per-lane radix-16 cached tables from an already-decompressed
+    /// SIMD point.
     fn build_tables_from_point(p: WidePoint) -> [PointTable; LANES] {
         // Tree-balanced multiples (P..8P): critical path ~4 deep instead of the
         // serial 7, with independent adds at each level to expose ILP.
@@ -119,13 +116,10 @@ pub(crate) mod avx512ifma {
         })
     }
 
-    // Split-ladder variants: identical acceptance semantics (the
-    // ladder computes the same group element [s]B - [k]A via a halved
-    // doubling chain), so the policy tails mirror the fns below verbatim.
+    // ZIP-215 cofactored verification: [8](sB - kA - R) == identity.
+    // Computed over the split-ladder: identical acceptance criteria.
     // Gating guarantees every lane was a cache hit, so R was never
-    // decompressed earlier in the chunk (no miss -> no decode): the Zip215
-    // variant decompresses R here and the Dalek variant recompresses, exactly
-    // like the all-hit paths of the current ladder.
+    // decompressed earlier in the chunk.
     pub(crate) fn verify_prepared_split_zip215(
         prepared: &PreparedSplitBatch<'_>,
         r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
@@ -297,10 +291,10 @@ pub(crate) mod avx512ifma {
         let (pa, pb) = WideFe::pow_p_minus_5_over_8_x2(&sa.exp, &sb.exp);
         (decompress_finish(sa, pa), decompress_finish(sb, pb))
     }
-    /// [s₀]B + [s₁]B′ − [k₀]A −
-    /// [k₁]A′ over four 32-digit scalars — 31 × double4 = 124 doublings and
-    /// 96 affine adds. Computes exactly [s]B − [k]A (integer split identity),
-    /// so acceptance semantics are unchanged for both policies.
+    /// Computes [s]B - [k]A = [s₀]B + [s₁]B′ − [k₀]A − [k₁]A′ 
+    /// over four 32-digit scalars s₀, s₁, k₀, k₁: 
+    /// 31 × double4 = 124 doublings and 96 affine adds:
+    /// 16 each on B and B' and 32 each on A and A'.
     fn mul_split(
         base_table: &BasepointTable,
         base_table_hi: &BasepointTable,
@@ -308,8 +302,6 @@ pub(crate) mod avx512ifma {
     ) -> WidePoint {
         let mut acc = WidePoint::identity();
 
-        // Top digits 31, then pair 15 after the first double4 (weights match
-        // the full ladder's convention: digit d carries 16^d).
         add_split_public_digit(&mut acc, &prepared.a_tables, prepared.k0_digits, 31);
         add_split_public_digit(&mut acc, &prepared.a_hi_tables, prepared.k1_digits, 31);
         acc = acc.double4();
@@ -337,9 +329,9 @@ pub(crate) mod avx512ifma {
         acc
     }
 
-    /// Split-path public add: gating guarantees affine tables, so this is the
-    /// 7 M mixed-add unconditionally. Digits are negated at selection (the
-    /// ladder subtracts [k]A), exactly like `add_public_digit`.
+    /// Split-digit public table add: assumes tables are affine and calls 
+    /// the affine_cached_assign. Digits are negated at selection (the
+    /// ladder subtracts [k]A), like `add_public_digit`.
     #[inline]
     fn add_split_public_digit(
         acc: &mut WidePoint,
@@ -354,8 +346,8 @@ pub(crate) mod avx512ifma {
         acc.add_affine_cached_assign(&selected);
     }
 
-    /// Split-path fixed-base add with the usual radix-256 pair fold
-    /// (|d₂ₚ + 16·d₂ₚ₊₁| ≤ 136, same 273-entry table range).
+    /// Split-digit fixed-base add. Consumes two digits per step,
+    /// within table capacity.
     #[inline]
     fn add_split_base_pair(
         acc: &mut WidePoint,
@@ -376,8 +368,8 @@ pub(crate) mod avx512ifma {
         base_table: &BasepointTable,
         prepared: &PreparedBatch<'_>,
     ) -> WidePoint {
-        // Monomorphize the whole ladder on whether the public-key tables are
-        // affine, so the per-digit add path carries no runtime branch.
+        // One branch per chunk via two monomorphized ladders.
+        // TO-DO: group cache hits together before chunking.
         if prepared.all_affine {
             mul_base_minus_public_impl::<true>(base_table, prepared)
         } else {
@@ -436,8 +428,6 @@ pub(crate) mod avx512ifma {
         let selected: [_; LANES] = core::array::from_fn(|lane| {
             public_key_tables[lane].select_signed_cached_ref(-k_digits[lane][index])
         });
-        // All lanes affine (`Z = 1`): the `Z₁·z2` product becomes a doubling,
-        // 7 M/add instead of 8. Otherwise fall back to the projective add.
         if AFFINE {
             let selected = WideAffineCachedPoint::from_cached_refs(&selected);
             acc.add_affine_cached_assign(&selected);
