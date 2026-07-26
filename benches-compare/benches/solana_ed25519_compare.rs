@@ -516,6 +516,7 @@ criterion_group!(
     bench_garbage_50,
     bench_hot_keys_4,
     bench_hot_keys_large,
-    bench_hot_keys_churn
+    bench_hot_keys_churn,
+    bench_hot_keys_promotion_churn,
 );
 criterion_main!(benches);

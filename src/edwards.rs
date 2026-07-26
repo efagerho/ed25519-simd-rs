@@ -453,6 +453,11 @@ mod tests {
                 "affine-table recovery diverged"
             );
         }
+        // Pins D_INV: the recovered point is (2X : 2Y : 2Z : 2T), so its t
+        // must equal the doubled t of the base point.
+        let b = EdwardsPoint::basepoint();
+        let recovered = PointTable::new(&b).recover_base_point();
+        assert!(recovered.t.equals(&b.t.double()), "recovered t != 2T");
     }
 
 fn assert_table_holds_signed_multiples(base: &EdwardsPoint, table: &BasepointTable) {
