@@ -22,7 +22,6 @@ pub(crate) struct EdwardsPoint {
 #[derive(Clone, Debug)]
 pub(crate) struct PointTable {
     entries: [CachedPoint; SIGNED_POINT_TABLE_SIZE],
-    affine: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -156,18 +155,17 @@ impl PointTable {
         identity_cached: CachedPoint,
     ) -> Self {
         let entries = signed_cached_entries(cached_points, negative_cached_points, identity_cached);
-        Self {
-            entries,
-            affine: false,
-        }
+        Self { entries }
     }
 
+    /// Test-only: normalized tables carry `z2 == 2` in every entry.
+    #[cfg(test)]
     pub(crate) fn is_affine(&self) -> bool {
-        self.affine
+        self.select_signed_cached_ref(2).coords().2.equals(&Fe51::two())
     }
 
-    /// Normalize all entries to affine (`Z = 1`) form with one batch inversion. 
-    /// Called once per key on insert into a retaining cache.
+    /// Normalize all entries to affine (`Z = 1`) form with one batch inversion.
+    /// Called once per key at promotion.
     pub(crate) fn normalized_affine(&self) -> Self {
         let mut z2_inv: [Fe51; SIGNED_POINT_TABLE_SIZE] =
             core::array::from_fn(|_| Fe51::one());
@@ -191,10 +189,7 @@ impl PointTable {
                 e.t2d.multiply(&z_inv),
             )
         });
-        Self {
-            entries,
-            affine: true,
-        }
+        Self { entries }
     }
 
     pub(crate) fn new(point: &EdwardsPoint) -> Self {
@@ -214,7 +209,8 @@ impl PointTable {
         unsafe { self.entries.get_unchecked((digit + 8) as usize) }
     }
 
-    /// Recover the base projective point from its tabled entry. 
+    /// Recover the base point as the scaled representative
+    /// (2X : 2Y : 2Z : 2T) — valid for all point operations.
     pub(crate) fn recover_base_point(&self) -> EdwardsPoint {
         let one = self.select_signed_cached_ref(1);
         EdwardsPoint {
