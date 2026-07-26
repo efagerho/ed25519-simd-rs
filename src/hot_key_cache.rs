@@ -12,6 +12,20 @@ struct CacheEntry {
     last_used: Cell<u64>,
 }
 
+impl CacheEntry {
+    /// Stamp this entry with the next clock value.
+    fn touch(&self, clock: &Cell<u64>) {
+        self.last_used.set(tick(clock));
+    }
+}
+
+/// Advance the recency clock and return its new value.
+fn tick(clock: &Cell<u64>) -> u64 {
+    let next = clock.get().wrapping_add(1);
+    clock.set(next);
+    next
+}
+
 /// A [`KeyCache`] that retains hot decoded keys across batches.
 #[derive(Debug)]
 pub struct HotKeyCache {
@@ -50,13 +64,7 @@ impl HotKeyCache {
     }
 
     fn tick(&self) -> u64 {
-        let next = self.clock.get().wrapping_add(1);
-        self.clock.set(next);
-        next
-    }
-
-    fn touch(&self, entry: &CacheEntry) {
-        entry.last_used.set(self.tick());
+        tick(&self.clock)
     }
 
     fn insert_cached(&mut self, key: CachedPublicKey) {
@@ -96,15 +104,35 @@ impl HotKeyCache {
 
 impl crate::cache::private::Sealed for HotKeyCache {}
 
+impl KeyCache for HotKeyCache {
+    #[inline]
+    fn get(&self, encoded: &[u8; PUBLIC_KEY_LEN]) -> Option<&CachedPublicKey> {
+        let entry = self.keys.get(encoded)?;
+        entry.touch(&self.clock);
+        entry.key.hits.set(entry.key.hits.get().saturating_add(1));
+        Some(&entry.key)
+    }
+
+    fn insert(&mut self, key: CachedPublicKey) {
+        if let Some(entry) = self.keys.get_mut(&key.encoded) {
+            // Promotion: adopt the upgraded tables (affine main + A′ split).
+            if key.table_hi.is_some() && entry.key.table_hi.is_none() {
+                entry.key.table = key.table;
+                entry.key.table_hi = key.table_hi;
+            }
+            entry.touch(&self.clock);
+        } else {
+            // Fresh key: stored as decoded — no normalization, no A′.
+            self.insert_cached(key);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::edwards::{EdwardsPoint, PointTable};
 
-    /// Lazy-promotion semantics at the cache level: a fresh insert
-    /// builds NO split table (single-use keys pay nothing); a re-insert
-    /// carrying one — the verifier's promotion hand-back — is adopted into
-    /// the resident entry with recency preserved.
     #[test]
     fn split_table_is_lazy_and_adopted_on_reinsert() {
         let encoded = EdwardsPoint::basepoint().compress();
@@ -139,39 +167,5 @@ mod tests {
             a_prime.compress(),
             "adopted table_hi base is not [2^127]A"
         );
-    }
-}
-
-impl KeyCache for HotKeyCache {
-    #[inline]
-    fn get(&self, encoded: &[u8; PUBLIC_KEY_LEN]) -> Option<&CachedPublicKey> {
-        let entry = self.keys.get(encoded)?;
-        self.touch(entry);
-        // Hit counter drives the verifier's promotion hysteresis (see cache.rs).
-        entry.key.hits.set(entry.key.hits.get().saturating_add(1));
-        Some(&entry.key)
-    }
-
-    fn insert(&mut self, key: CachedPublicKey) {
-        let now = self.tick();
-        if let Some(entry) = self.keys.get_mut(&key.encoded) {
-            // Lazy promotion: the verifier hands back an
-            // upgraded entry on the key's second hit, carrying BOTH the
-            // affine-normalized main table (1b, moved here from insert) and
-            // the SIMD-built split table A′ = [2¹²⁷]A. Adopt both atomically
-            // (recency preserved); repeats are ignored.
-            if key.table_hi.is_some() && entry.key.table_hi.is_none() {
-                entry.key.table = key.table;
-                entry.key.table_hi = key.table_hi;
-            }
-            entry.last_used.set(now);
-        } else {
-            // Fresh key: stored AS DECODED (projective). No normalization and
-            // no A′ here — inserts cost only the map insert, so single-use
-            // keys and churn workloads (evicted before reuse) pay nothing
-            // beyond retention bookkeeping. All per-key table work happens at
-            // promotion, amortized behind two observed hits.
-            self.insert_cached(key);
-        }
     }
 }

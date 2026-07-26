@@ -11,14 +11,11 @@ pub(crate) mod private {
 pub struct CachedPublicKey {
     pub(crate) encoded: [u8; PUBLIC_KEY_LEN],
     pub(crate) table: PointTable,
-    /// Split table for `A′ = [2¹²⁷]A`, enabling the halved-doubling
-    /// ladder on all-cached chunks. Built lazily by the verifier's SIMD
-    /// promotion pass — never at insert, so single-use keys pay nothing.
+    /// Split table for the halved-doubling ladder.
+    /// Built by the verifier's promotion pass, not at insert.
     pub(crate) table_hi: Option<PointTable>,
-    /// Cache hits since insert (saturating). Promotion hysteresis: the split
-    /// table is built on the SECOND hit, so keys oscillating between hit and
-    /// eviction (capacity churn) never enter a rebuild-promote loop — churn
-    /// degrades to the non-split behavior.
+    /// Cache hits since insert (saturating). 
+    /// Promotion triggers on second hit.
     pub(crate) hits: Cell<u8>,
 }
 

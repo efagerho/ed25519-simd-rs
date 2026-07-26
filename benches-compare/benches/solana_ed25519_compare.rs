@@ -273,8 +273,7 @@ fn bench_hot_keys_scenario(c: &mut Criterion, group_name: &str, hot_key_count: u
             hot_key_count,
             &inputs,
         );
-        // Phase 2h touches both policies (the split ladder computes the same
-        // point); the report asserts Dalek improves consistently with Zip215.
+        // The split ladder affects both policies; bench Dalek too.
         bench_ours_hot_key_cache(
             &mut group,
             "ed25519_simd_hotcache/dalek",
@@ -416,8 +415,6 @@ fn bench_hot_keys_4(c: &mut Criterion) {
 
 /// Cache churn: every key in the batch is distinct and the capacity is far
 /// smaller, so the steady state is all-miss (keys are evicted before reuse).
-/// Guard for Phase 2h lazy promotion: no A′ is ever built here, so this must
-/// stay at Phase 1b levels.
 fn bench_hot_keys_churn(c: &mut Criterion) {
     let mut group = c.benchmark_group("hot_keys/churn_cap4");
     for n in SIZES {
@@ -436,11 +433,9 @@ fn bench_hot_keys_churn(c: &mut Criterion) {
     group.finish();
 }
 
-/// Large hot-key working sets: fully distinct keys (`hot_key_count == n`), all
-/// resident after warmup. At 256/1024 keys the retained tables spill L1/L2, so
-/// the affine cache's smaller per-key gather footprint (Phase 1c) can show up —
-/// unlike `distinct_4`, whose 4 tables fit L1. `HotKeyCache` vs `NullKeyCache`,
-/// Zip215, msg_len 1.
+/// All keys distinct and resident after warmup (`hot_key_count == n`). At
+/// 256/1024 keys the retained tables outgrow L1/L2, so this measures how the
+/// cache win scales with resident-set size. Zip215, msg len 1.
 fn bench_hot_keys_large(c: &mut Criterion) {
     let mut group = c.benchmark_group("hot_keys/large_distinct");
     for n in [256usize, 1024] {
@@ -461,6 +456,51 @@ fn bench_hot_keys_large(c: &mut Criterion) {
             VerifyPolicy::Zip215,
             n,
             n,
+            &inputs,
+        );
+    }
+    group.finish();
+}
+
+/// Promotion churn: each key earns its two hits in the chunk after its
+/// insert (promotion fires), then the other quad's inserts evict it before
+/// any all-promoted chunk can form. Worst case promotion cost, zero benefit.
+fn generate_promotion_churn(n: usize) -> Vec<Owned> {
+    let mut rng = SplitMix(0x5eed_1234);
+    (0..n)
+        .map(|i| {
+            let chunk = i / 8;
+            let quad = (chunk / 2) % 2; // two chunks on quad A, two on quad B, …
+            let pair = (i % 8) / 2; // keys doubled in-chunk: k k k' k' …
+            let key = signing_key_from_index((quad * 4 + pair) as u64);
+            let pk = <[u8; 32]>::from(VerificationKeyBytes::from(&key));
+            let mut msg = vec![0u8; 1];
+            msg[0] = (rng.next() & 0xff) as u8;
+            let sig = key.sign(&msg).to_bytes();
+            Owned { pk, sig, msg }
+        })
+        .collect()
+}
+
+fn bench_hot_keys_promotion_churn(c: &mut Criterion) {
+    let mut group = c.benchmark_group("hot_keys/promotion_churn_cap4");
+    for n in [32usize, 64] {
+        let cases = generate_promotion_churn(n);
+        let inputs = inputs_of(&cases);
+        group.throughput(Throughput::Elements(n as u64));
+        bench_ours_nocache(
+            &mut group,
+            "ed25519_simd_nullcache/zip215",
+            VerifyPolicy::Zip215,
+            n,
+            &inputs,
+        );
+        bench_ours_hot_key_cache(
+            &mut group,
+            "ed25519_simd_hotcache/zip215",
+            VerifyPolicy::Zip215,
+            n,
+            4,
             &inputs,
         );
     }

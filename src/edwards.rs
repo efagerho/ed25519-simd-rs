@@ -22,9 +22,6 @@ pub(crate) struct EdwardsPoint {
 #[derive(Clone, Debug)]
 pub(crate) struct PointTable {
     entries: [CachedPoint; SIGNED_POINT_TABLE_SIZE],
-    /// `true` iff every entry is affine (`Z = 1`, so `z2 = 2`). Set by
-    /// [`PointTable::normalized_affine`] for retained hot-key tables; the ladder
-    /// uses the cheaper affine mixed-add only when all 8 lanes are affine.
     affine: bool,
 }
 
@@ -165,18 +162,12 @@ impl PointTable {
         }
     }
 
-    /// Whether every entry is affine (`Z = 1`); see [`PointTable::affine`].
     pub(crate) fn is_affine(&self) -> bool {
         self.affine
     }
 
-    /// Normalize all entries to affine (`Z = 1`) form with one batch inversion,
-    /// so the ladder's mixed addition can double the accumulator's `Z` instead
-    /// of multiplying by `z2`. Called once per key on insert into a retaining
-    /// cache; the `NullKeyCache` single-use path never pays this.
-    ///
-    /// Each entry stores `z2 = 2·Z`, so `1/Z = 2·z2⁻¹`. Scaling `y±x` and `t2d`
-    /// by `1/Z` and setting `z2 = 2` yields the affine cached point.
+    /// Normalize all entries to affine (`Z = 1`) form with one batch inversion. 
+    /// Called once per key on insert into a retaining cache.
     pub(crate) fn normalized_affine(&self) -> Self {
         let mut z2_inv: [Fe51; SIGNED_POINT_TABLE_SIZE] =
             core::array::from_fn(|_| Fe51::one());
@@ -190,14 +181,13 @@ impl PointTable {
             z2_inv[i] = z2_inv[i].multiply(&acc);
             acc = acc.multiply(&self.entries[i].z2);
         }
-        let two = Fe51::one().double();
         let entries = core::array::from_fn(|i| {
             let e = &self.entries[i];
             let z_inv = z2_inv[i].double(); // 1/Z = 2·z2⁻¹
             CachedPoint::from_fields(
                 e.y_plus_x.multiply(&z_inv),
                 e.y_minus_x.multiply(&z_inv),
-                two,
+                Fe51::two(),
                 e.t2d.multiply(&z_inv),
             )
         });
@@ -224,19 +214,14 @@ impl PointTable {
         unsafe { self.entries.get_unchecked((digit + 8) as usize) }
     }
 
-    /// Recover the table's base point from its digit-1 entry. The cached
-    /// fields give `y+x`, `y−x`, `2Z`, so `(2X : 2Y : 2Z)` — a valid
-    /// projective representative of the point (extended coordinates are
-    /// projective). The input `T` is set to zero: `double()` never reads it,
-    /// and the consumer immediately doubles, which recomputes `T`.
-    /// Valid for both projective and affine-normalized (1b) tables.
+    /// Recover the base projective point from its tabled entry. 
     pub(crate) fn recover_base_point(&self) -> EdwardsPoint {
         let one = self.select_signed_cached_ref(1);
         EdwardsPoint {
             x: one.y_plus_x.subtract(&one.y_minus_x), // 2X
             y: one.y_plus_x.add(&one.y_minus_x),      // 2Y
             z: one.z2,                                // 2Z
-            t: Fe51::zero(),
+            t: one.t2d.multiply(&Fe51::d_inv()),      // 2T
         }
     }
 }
@@ -343,11 +328,7 @@ impl EdwardsPoint {
         })
     }
 
-    /// `[2¹²⁷]·self` by 127 doublings — the split-table base
-    /// (`A′ = [2¹²⁷]A` at cache insert, `B′ = [2¹²⁷]B` once per process).
-    /// Note `double()` ignores the input `t`, so a zero-`t` representative
-    /// from `PointTable::recover_base_point` is a valid starting point; the
-    /// result carries a correct `t` from the final doubling.
+    /// `[2¹²⁷]·self` by 127 doublings
     pub(crate) fn mul_by_pow2_127(&self) -> Self {
         let mut p = self.double();
         for _ in 1..127 {
@@ -392,8 +373,6 @@ impl EdwardsPoint {
         }
     }
 
-    /// Extended coordinates; production use: lane-packing for the SIMD
-    /// promotion pass (`WidePoint::from_points`).
     pub(crate) fn coords(&self) -> (&Fe51, &Fe51, &Fe51, &Fe51) {
         (&self.x, &self.y, &self.z, &self.t)
     }
@@ -444,10 +423,9 @@ fn multiples_of(point: &EdwardsPoint) -> [EdwardsPoint; POINT_TABLE_SIZE] {
 mod tests {
     use super::*;
 
-    /// recovering a table's base point from its digit-1 entry must
-    /// round-trip, for projective and affine-normalized (1b) tables, on
-    /// ordinary and small-order points. (`T` is not recovered; `compress`
-    /// only needs `x, y, z`.)
+    /// Building a table from a point and recovering it gives the point
+    /// back — for projective and affine-normalized tables, on ordinary
+    /// and small-order points.    
     #[test]
     fn recover_base_point_roundtrips() {
         // An order-8 point (torsion recovery must work too — ZIP-215 keys).
@@ -477,85 +455,51 @@ mod tests {
         }
     }
 
-    /// the generalized fixed-base table for `B′ = [2¹²⁷]B`
-    /// must hold exactly `[d]B′` at every signed digit — the 1a golden shape
-    /// applied to `from_point` (batch-inversion normalization vs an
-    /// independent per-entry projective reference).
+fn assert_table_holds_signed_multiples(base: &EdwardsPoint, table: &BasepointTable) {
+        // Reference [1]·base..[N]·base by repeated addition, independent of the table.
+        let mut multiples = vec![base.clone()];
+        for _ in 1..BASEPOINT_TABLE_SIZE {
+            multiples.push(multiples.last().unwrap().add(base));
+        }
+
+        let n = BASEPOINT_TABLE_SIZE as i16;
+        for d in -n..=n {
+            let reference = if d == 0 {
+                EdwardsPoint::identity()
+            } else {
+                let m = multiples[(d.unsigned_abs() as usize) - 1].clone();
+                if d < 0 { m.negate() } else { m }
+            };
+            // Expected affine cached fields of the reference.
+            let zinv = reference.z.invert();
+            let x = reference.x.multiply(&zinv);
+            let y = reference.y.multiply(&zinv);
+            let expect_ypx = y.add(&x);
+            let expect_ymx = y.subtract(&x);
+            let expect_t2d = x.multiply(&y).multiply(&Fe51::two_d());
+
+            let (ypx, ymx, t2d) = table.select_signed_affine_cached_ref(d).coords();
+            assert!(ypx.equals(&expect_ypx), "y+x mismatch at digit {d}");
+            assert!(ymx.equals(&expect_ymx), "y-x mismatch at digit {d}");
+            assert!(t2d.equals(&expect_t2d), "t2d mismatch at digit {d}");
+        }
+    }
+
+    /// Every entry is `[d]·base` for its signed digit `d`, for both the `B`
+    /// table and a `from_point` table, checked against references built by
+    /// repeated addition.
     #[test]
-    fn affine_table_from_point_matches_multiples_of_b_prime() {
+    fn basepoint_tables_hold_signed_multiples() {
+        assert_table_holds_signed_multiples(&EdwardsPoint::basepoint(), &BasepointTable::new());
+
         let b_prime = EdwardsPoint::basepoint().mul_by_pow2_127();
-        let table = BasepointTable::from_point(&b_prime);
-
-        let mut multiples = vec![b_prime.clone()];
-        for _ in 1..BASEPOINT_TABLE_SIZE {
-            multiples.push(multiples.last().unwrap().add(&b_prime));
-        }
-        let n = BASEPOINT_TABLE_SIZE as i16;
-        for d in -n..=n {
-            let reference = if d == 0 {
-                EdwardsPoint::identity()
-            } else {
-                let m = multiples[(d.unsigned_abs() as usize) - 1].clone();
-                if d < 0 { m.negate() } else { m }
-            };
-            let zinv = reference.z.invert();
-            let x = reference.x.multiply(&zinv);
-            let y = reference.y.multiply(&zinv);
-            let expect_ypx = y.add(&x);
-            let expect_ymx = y.subtract(&x);
-            let expect_t2d = x.multiply(&y).multiply(&Fe51::two_d());
-
-            let (ypx, ymx, t2d) = table.select_signed_affine_cached_ref(d).coords();
-            assert!(ypx.equals(&expect_ypx), "y+x mismatch at digit {d}");
-            assert!(ymx.equals(&expect_ymx), "y-x mismatch at digit {d}");
-            assert!(t2d.equals(&expect_t2d), "t2d mismatch at digit {d}");
-        }
+        assert_table_holds_signed_multiples(&b_prime, &BasepointTable::from_point(&b_prime));
     }
 
-    /// Golden equivalence: every entry of the affine-cached basepoint
-    /// table must represent exactly `[d]B` for its signed digit `d`. Cross-checks
-    /// the batch-inversion normalization against an independent projective
-    /// reference computed by repeated addition — the "old table" the affine one
-    /// replaces. Covers identity (`d = 0`), all positives, and all negatives.
-    #[test]
-    fn affine_basepoint_table_matches_projective_multiples() {
-        let table = BasepointTable::new();
-        let basepoint = EdwardsPoint::basepoint();
 
-        // Reference [1]B..[N]B built projectively, independent of the table path.
-        let mut multiples = vec![basepoint.clone()];
-        for _ in 1..BASEPOINT_TABLE_SIZE {
-            multiples.push(multiples.last().unwrap().add(&basepoint));
-        }
-
-        let n = BASEPOINT_TABLE_SIZE as i16;
-        for d in -n..=n {
-            let reference = if d == 0 {
-                EdwardsPoint::identity()
-            } else {
-                let m = multiples[(d.unsigned_abs() as usize) - 1].clone();
-                if d < 0 { m.negate() } else { m }
-            };
-            // Normalize the reference to affine and derive its cached fields.
-            let zinv = reference.z.invert();
-            let x = reference.x.multiply(&zinv);
-            let y = reference.y.multiply(&zinv);
-            let expect_ypx = y.add(&x);
-            let expect_ymx = y.subtract(&x);
-            let expect_t2d = x.multiply(&y).multiply(&Fe51::two_d());
-
-            let (ypx, ymx, t2d) = table.select_signed_affine_cached_ref(d).coords();
-            assert!(ypx.equals(&expect_ypx), "y+x mismatch at digit {d}");
-            assert!(ymx.equals(&expect_ymx), "y-x mismatch at digit {d}");
-            assert!(t2d.equals(&expect_t2d), "t2d mismatch at digit {d}");
-        }
-    }
-
-    /// Golden equivalence: normalizing a projective public-key table
-    /// to affine must preserve every entry's point. Each affine entry equals the
-    /// projective one divided by `Z = z2/2`; verified by cross-multiplication
-    /// (`affine · z2 == 2 · projective`) so the check is independent of `invert`.
-    /// Uses the basepoint's radix-16 table, whose multiples `[2..8]B` have `Z ≠ 1`.
+    /// Normalizing a projective public-key table to affine preserves every
+    /// entry, checked by cross-multiplication — independent of `invert`.
+    /// The basepoint multiples [2..8]B have Z ≠ 1, so the input is nontrivial.
     #[test]
     fn normalized_affine_pointtable_matches_projective() {
         let projective = PointTable::new(&EdwardsPoint::basepoint());

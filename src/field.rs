@@ -28,6 +28,13 @@ pub(crate) const SQRT_M1_LIMBS: [u64; LIMB_COUNT] = [
     2_117_202_627_021_982,
     765_476_049_583_133,
 ];
+pub(crate) const D_INV_LIMBS: [u64; LIMB_COUNT] = [
+    266_592_072_628_291,
+    853_561_038_980_284,
+    1_943_101_592_401_754,
+    2_007_251_003_935_334,
+    1_135_829_554_646_364,
+];
 #[cfg(test)]
 const P_BYTES: [u8; 32] = [
     0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -63,12 +70,22 @@ impl Fe51 {
         }
     }
 
+    pub(crate) fn two() -> Self {
+        Self {
+            limbs: [2, 0, 0, 0, 0],
+        }
+    }
+
     pub(crate) fn d() -> Self {
         Self { limbs: D_LIMBS }
     }
 
     pub(crate) fn two_d() -> Self {
         Self { limbs: TWO_D_LIMBS }
+    }
+
+    pub(crate) fn d_inv() -> Self {
+        Self { limbs: D_INV_LIMBS }
     }
 
     fn sqrt_m1() -> Self {

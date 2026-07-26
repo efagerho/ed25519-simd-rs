@@ -3,7 +3,7 @@ use crate::cache::{CachedPublicKey, KeyCache, NullKeyCache};
 use crate::cpuid;
 use crate::edwards::{BasepointTable, EdwardsPoint, PointTable};
 use crate::policy::{VerifyPolicy, r_encoding_has_canonical_y, r_encoding_is_legacy_excluded};
-use crate::scalar::{self, Radix16, Scalar};
+use crate::scalar::{self, Radix16, Radix16Half, Scalar};
 use crate::sha512;
 use crate::wide::avx512ifma;
 use std::sync::LazyLock;
@@ -26,8 +26,7 @@ const R_ENCODING_LEN: usize = batch::R_ENCODING_LEN;
 // Shared once per process; the base-point table is policy- and cache-independent.
 static BASE_TABLE: LazyLock<BasepointTable> = LazyLock::new(BasepointTable::new);
 
-// B′ = [2¹²⁷]B for the split ladder's s₁ digits — same 273-entry
-// affine layout as BASE_TABLE (~33 KB), policy- and cache-independent.
+// Shared once per process; B′ = [2¹²⁷]B for the split ladder, same layout as BASE_TABLE.
 static BASE_TABLE_PRIME: LazyLock<BasepointTable> =
     LazyLock::new(|| BasepointTable::from_point(&EdwardsPoint::basepoint().mul_by_pow2_127()));
 
@@ -165,10 +164,8 @@ impl<C: KeyCache> Verifier<C> {
         let missing_key_lanes: [bool; SIMD_LANES] =
             core::array::from_fn(|lane| cached_keys[lane].is_none());
 
-        // every lane is a hit whose entry carries the
-        // promoted A′ table — run the halved-doubling ladder (both policies;
-        // it computes the same group element). No misses means nothing to
-        // decode, insert, or promote afterwards.
+        // Every lane is a hit whose entry carries the
+        // promoted A′ table — run the halved-doubling ladder.
         if cached_keys
             .iter()
             .all(|key| key.is_some_and(|key| key.table_hi.is_some()))
@@ -185,20 +182,11 @@ impl<C: KeyCache> Verifier<C> {
             return;
         }
 
-        // Lazy promotion with hysteresis: promote a key on its
-        // SECOND hit since insert. Keys oscillating between hit and eviction
-        // (capacity churn) never reach two hits, so churn never rebuilds A′
-        // and stays at the non-promoting cost. Recover base points now (cheap; the
-        // cache borrow is live) — the SIMD pass runs after verification.
+        // Promote a key on its second hit since insert. 
         let promote_lanes: [bool; SIMD_LANES] = core::array::from_fn(|lane| {
             cached_keys[lane].is_some_and(|key| key.table_hi.is_none() && key.hits.get() >= 2)
         });
-        // Nothing promotes on the cold path (no hits at all) or on any chunk
-        // whose keys are still short of their second hit, which is the common
-        // case. One mask test skips the recovery entirely: materializing eight
-        // points unconditionally cost ~1.3 KB of stores per chunk and inlined
-        // that dead code into the shared body, displacing the ladder from the
-        // op cache.
+        // Skip recovery when nothing promotes (the common case)
         let promote_points: Option<[EdwardsPoint; SIMD_LANES]> = if any_lane(&promote_lanes) {
             Some(recover_promote_points(&cached_keys, &promote_lanes))
         } else {
@@ -261,7 +249,6 @@ impl<C: KeyCache> Verifier<C> {
                     self.cache.insert(CachedPublicKey {
                         encoded: public_keys[lane],
                         table,
-                        // Lazy: a retaining cache promotes after repeat hits.
                         table_hi: None,
                         hits: core::cell::Cell::new(0),
                     });
@@ -269,18 +256,15 @@ impl<C: KeyCache> Verifier<C> {
             }
         }
 
-        // Lazy promotion: one wide 127-doubling pass shared by every
-        // promoting lane in the chunk, then hand the upgraded entries back
-        // through the cache (which adopts table_hi; NullKeyCache drops it).
-        // Once per key ever; the split ladder engages from the next chunk on.
+        // One wide pass shared by all promoting lanes.
         if let Some(promote_points) = promote_points {
             self.run_promotion(&promote_points, &promote_lanes, &public_keys);
         }
     }
 
     /// Build and adopt the promoted `A′` tables for the lanes that reached
-    /// their second hit. Outlined: this runs once per key ever, so its code
-    /// has no business sitting in the per-chunk body next to the ladder.
+    /// their second hit. Runs rarely, at most once per key in cache, and is
+    /// therefore outlined. How often real traffic promotes is unmeasured.
     #[inline(never)]
     fn run_promotion(
         &mut self,
@@ -293,16 +277,13 @@ impl<C: KeyCache> Verifier<C> {
             if !promote_lanes[lane] {
                 continue;
             }
-            // Duplicate (padded) lanes may already have been promoted by
-            // an earlier lane this loop; the adopt path ignores repeats.
+            // The same key can sit in several lanes (padding or repeats);
+            // it gets promoted once, the cache ignores the rest.
             let Some(existing) = self.cache.get(&public_keys[lane]) else {
                 continue; // evicted mid-batch by an insert above
             };
             let upgraded = CachedPublicKey {
                 encoded: public_keys[lane],
-                // the main table is normalized HERE, at promotion,
-                // not at insert — resident entries are projective until
-                // their second hit, so churn inserts pay nothing.
                 table: existing.table.normalized_affine(),
                 table_hi: Some(hi_table.normalized_affine()),
                 hits: existing.hits.clone(),
@@ -311,11 +292,9 @@ impl<C: KeyCache> Verifier<C> {
         }
     }
 
-    /// Split-ladder chunk: all lanes are
-    /// cache hits with promoted entries; k and s are integer-split at bit 127
-    /// and the four 32-digit halves drive the 124-doubling ladder over
-    /// (A, A′, B, B′). Computes exactly [s]B − [k]A, so the policy tails are
-    /// verbatim mirrors of the all-hit paths below.
+    /// Split-ladder chunk: all lanes are cache hits with promoted entries.
+    /// k and s are split at bit 127 and the four 32-digit halves 
+    /// drive the 124-doubling ladder over (A, A′, B, B′).
     #[allow(clippy::too_many_arguments)]
     fn verify_split_chunk(
         &self,
@@ -336,15 +315,10 @@ impl<C: KeyCache> Verifier<C> {
                 .expect("split chunk lanes carry table_hi")
         });
 
+
         let k_scalars = challenge_scalars(r_bytes, public_keys, messages);
-        let mut k0_digits = [[0i8; 32]; SIMD_LANES];
-        let mut k1_digits = [[0i8; 32]; SIMD_LANES];
-        let mut s0_digits = [[0i8; 32]; SIMD_LANES];
-        let mut s1_digits = [[0i8; 32]; SIMD_LANES];
-        for lane in 0..SIMD_LANES {
-            (k0_digits[lane], k1_digits[lane]) = k_scalars[lane].split_radix16();
-            (s0_digits[lane], s1_digits[lane]) = s_scalars[lane].split_radix16();
-        }
+        let (k0_digits, k1_digits) = split_digit_halves(&k_scalars);
+        let (s0_digits, s1_digits) = split_digit_halves(s_scalars);
 
         let prepared = PreparedSplitBatch {
             a_tables,
@@ -368,7 +342,7 @@ impl<C: KeyCache> Verifier<C> {
             }
             VerifyPolicy::Dalek => {
                 // All-hit chunk: R was never decompressed, so recompute and
-                // compare bytes — the same tail as verify_prepared_dalek.
+                // compare bytes - same as verify_prepared_dalek.
                 let simd = avx512ifma::verify_prepared_split_dalek(
                     &prepared,
                     r_bytes,
@@ -501,6 +475,20 @@ fn challenge_scalars(
     core::array::from_fn(|lane| Scalar::from_wide_words(digests[lane]))
 }
 
+/// Split a scalar into half-digits, recoded to 32 digits each.
+#[inline(always)]
+fn split_digit_halves(
+    scalars: &[Scalar; SIMD_LANES],
+) -> ([Radix16Half; SIMD_LANES], [Radix16Half; SIMD_LANES]) {
+    let mut lo = [[0i8; 32]; SIMD_LANES];
+    let mut hi = [[0i8; 32]; SIMD_LANES];
+    // Can be improved: vectorise via the add-0x88…8 nibble trick; digits land in [−8, 7].
+    for lane in 0..SIMD_LANES {
+        (lo[lane], hi[lane]) = scalars[lane].split_radix16();
+    }
+    (lo, hi)
+}
+
 fn dalek_legacy_excluded(
     public_key: &[u8; batch::PUBLIC_KEY_LEN],
     r_bytes: &[u8; R_ENCODING_LEN],
@@ -517,10 +505,8 @@ fn any_lane(lanes: &[bool; SIMD_LANES]) -> bool {
     lanes.iter().any(|&lane| lane)
 }
 
-/// Recover the affine base point behind each promoting lane's table. Outlined
-/// and called only under `any_lane(promote_lanes)`: the non-promoting lanes
-/// still need an identity filler, and writing eight of those inline cost the
-/// cold path ~1.3 KB of stores per chunk for nothing.
+/// Base points of the promoting lanes, identity elsewhere. 
+/// Outlined and called only when some lane promotes
 #[inline(never)]
 fn recover_promote_points(
     cached_keys: &[Option<&CachedPublicKey>; SIMD_LANES],
@@ -584,10 +570,9 @@ mod tests {
     /// round 4+ (promoted)  -> split ladder, including a corrupted lane
     ///                         exercising per-lane masking through it.
     /// Every round's outputs must equal a cold NullKeyCache verifier's.
-    /// (Note: test-side `warm.cache().get()` calls also bump hit counters,
-    /// so the promotion round here is an upper bound of the production
-    /// timeline — the invariants checked are lazy-insert, hysteresis ≥ one
-    /// full-ladder reuse round, eventual promotion, and split correctness.)
+    /// (The test's own cache reads also increment the hit counter, so keys
+    /// may get promoted earlier than in real use. We therefore only assert
+    /// that round 1 promotes nothing and all keys are promoted by round 3.)
     #[test]
     fn split_path_promotes_lazily_and_matches_cold_verifier() {
         for policy in [VerifyPolicy::Zip215, VerifyPolicy::Dalek] {
@@ -628,7 +613,7 @@ mod tests {
                         assert_eq!(
                             count_promoted(&warm, &cases),
                             0,
-                            "insert must not promote (lazy)"
+                            "insert must not promote"
                         );
                         // freshly inserted entries stay as decoded.
                         assert!(
@@ -636,11 +621,11 @@ mod tests {
                                 .cache()
                                 .get(&c.pk)
                                 .is_some_and(|k| !k.table.is_affine())),
-                            "insert must not normalize (lazy 1b)"
+                            "insert must not normalize"
                         );
                     }
-                    // Rounds 2..3: hysteresis in effect; counting via get()
-                    // perturbs hit counters, so only assert the endpoint:
+                    // We can't check round 2: the test's own reads already
+                    // added hits, so the timing is off. Check the end only:
                     3.. => assert_eq!(
                         count_promoted(&warm, &cases),
                         8,

@@ -61,10 +61,7 @@ impl Scalar {
     }
 
     /// Integer split `x = x₀ + 2¹²⁷·x₁` (no mod-ℓ wrap), each half as
-    /// exactly 32 signed radix-16 digits. Bounds:
-    /// `x₀ < 2¹²⁷` by construction and `x₁ ≤ 2¹²⁵` (canonical `x < ℓ`), so the
-    /// top nibble of each half is ≤ 7 and the signed carry cannot escape
-    /// digit 31 — no 33rd digit.
+    /// exactly 32 signed radix-16 digits.
     pub(crate) fn split_radix16(self) -> (Radix16Half, Radix16Half) {
         let b = self.bytes;
         let mut lo = [0u8; 16];
@@ -102,7 +99,7 @@ fn radix16_half(bytes: &[u8; 16]) -> Radix16Half {
         i += 1;
     }
     // Values are < 2¹²⁷ (top nibble ≤ 7), so digit 31 absorbs any carry
-    // without generating one — provably no 33rd digit.
+    // without generating one, provably no 33rd digit.
     debug_assert_eq!(carry, 0, "radix-16 carry out of a 127-bit split half");
     digits
 }
@@ -444,14 +441,13 @@ mod tests {
         assert!(is_canonical(&below));
     }
 
-    /// split correctness: the halves recompose to the original bytes
-    /// (x = lo + hi·2¹²⁷) and every digit obeys the addendum §2 bounds, over
-    /// boundary scalars and a deterministic random corpus.
+    /// The halves recompose to the original scalar and every digit lies in
+    /// [−8, 8], over boundary and random inputs.
     #[test]
     fn split_radix16_recomposes_and_stays_in_bounds() {
         fn digits_to_bytes16(digits: &Radix16Half) -> ([u8; 17], bool) {
-            // Reassemble the signed digits into a little-endian value; a
-            // 17th byte and sign flag would flag any out-of-spec digit 31.
+            // Rebuild the 16-byte value from 32 signed digits; the 17th byte
+            // and the flag catch anything spilling past 16 bytes.
             let mut acc = [0i32; 17];
             for (i, &d) in digits.iter().enumerate() {
                 let byte = i / 2;
@@ -510,7 +506,7 @@ mod tests {
         l_minus_1[0] -= 1;
         check(l_minus_1);
 
-        // Deterministic random corpus (< 2²⁵² ≤ ℓ, hence canonical).
+        // 1000 pseudo-random scalars < 2²⁵² (canonical).
         let mut state = 0x5eed_1234u64;
         for _ in 0..1000 {
             let mut bytes = [0u8; 32];

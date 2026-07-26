@@ -19,10 +19,8 @@ pub(crate) struct PreparedBatch<'a> {
     pub(crate) k_digits: &'a [Radix16; SIMD_LANES],
 }
 
-/// Split-ladder inputs: every lane is a cache hit whose entry carries
-/// the promoted `A′ = [2¹²⁷]A` table, and both scalars are integer-split into
-/// exact 32-digit halves (`k = k₀ + 2¹²⁷k₁`, `s = s₀ + 2¹²⁷s₁`). All tables on
-/// this path are affine (A/A′ normalized at promotion, B/B′ static).
+/// Split-ladder inputs: every lane is a promoted cache hit, both scalars
+/// integer-split at 2¹²⁷ into 32-digit halves. All tables are affine.
 pub(crate) struct PreparedSplitBatch<'a> {
     pub(crate) a_tables: [&'a PointTable; SIMD_LANES],
     pub(crate) a_hi_tables: [&'a PointTable; SIMD_LANES],

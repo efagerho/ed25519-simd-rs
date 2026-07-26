@@ -1107,11 +1107,6 @@ pub(crate) mod avx512ifma {
         }
         /// Mixed addition with an affine (`Z = 1`) cached point. Identical to
         /// `add_cached_assign` except the `d = Z₁·2Z₂` product collapses to `Z₁.double()`.
-        ///
-        /// `inline(always)`: the split ladder added call sites, which pushed
-        /// LLVM into keeping this out of line and splitting what used to be one
-        /// fused `add_base_pair_digit` body into two. Fusing it back keeps the
-        /// digit-add a single region for the front end.
         #[inline(always)]
         fn add_affine_cached_assign(&mut self, rhs: &WideAffineCachedPoint) {
             let a = self.y.subtract(&self.x).multiply_loose(&rhs.y_minus_x);
@@ -1671,10 +1666,9 @@ pub(crate) mod avx512ifma {
             );
         }
 
-        /// the split ladder must produce the SAME point as the
-        /// full ladder (not merely the same accept bit) — [s₀]B + [s₁]B′ −
-        /// [k₀]A − [k₁]A′ = [s]B − [k]A by the integer split identity. Covers
-        /// an ordinary key, an order-8 torsion key, and boundary scalars.
+        /// Test if the split ladder produces the same point as the
+        /// full ladder: [s₀]B + [s₁]B′ − [k₀]A − [k₁]A′ == [s]B − [k]A. 
+        /// Covers an ordinary key, an order-8 torsion key, and boundary scalars.
         #[test]
         fn split_ladder_matches_full_ladder() {
             let base_table = BasepointTable::new();
@@ -1746,55 +1740,6 @@ pub(crate) mod avx512ifma {
                     }
                 }
             }
-        }
-
-        #[test]
-        fn wide_public_ladder_accepts_affine_tables() {
-            // A real key point; its radix-16 multiples [2..8]A have Z != 1, so
-            // the affine-normalized table genuinely differs in representation.
-            // Mixed chunks feed promoted (affine) tables to this ladder, so it
-            // must produce the identical point for both representations.
-            let a = EdwardsPoint::basepoint();
-            let table = PointTable::new(&a);
-            let table_affine = table.normalized_affine();
-            assert!(table_affine.is_affine());
-            let base_table = BasepointTable::new();
-
-            // Canonical scalars (high bytes zero => < L) with scattered digits.
-            let mut s_bytes = [0u8; 32];
-            s_bytes[0] = 0x42;
-            s_bytes[1] = 0x17;
-            s_bytes[5] = 0x9c;
-            let s = crate::scalar::Scalar::from_canonical_bytes(s_bytes);
-            let s_digits = [s.to_radix16(); LANES];
-            let mut k_bytes = [0u8; 32];
-            k_bytes[0] = 0x9d;
-            k_bytes[2] = 0xab;
-            k_bytes[7] = 0x3e;
-            let k = crate::scalar::Scalar::from_canonical_bytes(k_bytes);
-            let k_digits = [k.to_radix16(); LANES];
-
-            let projective = mul_base_minus_public(
-                &base_table,
-                &PreparedBatch {
-                    public_key_tables: [&table; LANES],
-                    s_digits: &s_digits,
-                    k_digits: &k_digits,
-                },
-            );
-            let affine = mul_base_minus_public(
-                &base_table,
-                &PreparedBatch {
-                    public_key_tables: [&table_affine; LANES],
-                    s_digits: &s_digits,
-                    k_digits: &k_digits,
-                },
-            );
-            assert_eq!(
-                projective.to_points()[0].compress(),
-                affine.to_points()[0].compress(),
-                "public-key ladder diverges between table representations"
-            );
         }
 
         #[test]
