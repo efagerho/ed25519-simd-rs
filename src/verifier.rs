@@ -1,7 +1,7 @@
 use crate::batch::{self, PreparedBatch};
 use crate::cache::{CachedPublicKey, KeyCache, NullKeyCache};
 use crate::cpuid;
-use crate::edwards::{BasepointTable, EdwardsPoint, PointTable};
+use crate::edwards::{BasepointTable4096, EdwardsPoint, PointTable};
 use crate::policy::{VerifyPolicy, r_encoding_has_canonical_y, r_encoding_is_legacy_excluded};
 use crate::scalar::{self, Radix16, Scalar};
 use crate::sha512;
@@ -23,8 +23,10 @@ pub struct VerifyInput<'a> {
 const SIMD_LANES: usize = batch::SIMD_LANES;
 const R_ENCODING_LEN: usize = batch::R_ENCODING_LEN;
 
-// Shared once per process; the base-point table is policy- and cache-independent.
-static BASE_TABLE: LazyLock<BasepointTable> = LazyLock::new(BasepointTable::new);
+// Shared once per process; radix-4096 basepoint table for the ladder's
+// triple-folded fixed-base adds (±2184 multiples, ≈ 524 KB).
+static BASE_TABLE_4096: LazyLock<BasepointTable4096> =
+    LazyLock::new(|| BasepointTable4096::from_point(&EdwardsPoint::basepoint()));
 
 // Placeholder table for invalid/missing lanes, also shared across verifiers.
 static IDENTITY_TABLE: LazyLock<PointTable> =
@@ -43,7 +45,7 @@ struct ChunkParts<'a> {
 #[derive(Debug)]
 pub struct Verifier<C: KeyCache = NullKeyCache> {
     policy: VerifyPolicy,
-    base_table: &'static BasepointTable,
+    base_table_4096: &'static BasepointTable4096,
     // Placeholder table for lanes whose key failed decode/lookup; results for
     // those lanes are masked out via `valid`, so its contents never affect
     // the output, but the multiscalar ladder still needs a real table.
@@ -89,7 +91,7 @@ impl<C: KeyCache> Verifier<C> {
         cpuid::assert_required_avx512_runtime_support();
         Self {
             policy,
-            base_table: &*BASE_TABLE,
+            base_table_4096: &*BASE_TABLE_4096,
             identity_table: &*IDENTITY_TABLE,
             bucket_order: Vec::new(),
             cache,
@@ -235,7 +237,7 @@ impl<C: KeyCache> Verifier<C> {
         };
 
         // Run the batched verification equation, then mask with per-lane input/R validity.
-        let simd = avx512ifma::verify_prepared_zip215(prepared, &r_points, self.base_table);
+        let simd = avx512ifma::verify_prepared_zip215(prepared, &r_points, self.base_table_4096);
         for lane in 0..SIMD_LANES {
             out[lane] = simd[lane] && valid[lane] && r_valid_lanes[lane];
         }
@@ -254,7 +256,7 @@ impl<C: KeyCache> Verifier<C> {
         if let Some((r_points, r_valid_lanes)) = decoded_r {
             // R already decompressed on a cache miss: compare points directly.
             let simd =
-                avx512ifma::verify_prepared_dalek_projective(prepared, &r_points, self.base_table);
+                avx512ifma::verify_prepared_dalek_projective(prepared, &r_points, self.base_table_4096);
             let r_x_zero = r_points.x_zero_lanes();
             for lane in 0..SIMD_LANES {
                 let signed_zero = r_x_zero[lane] && r_bytes[lane][31] & 0x80 != 0;
@@ -267,7 +269,7 @@ impl<C: KeyCache> Verifier<C> {
             }
         } else {
             // All cache hits, nothing decompressed yet: recompute R and compare bytes.
-            let simd = avx512ifma::verify_prepared_dalek(prepared, r_bytes, self.base_table);
+            let simd = avx512ifma::verify_prepared_dalek(prepared, r_bytes, self.base_table_4096);
             for lane in 0..SIMD_LANES {
                 out[lane] = simd[lane]
                     && valid[lane]

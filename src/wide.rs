@@ -3,8 +3,10 @@ pub(crate) mod avx512ifma {
     #[cfg(test)]
     use crate::edwards::EdwardsPoint;
     use crate::edwards::{
-        AffineCachedPoint, BasepointTable, CachedPoint, POINT_ENCODING_LEN, PointTable,
+        AffineCachedPoint, BasepointTable4096, CachedPoint, POINT_ENCODING_LEN, PointTable,
     };
+    #[cfg(test)]
+    use crate::edwards::BasepointTable;
     use crate::field::{Fe51, LIMB_COUNT};
     use crate::scalar::Radix16;
     use std::arch::x86_64::*;
@@ -108,7 +110,7 @@ pub(crate) mod avx512ifma {
     pub(crate) fn verify_prepared_zip215(
         prepared: &PreparedBatch<'_>,
         r: &WideRPoints,
-        base_table: &BasepointTable,
+        base_table: &BasepointTable4096,
     ) -> [bool; LANES] {
         let combined = mul_base_minus_public(base_table, prepared);
         let mut check = combined.subtract(&r.0);
@@ -122,7 +124,7 @@ pub(crate) mod avx512ifma {
     pub(crate) fn verify_prepared_dalek(
         prepared: &PreparedBatch<'_>,
         r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
-        base_table: &BasepointTable,
+        base_table: &BasepointTable4096,
     ) -> [bool; LANES] {
         let combined = mul_base_minus_public(base_table, prepared);
         let recomputed = combined.compress();
@@ -132,7 +134,7 @@ pub(crate) mod avx512ifma {
     pub(crate) fn verify_prepared_dalek_projective(
         prepared: &PreparedBatch<'_>,
         r: &WideRPoints,
-        base_table: &BasepointTable,
+        base_table: &BasepointTable4096,
     ) -> [bool; LANES] {
         let combined = mul_base_minus_public(base_table, prepared);
         combined.equals_affine_lanes(&r.0)
@@ -244,7 +246,64 @@ pub(crate) mod avx512ifma {
         let (pa, pb) = WideFe::pow_p_minus_5_over_8_x2(&sa.exp, &sb.exp);
         (decompress_finish(sa, pa), decompress_finish(sb, pb))
     }
+    /// Fixed-base adds fold three radix-16 digits into one radix-4096
+    /// digit: 21 triples (digits 0..62) + the lone top digit 63.
+    /// In total 22 base adds (instead of 32 pair-folds). Doublings unchanged (63 × double4).
+    /// Triple p is added when 3p doubling-blocks remain, carrying weight
+    /// 16^{3p}; digit 63 rides the top add (weight 16⁶³).
     fn mul_base_minus_public(
+        base_table: &BasepointTable4096,
+        prepared: &PreparedBatch<'_>,
+    ) -> WidePoint {
+        let public_key_tables = &prepared.public_key_tables;
+        let s_digits = prepared.s_digits;
+        let k_digits = prepared.k_digits;
+
+        let mut acc = WidePoint::identity();
+
+        // Top: digit 63 for both scalars (no fold partners above 62).
+        add_public_digit(&mut acc, public_key_tables, k_digits, 63);
+        add_base_triple_digit(&mut acc, base_table, s_digits, 21);
+
+        for pos in (0..63).rev() {
+            acc = acc.double4();
+            add_public_digit(&mut acc, public_key_tables, k_digits, pos);
+            if pos % 3 == 0 {
+                add_base_triple_digit(&mut acc, base_table, s_digits, pos / 3);
+            }
+        }
+        acc
+    }
+
+    /// Fold three radix-16 digits into a radix-4096 digit. Triple 21 is the
+    /// lone digit 63. Bound: |d₀ + 16d₁ + 256d₂| ≤ 8 + 128 + 2048 = 2184.
+    #[inline]
+    fn base_triple_digit(digits: &Radix16, triple: usize) -> i16 {
+        if triple == 21 {
+            return digits[63] as i16;
+        }
+        let base = 3 * triple;
+        digits[base] as i16 + 16 * digits[base + 1] as i16 + 256 * digits[base + 2] as i16
+    }
+
+    #[inline]
+    fn add_base_triple_digit(
+        acc: &mut WidePoint,
+        base_table: &BasepointTable4096,
+        s_digits: &[Radix16; LANES],
+        triple: usize,
+    ) {
+        let selected: [_; LANES] = core::array::from_fn(|lane| {
+            base_table.select_signed_affine_ref(base_triple_digit(&s_digits[lane], triple))
+        });
+        let selected = WideAffineCachedPoint::from_affine_refs(&selected);
+        acc.add_affine_cached_assign(&selected);
+    }
+
+    /// Pair-fold ladder, kept as the differential oracle for the
+    /// old-vs-new ladder test.
+    #[cfg(test)]
+    fn mul_base_minus_public_pairfold(
         base_table: &BasepointTable,
         prepared: &PreparedBatch<'_>,
     ) -> WidePoint {
@@ -271,7 +330,8 @@ pub(crate) mod avx512ifma {
         acc
     }
 
-    #[inline]
+    // The pair-fold path survives only as the test oracle.
+    #[cfg(test)]
     fn add_base_pair_digit(
         acc: &mut WidePoint,
         base_table: &BasepointTable,
@@ -300,6 +360,7 @@ pub(crate) mod avx512ifma {
     }
 
     // Fold a radix-16 digit pair into a bounded radix-256 base-table digit.
+    #[cfg(test)]
     #[inline(always)]
     fn base_pair_digit(digits: &Radix16, pair: usize) -> i16 {
         digits[pair * 2] as i16 + ((digits[pair * 2 + 1] as i16) << 4)
@@ -1001,21 +1062,33 @@ pub(crate) mod avx512ifma {
             }
         }
         fn double(&self) -> Self {
-            self.double_impl::<true>()
+            self.double_impl::<true, false>()
         }
+        /// Strict-output doubling, never loosened: the decide path's cofactor
+        /// doublings feed `identity_lanes`/`equals_lanes`, which compare limb
+        /// representations and need strict operands.
         fn double_without_t(&self) -> Self {
-            self.double_impl::<false>()
+            self.double_impl::<false, false>()
         }
 
         #[inline(never)]
         fn double4(&self) -> Self {
+            // The three interior doublings emit LOOSE x, y, z
+            // (limb0 < 2^60, limbs 1..4 < 2^51 via reduce_ifma_loose). Their
+            // only consumer is the next double_impl, whose squares
+            // pre-normalize, whose e-term add keeps limb0 sums < 2^61, and
+            // whose subtracts carry the 2048p wide bias. The FOURTH doubling
+            // stays strict: its output feeds the mixed adds, where y±x uses
+            // the small 4p-bias subtract and t is a multiply operand (52-bit
+            // invariant). Saves one reduce_loose pass × 3 fields × 3 steps
+            // per double4.
             let doubled = self
-                .double_without_t()
-                .double_without_t()
-                .double_without_t();
+                .double_impl::<false, true>()
+                .double_impl::<false, true>()
+                .double_impl::<false, true>();
             doubled.double()
         }
-        fn double_impl<const COMPUTE_T: bool>(&self) -> Self {
+        fn double_impl<const COMPUTE_T: bool, const LOOSE_OUT: bool>(&self) -> Self {
             // Loose squares feed additive ops; use wide subtract/negate for
             // limb0 values up to ~2^60.
             let a = self.x.square_loose();
@@ -1034,12 +1107,26 @@ pub(crate) mod avx512ifma {
             } else {
                 WideFe::zero()
             };
-
-            Self {
-                x: e.multiply(&f),
-                y: g.multiply(&h),
-                t,
-                z: f.multiply(&g),
+            
+            // e, f, g, h come through subtract_wide/negate (reduce_loose
+            // tails): all limbs < 2^52 -> valid multiply operands.
+            if LOOSE_OUT {
+                // Skip multiply's final carry sweep.
+                // Outputs: limb0 < 2^60, limbs 1..4 < 2^51 — exactly what the
+                // next doubling's square_loose/add_loose accept.
+                Self {
+                    x: e.multiply_loose(&f),
+                    y: g.multiply_loose(&h),
+                    t,
+                    z: f.multiply_loose(&g),
+                }
+            } else {
+                Self {
+                    x: e.multiply(&f),
+                    y: g.multiply(&h),
+                    t,
+                    z: f.multiply(&g),
+                }
             }
         }
         fn identity_lanes(self) -> [bool; LANES] {
@@ -1513,7 +1600,7 @@ pub(crate) mod avx512ifma {
         fn wide_multiscalar_identity_key_is_identity() {
             let id = EdwardsPoint::identity();
             let table = PointTable::new(&id);
-            let base_table = BasepointTable::new();
+            let base_table = BasepointTable4096::from_point(&EdwardsPoint::basepoint());
             let s_digits = [[0i8; 64]; LANES];
             let mut one_bytes = [0u8; 32];
             one_bytes[0] = 1;
@@ -1531,6 +1618,59 @@ pub(crate) mod avx512ifma {
                 id.compress(),
                 "sB - kA for s=0, A=identity must be identity"
             );
+        }
+
+        /// The radix-4096 triple-fold ladder must produce the SAME point as
+        /// the pair-fold ladder, on ordinary and order-8 torsion keys and
+        /// boundary + random scalars.
+        #[test]
+        fn radix4096_ladder_matches_pairfold_ladder() {
+            let base_pair = BasepointTable::new();
+            let base_4096 = BasepointTable4096::from_point(&EdwardsPoint::basepoint());
+
+            let mut scalar_cases: Vec<[u8; 32]> = vec![[0u8; 32]];
+            let mut one = [0u8; 32];
+            one[0] = 1;
+            scalar_cases.push(one);
+            scalar_cases.push([
+                0xec, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde,
+                0xf9, 0xde, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
+            ]); // ℓ − 1
+            let mut st = 0x5eed_4096u64;
+            for _ in 0..5 {
+                let mut bytes = [0u8; 32];
+                for chunk in bytes.chunks_mut(8) {
+                    st = st.wrapping_mul(0xd134_2543_de82_ef95).wrapping_add(1);
+                    chunk.copy_from_slice(&st.to_le_bytes());
+                }
+                bytes[31] &= 0x0f;
+                scalar_cases.push(bytes);
+            }
+
+            for a_point in [EdwardsPoint::basepoint(), ord8a()] {
+                let table = PointTable::new(&a_point);
+                for s_bytes in &scalar_cases {
+                    for k_bytes in &scalar_cases {
+                        let s = crate::scalar::Scalar::from_canonical_bytes(*s_bytes);
+                        let k = crate::scalar::Scalar::from_canonical_bytes(*k_bytes);
+                        let s_digits = [s.to_radix16(); LANES];
+                        let k_digits = [k.to_radix16(); LANES];
+                        let prepared = PreparedBatch {
+                            public_key_tables: [&table; LANES],
+                            s_digits: &s_digits,
+                            k_digits: &k_digits,
+                        };
+                        let new = mul_base_minus_public(&base_4096, &prepared);
+                        let old = mul_base_minus_public_pairfold(&base_pair, &prepared);
+                        assert_eq!(
+                            new.to_points()[0].compress(),
+                            old.to_points()[0].compress(),
+                            "triple-fold ladder diverges from pair-fold"
+                        );
+                    }
+                }
+            }
         }
 
         #[test]
@@ -1565,7 +1705,7 @@ pub(crate) mod avx512ifma {
             a_bytes[0] = 1;
             let id = EdwardsPoint::decompress(&a_bytes).unwrap();
             let table = PointTable::new(&id);
-            let base_table = BasepointTable::new();
+            let base_table = BasepointTable4096::from_point(&EdwardsPoint::basepoint());
             let s_digits = [[0i8; 64]; LANES];
             let digest =
                 crate::sha512::hash_slices(&[&r_bytes, &a_bytes, b"taming the many eddsas"]);
