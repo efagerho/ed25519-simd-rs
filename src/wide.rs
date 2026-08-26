@@ -279,8 +279,7 @@ pub(crate) mod avx512ifma {
         let selected: [_; LANES] = core::array::from_fn(|lane| {
             base_table.select_signed_cached_ref(base_pair_digit(&s_digits[lane], pair))
         });
-        let selected = WideCachedPoint::from_cached_refs(&selected);
-        acc.add_cached_assign(&selected);
+        acc.add_cached_refs_assign(&selected);
     }
 
     #[inline]
@@ -293,8 +292,7 @@ pub(crate) mod avx512ifma {
         let selected: [_; LANES] = core::array::from_fn(|lane| {
             public_key_tables[lane].select_signed_cached_ref(-k_digits[lane][index])
         });
-        let selected = WideCachedPoint::from_cached_refs(&selected);
-        acc.add_cached_assign(&selected);
+        acc.add_cached_refs_assign(&selected);
     }
 
     // Fold a radix-16 digit pair into a bounded radix-256 base-table digit.
@@ -892,29 +890,6 @@ pub(crate) mod avx512ifma {
         t: WideFe,
     }
 
-    #[derive(Clone, Copy)]
-    struct WideCachedPoint {
-        y_plus_x: WideFe,
-        y_minus_x: WideFe,
-        z2: WideFe,
-        t2d: WideFe,
-    }
-
-    impl WideCachedPoint {
-        fn from_cached_refs(points: &[&CachedPoint; LANES]) -> Self {
-            let y_plus_x = core::array::from_fn(|lane| points[lane].coords().0);
-            let y_minus_x = core::array::from_fn(|lane| points[lane].coords().1);
-            let z2 = core::array::from_fn(|lane| points[lane].coords().2);
-            let t2d = core::array::from_fn(|lane| points[lane].coords().3);
-            Self {
-                y_plus_x: WideFe::from_field_refs(&y_plus_x),
-                y_minus_x: WideFe::from_field_refs(&y_minus_x),
-                z2: WideFe::from_field_refs(&z2),
-                t2d: WideFe::from_field_refs(&t2d),
-            }
-        }
-    }
-
     impl WidePoint {
         fn identity() -> Self {
             Self {
@@ -969,15 +944,32 @@ pub(crate) mod avx512ifma {
                 z: f.multiply(&g),
             }
         }
-        fn add_cached_assign(&mut self, rhs: &WideCachedPoint) {
+        /// Add the per-lane cached points selected for one digit.
+        ///
+        /// Each cached field is transposed out of the per-lane tables
+        /// immediately before the multiply that consumes it. Gathering all four
+        /// up front instead costs 20 live `zmm` registers, which does not fit
+        /// alongside the accumulator and spills to the stack.
+        #[inline]
+        fn add_cached_refs_assign(&mut self, points: &[&CachedPoint; LANES]) {
             // Loose products feed additive ops; use wide subtracts for limb0
             // values up to ~2^60.
-            let a = self.y.subtract(&self.x).multiply_loose(&rhs.y_minus_x);
-            let b = self.y.add_loose(&self.x).multiply_loose(&rhs.y_plus_x);
+            let field = |pick: fn(&CachedPoint) -> &Fe51| {
+                WideFe::from_field_refs(&core::array::from_fn(|lane| pick(points[lane])))
+            };
+
+            let a = self
+                .y
+                .subtract(&self.x)
+                .multiply_loose(&field(|p| p.coords().1));
+            let b = self
+                .y
+                .add_loose(&self.x)
+                .multiply_loose(&field(|p| p.coords().0));
             let e = b.subtract_wide(&a);
             let h = b.add_loose(&a);
-            let c = self.t.multiply_loose(&rhs.t2d);
-            let d = self.z.multiply_loose(&rhs.z2);
+            let c = self.t.multiply_loose(&field(|p| p.coords().3));
+            let d = self.z.multiply_loose(&field(|p| p.coords().2));
             let f = d.subtract_wide(&c);
             let g = d.add_loose(&c);
 
