@@ -145,15 +145,15 @@ pub(crate) mod avx512ifma {
         base: WideFe, // u * v^3
         exp: WideFe,  // u * v^7  (raised to (p-5)/8)
         y: WideFe,
-        x_signs: [bool; LANES],
+        x_signs: u8,
     }
 
     fn decompress_setup(bytes: &[[u8; POINT_ENCODING_LEN]; LANES]) -> DecompressSetup {
         let mut y_fields = core::array::from_fn(|_| Fe51::zero());
-        let mut x_signs = [false; LANES];
+        let mut x_signs = 0u8;
 
         for (lane, byte_arr) in bytes.iter().enumerate() {
-            x_signs[lane] = (byte_arr[31] >> 7) != 0;
+            x_signs |= (byte_arr[31] >> 7) << lane;
             let mut y_bytes = *byte_arr;
             y_bytes[31] &= 0x7f;
             // ZIP-215/Dalek decoding treats y modulo p.
@@ -183,36 +183,23 @@ pub(crate) mod avx512ifma {
         let mut x = s.base.multiply(&pow);
 
         let vx2 = s.v.multiply(&x.square());
-        let first_ok = vx2.equals_lanes(&s.u);
+        let first_ok = vx2.equals_mask(&s.u);
 
         let x_alt = x.multiply(&WideFe::sqrt_m1());
         // `(x*sqrt(-1))^2*v == -(x^2*v)`, so the alternate candidate is
         // valid exactly when the already-computed `vx2` equals `-u`.
-        let second_ok = vx2.add_loose(&s.u).is_zero_lanes();
+        let second_ok = vx2.add_loose(&s.u).is_zero_mask();
 
-        let mut alt_mask = 0u8;
-        let mut valid_mask = 0u8;
-        for (lane, &f_ok) in first_ok.iter().enumerate() {
-            if f_ok {
-                valid_mask |= 1 << lane;
-            } else if second_ok[lane] {
-                alt_mask |= 1 << lane;
-                valid_mask |= 1 << lane;
-            }
-        }
+        let alt_mask = !first_ok & second_ok;
+        let valid_mask = first_ok | second_ok;
 
         x = x.blend(alt_mask, &x_alt);
 
         // The point built for invalid lanes (not in `valid_mask`) is garbage;
         // callers must gate on `valid_mask`.
-        let x_odd = x.is_odd_lanes();
+        let x_odd = x.is_odd_mask();
         let x_neg = x.negate();
-        let mut negate_mask = 0u8;
-        for (lane, &odd) in x_odd.iter().enumerate() {
-            if odd != s.x_signs[lane] {
-                negate_mask |= 1 << lane;
-            }
-        }
+        let negate_mask = x_odd ^ s.x_signs;
         x = x.blend(negate_mask, &x_neg);
 
         let t = x.multiply(&s.y);
@@ -798,9 +785,15 @@ pub(crate) mod avx512ifma {
             (fa.multiply(a), fb.multiply(b))
         }
         fn equals_lanes(self, rhs: &Self) -> [bool; LANES] {
-            self.subtract(rhs).is_zero_lanes()
+            mask_to_lanes(self.equals_mask(rhs) as __mmask8)
+        }
+        fn equals_mask(self, rhs: &Self) -> u8 {
+            self.subtract(rhs).is_zero_mask()
         }
         fn is_zero_lanes(self) -> [bool; LANES] {
+            mask_to_lanes(self.is_zero_mask() as __mmask8)
+        }
+        fn is_zero_mask(self) -> u8 {
             unsafe {
                 let c = self.canonical();
                 let zero = _mm512_setzero_si512();
@@ -809,14 +802,18 @@ pub(crate) mod avx512ifma {
                     & _mm512_cmpeq_epu64_mask(c.limbs[2], zero)
                     & _mm512_cmpeq_epu64_mask(c.limbs[3], zero)
                     & _mm512_cmpeq_epu64_mask(c.limbs[4], zero);
-                mask_to_lanes(mask)
+                mask as u8
             }
         }
+        #[cfg(test)]
         fn is_odd_lanes(self) -> [bool; LANES] {
+            mask_to_lanes(self.is_odd_mask() as __mmask8)
+        }
+        fn is_odd_mask(self) -> u8 {
             unsafe {
                 let c = self.canonical();
                 let one = _mm512_set1_epi64(1);
-                mask_to_lanes(_mm512_test_epi64_mask(c.limbs[0], one))
+                _mm512_test_epi64_mask(c.limbs[0], one) as u8
             }
         }
         /// Vectorized `Fe51::canonical` for all lanes. `reduce64` bounds limbs
