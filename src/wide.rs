@@ -186,8 +186,9 @@ pub(crate) mod avx512ifma {
         let first_ok = vx2.equals_lanes(&s.u);
 
         let x_alt = x.multiply(&WideFe::sqrt_m1());
-        let vx_alt2 = s.v.multiply(&x_alt.square());
-        let second_ok = vx_alt2.equals_lanes(&s.u);
+        // `(x*sqrt(-1))^2*v == -(x^2*v)`, so the alternate candidate is
+        // valid exactly when the already-computed `vx2` equals `-u`.
+        let second_ok = vx2.add_loose(&s.u).is_zero_lanes();
 
         let mut alt_mask = 0u8;
         let mut valid_mask = 0u8;
