@@ -51,9 +51,11 @@ pub(crate) mod avx512ifma {
     /// SIMD point.
     fn build_tables_from_point(p: WidePoint) -> [PointTable; LANES] {
         // Tree-balanced multiples (P..8P): critical path ~4 deep instead of the
-        // serial 7, with independent adds at each level to expose ILP.
-        let p2 = p.add(&p);
-        let p4 = p2.add(&p2);
+        // serial 7, with independent operations at each level to expose ILP.
+        // The four self-additions use `double`, which is 4S+4M against a
+        // general addition's 8M and keeps the same dependency structure.
+        let p2 = p.double();
+        let p4 = p2.double();
         let p3 = p2.add(&p);
         let mult = [
             p,
@@ -61,9 +63,9 @@ pub(crate) mod avx512ifma {
             p3,
             p4,
             p4.add(&p),  // 5P
-            p3.add(&p3), // 6P
+            p3.double(), // 6P
             p4.add(&p3), // 7P
-            p4.add(&p4), // 8P
+            p4.double(), // 8P
         ];
 
         let two_d = WideFe::two_d();
