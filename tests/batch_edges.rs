@@ -51,7 +51,7 @@ fn long_message_sparse_buckets_match_solana_ed25519() {
             "null-cache {policy:?}"
         );
 
-        let mut verifier = Verifier::with_cache(policy, HotKeyCache::new());
+        let mut verifier = Verifier::with_cache(policy, HotKeyCache::with_capacity(1024));
         let mut out = vec![false; inputs.len()];
         verifier.verify_batch(&inputs, &mut out);
         assert_eq!(out, expected, "hot-key cache {policy:?}");
