@@ -1007,6 +1007,50 @@ pub(crate) mod avx512ifma {
         t: WideFe,
     }
 
+    #[derive(Clone, Copy)]
+    enum SelectedCachedRefs<'a> {
+        Projective(&'a [&'a CachedPoint; LANES]),
+        Affine(&'a [&'a AffineCachedPoint; LANES]),
+    }
+
+    impl SelectedCachedRefs<'_> {
+        #[inline(always)]
+        fn y_plus_x(self) -> WideFe {
+            match self {
+                Self::Projective(points) => {
+                    WideFe::from_field_refs(&core::array::from_fn(|lane| points[lane].coords().0))
+                }
+                Self::Affine(points) => {
+                    WideFe::from_field_refs(&core::array::from_fn(|lane| points[lane].coords().0))
+                }
+            }
+        }
+
+        #[inline(always)]
+        fn y_minus_x(self) -> WideFe {
+            match self {
+                Self::Projective(points) => {
+                    WideFe::from_field_refs(&core::array::from_fn(|lane| points[lane].coords().1))
+                }
+                Self::Affine(points) => {
+                    WideFe::from_field_refs(&core::array::from_fn(|lane| points[lane].coords().1))
+                }
+            }
+        }
+
+        #[inline(always)]
+        fn t2d(self) -> WideFe {
+            match self {
+                Self::Projective(points) => {
+                    WideFe::from_field_refs(&core::array::from_fn(|lane| points[lane].coords().3))
+                }
+                Self::Affine(points) => {
+                    WideFe::from_field_refs(&core::array::from_fn(|lane| points[lane].coords().2))
+                }
+            }
+        }
+    }
+
     impl WidePoint {
         /// Recover a projectively equivalent `(X:Y:Z)` from cached coordinates.
         /// The returned `T` is intentionally absent: callers must perform a
@@ -1079,26 +1123,38 @@ pub(crate) mod avx512ifma {
         /// immediately before the multiply that consumes it. Gathering all four
         /// up front instead costs 20 live `zmm` registers, which does not fit
         /// alongside the accumulator and spills to the stack.
-        #[inline(never)]
+        #[inline(always)]
         fn add_cached_refs_assign(&mut self, points: &[&CachedPoint; LANES], compute_t: bool) {
+            self.add_selected_cached_refs_assign(SelectedCachedRefs::Projective(points), compute_t);
+        }
+        /// Mixed addition with an affine cached point. The cached point has
+        /// `Z = 1`, so `2*Z1*Z2` is just a doubling of the accumulator's `Z`.
+        #[inline(always)]
+        fn add_affine_cached_refs_assign(&mut self, points: &[&AffineCachedPoint; LANES]) {
+            self.add_selected_cached_refs_assign(SelectedCachedRefs::Affine(points), true);
+        }
+        #[inline(never)]
+        fn add_selected_cached_refs_assign(
+            &mut self,
+            points: SelectedCachedRefs<'_>,
+            compute_t: bool,
+        ) {
             // Loose products feed additive ops; use wide subtracts for limb0
             // values up to ~2^60.
-            let field = |pick: fn(&CachedPoint) -> &Fe51| {
-                WideFe::from_field_refs(&core::array::from_fn(|lane| pick(points[lane])))
-            };
-
-            let a = self
-                .y
-                .subtract(&self.x)
-                .multiply_loose(&field(|p| p.coords().1));
-            let b = self
-                .y
-                .add_loose(&self.x)
-                .multiply_loose(&field(|p| p.coords().0));
+            let a = self.y.subtract(&self.x).multiply_loose(&points.y_minus_x());
+            let b = self.y.add_loose(&self.x).multiply_loose(&points.y_plus_x());
             let e = b.subtract_wide(&a);
             let h = b.add_loose(&a);
-            let c = self.t.multiply_loose(&field(|p| p.coords().3));
-            let d = self.z.multiply_loose(&field(|p| p.coords().2));
+            let c = self.t.multiply_loose(&points.t2d());
+            let d = match points {
+                SelectedCachedRefs::Projective(points) => {
+                    self.z
+                        .multiply_loose(&WideFe::from_field_refs(&core::array::from_fn(|lane| {
+                            points[lane].coords().2
+                        })))
+                }
+                SelectedCachedRefs::Affine(_) => self.z.double_loose(),
+            };
             let f = d.subtract_wide(&c);
             let g = d.add_loose(&c);
 
@@ -1108,34 +1164,6 @@ pub(crate) mod avx512ifma {
             } else {
                 WideFe::zero()
             };
-            self.z = f.multiply(&g);
-            self.y = g.multiply(&h);
-        }
-        /// Mixed addition with an affine cached point. The cached point has
-        /// `Z = 1`, so `2*Z1*Z2` is just a doubling of the accumulator's `Z`.
-        #[inline(never)]
-        fn add_affine_cached_refs_assign(&mut self, points: &[&AffineCachedPoint; LANES]) {
-            let field = |pick: fn(&AffineCachedPoint) -> &Fe51| {
-                WideFe::from_field_refs(&core::array::from_fn(|lane| pick(points[lane])))
-            };
-
-            let a = self
-                .y
-                .subtract(&self.x)
-                .multiply_loose(&field(|p| p.coords().1));
-            let b = self
-                .y
-                .add_loose(&self.x)
-                .multiply_loose(&field(|p| p.coords().0));
-            let e = b.subtract_wide(&a);
-            let h = b.add_loose(&a);
-            let c = self.t.multiply_loose(&field(|p| p.coords().2));
-            let d = self.z.double_loose();
-            let f = d.subtract_wide(&c);
-            let g = d.add_loose(&c);
-
-            self.x = e.multiply(&f);
-            self.t = e.multiply(&h);
             self.z = f.multiply(&g);
             self.y = g.multiply(&h);
         }
