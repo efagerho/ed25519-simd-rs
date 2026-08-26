@@ -4,7 +4,7 @@ use core::convert::TryFrom;
 
 use curve25519::ed_sigs::{Signature, SigningKey, VerificationKey, VerificationKeyBytes};
 use ed25519_simd::{
-    NullKeyCache, PUBLIC_KEY_LEN, SIGNATURE_LEN, Verifier, VerifyInput, VerifyPolicy,
+    HotKeyCache, NullKeyCache, PUBLIC_KEY_LEN, SIGNATURE_LEN, Verifier, VerifyInput, VerifyPolicy,
 };
 
 pub fn hex_vec(s: &str) -> Vec<u8> {
@@ -36,6 +36,19 @@ fn hex_nibble(b: u8) -> u8 {
 pub fn verify(policy: VerifyPolicy, input: VerifyInput<'_>) -> bool {
     let mut verifier = Verifier::with_cache(policy, NullKeyCache::new());
     let mut out = [false];
+    verifier.verify_batch(&[input], &mut out);
+    out[0]
+}
+
+/// Verify the same input twice through a `HotKeyCache` and return the second
+/// result, so a decodable public key is a cache hit on the reported run. That
+/// selects the code paths a cold cache never reaches: `R` is not decompressed
+/// as a side effect of key decoding, so `Dalek` compares the re-encoded
+/// recomputed `R` byte-for-byte instead of comparing points projectively.
+pub fn verify_warm(policy: VerifyPolicy, input: VerifyInput<'_>) -> bool {
+    let mut verifier = Verifier::with_cache(policy, HotKeyCache::with_capacity(8));
+    let mut out = [false];
+    verifier.verify_batch(&[input], &mut out);
     verifier.verify_batch(&[input], &mut out);
     out[0]
 }

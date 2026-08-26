@@ -5,7 +5,7 @@ use ed25519_simd::{
     CachedPublicKey, HotKeyCache, KeyCache, NullKeyCache, PUBLIC_KEY_LEN, SIGNATURE_LEN, Verifier,
     VerifyInput, VerifyPolicy,
 };
-use support::{hex_array, signing_key_from_index};
+use support::{Case, hex_array, signing_key_from_index};
 
 fn rfc8032_key0() -> [u8; PUBLIC_KEY_LEN] {
     hex_array("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
@@ -153,6 +153,60 @@ fn hot_key_cache_handles_mixed_hit_and_miss_lanes_in_one_chunk() {
 
     // The previously-missing keys are now cached too (all 8 resident).
     assert_eq!(resident_count(verifier.cache(), &public_keys), 8);
+}
+
+/// `CachedPublicKey::from_encoded` builds its multiplication table with the
+/// scalar point arithmetic in `edwards.rs`, while a cache miss inside the
+/// verifier builds one with the independent AVX-512 builder. Pre-seeding a cache
+/// is the only way to reach the scalar builder from the public API, so verify a
+/// chunk in which every lane hits a pre-seeded table and check it against the
+/// same chunk decoded cold through the SIMD builder.
+#[test]
+fn preseeded_cache_tables_match_cold_simd_decoding() {
+    let message = b"pre-seeded table agreement".to_vec();
+    let mut cases: Vec<Case> = (0..8u64)
+        .map(|i| {
+            let signing_key = signing_key_from_index(0xcac4_0000 + i);
+            Case {
+                public_key: <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key)),
+                signature: signing_key.sign(&message).to_bytes(),
+                message: message.clone(),
+            }
+        })
+        .collect();
+    // Tamper two lanes so the paths have to agree on rejections too.
+    cases[2].signature[40] ^= 1;
+    cases[5].signature[0] ^= 1;
+    let expected = [true, true, false, true, true, false, true, true];
+
+    let inputs: Vec<VerifyInput<'_>> = cases.iter().map(Case::input).collect();
+    for policy in [VerifyPolicy::Zip215, VerifyPolicy::Dalek] {
+        let mut cache = HotKeyCache::with_capacity(inputs.len());
+        for case in &cases {
+            cache.insert(CachedPublicKey::from_encoded(case.public_key).expect("key decodes"));
+        }
+        // Every lane is a hit, so no lane falls back to the SIMD builder.
+        let mut preseeded = Verifier::with_cache(policy, cache);
+        let mut preseeded_out = vec![false; inputs.len()];
+        preseeded.verify_batch(&inputs, &mut preseeded_out);
+
+        let mut cold = Verifier::with_cache(policy, NullKeyCache::new());
+        let mut cold_out = vec![false; inputs.len()];
+        cold.verify_batch(&inputs, &mut cold_out);
+
+        assert_eq!(preseeded_out, expected, "{policy:?} pre-seeded tables");
+        assert_eq!(cold_out, expected, "{policy:?} cold SIMD decode");
+    }
+}
+
+#[test]
+fn from_encoded_rejects_a_key_that_does_not_decompress() {
+    // y = p - 20 with the x sign bit set is not on the curve, so callers
+    // pre-seeding a cache have to handle `None` rather than unwrap blindly.
+    let off_curve = hex_array::<PUBLIC_KEY_LEN>(
+        "d9ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    );
+    assert!(CachedPublicKey::from_encoded(off_curve).is_none());
 }
 
 #[test]
