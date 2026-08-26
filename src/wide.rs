@@ -936,7 +936,14 @@ pub(crate) mod avx512ifma {
                 bytes
             })
         }
+        /// Compare against a point whose `z` is one, cross-multiplying only by
+        /// `self.z`. Callers pass a freshly decompressed point; anything else
+        /// needs the omitted `affine.z` factor to be a valid comparison.
         fn equals_affine_lanes(&self, affine: &Self) -> [bool; LANES] {
+            debug_assert!(
+                affine.z.equals_lanes(&WideFe::one()).iter().all(|&eq| eq),
+                "equals_affine_lanes requires z == 1 in every lane"
+            );
             let x = affine.x.multiply(&self.z);
             let y = affine.y.multiply(&self.z);
             let x_equal = self.x.equals_lanes(&x);

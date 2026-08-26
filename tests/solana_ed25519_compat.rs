@@ -12,7 +12,7 @@ use ed25519_simd::{
 use serde_json::Value;
 use support::{
     Case, hex_array, hex_vec, signing_key_from_index, solana_ed25519_verify_dalek,
-    solana_ed25519_verify_zebra, verify,
+    solana_ed25519_verify_zebra, verify, verify_warm,
 };
 
 fn solana_ed25519_verify_batch(inputs: &[VerifyInput<'_>]) -> bool {
@@ -689,49 +689,56 @@ fn enumerate_divergences_vs_solana_ed25519() {
                 sig[32..].copy_from_slice(s);
                 total += 1;
 
-                let ours_cof = verify(
-                    Zip215,
-                    VerifyInput {
-                        public_key: *a,
-                        signature: sig,
-                        message,
-                    },
-                );
+                let input = VerifyInput {
+                    public_key: *a,
+                    signature: sig,
+                    message,
+                };
+
+                // Check both cache paths. A cold cache decompresses `R` while
+                // decoding the key, so `Dalek` compares points and applies the
+                // canonical-`y` and signed-zero filters explicitly; a warm
+                // cache skips that decompression and instead compares the
+                // re-encoded `R` byte-for-byte, relying on the encoding to
+                // subsume those filters. These crafted points are exactly the
+                // inputs that separate the two, so both have to be exercised.
                 let solana_ed25519_zebra = solana_ed25519_verify_zebra(*a, sig, message);
-                if ours_cof != solana_ed25519_zebra {
-                    zebra_div.push((a_name, r_name, s_name, ours_cof, solana_ed25519_zebra));
+                for (path, ours) in [
+                    ("cold", verify(Zip215, input)),
+                    ("warm", verify_warm(Zip215, input)),
+                ] {
+                    if ours != solana_ed25519_zebra {
+                        zebra_div.push((a_name, r_name, s_name, path, ours, solana_ed25519_zebra));
+                    }
                 }
 
-                let ours_strict = verify(
-                    Dalek,
-                    VerifyInput {
-                        public_key: *a,
-                        signature: sig,
-                        message,
-                    },
-                );
                 let solana_ed25519_dalek = solana_ed25519_verify_dalek(*a, sig, message);
-                if ours_strict != solana_ed25519_dalek {
-                    dalek_div.push((a_name, r_name, s_name, ours_strict, solana_ed25519_dalek));
+                for (path, ours) in [
+                    ("cold", verify(Dalek, input)),
+                    ("warm", verify_warm(Dalek, input)),
+                ] {
+                    if ours != solana_ed25519_dalek {
+                        dalek_div.push((a_name, r_name, s_name, path, ours, solana_ed25519_dalek));
+                    }
                 }
             }
         }
     }
 
-    eprintln!("\n=== {total} crafted cases ===");
+    eprintln!("\n=== {total} crafted cases, each on a cold and a warm cache ===");
     eprintln!(
         "cofactored vs solana-ed25519 verify_zebra (ZIP-215): {} divergences",
         zebra_div.len()
     );
-    for (a, r, s, ours, solana_ed25519) in zebra_div.iter().take(20) {
-        eprintln!("  A={a:18} R={r:18} {s:6} ours={ours} solana-ed25519={solana_ed25519}");
+    for (a, r, s, path, ours, solana_ed25519) in zebra_div.iter().take(20) {
+        eprintln!("  A={a:18} R={r:18} {s:6} {path:4} ours={ours} solana-ed25519={solana_ed25519}");
     }
     eprintln!(
         "strict vs solana-ed25519 verify_dalek: {} divergences",
         dalek_div.len()
     );
-    for (a, r, s, ours, solana_ed25519) in dalek_div.iter().take(20) {
-        eprintln!("  A={a:18} R={r:18} {s:6} ours={ours} solana-ed25519={solana_ed25519}");
+    for (a, r, s, path, ours, solana_ed25519) in dalek_div.iter().take(20) {
+        eprintln!("  A={a:18} R={r:18} {s:6} {path:4} ours={ours} solana-ed25519={solana_ed25519}");
     }
     eprintln!(
         "\nSUMMARY: zebra_divergences={} dalek_divergences={}",
