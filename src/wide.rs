@@ -17,14 +17,17 @@ pub(crate) mod avx512ifma {
     const FIELD_P_LIMBS: [u64; LIMB_COUNT] =
         [LIMB_MASK - 18, LIMB_MASK, LIMB_MASK, LIMB_MASK, LIMB_MASK];
 
-    pub(crate) struct WideRPoints(WidePoint);
+    pub(crate) struct WideRPoints {
+        point: WidePoint,
+        x_zero_mask: u8,
+    }
 
     impl WideRPoints {
         /// Decompression accepts "negative zero" encodings where the sign bit
         /// is set for an `x == 0` point. Dalek rejects those encodings, so the
         /// verifier checks these lanes in addition to canonical `y` bytes.
         pub(crate) fn x_zero_lanes(&self) -> [bool; LANES] {
-            self.0.x.is_zero_lanes()
+            mask_to_lanes(self.x_zero_mask as __mmask8)
         }
     }
 
@@ -33,7 +36,13 @@ pub(crate) mod avx512ifma {
         r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
     ) -> (WideRPoints, u8) {
         let (point, mask) = decompress_points_wide(r_bytes);
-        (WideRPoints(point), mask)
+        (
+            WideRPoints {
+                point,
+                x_zero_mask: 0,
+            },
+            mask,
+        )
     }
 
     /// Decode public keys and `R` points together, interleaving the
@@ -42,9 +51,19 @@ pub(crate) mod avx512ifma {
     pub(crate) fn decode_keys_and_decompress_r(
         keys: &[[u8; PUBLIC_KEY_LEN]; LANES],
         r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
+        dalek: bool,
     ) -> ([PointTable; LANES], u8, WideRPoints, u8) {
-        let ((kp, kmask), (rp, rmask)) = decompress_point_batches_wide(keys, r_bytes);
-        (build_tables_from_point(kp), kmask, WideRPoints(rp), rmask)
+        let ((kp, kmask), (rp, rmask, x_zero_mask)) =
+            decompress_point_batches_wide(keys, r_bytes, dalek);
+        (
+            build_tables_from_point(kp),
+            kmask,
+            WideRPoints {
+                point: rp,
+                x_zero_mask,
+            },
+            rmask,
+        )
     }
 
     /// Build the per-lane radix-16 cached tables from an already-decompressed
@@ -111,7 +130,7 @@ pub(crate) mod avx512ifma {
         base_table: &BasepointTable,
     ) -> [bool; LANES] {
         let combined = mul_base_minus_public(base_table, prepared);
-        combined.subtract_affine_and_check_8_torsion(&r.0)
+        combined.subtract_affine_and_check_8_torsion(&r.point)
     }
 
     pub(crate) fn verify_prepared_dalek(
@@ -130,7 +149,7 @@ pub(crate) mod avx512ifma {
         base_table: &BasepointTable,
     ) -> [bool; LANES] {
         let combined = mul_base_minus_public(base_table, prepared);
-        combined.equals_affine_lanes(&r.0)
+        combined.equals_affine_lanes(&r.point)
     }
 
     /// Decompression state before the inverse-square-root exponentiation.
@@ -174,7 +193,10 @@ pub(crate) mod avx512ifma {
         }
     }
 
-    fn decompress_finish(s: DecompressSetup, pow: WideFe) -> (WidePoint, u8) {
+    fn decompress_finish<const COMPUTE_T: bool, const TRACK_X_ZERO: bool>(
+        s: DecompressSetup,
+        pow: WideFe,
+    ) -> (WidePoint, u8, u8) {
         let mut x = s.base.multiply(&pow);
 
         let vx2 = s.v.multiply(&x.square());
@@ -192,12 +214,20 @@ pub(crate) mod avx512ifma {
 
         // The point built for invalid lanes (not in `valid_mask`) is garbage;
         // callers must gate on `valid_mask`.
-        let x_odd = x.is_odd_mask();
+        let (x_odd, x_zero_mask) = if TRACK_X_ZERO {
+            x.odd_and_zero_masks()
+        } else {
+            (x.is_odd_mask(), 0)
+        };
         let x_neg = x.negate();
         let negate_mask = x_odd ^ s.x_signs;
         x = x.blend(negate_mask, &x_neg);
 
-        let t = x.multiply(&s.y);
+        let t = if COMPUTE_T {
+            x.multiply(&s.y)
+        } else {
+            WideFe::zero()
+        };
         (
             WidePoint {
                 x,
@@ -206,6 +236,7 @@ pub(crate) mod avx512ifma {
                 t,
             },
             valid_mask,
+            x_zero_mask,
         )
     }
 
@@ -213,7 +244,8 @@ pub(crate) mod avx512ifma {
     fn decompress_points_wide(bytes: &[[u8; POINT_ENCODING_LEN]; LANES]) -> (WidePoint, u8) {
         let s = decompress_setup(bytes);
         let pow = s.exp.pow_p_minus_5_over_8();
-        decompress_finish(s, pow)
+        let (point, mask, _) = decompress_finish::<true, false>(s, pow);
+        (point, mask)
     }
 
     /// Decompress two independent SIMD chunks, interleaving the two
@@ -221,11 +253,18 @@ pub(crate) mod avx512ifma {
     fn decompress_point_batches_wide(
         a_bytes: &[[u8; POINT_ENCODING_LEN]; LANES],
         b_bytes: &[[u8; POINT_ENCODING_LEN]; LANES],
-    ) -> ((WidePoint, u8), (WidePoint, u8)) {
+        minimize_b_for_dalek: bool,
+    ) -> ((WidePoint, u8), (WidePoint, u8, u8)) {
         let sa = decompress_setup(a_bytes);
         let sb = decompress_setup(b_bytes);
         let (pa, pb) = WideFe::pow_p_minus_5_over_8_x2(&sa.exp, &sb.exp);
-        (decompress_finish(sa, pa), decompress_finish(sb, pb))
+        let (a, a_mask, _) = decompress_finish::<true, false>(sa, pa);
+        let b = if minimize_b_for_dalek {
+            decompress_finish::<false, true>(sb, pb)
+        } else {
+            decompress_finish::<true, false>(sb, pb)
+        };
+        ((a, a_mask), b)
     }
     fn mul_base_minus_public(
         base_table: &BasepointTable,
@@ -812,6 +851,24 @@ pub(crate) mod avx512ifma {
                 _mm512_test_epi64_mask(c.limbs[0], one) as u8
             }
         }
+        /// Return parity and zero masks from one canonicalization. Dalek's R
+        /// decoder needs both predicates on the same recovered x coordinate.
+        fn odd_and_zero_masks(self) -> (u8, u8) {
+            unsafe {
+                let c = self.canonical();
+                let zero = _mm512_setzero_si512();
+                let zero_mask = _mm512_cmpeq_epu64_mask(c.limbs[0], zero)
+                    & _mm512_cmpeq_epu64_mask(c.limbs[1], zero)
+                    & _mm512_cmpeq_epu64_mask(c.limbs[2], zero)
+                    & _mm512_cmpeq_epu64_mask(c.limbs[3], zero)
+                    & _mm512_cmpeq_epu64_mask(c.limbs[4], zero);
+                let one = _mm512_set1_epi64(1);
+                (
+                    _mm512_test_epi64_mask(c.limbs[0], one) as u8,
+                    zero_mask as u8,
+                )
+            }
+        }
         /// Vectorized `Fe51::canonical` for all lanes. `reduce64` bounds limbs
         /// 1..4, making `>= p` an exact high-limb check plus limb0 threshold.
         fn canonical(&self) -> Self {
@@ -971,13 +1028,13 @@ pub(crate) mod avx512ifma {
             let zinv = self.z.invert();
             let x = self.x.multiply(&zinv);
             let y = self.y.multiply(&zinv);
-            let x_odd = x.is_odd_lanes();
+            let x_odd = x.is_odd_mask();
             // `to_bytes` performs the one canonicalization serialization
             // needs; avoid canonicalizing each lane once here and again there.
             let ys = y.to_fields_loose();
             core::array::from_fn(|lane| {
                 let mut bytes = ys[lane].to_bytes();
-                bytes[31] |= (x_odd[lane] as u8) << 7;
+                bytes[31] |= ((x_odd >> lane) & 1) << 7;
                 bytes
             })
         }
@@ -1618,7 +1675,10 @@ pub(crate) mod avx512ifma {
             };
             let (r_point, r_mask) = decompress_points_wide(&[r_bytes; LANES]);
             assert_eq!(r_mask, 0xff, "torsion R must decode");
-            let r = WideRPoints(r_point);
+            let r = WideRPoints {
+                point: r_point,
+                x_zero_mask: 0,
+            };
             let result = verify_prepared_zip215(&prepared, &r, &base_table);
             assert!(
                 result[0],
