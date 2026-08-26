@@ -165,6 +165,11 @@ The following numbers are Criterion medians in microseconds per signature for
 distinct-key batches. The `ed25519-simd` rows use `NullKeyCache`, so decoded keys
 are not retained across batches.
 
+The `ed25519-simd` rows were re-measured after the rows for the other libraries,
+on the same host, by filtering the same bench to this crate only
+(`cargo bench --bench solana_ed25519_compare -- ed25519_simd`). Every re-measured
+median had a Criterion confidence interval narrower than 0.32%.
+
 Command. The comparison bench lives in the `benches-compare` workspace member
 (it depends on several other Ed25519/crypto libraries purely for comparison,
 kept out of the main crate's dependency tree so `cargo test` doesn't build
@@ -180,8 +185,8 @@ Message length 1:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 5.18 | 5.16 | 5.16 | 5.16 |
-| ed25519-simd Dalek null-cache | 5.14 | 5.14 | 5.14 | 5.14 |
+| ed25519-simd Zip215 null-cache | 4.98 | 4.98 | 5.02 | 5.02 |
+| ed25519-simd Dalek null-cache | 4.98 | 4.94 | 4.94 | 4.98 |
 | solana-ed25519 Zip215 batch[^batch-api] | 14.05 | 13.03 | 12.58 | 12.33 |
 | solana-ed25519 Dalek loop | 22.40 | 22.40 | 22.41 | 22.41 |
 | ed25519-dalek batch[^batch-api] | 14.35 | 13.24 | 12.73 | 12.47 |
@@ -195,8 +200,8 @@ Message length 1024:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 5.46 | 5.46 | 5.46 | 5.48 |
-| ed25519-simd Dalek null-cache | 5.40 | 5.42 | 5.42 | 5.40 |
+| ed25519-simd Zip215 null-cache | 5.26 | 5.26 | 5.26 | 5.26 |
+| ed25519-simd Dalek null-cache | 5.22 | 5.22 | 5.22 | 5.22 |
 | solana-ed25519 Zip215 batch[^batch-api] | 15.01 | 14.04 | 13.59 | 13.32 |
 | solana-ed25519 Dalek loop | 23.52 | 23.52 | 23.41 | 23.45 |
 | ed25519-dalek batch[^batch-api] | 15.41 | 14.30 | 13.70 | 13.46 |
@@ -210,8 +215,8 @@ Mixed message lengths:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 5.31 | 5.25 | 5.26 | 5.23 |
-| ed25519-simd Dalek null-cache | 5.25 | 5.21 | 5.21 | 5.19 |
+| ed25519-simd Zip215 null-cache | 5.15 | 5.11 | 5.08 | 5.06 |
+| ed25519-simd Dalek null-cache | 5.07 | 5.03 | 5.08 | 5.01 |
 | solana-ed25519 Zip215 batch[^batch-api] | 14.25 | 13.16 | 12.72 | 12.49 |
 | solana-ed25519 Dalek loop | 22.54 | 22.51 | 22.60 | 22.64 |
 | ed25519-dalek batch[^batch-api] | 14.46 | 13.44 | 12.93 | 12.63 |
@@ -243,8 +248,8 @@ repeats a small key set:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 5.19 | 5.20 | 5.19 | 5.20 |
-| ed25519-simd Zip215 hot-key cache (warm) | 4.72 | 4.72 | 4.72 | 4.72 |
+| ed25519-simd Zip215 null-cache | 4.96 | 4.92 | 4.96 | 4.92 |
+| ed25519-simd Zip215 hot-key cache (warm) | 4.50 | 4.47 | 4.46 | 4.46 |
 
 ## Compatibility Target
 
