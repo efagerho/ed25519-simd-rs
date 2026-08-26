@@ -40,6 +40,7 @@ pub(crate) struct Fe51 {
 }
 
 impl Fe51 {
+    #[cfg(test)]
     pub(crate) fn from_limbs(limbs: [u64; LIMB_COUNT]) -> Self {
         Self { limbs }.canonical()
     }

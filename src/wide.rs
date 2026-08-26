@@ -383,6 +383,7 @@ pub(crate) mod avx512ifma {
                 ],
             }
         }
+        #[cfg(test)]
         fn to_fields(self) -> [Fe51; LANES] {
             let mut by_limb = [[0u64; LANES]; LIMB_COUNT];
             storeu(self.limbs[0], &mut by_limb[0]);
@@ -970,11 +971,13 @@ pub(crate) mod avx512ifma {
             let zinv = self.z.invert();
             let x = self.x.multiply(&zinv);
             let y = self.y.multiply(&zinv);
-            let xs = x.to_fields();
-            let ys = y.to_fields();
+            let x_odd = x.is_odd_lanes();
+            // `to_bytes` performs the one canonicalization serialization
+            // needs; avoid canonicalizing each lane once here and again there.
+            let ys = y.to_fields_loose();
             core::array::from_fn(|lane| {
                 let mut bytes = ys[lane].to_bytes();
-                bytes[31] |= (xs[lane].is_odd() as u8) << 7;
+                bytes[31] |= (x_odd[lane] as u8) << 7;
                 bytes
             })
         }
