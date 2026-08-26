@@ -98,6 +98,7 @@ impl Fe51 {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn to_bytes(self) -> [u8; 32] {
         let l = self.canonical().limbs;
         [
