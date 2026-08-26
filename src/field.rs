@@ -344,7 +344,6 @@ impl Fe51 {
         Some(Self::from_bytes_unchecked(bytes))
     }
 
-    #[cfg(test)]
     pub(crate) fn invert(&self) -> Self {
         let mut exp = [0xffu8; 32];
         exp[0] = 0xeb;
@@ -352,7 +351,6 @@ impl Fe51 {
         self.pow(&exp)
     }
 
-    #[cfg(test)]
     fn pow(&self, exp: &[u8; 32]) -> Self {
         let mut acc = Self::one();
         let mut i = 255;
@@ -386,7 +384,6 @@ fn load_u64_le(bytes: &[u8; 32], offset: usize) -> u64 {
     u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap())
 }
 
-#[cfg(test)]
 fn get_bit(bytes: &[u8], bit: usize) -> bool {
     ((bytes[bit / 8] >> (bit % 8)) & 1) != 0
 }
