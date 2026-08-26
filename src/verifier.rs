@@ -1,6 +1,5 @@
 use crate::batch::{self, PreparedBatch};
 use crate::cache::{CachedPublicKey, KeyCache, NullKeyCache};
-use crate::cpuid;
 use crate::edwards::{BasepointTable, EdwardsPoint, PointTable};
 use crate::policy::{VerifyPolicy, r_encoding_has_canonical_y, r_encoding_is_legacy_excluded};
 use crate::scalar::{self, Radix16, Scalar};
@@ -60,19 +59,11 @@ impl Default for Verifier<NullKeyCache> {
 
 impl Verifier<NullKeyCache> {
     /// Create a verifier with the default policy and no retained-key cache.
-    ///
-    /// # Panics
-    ///
-    /// Panics if required AVX-512 support is unavailable.
     pub fn new() -> Self {
         Self::with_policy(VerifyPolicy::default())
     }
 
     /// Create a verifier with a specific policy and no retained-key cache.
-    ///
-    /// # Panics
-    ///
-    /// Panics under the same condition as [`Verifier::new`].
     pub fn with_policy(policy: VerifyPolicy) -> Self {
         Self::with_cache(policy, NullKeyCache::new())
     }
@@ -81,12 +72,7 @@ impl Verifier<NullKeyCache> {
 impl<C: KeyCache> Verifier<C> {
     /// Create a verifier backed by a caller-provided cache. For a bounded cache:
     /// `Verifier::with_cache(policy, HotKeyCache::with_capacity(n))`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if required AVX-512 support is unavailable.
     pub fn with_cache(policy: VerifyPolicy, cache: C) -> Self {
-        cpuid::assert_required_avx512_runtime_support();
         Self {
             policy,
             base_table: &*BASE_TABLE,
