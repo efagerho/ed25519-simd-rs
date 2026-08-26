@@ -464,6 +464,42 @@ pub(crate) mod avx512ifma {
                 ])
             })
         }
+        fn to_bytes_lanes(self) -> [[u8; POINT_ENCODING_LEN]; LANES] {
+            unsafe {
+                let c = self.canonical();
+                let packed = [
+                    _mm512_or_si512(c.limbs[0], _mm512_slli_epi64(c.limbs[1], 51)),
+                    _mm512_or_si512(
+                        _mm512_srli_epi64(c.limbs[1], 13),
+                        _mm512_slli_epi64(c.limbs[2], 38),
+                    ),
+                    _mm512_or_si512(
+                        _mm512_srli_epi64(c.limbs[2], 26),
+                        _mm512_slli_epi64(c.limbs[3], 25),
+                    ),
+                    _mm512_or_si512(
+                        _mm512_srli_epi64(c.limbs[3], 39),
+                        _mm512_slli_epi64(c.limbs[4], 12),
+                    ),
+                ];
+                let mut words = [[0u64; LANES]; 4];
+                storeu(packed[0], &mut words[0]);
+                storeu(packed[1], &mut words[1]);
+                storeu(packed[2], &mut words[2]);
+                storeu(packed[3], &mut words[3]);
+
+                core::array::from_fn(|lane| {
+                    let mut bytes = [0u8; POINT_ENCODING_LEN];
+                    let mut word = 0;
+                    while word < 4 {
+                        bytes[word * 8..word * 8 + 8]
+                            .copy_from_slice(&words[word][lane].to_le_bytes());
+                        word += 1;
+                    }
+                    bytes
+                })
+            }
+        }
         // Full reduction keeps results strict enough for small-bias subtracts.
         fn add(&self, rhs: &Self) -> Self {
             unsafe {
@@ -1075,14 +1111,11 @@ pub(crate) mod avx512ifma {
             let x = self.x.multiply(&zinv);
             let y = self.y.multiply(&zinv);
             let x_odd = x.is_odd_mask();
-            // `to_bytes` performs the one canonicalization serialization
-            // needs; avoid canonicalizing each lane once here and again there.
-            let ys = y.to_fields_loose();
-            core::array::from_fn(|lane| {
-                let mut bytes = ys[lane].to_bytes();
-                bytes[31] |= ((x_odd >> lane) & 1) << 7;
-                bytes
-            })
+            let mut bytes = y.to_bytes_lanes();
+            for (lane, encoding) in bytes.iter_mut().enumerate() {
+                encoding[31] |= ((x_odd >> lane) & 1) << 7;
+            }
+            bytes
         }
         /// Compare against a point whose `z` is one, cross-multiplying only by
         /// `self.z`. Callers pass a freshly decompressed point; anything else
