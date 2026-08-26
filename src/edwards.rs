@@ -69,8 +69,13 @@ impl CachedPoint {
         }
     }
 
-    pub(crate) fn identity() -> Self {
-        Self::new(&EdwardsPoint::identity())
+    pub(crate) const fn identity() -> Self {
+        Self {
+            y_plus_x: Fe51::one(),
+            y_minus_x: Fe51::one(),
+            z2: Fe51::two(),
+            t2d: Fe51::zero(),
+        }
     }
 
     /// Cached form of `-P`: swap `y+x`/`y-x` and negate `t*2d`; `z2` is unchanged.
@@ -99,8 +104,11 @@ impl PointTable {
         let cached_points: [CachedPoint; POINT_TABLE_SIZE] =
             core::array::from_fn(|i| CachedPoint::new(&points[i]));
         let negative_cached_points = core::array::from_fn(|i| cached_points[i].negate());
-        let identity_cached = CachedPoint::new(&EdwardsPoint::identity());
-        Self::from_cached(cached_points, negative_cached_points, identity_cached)
+        Self::from_cached(
+            cached_points,
+            negative_cached_points,
+            CachedPoint::identity(),
+        )
     }
 
     /// Select the cached point for a signed digit in `-8..=8`.
@@ -127,8 +135,11 @@ impl BasepointTable {
             core::array::from_fn(|i| CachedPoint::new(&points[i]));
         let negative_cached_points: [CachedPoint; BASEPOINT_TABLE_SIZE] =
             core::array::from_fn(|i| cached_points[i].negate());
-        let identity_cached = CachedPoint::new(&EdwardsPoint::identity());
-        let entries = signed_cached_entries(cached_points, negative_cached_points, identity_cached);
+        let entries = signed_cached_entries(
+            cached_points,
+            negative_cached_points,
+            CachedPoint::identity(),
+        );
         Self { entries }
     }
 
@@ -152,7 +163,12 @@ fn signed_cached_entries<const N: usize, const OUT: usize>(
     negative_cached_points: [CachedPoint; N],
     identity_cached: CachedPoint,
 ) -> [CachedPoint; OUT] {
-    debug_assert_eq!(OUT, 2 * N + 1);
+    const {
+        assert!(
+            OUT == 2 * N + 1,
+            "a signed digit table holds 2 * N + 1 entries"
+        )
+    };
     core::array::from_fn(|i| {
         if i < N {
             negative_cached_points[N - 1 - i].clone()
