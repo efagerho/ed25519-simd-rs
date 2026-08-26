@@ -51,15 +51,21 @@ impl Fe51 {
         Self { limbs }
     }
 
-    pub(crate) fn zero() -> Self {
+    pub(crate) const fn zero() -> Self {
         Self {
             limbs: [0; LIMB_COUNT],
         }
     }
 
-    pub(crate) fn one() -> Self {
+    pub(crate) const fn one() -> Self {
         Self {
             limbs: [1, 0, 0, 0, 0],
+        }
+    }
+
+    pub(crate) const fn two() -> Self {
+        Self {
+            limbs: [2, 0, 0, 0, 0],
         }
     }
 
