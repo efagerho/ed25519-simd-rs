@@ -631,6 +631,24 @@ pub(crate) mod avx512ifma {
             }
         }
 
+        // `self + 2048*p - lhs - 2*rhs`, with all three possibly loose. Folding
+        // the doubling of `rhs` in here saves the separate carry pass that
+        // reducing `2*rhs` on its own would cost.
+        fn subtract_sum_doubled_wide(&self, lhs: &Self, rhs: &Self) -> Self {
+            unsafe {
+                let b0 = _mm512_set1_epi64((2048 * (LIMB_MASK - 18)) as i64);
+                let bn = _mm512_set1_epi64((2048 * LIMB_MASK) as i64);
+                let bias = [b0, bn, bn, bn, bn];
+                let h = core::array::from_fn(|i| {
+                    _mm512_sub_epi64(
+                        _mm512_sub_epi64(_mm512_add_epi64(self.limbs[i], bias[i]), lhs.limbs[i]),
+                        _mm512_slli_epi64(rhs.limbs[i], 1),
+                    )
+                });
+                Self::reduce_loose(h)
+            }
+        }
+
         // `2048*p - lhs - rhs`, with `lhs`/`rhs` possibly loose.
         fn negate_sum_wide(lhs: &Self, rhs: &Self) -> Self {
             unsafe {
@@ -1011,14 +1029,15 @@ pub(crate) mod avx512ifma {
             // limb0 values up to ~2^60.
             let a = self.x.square_loose();
             let b = self.y.square_loose();
-            let c = self.z.square_loose().double_loose();
+            let z2 = self.z.square_loose();
             let e = self
                 .x
                 .add_loose(&self.y)
                 .square_loose()
                 .subtract_sum_wide(&a, &b);
             let g = b.subtract_wide(&a);
-            let f = b.subtract_sum_wide(&a, &c);
+            // `f = b - a - 2*z^2`; the factor of two rides along in the subtract.
+            let f = b.subtract_sum_doubled_wide(&a, &z2);
             let h = WideFe::negate_sum_wide(&a, &b);
             let t = if COMPUTE_T {
                 e.multiply(&h)
