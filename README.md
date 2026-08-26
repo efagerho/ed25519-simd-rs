@@ -30,27 +30,19 @@ RUSTFLAGS="-C target-cpu=native" RUSTDOCFLAGS="-C target-cpu=native" cargo test 
 
 AVX-512 IFMA is available on Intel Ice Lake and later, and on AMD Zen 4 and later.
 
-Because the SIMD path is selected at compile time (there is no runtime feature
-gate on the hot path), **a binary built with `-C target-cpu=native` must run on
-the same CPU it was built for, or one that is at least as capable.** Running it on
-a CPU that lacks the required features would otherwise fault with an illegal
-instruction (`SIGILL`). As a guard, `Verifier` construction performs a runtime
-feature check and panics with a clear message instead of faulting in this
-crate's hot path.
+Because the SIMD path is selected at compile time, **AVX-512 F, DQ, and IFMA
+support, including OS support for AVX-512 register state, is a deployment
+prerequisite.** A binary built with `-C target-cpu=native` must run on the same
+CPU it was built for, or one that is at least as capable. Alternatively, use
+explicit `-C target-feature=+avx512f,+avx512dq,+avx512ifma` flags that match
+every deployment host.
 
-This guard reduces, but cannot eliminate, the risk of a raw `SIGILL`: the
-`-C target-feature`/`-C target-cpu=native` flags that enable AVX-512 apply to
-the entire binary, not just this crate, so the compiler is free to use AVX-512
-instructions in any code built with those flags — including the standard
-library's generic/monomorphized code (formatting, collections, panic/backtrace
-machinery, etc.) — whether or not it ever calls into `ed25519-simd`. Code that
-runs before a `Verifier` is constructed, or unrelated code elsewhere in the
-same binary, is not covered by this check. The guard's real value is catching
-the common case (a `Verifier` built and used near the start of a program, per
-the usage pattern above) with a clear message rather than a bare `SIGILL`; it
-is not a substitute for building on the deployment host (or with an explicit
-`-C target-feature=+avx512f,+avx512dq,+avx512ifma` matching the deployment
-CPU).
+The crate performs no runtime CPU-feature detection and has no fallback path.
+The target-feature flags apply to the entire binary, not just this crate, so
+the compiler may emit AVX-512 instructions in application, dependency, or
+standard-library code before any `ed25519-simd` API is called. Running the
+binary on a host without the required CPU and OS support may therefore
+terminate with an illegal-instruction fault (`SIGILL`) at any point.
 
 ## Scope
 
