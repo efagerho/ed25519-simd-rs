@@ -2,7 +2,9 @@ pub(crate) mod avx512ifma {
     use crate::batch::{PUBLIC_KEY_LEN, PreparedBatch, R_ENCODING_LEN};
     #[cfg(test)]
     use crate::edwards::EdwardsPoint;
-    use crate::edwards::{BasepointTable, CachedPoint, POINT_ENCODING_LEN, PointTable};
+    use crate::edwards::{
+        AffineCachedPoint, BasepointTable, CachedPoint, POINT_ENCODING_LEN, PointTable,
+    };
     use crate::field::{Fe51, LIMB_COUNT};
     use crate::scalar::Radix16;
     use std::arch::x86_64::*;
@@ -317,9 +319,9 @@ pub(crate) mod avx512ifma {
         pair: usize,
     ) {
         let selected: [_; LANES] = core::array::from_fn(|lane| {
-            base_table.select_signed_cached_ref(base_pair_digit(&s_digits[lane], pair))
+            base_table.select_signed_affine_ref(base_pair_digit(&s_digits[lane], pair))
         });
-        acc.add_cached_refs_assign(&selected, true);
+        acc.add_affine_cached_refs_assign(&selected);
     }
 
     #[inline]
@@ -1106,6 +1108,34 @@ pub(crate) mod avx512ifma {
             } else {
                 WideFe::zero()
             };
+            self.z = f.multiply(&g);
+            self.y = g.multiply(&h);
+        }
+        /// Mixed addition with an affine cached point. The cached point has
+        /// `Z = 1`, so `2*Z1*Z2` is just a doubling of the accumulator's `Z`.
+        #[inline(never)]
+        fn add_affine_cached_refs_assign(&mut self, points: &[&AffineCachedPoint; LANES]) {
+            let field = |pick: fn(&AffineCachedPoint) -> &Fe51| {
+                WideFe::from_field_refs(&core::array::from_fn(|lane| pick(points[lane])))
+            };
+
+            let a = self
+                .y
+                .subtract(&self.x)
+                .multiply_loose(&field(|p| p.coords().1));
+            let b = self
+                .y
+                .add_loose(&self.x)
+                .multiply_loose(&field(|p| p.coords().0));
+            let e = b.subtract_wide(&a);
+            let h = b.add_loose(&a);
+            let c = self.t.multiply_loose(&field(|p| p.coords().2));
+            let d = self.z.double_loose();
+            let f = d.subtract_wide(&c);
+            let g = d.add_loose(&c);
+
+            self.x = e.multiply(&f);
+            self.t = e.multiply(&h);
             self.z = f.multiply(&g);
             self.y = g.multiply(&h);
         }

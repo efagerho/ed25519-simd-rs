@@ -26,7 +26,7 @@ pub(crate) struct PointTable {
 
 #[derive(Clone, Debug)]
 pub(crate) struct BasepointTable {
-    entries: [CachedPoint; SIGNED_BASEPOINT_TABLE_SIZE],
+    entries: [AffineCachedPoint; SIGNED_BASEPOINT_TABLE_SIZE],
 }
 
 // `base_pair_digit` folds two radix-16 digits into a radix-256 digit with
@@ -89,13 +89,74 @@ impl CachedPoint {
     }
 }
 
+/// Affine cached point used by the fixed-base table. Since `Z = 1`, the
+/// cached `2*Z` coordinate is the constant two and does not need to be stored.
+#[derive(Clone, Debug)]
+pub(crate) struct AffineCachedPoint {
+    y_plus_x: Fe51,
+    y_minus_x: Fe51,
+    t2d: Fe51,
+}
+
+impl AffineCachedPoint {
+    fn from_affine(x: &Fe51, y: &Fe51) -> Self {
+        Self {
+            y_plus_x: y.add(x),
+            y_minus_x: y.subtract(x),
+            t2d: x.multiply(y).multiply(&Fe51::two_d()),
+        }
+    }
+
+    fn identity() -> Self {
+        Self {
+            y_plus_x: Fe51::one(),
+            y_minus_x: Fe51::one(),
+            t2d: Fe51::zero(),
+        }
+    }
+
+    fn negate(&self) -> Self {
+        Self {
+            y_plus_x: self.y_minus_x,
+            y_minus_x: self.y_plus_x,
+            t2d: self.t2d.negate(),
+        }
+    }
+
+    pub(crate) fn coords(&self) -> (&Fe51, &Fe51, &Fe51) {
+        (&self.y_plus_x, &self.y_minus_x, &self.t2d)
+    }
+}
+
+/// Normalize a table of projective points with one Montgomery batch inversion.
+fn to_affine_cached_batch<const N: usize>(points: &[EdwardsPoint; N]) -> [AffineCachedPoint; N] {
+    let mut prefixes: [Fe51; N] = core::array::from_fn(|_| Fe51::one());
+    let mut product = Fe51::one();
+    for i in 0..N {
+        prefixes[i] = product;
+        product = product.multiply(&points[i].z);
+    }
+
+    product = product.invert();
+    for i in (0..N).rev() {
+        prefixes[i] = prefixes[i].multiply(&product);
+        product = product.multiply(&points[i].z);
+    }
+
+    core::array::from_fn(|i| {
+        let x = points[i].x.multiply(&prefixes[i]);
+        let y = points[i].y.multiply(&prefixes[i]);
+        AffineCachedPoint::from_affine(&x, &y)
+    })
+}
+
 impl PointTable {
     pub(crate) fn from_cached(
         cached_points: [CachedPoint; POINT_TABLE_SIZE],
         negative_cached_points: [CachedPoint; POINT_TABLE_SIZE],
         identity_cached: CachedPoint,
     ) -> Self {
-        let entries = signed_cached_entries(cached_points, negative_cached_points, identity_cached);
+        let entries = signed_entries(cached_points, negative_cached_points, identity_cached);
         Self { entries }
     }
 
@@ -131,21 +192,20 @@ impl BasepointTable {
         for i in 1..BASEPOINT_TABLE_SIZE {
             points[i] = points[i - 1].add(&basepoint);
         }
-        let cached_points: [CachedPoint; BASEPOINT_TABLE_SIZE] =
-            core::array::from_fn(|i| CachedPoint::new(&points[i]));
-        let negative_cached_points: [CachedPoint; BASEPOINT_TABLE_SIZE] =
-            core::array::from_fn(|i| cached_points[i].negate());
-        let entries = signed_cached_entries(
-            cached_points,
-            negative_cached_points,
-            CachedPoint::identity(),
+        let affine_points = to_affine_cached_batch(&points);
+        let negative_points: [AffineCachedPoint; BASEPOINT_TABLE_SIZE] =
+            core::array::from_fn(|i| affine_points[i].negate());
+        let entries = signed_entries(
+            affine_points,
+            negative_points,
+            AffineCachedPoint::identity(),
         );
         Self { entries }
     }
 
     /// Select the cached point for a signed digit in
     /// `-BASEPOINT_TABLE_SIZE..=BASEPOINT_TABLE_SIZE`.
-    pub(crate) fn select_signed_cached_ref(&self, digit: i16) -> &CachedPoint {
+    pub(crate) fn select_signed_affine_ref(&self, digit: i16) -> &AffineCachedPoint {
         debug_assert!(
             (-(BASEPOINT_TABLE_SIZE as i16)..=(BASEPOINT_TABLE_SIZE as i16)).contains(&digit)
         );
@@ -158,11 +218,11 @@ impl BasepointTable {
     }
 }
 
-fn signed_cached_entries<const N: usize, const OUT: usize>(
-    cached_points: [CachedPoint; N],
-    negative_cached_points: [CachedPoint; N],
-    identity_cached: CachedPoint,
-) -> [CachedPoint; OUT] {
+fn signed_entries<T: Clone, const N: usize, const OUT: usize>(
+    cached_points: [T; N],
+    negative_cached_points: [T; N],
+    identity_cached: T,
+) -> [T; OUT] {
     const {
         assert!(
             OUT == 2 * N + 1,
@@ -303,4 +363,38 @@ fn multiples_of(point: &EdwardsPoint) -> [EdwardsPoint; POINT_TABLE_SIZE] {
     let p7 = p6.add(point);
     let p8 = p4.double();
     [point.clone(), p2, p3, p4, p5, p6, p7, p8]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn affine_basepoint_table_matches_projective_multiples() {
+        let table = BasepointTable::new();
+        let basepoint = EdwardsPoint::basepoint();
+        let mut multiples = vec![basepoint.clone()];
+        for _ in 1..BASEPOINT_TABLE_SIZE {
+            multiples.push(multiples.last().unwrap().add(&basepoint));
+        }
+
+        let n = BASEPOINT_TABLE_SIZE as i16;
+        for digit in -n..=n {
+            let point = if digit == 0 {
+                EdwardsPoint::identity()
+            } else {
+                let point = multiples[digit.unsigned_abs() as usize - 1].clone();
+                if digit < 0 { point.negate() } else { point }
+            };
+            let zinv = point.z.invert();
+            let x = point.x.multiply(&zinv);
+            let y = point.y.multiply(&zinv);
+            let expected = AffineCachedPoint::from_affine(&x, &y);
+            let actual = table.select_signed_affine_ref(digit);
+
+            assert!(actual.y_plus_x.equals(&expected.y_plus_x));
+            assert!(actual.y_minus_x.equals(&expected.y_minus_x));
+            assert!(actual.t2d.equals(&expected.t2d));
+        }
+    }
 }
