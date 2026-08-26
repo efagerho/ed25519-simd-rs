@@ -57,7 +57,8 @@ fn cached_verifier_accepts_batch() {
         message: &[0x72],
     };
     let mut out = [false];
-    let mut verifier = Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::new());
+    let mut verifier =
+        Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::with_capacity(1024));
 
     verifier.verify_batch(&[input], &mut out);
 
@@ -72,7 +73,8 @@ fn cached_verifier_accepts_simd_sized_batch() {
         message: &[0x72],
     }; 8];
     let mut out = [false; 8];
-    let mut verifier = Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::new());
+    let mut verifier =
+        Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::with_capacity(1024));
 
     verifier.verify_batch(&inputs, &mut out);
 
@@ -88,7 +90,8 @@ fn cached_verifier_rejects_one_bad_lane_in_simd_batch() {
     }; 8];
     inputs[3].signature[40] ^= 1;
     let mut out = [false; 8];
-    let mut verifier = Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::new());
+    let mut verifier =
+        Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::with_capacity(1024));
 
     verifier.verify_batch(&inputs, &mut out);
 
@@ -104,7 +107,8 @@ fn cached_verifier_rejects_bad_r_lane_in_simd_batch() {
     }; 8];
     inputs[5].signature[..32].copy_from_slice(&[0xff; 32]);
     let mut out = [false; 8];
-    let mut verifier = Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::new());
+    let mut verifier =
+        Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::with_capacity(1024));
 
     verifier.verify_batch(&inputs, &mut out);
 
@@ -129,7 +133,8 @@ fn hot_key_cache_handles_mixed_hit_and_miss_lanes_in_one_chunk() {
         })
         .collect();
 
-    let mut verifier = Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::new());
+    let mut verifier =
+        Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::with_capacity(1024));
     let warm_inputs: Vec<VerifyInput<'_>> = inputs.iter().step_by(2).copied().collect();
     let mut warm_out = vec![false; warm_inputs.len()];
     verifier.verify_batch(&warm_inputs, &mut warm_out);
@@ -167,51 +172,55 @@ fn hot_key_cache_retains_recent_keys_with_capacity() {
 }
 
 #[test]
-fn hot_key_cache_evicts_down_to_capacity_with_more_candidates_than_the_eviction_sample() {
+fn hot_key_cache_shrinking_keeps_the_most_recently_used_keys() {
     let keys: Vec<[u8; PUBLIC_KEY_LEN]> = (0..12u64)
         .map(|i| <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key_from_index(i))))
         .collect();
 
-    let mut cache = HotKeyCache::new();
+    let mut cache = HotKeyCache::with_capacity(1024);
     for key in &keys {
         cache.insert(CachedPublicKey::from_encoded(*key).unwrap());
     }
+    // `resident_count` reads every key, so the last one read is the MRU.
     assert_eq!(resident_count(&cache, &keys), 12);
 
-    cache.set_capacity(Some(3));
-    assert_eq!(resident_count(&cache, &keys), 3);
+    cache.set_capacity(3);
+    for (i, key) in keys.iter().enumerate() {
+        assert_eq!(
+            cache.get(key).is_some(),
+            i >= 9,
+            "key {i} residency after shrinking to the 3 most recently used"
+        );
+    }
 }
 
 #[test]
 fn hot_key_cache_set_capacity_clamps_and_evicts_immediately() {
     let keys = [rfc8032_key0(), rfc8032_key1()];
-    let mut cache = HotKeyCache::new();
+    let mut cache = HotKeyCache::with_capacity(1024);
     for key in &keys {
         cache.insert(CachedPublicKey::from_encoded(*key).unwrap());
     }
     assert_eq!(resident_count(&cache, &keys), 2);
 
-    cache.set_capacity(Some(0));
+    // Zero is clamped to one, and the key read most recently is the one kept.
+    cache.set_capacity(0);
+    assert!(cache.get(&rfc8032_key1()).is_some());
+    assert!(cache.get(&rfc8032_key0()).is_none());
+
+    cache.set_capacity(5);
     assert_eq!(resident_count(&cache, &keys), 1);
 
-    cache.set_capacity(Some(5));
-    assert_eq!(resident_count(&cache, &keys), 1);
-
-    let missing = keys
-        .iter()
-        .copied()
-        .find(|key| cache.get(key).is_none())
-        .expect("one key should have been evicted");
-    cache.insert(CachedPublicKey::from_encoded(missing).unwrap());
+    cache.insert(CachedPublicKey::from_encoded(rfc8032_key0()).unwrap());
     assert_eq!(resident_count(&cache, &keys), 2);
 }
 
 #[test]
 fn verifier_exposes_cache_mut_and_policy() {
-    let mut verifier = Verifier::with_cache(VerifyPolicy::Dalek, HotKeyCache::new());
+    let mut verifier = Verifier::with_cache(VerifyPolicy::Dalek, HotKeyCache::with_capacity(1024));
     assert_eq!(verifier.policy(), VerifyPolicy::Dalek);
 
-    verifier.cache_mut().set_capacity(Some(1));
+    verifier.cache_mut().set_capacity(1);
     verifier
         .cache_mut()
         .insert(CachedPublicKey::from_encoded(rfc8032_key0()).unwrap());
@@ -223,7 +232,8 @@ fn verifier_exposes_cache_mut_and_policy() {
         1
     );
 
-    let zip215_verifier = Verifier::with_cache(VerifyPolicy::Zip215, HotKeyCache::new());
+    let zip215_verifier =
+        Verifier::with_cache(VerifyPolicy::Zip215, HotKeyCache::with_capacity(1024));
     assert_eq!(zip215_verifier.policy(), VerifyPolicy::Zip215);
 }
 

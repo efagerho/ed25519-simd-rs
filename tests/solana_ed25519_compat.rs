@@ -243,7 +243,7 @@ fn block_count_bucketed_batches_match_solana_ed25519() {
             .map(|input| solana_ed25519(input.public_key, input.signature, input.message))
             .collect();
 
-        let mut cached = Verifier::with_cache(policy, HotKeyCache::new());
+        let mut cached = Verifier::with_cache(policy, HotKeyCache::with_capacity(1024));
         let mut cached_out = vec![false; inputs.len()];
         cached.verify_batch(&inputs, &mut cached_out);
         assert_eq!(cached_out, expected, "hot-key cache policy={policy:?}");
@@ -298,7 +298,7 @@ fn block_count_bucketed_batch_with_non_multiple_of_eight_tail_matches_solana_ed2
             .map(|input| solana_ed25519(input.public_key, input.signature, input.message))
             .collect();
 
-        let mut cached = Verifier::with_cache(policy, HotKeyCache::new());
+        let mut cached = Verifier::with_cache(policy, HotKeyCache::with_capacity(1024));
         let mut cached_out = vec![false; inputs.len()];
         cached.verify_batch(&inputs, &mut cached_out);
         assert_eq!(cached_out, expected, "hot-key cache policy={policy:?}");
@@ -395,7 +395,8 @@ fn batch_verify_matches_solana_ed25519() {
 
             let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|c| c.input()).collect();
 
-            let mut verifier = Verifier::with_cache(VerifyPolicy::Zip215, HotKeyCache::new());
+            let mut verifier =
+                Verifier::with_cache(VerifyPolicy::Zip215, HotKeyCache::with_capacity(1024));
             let mut warm_out = vec![false; inputs.len()];
             verifier.verify_batch(&inputs, &mut warm_out);
             let mut out = vec![false; inputs.len()];
@@ -462,7 +463,7 @@ fn batch_dalek_matches_solana_ed25519_simd() {
             }
 
             let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|c| c.input()).collect();
-            let mut verifier = Verifier::with_cache(Dalek, HotKeyCache::new());
+            let mut verifier = Verifier::with_cache(Dalek, HotKeyCache::with_capacity(1024));
             let mut warm_out = vec![false; inputs.len()];
             verifier.verify_batch(&inputs, &mut warm_out);
             let mut out = vec![false; inputs.len()];
@@ -557,7 +558,7 @@ fn per_lane_masking_matches_solana_ed25519_under_heavy_garbage() {
                     })
                     .collect();
 
-                let mut verifier = Verifier::with_cache(policy, HotKeyCache::new());
+                let mut verifier = Verifier::with_cache(policy, HotKeyCache::with_capacity(1024));
                 let mut out = vec![false; inputs.len()];
                 verifier.verify_batch(&inputs, &mut out);
                 for idx in 0..inputs.len() {
@@ -838,7 +839,7 @@ fn speccheck_and_wycheproof_vectors_survive_non_uniform_batches_and_warm_cache()
             // Warm cache: verify once so decodable keys hit on the second
             // pass, forcing the `decoded_r == None` branch
             // (`verify_prepared_dalek`'s byte comparison for Dalek).
-            let mut cached = Verifier::with_cache(policy, HotKeyCache::new());
+            let mut cached = Verifier::with_cache(policy, HotKeyCache::with_capacity(1024));
             let input = VerifyInput {
                 public_key,
                 signature,

@@ -134,8 +134,17 @@ that does repeat a small key set; measure your own workload before relying on
 it, since the win shrinks or disappears as the hot set gets larger or less
 repetitive:
 
-- `HotKeyCache::with_capacity(...)` bounds the retained key set; pass it to
-  `Verifier::with_cache(...)`.
+- `HotKeyCache::with_capacity(n)` is the only constructor: the bound is
+  mandatory. Public keys are attacker-supplied and each retained one costs a
+  few kilobytes, so an unbounded cache would be a memory-exhaustion vector.
+  Requiring a bound also forces the question that decides whether this cache
+  helps at all — how many keys actually repeat. If you can't answer it, use
+  `NullKeyCache`.
+- Eviction is exact least-recently-used, and both lookup and eviction are
+  O(1), so a caller feeding the verifier nothing but distinct keys cannot
+  amplify eviction cost.
+- `HotKeyCache::set_capacity(n)` re-bounds an existing cache, evicting
+  immediately down to the new bound. `n` is clamped to at least one.
 - Successful key decodes are retained after verification, so reuse the same
   verifier across batches when the key distribution is hot.
 
