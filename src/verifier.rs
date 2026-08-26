@@ -145,7 +145,11 @@ impl<C: KeyCache> Verifier<C> {
         let mut decoded_key_tables: Option<([PointTable; SIMD_LANES], [bool; SIMD_LANES])> = None;
         if any_lane(&missing_key_lanes) {
             let (tables, key_valid_bits, r_points, r_valid_bits) =
-                avx512ifma::decode_keys_and_decompress_r(&public_keys, &r_bytes);
+                avx512ifma::decode_keys_and_decompress_r(
+                    &public_keys,
+                    &r_bytes,
+                    policy == VerifyPolicy::Dalek,
+                );
             decoded_key_tables = Some((tables, lane_flags_from_mask(key_valid_bits)));
             decoded_r = Some((r_points, lane_flags_from_mask(r_valid_bits)));
         }
