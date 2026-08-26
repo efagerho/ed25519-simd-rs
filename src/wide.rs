@@ -255,19 +255,30 @@ pub(crate) mod avx512ifma {
         let mut acc = WidePoint::identity();
 
         // Start at top digits 63/62; reduced scalars have no digit above 63.
-        add_public_digit(&mut acc, public_key_tables, k_digits, 63);
+        add_public_digit_before_double(&mut acc, public_key_tables, k_digits, 63);
         acc = acc.double4();
         add_base_pair_digit(&mut acc, base_table, s_digits, 31);
-        add_public_digit(&mut acc, public_key_tables, k_digits, 62);
+        add_public_digit_before_double(&mut acc, public_key_tables, k_digits, 62);
 
-        for pair in (0..31).rev() {
+        // Every public-key addition in these complete digit pairs is followed
+        // by a doubling, so its extended `T` output is dead.
+        for pair in (1..31).rev() {
             acc = acc.double4();
-            add_public_digit(&mut acc, public_key_tables, k_digits, pair * 2 + 1);
+            add_public_digit_before_double(&mut acc, public_key_tables, k_digits, pair * 2 + 1);
 
             acc = acc.double4();
             add_base_pair_digit(&mut acc, base_table, s_digits, pair);
-            add_public_digit(&mut acc, public_key_tables, k_digits, pair * 2);
+            add_public_digit_before_double(&mut acc, public_key_tables, k_digits, pair * 2);
         }
+
+        // The last public-key addition must produce `T`: ZIP-215 consumes it
+        // in the following subtraction, while the shared ladder serves both
+        // verification policies.
+        acc = acc.double4();
+        add_public_digit_before_double(&mut acc, public_key_tables, k_digits, 1);
+        acc = acc.double4();
+        add_base_pair_digit(&mut acc, base_table, s_digits, 0);
+        add_public_digit(&mut acc, public_key_tables, k_digits, 0);
         acc
     }
 
@@ -281,7 +292,7 @@ pub(crate) mod avx512ifma {
         let selected: [_; LANES] = core::array::from_fn(|lane| {
             base_table.select_signed_cached_ref(base_pair_digit(&s_digits[lane], pair))
         });
-        acc.add_cached_refs_assign(&selected);
+        acc.add_cached_refs_assign(&selected, true);
     }
 
     #[inline]
@@ -294,7 +305,20 @@ pub(crate) mod avx512ifma {
         let selected: [_; LANES] = core::array::from_fn(|lane| {
             public_key_tables[lane].select_signed_cached_ref(-k_digits[lane][index])
         });
-        acc.add_cached_refs_assign(&selected);
+        acc.add_cached_refs_assign(&selected, true);
+    }
+
+    #[inline]
+    fn add_public_digit_before_double(
+        acc: &mut WidePoint,
+        public_key_tables: &[&PointTable; LANES],
+        k_digits: &[Radix16; LANES],
+        index: usize,
+    ) {
+        let selected: [_; LANES] = core::array::from_fn(|lane| {
+            public_key_tables[lane].select_signed_cached_ref(-k_digits[lane][index])
+        });
+        acc.add_cached_refs_assign(&selected, false);
     }
 
     // Fold a radix-16 digit pair into a bounded radix-256 base-table digit.
@@ -970,8 +994,8 @@ pub(crate) mod avx512ifma {
         /// immediately before the multiply that consumes it. Gathering all four
         /// up front instead costs 20 live `zmm` registers, which does not fit
         /// alongside the accumulator and spills to the stack.
-        #[inline]
-        fn add_cached_refs_assign(&mut self, points: &[&CachedPoint; LANES]) {
+        #[inline(never)]
+        fn add_cached_refs_assign(&mut self, points: &[&CachedPoint; LANES], compute_t: bool) {
             // Loose products feed additive ops; use wide subtracts for limb0
             // values up to ~2^60.
             let field = |pick: fn(&CachedPoint) -> &Fe51| {
@@ -994,7 +1018,11 @@ pub(crate) mod avx512ifma {
             let g = d.add_loose(&c);
 
             self.x = e.multiply(&f);
-            self.t = e.multiply(&h);
+            self.t = if compute_t {
+                e.multiply(&h)
+            } else {
+                WideFe::zero()
+            };
             self.z = f.multiply(&g);
             self.y = g.multiply(&h);
         }
