@@ -444,7 +444,8 @@ pub(crate) mod avx512ifma {
                     _mm512_add_epi64(self.limbs[3], rhs.limbs[3]),
                     _mm512_add_epi64(self.limbs[4], rhs.limbs[4]),
                 ];
-                Self::reduce64(h)
+                let reduced = Self::reduce_loose(h);
+                Self::carry_limb0(reduced.limbs)
             }
         }
         fn add_loose(&self, rhs: &Self) -> Self {
@@ -872,9 +873,23 @@ pub(crate) mod avx512ifma {
                 lo[4] = _mm512_and_si512(lo[4], mask);
                 lo[0] = _mm512_add_epi64(lo[0], _mm512_mullo_epi64(carry, nineteen));
 
-                // One extra carry pass leaves `< 2^52` limbs, enough for
-                // multiply/square consumers.
-                Self::reduce_loose(lo)
+                // The wrapped residual is confined to limb 0.  Carrying that
+                // one limb into limb 1 is sufficient to restore the `< 2^52`
+                // IFMA-input bound; limbs 1..4 were already masked below
+                // `2^51` by the first pass.
+                Self::carry_limb0(lo)
+            }
+        }
+        /// Carry the wraparound residual from limb 0 into limb 1.  Callers
+        /// guarantee limb 0 `< 2^60` and limbs 1..4 `< 2^51`, so the result is
+        /// strict enough (`< 2^52` in every limb) for another IFMA operation.
+        fn carry_limb0(mut h: [__m512i; LIMB_COUNT]) -> Self {
+            unsafe {
+                let mask = _mm512_set1_epi64(LIMB_MASK as i64);
+                let carry = _mm512_srli_epi64(h[0], 51);
+                h[0] = _mm512_and_si512(h[0], mask);
+                h[1] = _mm512_add_epi64(h[1], carry);
+                Self { limbs: h }
             }
         }
         /// One carry pass: limbs 1..4 become `< 2^51`; limb 0 may keep the
