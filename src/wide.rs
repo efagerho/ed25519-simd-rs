@@ -111,12 +111,7 @@ pub(crate) mod avx512ifma {
         base_table: &BasepointTable,
     ) -> [bool; LANES] {
         let combined = mul_base_minus_public(base_table, prepared);
-        let mut check = combined.subtract(&r.0);
-        check = check
-            .double_without_t()
-            .double_without_t()
-            .double_without_t();
-        check.identity_lanes()
+        combined.subtract_affine_and_check_8_torsion(&r.0)
     }
 
     pub(crate) fn verify_prepared_dalek(
@@ -1054,9 +1049,44 @@ pub(crate) mod avx512ifma {
             self.z = f.multiply(&g);
             self.y = g.multiply(&h);
         }
+        #[cfg(test)]
         fn subtract(&self, rhs: &Self) -> Self {
             self.add(&rhs.negate())
         }
+        /// Return whether `self - rhs` is killed by the Ed25519 cofactor.
+        ///
+        /// `rhs` is freshly decompressed, so `rhs.z == 1`.  ZIP-215 needs to
+        /// decide whether `Q = self - rhs` is in the cyclic 8-torsion group.
+        /// This is equivalent to `2Q` being in the 4-torsion group, whose four
+        /// points have `x*y == 0`.  The extended-coordinate doubling formula
+        /// gives the numerator of `x(2Q)*y(2Q)` as `E*H`, so neither the full
+        /// subtraction nor any doubled point has to be materialized.
+        fn subtract_affine_and_check_8_torsion(&self, rhs: &Self) -> [bool; LANES] {
+            debug_assert!(
+                rhs.z.equals_lanes(&WideFe::one()).iter().all(|&eq| eq),
+                "ZIP-215 R subtraction requires affine rhs"
+            );
+
+            // Strongly-unified mixed subtraction.  Only X and Y are needed.
+            let a = self.y.subtract(&self.x).multiply(&rhs.y.add_loose(&rhs.x));
+            let b = self.y.add_loose(&self.x).multiply(&rhs.y.subtract(&rhs.x));
+            let c = self.t.multiply(&rhs.t).multiply(&WideFe::two_d());
+            let d = self.z.double_loose();
+            let e = b.subtract(&a);
+            let f = d.add_loose(&c);
+            let g = d.subtract(&c);
+            let h = b.add_loose(&a);
+            let x = e.multiply(&f);
+            let y = g.multiply(&h);
+
+            // T(2Q) = E*H, where E = 2XY and H = -(X^2+Y^2).
+            let xx = x.square_loose();
+            let yy = y.square_loose();
+            let double_e = x.add_loose(&y).square_loose().subtract_sum_wide(&xx, &yy);
+            let double_h = WideFe::negate_sum_wide(&xx, &yy);
+            double_e.multiply(&double_h).is_zero_lanes()
+        }
+        #[cfg(test)]
         fn negate(&self) -> Self {
             Self {
                 x: self.x.negate(),
@@ -1108,12 +1138,6 @@ pub(crate) mod avx512ifma {
                 z: f.multiply(&g),
             }
         }
-        fn identity_lanes(self) -> [bool; LANES] {
-            let x_zero = self.x.is_zero_lanes();
-            let yz_equal = self.y.equals_lanes(&self.z);
-            core::array::from_fn(|lane| x_zero[lane] && yz_equal[lane])
-        }
-
         #[cfg(test)]
         fn from_points(points: &[EdwardsPoint; LANES]) -> Self {
             let xs = core::array::from_fn(|lane| *points[lane].coords().0);
