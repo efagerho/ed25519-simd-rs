@@ -24,6 +24,35 @@ impl Scalar {
     }
 
     pub(crate) fn to_radix16(self) -> Radix16 {
+        // Balanced base-16 digits with no carry chain. Adding 8 to every nibble
+        // at once is just the 256-bit addition `self + 0x88..88`, so the binary
+        // adder performs all the carry propagation: nibble `i` of the sum is
+        // `d_i + 8`, and the digits fall out by masking off the bias.
+        let mut biased = [0u8; 32];
+        let mut carry = 0u16;
+        let mut i = 0;
+        while i < 32 {
+            let sum = self.bytes[i] as u16 + 0x88 + carry;
+            biased[i] = sum as u8;
+            carry = sum >> 8;
+            i += 1;
+        }
+        // Scalars are reduced mod L < 2^253, so the top byte is < 0x20 and the
+        // biased sum provably cannot carry out of 32 bytes.
+        debug_assert_eq!(carry, 0, "radix-16 bias carried out of a reduced scalar");
+
+        let mut digits = [0i8; 64];
+        i = 0;
+        while i < 32 {
+            digits[2 * i] = (biased[i] & 0x0f) as i8 - 8;
+            digits[2 * i + 1] = (biased[i] >> 4) as i8 - 8;
+            i += 1;
+        }
+        digits
+    }
+
+    #[cfg(test)]
+    pub(crate) fn to_radix16_carry_loop(self) -> Radix16 {
         let mut digits = [0i8; 64];
         let mut i = 0;
         while i < 32 {
@@ -31,7 +60,6 @@ impl Scalar {
             digits[2 * i + 1] = (self.bytes[i] >> 4) as i8;
             i += 1;
         }
-
         let mut carry = 0i8;
         i = 0;
         while i < 64 {
@@ -45,9 +73,7 @@ impl Scalar {
             }
             i += 1;
         }
-        // Scalars are always reduced mod L < 2^253, so the final carry out of
-        // digit 63 (which would need a 65th digit) is provably always zero.
-        debug_assert_eq!(carry, 0, "radix-16 carry out of a scalar reduced mod L");
+        debug_assert_eq!(carry, 0);
         digits
     }
 
@@ -389,6 +415,113 @@ fn sub_u256(a: &mut [u64; 4], b: &[u64; 4]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Reconstruct the integer a signed radix-16 digit array represents.
+    /// Wrapping 256-bit arithmetic is exact here: the sum equals the scalar,
+    /// which fits in 256 bits.
+    fn value_from_digits(digits: &Radix16) -> [u8; 32] {
+        let mut acc = [0u64; 4];
+        let mut i = 64;
+        while i > 0 {
+            i -= 1;
+            // acc *= 16
+            let mut carry = 0u64;
+            let mut l = 0;
+            while l < 4 {
+                let next = acc[l] >> 60;
+                acc[l] = (acc[l] << 4) | carry;
+                carry = next;
+                l += 1;
+            }
+            // acc += sign_extend(digits[i])
+            let d = digits[i] as i64;
+            let addend = [
+                d as u64,
+                if d < 0 { u64::MAX } else { 0 },
+                if d < 0 { u64::MAX } else { 0 },
+                if d < 0 { u64::MAX } else { 0 },
+            ];
+            let mut carry = 0u128;
+            let mut l = 0;
+            while l < 4 {
+                let sum = acc[l] as u128 + addend[l] as u128 + carry;
+                acc[l] = sum as u64;
+                carry = sum >> 64;
+                l += 1;
+            }
+        }
+        let mut out = [0u8; 32];
+        let mut l = 0;
+        while l < 4 {
+            out[l * 8..l * 8 + 8].copy_from_slice(&acc[l].to_le_bytes());
+            l += 1;
+        }
+        out
+    }
+
+    #[test]
+    fn radix16_is_carry_loop_equivalent_and_in_range() {
+        let mut cases: Vec<[u8; 32]> = Vec::new();
+        let mut l_minus_1 = L_BYTES;
+        l_minus_1[0] -= 1;
+        cases.push([0u8; 32]);
+        cases.push({
+            let mut b = [0u8; 32];
+            b[0] = 1;
+            b
+        });
+        cases.push({
+            let mut b = [0u8; 32];
+            b[0] = 8;
+            b
+        });
+        cases.push({
+            let mut b = [0u8; 32];
+            b[0] = 9;
+            b
+        });
+        cases.push(l_minus_1);
+
+        let mut state = 0x243f_6a88_85a3_08d3u64;
+        for _ in 0..4096 {
+            let mut b = [0u8; 32];
+            for chunk in b.chunks_mut(8) {
+                state = state
+                    .wrapping_mul(0xd134_2543_de82_ef95)
+                    .wrapping_add(0x9e37_79b9_7f4a_7c15);
+                chunk.copy_from_slice(&state.to_le_bytes());
+            }
+            b[31] &= 0x0f; // keep it below L
+            if is_canonical(&b) {
+                cases.push(b);
+            }
+        }
+
+        for bytes in cases {
+            let scalar = Scalar::from_canonical_bytes(bytes);
+            let new = scalar.to_radix16();
+            let old = scalar.to_radix16_carry_loop();
+
+            // Both must represent exactly the scalar.
+            assert_eq!(value_from_digits(&new), bytes, "new digits for {bytes:?}");
+            assert_eq!(value_from_digits(&old), bytes, "old digits for {bytes:?}");
+
+            // Ranges the point tables rely on: a digit and its negation must
+            // both index a -8..=8 table, and folded base pairs must stay inside
+            // the 136-entry basepoint table.
+            for (i, &d) in new.iter().enumerate() {
+                assert!((-8..=8).contains(&d), "digit {i} = {d}");
+                assert!((-8..=8).contains(&-d), "negated digit {i} = {}", -d);
+            }
+            for pair in 0..32 {
+                let folded = new[pair * 2] as i32 + ((new[pair * 2 + 1] as i32) << 4);
+                assert!(
+                    (-136..=136).contains(&folded),
+                    "base pair {pair} = {folded}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn canonical_bound() {
