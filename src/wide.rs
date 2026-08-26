@@ -252,10 +252,15 @@ pub(crate) mod avx512ifma {
         let s_digits = prepared.s_digits;
         let k_digits = prepared.k_digits;
 
-        let mut acc = WidePoint::identity();
+        // Start directly from the cached top digit. Its cached `(Y+X, Y-X,
+        // 2Z)` fields recover `(2X, 2Y, 2Z)`, a projectively equivalent point.
+        // `T` is not needed because the next operation is a doubling.
+        let selected: [_; LANES] = core::array::from_fn(|lane| {
+            public_key_tables[lane].select_signed_cached_ref(-k_digits[lane][63])
+        });
+        let mut acc = WidePoint::from_cached_refs_without_t(&selected);
 
-        // Start at top digits 63/62; reduced scalars have no digit above 63.
-        add_public_digit_before_double(&mut acc, public_key_tables, k_digits, 63);
+        // Continue at digit 62; reduced scalars have no digit above 63.
         acc = acc.double4();
         add_base_pair_digit(&mut acc, base_table, s_digits, 31);
         add_public_digit_before_double(&mut acc, public_key_tables, k_digits, 62);
@@ -950,11 +955,21 @@ pub(crate) mod avx512ifma {
     }
 
     impl WidePoint {
-        fn identity() -> Self {
+        /// Recover a projectively equivalent `(X:Y:Z)` from cached coordinates.
+        /// The returned `T` is intentionally absent: callers must perform a
+        /// doubling before any operation that consumes the extended coordinate.
+        #[inline(never)]
+        fn from_cached_refs_without_t(points: &[&CachedPoint; LANES]) -> Self {
+            let field = |pick: fn(&CachedPoint) -> &Fe51| {
+                WideFe::from_field_refs(&core::array::from_fn(|lane| pick(points[lane])))
+            };
+            let y_plus_x = field(|p| p.coords().0);
+            let y_minus_x = field(|p| p.coords().1);
+
             Self {
-                x: WideFe::zero(),
-                y: WideFe::one(),
-                z: WideFe::one(),
+                x: y_plus_x.subtract(&y_minus_x),
+                y: y_plus_x.add_loose(&y_minus_x),
+                z: field(|p| p.coords().2),
                 t: WideFe::zero(),
             }
         }
