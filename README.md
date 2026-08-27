@@ -174,34 +174,41 @@ gate (see [Requirements](#requirements)).
 
 ## Benchmark Snapshot
 
-The following numbers are Criterion medians in microseconds per signature for
+The following numbers are Criterion estimates in microseconds per signature for
 distinct-key batches. The `ed25519-simd` rows use `NullKeyCache`, so decoded keys
 are not retained across batches.
 
-Every row in these tables comes from a single run of the bench, so the
-comparisons between backends are like-for-like. The median confidence interval
-was 0.04% of the median and the widest 0.79%. Measuring this crate's rows on
-their own moves them by up to about 2% relative to running the whole comparison,
-because the other backends evict shared cache between samples, so partial
-re-measurements should not be pasted into these tables.
+The `ed25519-simd` rows were refreshed independently on an AMD EPYC 9555P with
+rustc 1.95.0, pinned to CPU 4. Only benchmark IDs containing `ed25519_simd` ran;
+the comparison rows are retained from the previous full comparison run and are
+therefore not from the same execution. Criterion used its default 3-second
+warm-up, 5-second measurement, and 100 samples. The widest displayed 95%
+confidence interval among the refreshed rows was about 0.08% of the estimate.
 
-Command. The comparison bench lives in the `benches-compare` workspace member
-(it depends on several other Ed25519/crypto libraries purely for comparison,
-kept out of the main crate's dependency tree so `cargo test` doesn't build
-them), so it's run from there rather than the crate root:
+The comparison bench lives in the `benches-compare` workspace member. These
+commands refresh only this crate's rows used below:
 
 ```sh
 cd benches-compare
-RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f,+avx512dq,+avx512ifma" \
-  cargo bench --bench solana_ed25519_compare -- distinct_keys
+for filter in \
+  'distinct_keys/msg_len_1/ed25519_simd' \
+  'distinct_keys/msg_len_1024/ed25519_simd' \
+  'distinct_keys/msg_len_mixed/ed25519_simd' \
+  'hot_keys/distinct_4/ed25519_simd'
+do
+  taskset -c 4 env \
+    RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f,+avx512dq,+avx512ifma" \
+    cargo bench --bench solana_ed25519_compare -- \
+      "$filter" --noplot --discard-baseline
+done
 ```
 
 Message length 1:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 4.84 | 4.84 | 4.84 | 4.84 |
-| ed25519-simd Dalek null-cache | 4.70 | 4.69 | 4.69 | 4.70 |
+| ed25519-simd Zip215 null-cache | 4.65 | 4.65 | 4.65 | 4.65 |
+| ed25519-simd Dalek null-cache | 4.61 | 4.61 | 4.61 | 4.61 |
 | solana-ed25519 Zip215 batch[^batch-api] | 13.86 | 12.85 | 12.40 | 12.17 |
 | solana-ed25519 Dalek loop | 22.45 | 22.39 | 22.38 | 22.45 |
 | ed25519-dalek batch[^batch-api] | 14.30 | 13.21 | 12.68 | 12.44 |
@@ -215,8 +222,8 @@ Message length 1024:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 5.11 | 5.11 | 5.12 | 5.12 |
-| ed25519-simd Dalek null-cache | 4.98 | 4.97 | 4.97 | 4.97 |
+| ed25519-simd Zip215 null-cache | 4.92 | 4.92 | 4.92 | 4.92 |
+| ed25519-simd Dalek null-cache | 4.88 | 4.89 | 4.89 | 4.89 |
 | solana-ed25519 Zip215 batch[^batch-api] | 14.84 | 13.84 | 13.38 | 13.17 |
 | solana-ed25519 Dalek loop | 23.47 | 23.48 | 23.46 | 23.48 |
 | ed25519-dalek batch[^batch-api] | 15.33 | 14.26 | 13.67 | 13.40 |
@@ -230,8 +237,8 @@ Mixed message lengths:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 4.97 | 4.92 | 4.94 | 4.91 |
-| ed25519-simd Dalek null-cache | 4.83 | 4.79 | 4.80 | 4.76 |
+| ed25519-simd Zip215 null-cache | 4.79 | 4.75 | 4.75 | 4.72 |
+| ed25519-simd Dalek null-cache | 4.74 | 4.70 | 4.71 | 4.68 |
 | solana-ed25519 Zip215 batch[^batch-api] | 14.03 | 12.99 | 12.56 | 12.32 |
 | solana-ed25519 Dalek loop | 22.57 | 22.55 | 22.59 | 22.63 |
 | ed25519-dalek batch[^batch-api] | 14.39 | 13.40 | 12.84 | 12.60 |
@@ -247,12 +254,14 @@ Mixed message lengths:
 
 ### Hot Key Repeats
 
-Same command, filtered to the `hot_keys` group:
+To rerun only this crate's hot-key cases:
 
 ```sh
 cd benches-compare
-RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f,+avx512dq,+avx512ifma" \
-  cargo bench --bench solana_ed25519_compare -- hot_keys
+taskset -c 4 env \
+  RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f,+avx512dq,+avx512ifma" \
+  cargo bench --bench solana_ed25519_compare -- \
+    'hot_keys/distinct_4/ed25519_simd' --noplot --discard-baseline
 ```
 
 This scenario cycles through 4 distinct keys to fill each batch and reuses
@@ -263,8 +272,8 @@ repeats a small key set:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 4.70 | 4.70 | 4.70 | 4.70 |
-| ed25519-simd Zip215 hot-key cache (warm) | 4.25 | 4.25 | 4.26 | 4.25 |
+| ed25519-simd Zip215 null-cache | 4.64 | 4.64 | 4.64 | 4.64 |
+| ed25519-simd Zip215 hot-key cache (warm) | 4.22 | 4.22 | 4.22 | 4.22 |
 
 ## Compatibility Target
 
