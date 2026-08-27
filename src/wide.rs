@@ -64,6 +64,8 @@ pub(crate) mod avx512ifma {
 
     /// Build the per-lane radix-16 cached tables from an already-decompressed
     /// SIMD point.
+    /// Every slot is filled, including lanes whose decode failed; the caller
+    /// discards those by mask.
     fn build_tables_from_point(p: WidePoint, tables: &mut [Option<PointTable>; LANES]) {
         // Build P..8P as a depth-4 tree; doublings cost 4S+4M instead of 8M.
         let p2 = p.double_affine();
@@ -368,13 +370,16 @@ pub(crate) mod avx512ifma {
                 }
             }
         }
-        fn from_fields(fields: &[Fe51; LANES]) -> Self {
+        /// Transpose eight lanes of scalar limbs. Inlined so both entry points
+        /// below cost the same as an open-coded loop.
+        #[inline(always)]
+        fn from_limbs_per_lane(limbs_of: impl Fn(usize) -> [u64; LIMB_COUNT]) -> Self {
             let mut by_limb = [[0u64; LANES]; LIMB_COUNT];
             let mut lane = 0;
             while lane < LANES {
-                let limbs = fields[lane].reduced_limbs();
+                let limbs = limbs_of(lane);
                 let mut limb = 0;
-                while limb < 5 {
+                while limb < LIMB_COUNT {
                     by_limb[limb][lane] = limbs[limb];
                     limb += 1;
                 }
@@ -391,28 +396,11 @@ pub(crate) mod avx512ifma {
                 ],
             }
         }
+        fn from_fields(fields: &[Fe51; LANES]) -> Self {
+            Self::from_limbs_per_lane(|lane| fields[lane].reduced_limbs())
+        }
         fn from_field_refs(fields: &[&Fe51; LANES]) -> Self {
-            let mut by_limb = [[0u64; LANES]; LIMB_COUNT];
-            let mut lane = 0;
-            while lane < LANES {
-                let limbs = fields[lane].reduced_limbs();
-                let mut limb = 0;
-                while limb < 5 {
-                    by_limb[limb][lane] = limbs[limb];
-                    limb += 1;
-                }
-                lane += 1;
-            }
-
-            Self {
-                limbs: [
-                    loadu(by_limb[0]),
-                    loadu(by_limb[1]),
-                    loadu(by_limb[2]),
-                    loadu(by_limb[3]),
-                    loadu(by_limb[4]),
-                ],
-            }
+            Self::from_limbs_per_lane(|lane| fields[lane].reduced_limbs())
         }
         #[cfg(test)]
         fn to_fields(self) -> [Fe51; LANES] {
@@ -542,8 +530,6 @@ pub(crate) mod avx512ifma {
                 Self::reduce_loose(h)
             }
         }
-        // Loose values have limb0 < 2^60 and limbs 1..4 < 2^51; wide
-        // subtraction uses a 2048*p bias for up to two loose subtrahends.
         fn square_accum(&self) -> ([__m512i; LIMB_COUNT], [__m512i; LIMB_COUNT]) {
             unsafe {
                 let z = _mm512_setzero_si512();
@@ -681,7 +667,8 @@ pub(crate) mod avx512ifma {
             }
         }
 
-        // `self + 2048*p - rhs`, with `self`/`rhs` possibly loose (limb0 < 2^60).
+        // `self + 2048*p - rhs`. The wide forms below use a 2048*p bias, enough
+        // for two loose subtrahends (limb0 < 2^60); `subtract`'s 4*p is not.
         fn subtract_wide(&self, rhs: &Self) -> Self {
             unsafe {
                 let b0 = _mm512_set1_epi64((2048 * (LIMB_MASK - 18)) as i64);
@@ -855,14 +842,18 @@ pub(crate) mod avx512ifma {
             mask_to_lanes(self.is_zero_mask() as __mmask8)
         }
         fn is_zero_mask(self) -> u8 {
+            self.canonical().canonical_zero_mask()
+        }
+        /// Zero mask of an already-canonicalized value.
+        #[inline(always)]
+        fn canonical_zero_mask(&self) -> u8 {
             unsafe {
-                let c = self.canonical();
                 let zero = _mm512_setzero_si512();
-                let mask = _mm512_cmpeq_epu64_mask(c.limbs[0], zero)
-                    & _mm512_cmpeq_epu64_mask(c.limbs[1], zero)
-                    & _mm512_cmpeq_epu64_mask(c.limbs[2], zero)
-                    & _mm512_cmpeq_epu64_mask(c.limbs[3], zero)
-                    & _mm512_cmpeq_epu64_mask(c.limbs[4], zero);
+                let mask = _mm512_cmpeq_epu64_mask(self.limbs[0], zero)
+                    & _mm512_cmpeq_epu64_mask(self.limbs[1], zero)
+                    & _mm512_cmpeq_epu64_mask(self.limbs[2], zero)
+                    & _mm512_cmpeq_epu64_mask(self.limbs[3], zero)
+                    & _mm512_cmpeq_epu64_mask(self.limbs[4], zero);
                 mask as u8
             }
         }
@@ -887,16 +878,10 @@ pub(crate) mod avx512ifma {
         fn odd_and_zero_masks(self) -> (u8, u8) {
             unsafe {
                 let c = self.canonical();
-                let zero = _mm512_setzero_si512();
-                let zero_mask = _mm512_cmpeq_epu64_mask(c.limbs[0], zero)
-                    & _mm512_cmpeq_epu64_mask(c.limbs[1], zero)
-                    & _mm512_cmpeq_epu64_mask(c.limbs[2], zero)
-                    & _mm512_cmpeq_epu64_mask(c.limbs[3], zero)
-                    & _mm512_cmpeq_epu64_mask(c.limbs[4], zero);
                 let one = _mm512_set1_epi64(1);
                 (
                     _mm512_test_epi64_mask(c.limbs[0], one) as u8,
-                    zero_mask as u8,
+                    c.canonical_zero_mask(),
                 )
             }
         }
@@ -941,28 +926,9 @@ pub(crate) mod avx512ifma {
                 }
             }
         }
-        fn reduce_ifma(mut lo: [__m512i; LIMB_COUNT], hi: [__m512i; LIMB_COUNT]) -> Self {
-            unsafe {
-                let mask = _mm512_set1_epi64(LIMB_MASK as i64);
-                let nineteen = _mm512_set1_epi64(19);
-
-                let mut i = 0;
-                while i < 4 {
-                    let carry =
-                        _mm512_add_epi64(_mm512_srli_epi64(lo[i], 51), _mm512_slli_epi64(hi[i], 1));
-                    lo[i] = _mm512_and_si512(lo[i], mask);
-                    lo[i + 1] = _mm512_add_epi64(lo[i + 1], carry);
-                    i += 1;
-                }
-
-                let carry =
-                    _mm512_add_epi64(_mm512_srli_epi64(lo[4], 51), _mm512_slli_epi64(hi[4], 1));
-                lo[4] = _mm512_and_si512(lo[4], mask);
-                lo[0] = _mm512_add_epi64(lo[0], _mm512_mullo_epi64(carry, nineteen));
-
-                // Only limb 0 retains a residual; carry it to restore IFMA bounds.
-                Self::carry_limb0(lo)
-            }
+        fn reduce_ifma(lo: [__m512i; LIMB_COUNT], hi: [__m512i; LIMB_COUNT]) -> Self {
+            // Only limb 0 retains a residual; carry it to restore IFMA bounds.
+            Self::carry_limb0(Self::reduce_ifma_loose(lo, hi).limbs)
         }
         /// Carry loose limb 0, restoring the `< 2^52` IFMA input bound.
         fn carry_limb0(mut h: [__m512i; LIMB_COUNT]) -> Self {
@@ -997,29 +963,8 @@ pub(crate) mod avx512ifma {
             }
         }
         /// Two carry passes, used when `add`/`canonical` need near-strict limbs.
-        fn reduce64(mut h: [__m512i; LIMB_COUNT]) -> Self {
-            unsafe {
-                let mask = _mm512_set1_epi64(LIMB_MASK as i64);
-                let nineteen = _mm512_set1_epi64(19);
-
-                let mut pass = 0;
-                while pass < 2 {
-                    let mut i = 0;
-                    while i < 4 {
-                        let carry = _mm512_srli_epi64(h[i], 51);
-                        h[i] = _mm512_and_si512(h[i], mask);
-                        h[i + 1] = _mm512_add_epi64(h[i + 1], carry);
-                        i += 1;
-                    }
-
-                    let carry = _mm512_srli_epi64(h[4], 51);
-                    h[4] = _mm512_and_si512(h[4], mask);
-                    h[0] = _mm512_add_epi64(h[0], _mm512_mullo_epi64(carry, nineteen));
-                    pass += 1;
-                }
-
-                Self { limbs: h }
-            }
+        fn reduce64(h: [__m512i; LIMB_COUNT]) -> Self {
+            Self::reduce_loose(Self::reduce_loose(h).limbs)
         }
     }
 
@@ -1038,39 +983,49 @@ pub(crate) mod avx512ifma {
     }
 
     impl SelectedCachedRefs<'_> {
+        /// Transpose one cached coordinate. The pickers differ because an affine
+        /// point omits `2*Z`, shifting `t2d` down a slot.
         #[inline(always)]
-        fn y_plus_x(self) -> WideFe {
+        fn transpose(
+            self,
+            projective: impl Fn(&CachedPoint) -> &Fe51,
+            affine: impl Fn(&AffineCachedPoint) -> &Fe51,
+        ) -> WideFe {
             match self {
                 Self::Projective(points) => {
-                    WideFe::from_field_refs(&core::array::from_fn(|lane| points[lane].coords().0))
+                    WideFe::from_field_refs(&core::array::from_fn(|lane| projective(points[lane])))
                 }
                 Self::Affine(points) => {
-                    WideFe::from_field_refs(&core::array::from_fn(|lane| points[lane].coords().0))
+                    WideFe::from_field_refs(&core::array::from_fn(|lane| affine(points[lane])))
                 }
             }
+        }
+
+        #[inline(always)]
+        fn y_plus_x(self) -> WideFe {
+            self.transpose(|p| p.coords().0, |p| p.coords().0)
         }
 
         #[inline(always)]
         fn y_minus_x(self) -> WideFe {
-            match self {
-                Self::Projective(points) => {
-                    WideFe::from_field_refs(&core::array::from_fn(|lane| points[lane].coords().1))
-                }
-                Self::Affine(points) => {
-                    WideFe::from_field_refs(&core::array::from_fn(|lane| points[lane].coords().1))
-                }
-            }
+            self.transpose(|p| p.coords().1, |p| p.coords().1)
         }
 
         #[inline(always)]
         fn t2d(self) -> WideFe {
+            self.transpose(|p| p.coords().3, |p| p.coords().2)
+        }
+
+        /// The cached `2*Z`, or `None` for an affine point whose `Z` is one.
+        #[inline(always)]
+        fn projective_z2(self) -> Option<WideFe> {
             match self {
                 Self::Projective(points) => {
-                    WideFe::from_field_refs(&core::array::from_fn(|lane| points[lane].coords().3))
+                    Some(WideFe::from_field_refs(&core::array::from_fn(|lane| {
+                        points[lane].coords().2
+                    })))
                 }
-                Self::Affine(points) => {
-                    WideFe::from_field_refs(&core::array::from_fn(|lane| points[lane].coords().2))
-                }
+                Self::Affine(_) => None,
             }
         }
     }
@@ -1175,14 +1130,9 @@ pub(crate) mod avx512ifma {
             let e = b.subtract_wide(&a);
             let h = b.add_loose(&a);
             let c = self.t.multiply_loose(&points.t2d());
-            let d = match points {
-                SelectedCachedRefs::Projective(points) => {
-                    self.z
-                        .multiply_loose(&WideFe::from_field_refs(&core::array::from_fn(|lane| {
-                            points[lane].coords().2
-                        })))
-                }
-                SelectedCachedRefs::Affine(_) => self.z.double_loose(),
+            let d = match points.projective_z2() {
+                Some(z2) => self.z.multiply_loose(&z2),
+                None => self.z.double_loose(),
             };
             let f = d.subtract_wide(&c);
             let g = d.add_loose(&c);

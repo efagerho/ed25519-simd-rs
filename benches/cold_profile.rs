@@ -19,16 +19,24 @@ enum MsgLenArg {
     Mixed,
 }
 
+const USAGE: &str =
+    "usage: cold_profile [zip215|dalek] [keys] [iters] [msglen|mixed] [invalid_pct]";
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    // `cargo test --all-targets` runs this as a plain binary; a one-shot timing
+    // would read as a measurement, so bail instead.
+    if args.len() == 1 {
+        eprintln!("{USAGE}");
+        return;
+    }
+
     let policy = match args.get(1).map(String::as_str) {
         Some("dalek") => VerifyPolicy::Dalek,
         _ => VerifyPolicy::Zip215,
     };
-    // Keep argument-free runs cheap because `cargo test --all-targets` executes
-    // this harness as a normal binary. Profiling commands pass both explicitly.
-    let keys: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(8);
-    let iters: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(1);
+    let keys: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(512);
+    let iters: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(4000);
     let msglen_arg = match args.get(4).map(String::as_str) {
         Some("mixed") => MsgLenArg::Mixed,
         Some(s) => MsgLenArg::Fixed(s.parse().unwrap_or(1)),

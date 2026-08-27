@@ -21,6 +21,10 @@ pub struct VerifyInput<'a> {
 const SIMD_LANES: usize = batch::SIMD_LANES;
 const R_ENCODING_LEN: usize = batch::R_ENCODING_LEN;
 
+// `VerifyInput` spells these as literals for rustdoc's sake; pin them here.
+const _: () = assert!(batch::PUBLIC_KEY_LEN == 32);
+const _: () = assert!(batch::SIGNATURE_LEN == 64);
+
 // Shared once per process; the base-point table is policy- and cache-independent.
 static BASE_TABLE: LazyLock<BasepointTable> = LazyLock::new(BasepointTable::new);
 
@@ -171,7 +175,7 @@ impl<C: KeyCache> Verifier<C> {
             if let Some(key) = cached_keys[lane] {
                 &key.table
             } else {
-                // Cache misses populate `decoded_key_tables` above.
+                // Cache misses populate `self.scratch.key_tables` above.
                 if decoded_key_lanes[lane] {
                     self.scratch.key_tables[lane]
                         .as_ref()
@@ -182,38 +186,54 @@ impl<C: KeyCache> Verifier<C> {
                 }
             }
         });
-        // Stop if every lane failed public-key validation.
-        if !any_lane(&valid) {
+
+        // Skip the ladder, but still retain the keys that did decode.
+        if any_lane(&valid) {
+            let k_digits = challenge_digits(&r_bytes, &public_keys, messages);
+
+            let prepared = PreparedBatch {
+                public_key_tables,
+                s_digits: &s_digits,
+                k_digits: &k_digits,
+            };
+            match policy {
+                VerifyPolicy::Zip215 => {
+                    self.verify_zip215_lanes(&prepared, decoded_r, &r_bytes, &valid, out)
+                }
+                VerifyPolicy::Dalek => self.verify_dalek_lanes(
+                    &prepared,
+                    decoded_r,
+                    &r_bytes,
+                    &public_keys,
+                    &valid,
+                    out,
+                ),
+            }
+        }
+
+        self.retain_decoded_keys(&missing_key_lanes, &decoded_key_lanes, &public_keys);
+    }
+
+    /// Offer freshly decoded tables to the cache, emptying the scratch slots.
+    fn retain_decoded_keys(
+        &mut self,
+        missing_key_lanes: &[bool; SIMD_LANES],
+        decoded_key_lanes: &[bool; SIMD_LANES],
+        public_keys: &[[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
+    ) {
+        // Only a decode fills slots, and it runs exactly when a lane missed.
+        if !any_lane(missing_key_lanes) {
             return;
         }
-
-        let k_digits = challenge_digits(&r_bytes, &public_keys, messages);
-
-        let prepared = PreparedBatch {
-            public_key_tables,
-            s_digits: &s_digits,
-            k_digits: &k_digits,
-        };
-        match policy {
-            VerifyPolicy::Zip215 => {
-                self.verify_zip215_lanes(&prepared, decoded_r, &r_bytes, &valid, out)
-            }
-            VerifyPolicy::Dalek => {
-                self.verify_dalek_lanes(&prepared, decoded_r, &r_bytes, &public_keys, &valid, out)
-            }
-        }
-
-        if any_lane(&missing_key_lanes) {
-            for lane in 0..SIMD_LANES {
-                let table = self.scratch.key_tables[lane]
-                    .take()
-                    .expect("a decoded lane has a table");
-                if missing_key_lanes[lane] && decoded_key_lanes[lane] {
-                    self.cache.insert(CachedPublicKey {
-                        encoded: public_keys[lane],
-                        table,
-                    });
-                }
+        for lane in 0..SIMD_LANES {
+            let table = self.scratch.key_tables[lane]
+                .take()
+                .expect("a decode fills every lane's slot");
+            if missing_key_lanes[lane] && decoded_key_lanes[lane] {
+                self.cache.insert(CachedPublicKey {
+                    encoded: public_keys[lane],
+                    table,
+                });
             }
         }
     }

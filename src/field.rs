@@ -356,7 +356,7 @@ fn get_bit(bytes: &[u8], bit: usize) -> bool {
 }
 
 fn cmp_limbs(a: &[u64; LIMB_COUNT], b: &[u64; LIMB_COUNT]) -> core::cmp::Ordering {
-    let mut i = 5;
+    let mut i = LIMB_COUNT;
     while i > 0 {
         i -= 1;
         match a[i].cmp(&b[i]) {

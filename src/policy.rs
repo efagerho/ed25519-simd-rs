@@ -1,5 +1,6 @@
 use crate::batch::R_ENCODING_LEN;
 
+/// Which acceptance rules a [`Verifier`](crate::Verifier) applies.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum VerifyPolicy {
     /// ZIP-215 cofactored verification; accepts non-canonical point encodings.
