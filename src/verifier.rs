@@ -1,6 +1,6 @@
 use crate::batch::{self, PreparedBatch};
 use crate::cache::{CachedPublicKey, KeyCache, NullKeyCache};
-use crate::edwards::{BasepointTable, EdwardsPoint, PointTable};
+use crate::edwards::{BasepointTable, BasepointTableEntries, EdwardsPoint, PointTable};
 use crate::policy::{VerifyPolicy, r_encoding_has_canonical_y, r_encoding_is_legacy_excluded};
 use crate::scalar::{self, Radix16, Scalar};
 use crate::sha512;
@@ -58,7 +58,7 @@ impl ChunkScratch {
 #[derive(Debug)]
 pub struct Verifier<C: KeyCache = NullKeyCache> {
     policy: VerifyPolicy,
-    base_table: &'static BasepointTable,
+    base_table: &'static BasepointTableEntries,
     // Invalid lanes are masked out but still need a real ladder table.
     identity_table: &'static PointTable,
     bucket_order: Vec<usize>,
@@ -90,7 +90,7 @@ impl<C: KeyCache> Verifier<C> {
     pub fn with_cache(policy: VerifyPolicy, cache: C) -> Self {
         Self {
             policy,
-            base_table: &*BASE_TABLE,
+            base_table: BASE_TABLE.entries(),
             identity_table: &*IDENTITY_TABLE,
             bucket_order: Vec::new(),
             scratch: Box::new(ChunkScratch::new()),
