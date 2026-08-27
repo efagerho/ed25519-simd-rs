@@ -32,10 +32,11 @@ pub struct HotKeyCache {
 impl HotKeyCache {
     /// Create a cache bounded to at least one retained key.
     pub fn with_capacity(capacity: usize) -> Self {
+        let capacity = capacity.max(1);
         Self {
-            entries: Vec::new(),
-            index: HashMap::new(),
-            capacity: capacity.max(1),
+            entries: Vec::with_capacity(capacity),
+            index: HashMap::with_capacity(capacity),
+            capacity,
             mru: Cell::new(NONE),
             lru: Cell::new(NONE),
         }
@@ -164,6 +165,23 @@ impl KeyCache for HotKeyCache {
             return;
         }
 
+        if self.entries.len() == self.capacity {
+            let slot = self.lru.get();
+            debug_assert_ne!(slot, NONE, "a full cache always has an LRU entry");
+            self.unlink(slot);
+            self.index.remove(&self.entries[slot].key.encoded);
+
+            let encoded = key.encoded;
+            self.entries[slot] = CacheEntry {
+                key,
+                newer: Cell::new(NONE),
+                older: Cell::new(NONE),
+            };
+            self.index.insert(encoded, slot);
+            self.link_mru(slot);
+            return;
+        }
+
         let slot = self.entries.len();
         self.index.insert(key.encoded, slot);
         self.entries.push(CacheEntry {
@@ -172,7 +190,6 @@ impl KeyCache for HotKeyCache {
             older: Cell::new(NONE),
         });
         self.link_mru(slot);
-        self.evict_to_capacity();
     }
 }
 
