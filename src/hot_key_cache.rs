@@ -49,15 +49,20 @@ impl HotKeyCache {
     }
 
     /// Set the maximum retained key count, clamped to at least one. Lowering it
-    /// evicts excess keys and requests smaller backing allocations. The
-    /// allocator may retain freed memory.
+    /// evicts excess keys and requests smaller backing allocations (the
+    /// allocator may retain freed memory); raising it reserves for the new
+    /// bound, like [`with_capacity`](Self::with_capacity).
     pub fn set_capacity(&mut self, capacity: usize) {
         self.capacity = capacity.max(1);
         self.evict_to_capacity();
         if self.capacity < self.entries.capacity() {
-            // Slot indices survive a shrink, so the recency links stay valid.
+            // Slot indices survive a reallocation, so the recency links stay
+            // valid across both the shrink and the reserve.
             self.entries.shrink_to(self.capacity);
             self.index.shrink_to(self.capacity);
+        } else {
+            self.entries.reserve(self.capacity - self.entries.len());
+            self.index.reserve(self.capacity - self.index.len());
         }
     }
 
@@ -97,7 +102,7 @@ impl HotKeyCache {
         }
     }
 
-    /// Evict LRU entries without removing the newly linked MRU key.
+    /// Evict LRU entries until the count fits the bound.
     fn evict_to_capacity(&mut self) {
         while self.entries.len() > self.capacity {
             let lru = self.lru.get();
@@ -177,7 +182,7 @@ impl KeyCache for HotKeyCache {
             return;
         }
 
-        if self.entries.len() == self.capacity {
+        if self.entries.len() >= self.capacity {
             let slot = self.lru.get();
             debug_assert_ne!(slot, NONE, "a full cache always has an LRU entry");
             self.unlink(slot);
@@ -341,6 +346,25 @@ mod tests {
         cache.assert_invariants();
         assert_eq!(cache.entries.len(), 8);
         assert!(cache.get(&encoded(4088)).is_none(), "4088 was the LRU");
+    }
+
+    #[test]
+    fn raising_the_capacity_reserves_like_the_constructor() {
+        let mut cache = HotKeyCache::with_capacity(4);
+        for i in 0..4 {
+            cache.insert(key(i));
+        }
+
+        cache.set_capacity(64);
+        cache.assert_invariants();
+        assert!(
+            cache.entries.capacity() >= 64,
+            "raising the bound must reserve for it: capacity {}",
+            cache.entries.capacity()
+        );
+        for i in 0..4 {
+            assert!(cache.get(&encoded(i)).is_some(), "key {i} should survive");
+        }
     }
 
     /// Exercise link relocation under mixed operations and capacity changes.
