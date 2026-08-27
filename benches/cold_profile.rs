@@ -6,25 +6,12 @@ use std::time::Instant;
 
 use curve25519::ed_sigs::{SigningKey, VerificationKeyBytes};
 use ed25519_simd::{NullKeyCache, Verifier, VerifyInput, VerifyPolicy};
+use rand::{RngCore, SeedableRng, rngs::StdRng};
 
 fn signing_key_from_index(index: u64) -> SigningKey {
     let mut seed = [0u8; 32];
     seed[..8].copy_from_slice(&index.to_le_bytes());
     SigningKey::from(seed)
-}
-
-/// Matches `MsgLen::Mixed` in benches/solana_ed25519_compare.rs: a uniform
-/// random length in [0, 257) per signature.
-struct SplitMix(u64);
-
-impl SplitMix {
-    fn next(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-        z ^ (z >> 31)
-    }
 }
 
 enum MsgLenArg {
@@ -46,7 +33,7 @@ fn main() {
         None => MsgLenArg::Fixed(1),
     };
 
-    let mut rng = SplitMix(0x5eed_1234);
+    let mut rng = StdRng::seed_from_u64(0x5eed_1234);
     let mut messages: Vec<Vec<u8>> = Vec::with_capacity(keys);
     let mut pks = Vec::with_capacity(keys);
     let mut sigs = Vec::with_capacity(keys);
@@ -55,7 +42,7 @@ fn main() {
         let pk = <[u8; 32]>::from(VerificationKeyBytes::from(&sk));
         let msglen = match msglen_arg {
             MsgLenArg::Fixed(l) => l,
-            MsgLenArg::Mixed => (rng.next() % 257) as usize,
+            MsgLenArg::Mixed => (rng.next_u64() % 257) as usize,
         };
         let msg = vec![(i & 0xff) as u8; msglen];
         let sig = sk.sign(&msg).to_bytes();
@@ -64,13 +51,10 @@ fn main() {
         messages.push(msg);
     }
     let invalid_pct: u64 = args.get(5).and_then(|s| s.parse().ok()).unwrap_or(0);
-    let mut st = 0x9e37_79b9_7f4a_7c15u64;
+    let mut corrupt_rng = StdRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
     for sig in sigs.iter_mut() {
-        st = st.wrapping_mul(0xd1342543de82ef95).wrapping_add(1);
-        if (st >> 40) % 100 < invalid_pct {
-            for (j, b) in sig.iter_mut().enumerate() {
-                *b = (st >> (j % 8 * 8)) as u8;
-            }
+        if corrupt_rng.next_u64() % 100 < invalid_pct {
+            corrupt_rng.fill_bytes(sig);
         }
     }
 

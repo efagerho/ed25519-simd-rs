@@ -16,6 +16,7 @@ use openssl::{
     pkey::{Id as OpenSslId, PKey},
     sign::Verifier as OpenSslVerifier,
 };
+use rand::{RngCore, SeedableRng, rngs::StdRng};
 use sodiumoxide::crypto::sign::ed25519::{
     PublicKey as SodiumPublicKey, Signature as SodiumSignature, verify_detached as sodium_verify,
 };
@@ -26,17 +27,6 @@ const SIZES: [usize; 4] = [8, 16, 32, 64];
 fn init_sodiumoxide() {
     static INIT: Once = Once::new();
     INIT.call_once(|| sodiumoxide::init().expect("failed to initialize libsodium"));
-}
-
-struct SplitMix(u64);
-impl SplitMix {
-    fn next(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-        z ^ (z >> 31)
-    }
 }
 
 fn signing_key_from_index(index: u64) -> SigningKey {
@@ -58,19 +48,17 @@ enum MsgLen {
 }
 
 fn generate_distinct_keys(n: usize, msg_len: MsgLen) -> Vec<Owned> {
-    let mut rng = SplitMix(0x5eed_1234);
+    let mut rng = StdRng::seed_from_u64(0x5eed_1234);
     (0..n)
         .map(|i| {
             let key = signing_key_from_index(i as u64);
             let pk = <[u8; 32]>::from(VerificationKeyBytes::from(&key));
             let len = match msg_len {
                 MsgLen::Fixed(l) => l,
-                MsgLen::Mixed => (rng.next() % 257) as usize,
+                MsgLen::Mixed => (rng.next_u64() % 257) as usize,
             };
             let mut msg = vec![0u8; len];
-            for b in msg.iter_mut() {
-                *b = (rng.next() & 0xff) as u8;
-            }
+            rng.fill_bytes(&mut msg);
             let sig = key.sign(&msg).to_bytes();
             Owned { pk, sig, msg }
         })
@@ -79,7 +67,7 @@ fn generate_distinct_keys(n: usize, msg_len: MsgLen) -> Vec<Owned> {
 
 /// Fill a batch by cycling through a small set of hot keys.
 fn generate_hot_keys(n: usize, hot_key_count: usize, msg_len: MsgLen) -> Vec<Owned> {
-    let mut rng = SplitMix(0x5eed_1234);
+    let mut rng = StdRng::seed_from_u64(0x5eed_1234);
     let hot_keys: Vec<SigningKey> = (0..hot_key_count)
         .map(|i| signing_key_from_index(i as u64))
         .collect();
@@ -89,12 +77,10 @@ fn generate_hot_keys(n: usize, hot_key_count: usize, msg_len: MsgLen) -> Vec<Own
             let pk = <[u8; 32]>::from(VerificationKeyBytes::from(key));
             let len = match msg_len {
                 MsgLen::Fixed(l) => l,
-                MsgLen::Mixed => (rng.next() % 257) as usize,
+                MsgLen::Mixed => (rng.next_u64() % 257) as usize,
             };
             let mut msg = vec![0u8; len];
-            for b in msg.iter_mut() {
-                *b = (rng.next() & 0xff) as u8;
-            }
+            rng.fill_bytes(&mut msg);
             let sig = key.sign(&msg).to_bytes();
             Owned { pk, sig, msg }
         })
@@ -103,13 +89,10 @@ fn generate_hot_keys(n: usize, hot_key_count: usize, msg_len: MsgLen) -> Vec<Own
 
 /// Corrupt a scattered fraction of signatures while leaving keys valid.
 fn corrupt_fraction(cases: &mut [Owned], invalid_pct: u64) {
-    let mut st = 0x9e37_79b9_7f4a_7c15u64;
+    let mut rng = StdRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
     for case in cases.iter_mut() {
-        st = st.wrapping_mul(0xd134_2543_de82_ef95).wrapping_add(1);
-        if (st >> 40) % 100 < invalid_pct {
-            for (j, b) in case.sig.iter_mut().enumerate() {
-                *b = (st >> (j % 8 * 8)) as u8;
-            }
+        if rng.next_u64() % 100 < invalid_pct {
+            rng.fill_bytes(&mut case.sig);
         }
     }
 }
