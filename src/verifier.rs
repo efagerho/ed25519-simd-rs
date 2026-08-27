@@ -11,9 +11,9 @@ use std::sync::LazyLock;
 #[derive(Clone, Copy, Debug)]
 pub struct VerifyInput<'a> {
     /// Encoded Ed25519 public key.
-    pub public_key: [u8; batch::PUBLIC_KEY_LEN],
+    pub public_key: [u8; 32],
     /// Encoded Ed25519 signature (`R || S`).
-    pub signature: [u8; batch::SIGNATURE_LEN],
+    pub signature: [u8; 64],
     /// The signed message.
     pub message: &'a [u8],
 }
