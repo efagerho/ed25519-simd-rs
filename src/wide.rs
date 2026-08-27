@@ -47,11 +47,12 @@ pub(crate) mod avx512ifma {
         keys: &[[u8; PUBLIC_KEY_LEN]; LANES],
         r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
         dalek: bool,
-    ) -> ([PointTable; LANES], u8, WideRPoints, u8) {
+        key_tables: &mut [Option<PointTable>; LANES],
+    ) -> (u8, WideRPoints, u8) {
         let ((kp, kmask), (rp, rmask, x_zero_mask)) =
             decompress_point_batches_wide(keys, r_bytes, dalek);
+        build_tables_from_point(kp, key_tables);
         (
-            build_tables_from_point(kp),
             kmask,
             WideRPoints {
                 point: rp,
@@ -63,7 +64,7 @@ pub(crate) mod avx512ifma {
 
     /// Build the per-lane radix-16 cached tables from an already-decompressed
     /// SIMD point.
-    fn build_tables_from_point(p: WidePoint) -> [PointTable; LANES] {
+    fn build_tables_from_point(p: WidePoint, tables: &mut [Option<PointTable>; LANES]) {
         // Build P..8P as a depth-4 tree; doublings cost 4S+4M instead of 8M.
         let p2 = p.double_affine();
         let p4 = p2.double();
@@ -100,7 +101,7 @@ pub(crate) mod avx512ifma {
             });
 
         let identity = CachedPoint::identity();
-        core::array::from_fn(|k| {
+        for k in 0..LANES {
             let cached = core::array::from_fn(|i| {
                 let (ypx, ymx, z2, t2d, _) = &fields[i];
                 CachedPoint::from_fields(ypx[k], ymx[k], z2[k], t2d[k])
@@ -110,8 +111,8 @@ pub(crate) mod avx512ifma {
                 let (ypx, ymx, z2, _, neg_t2d) = &fields[i];
                 CachedPoint::from_fields(ymx[k], ypx[k], z2[k], neg_t2d[k])
             });
-            PointTable::from_cached(cached, negative, identity.clone())
-        })
+            tables[k] = Some(PointTable::from_cached(cached, negative, identity.clone()));
+        }
     }
 
     // ZIP-215 cofactored verification: [8](sB - kA - R) == identity.
