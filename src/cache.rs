@@ -25,7 +25,8 @@ impl CachedPublicKey {
 /// Storage policy for verifier-decoded public keys.
 ///
 /// [`NullKeyCache`] retains nothing; [`HotKeyCache`](crate::HotKeyCache)
-/// retains repeated keys across batches.
+/// retains repeated keys across batches. This trait is sealed; downstream
+/// crates can select a provided policy but cannot implement their own.
 pub trait KeyCache: private::Sealed {
     /// Borrow a cached key, or `None` if it is absent. Implementations may
     /// update recency state through interior mutability.

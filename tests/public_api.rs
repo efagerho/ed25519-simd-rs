@@ -67,7 +67,6 @@ fn hot_key_cache_handles_mixed_hit_and_miss_lanes_in_one_chunk() {
     assert_eq!(resident_count(verifier.cache(), &public_keys), 8);
 }
 
-/// Compare preseeded scalar-built tables with cold AVX-512-built tables.
 /// A chunk can end with no accepted lane only after the key decode has already
 /// run: some lane must pass the `S` check to get that far. The tables that
 /// decode produced are paid for, so they must still reach the cache.
@@ -129,6 +128,7 @@ fn keys_decoded_in_an_all_rejected_chunk_are_still_retained() {
     );
 }
 
+/// Compare preseeded scalar-built tables with cold AVX-512-built tables.
 #[test]
 fn preseeded_cache_tables_match_cold_simd_decoding() {
     let message = b"pre-seeded table agreement".to_vec();
