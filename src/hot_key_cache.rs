@@ -313,22 +313,16 @@ mod tests {
     #[test]
     fn link_surgery_stays_consistent_under_mixed_operations() {
         let mut cache = HotKeyCache::with_capacity(16);
-        let mut state = 0x2545_f491_4f6c_dd1du64;
-        let mut next = move || {
-            state = state
-                .wrapping_mul(0xd134_2543_de82_ef95)
-                .wrapping_add(0x9e37_79b9_7f4a_7c15);
-            state
-        };
+        let mut rng = crate::test_rng::TestRng::new(0x2545_f491_4f6c_dd1d);
 
         for step in 0..4096u64 {
-            match next() % 4 {
-                0 => cache.insert(key(next() % 24)),
+            match rng.next_u64() % 4 {
+                0 => cache.insert(key(rng.next_u64() % 24)),
                 1 => {
-                    cache.get(&encoded(next() % 24));
+                    cache.get(&encoded(rng.next_u64() % 24));
                 }
                 2 => cache.insert(key(step + 10_000)),
-                _ => cache.set_capacity((next() % 20) as usize),
+                _ => cache.set_capacity((rng.next_u64() % 20) as usize),
             }
             cache.assert_invariants();
         }

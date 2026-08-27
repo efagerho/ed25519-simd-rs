@@ -482,15 +482,10 @@ mod tests {
         });
         cases.push(l_minus_1);
 
-        let mut state = 0x243f_6a88_85a3_08d3u64;
+        let mut rng = crate::test_rng::TestRng::new(0x243f_6a88_85a3_08d3);
         for _ in 0..4096 {
             let mut b = [0u8; 32];
-            for chunk in b.chunks_mut(8) {
-                state = state
-                    .wrapping_mul(0xd134_2543_de82_ef95)
-                    .wrapping_add(0x9e37_79b9_7f4a_7c15);
-                chunk.copy_from_slice(&state.to_le_bytes());
-            }
+            rng.fill(&mut b);
             b[31] &= 0x0f; // keep it below L
             if is_canonical(&b) {
                 cases.push(b);
@@ -546,18 +541,11 @@ mod tests {
             assert!(is_canonical(&reduced));
         }
 
-        let mut state = 0x6a09e667f3bcc908u64;
+        let mut rng = crate::test_rng::TestRng::new(0x6a09_e667_f3bc_c908);
         let mut round = 0;
         while round < 2048 {
             let mut bytes = [0u8; 64];
-            let mut i = 0;
-            while i < 8 {
-                state = state
-                    .wrapping_mul(0xd1342543de82ef95)
-                    .wrapping_add(0x9e3779b97f4a7c15);
-                bytes[i * 8..i * 8 + 8].copy_from_slice(&state.to_le_bytes());
-                i += 1;
-            }
+            rng.fill(&mut bytes);
 
             let reduced = reduce_wide(bytes);
             assert_eq!(reduced, reduce_wide_slow(bytes), "round {round}");
