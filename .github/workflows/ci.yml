@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: >-
+    -C target-feature=+avx512f,+avx512dq,+avx512ifma
+
+jobs:
+  checks:
+    name: Compile and lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust 1.89
+        run: |
+          rustup toolchain install 1.89.0 --profile minimal --component clippy --component rustfmt
+          rustup default 1.89.0
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Compile all targets
+        run: >-
+          cargo check --workspace --all-targets --locked
+          --target x86_64-unknown-linux-gnu
+
+      - name: Run Clippy
+        run: >-
+          cargo clippy --workspace --all-targets --locked
+          --target x86_64-unknown-linux-gnu -- -D warnings
