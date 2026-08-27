@@ -68,6 +68,67 @@ fn hot_key_cache_handles_mixed_hit_and_miss_lanes_in_one_chunk() {
 }
 
 /// Compare preseeded scalar-built tables with cold AVX-512-built tables.
+/// A chunk can end with no accepted lane only after the key decode has already
+/// run: some lane must pass the `S` check to get that far. The tables that
+/// decode produced are paid for, so they must still reach the cache.
+#[test]
+fn keys_decoded_in_an_all_rejected_chunk_are_still_retained() {
+    let message = b"every lane rejected";
+    // Lanes 0..4: real keys, but a non-canonical `S` rejects them.
+    let signing_keys: Vec<_> = (0..4u64)
+        .map(|i| signing_key_from_index(0x0a11_bad0 + i))
+        .collect();
+    let decodable_keys: Vec<[u8; PUBLIC_KEY_LEN]> = signing_keys
+        .iter()
+        .map(|sk| <[u8; 32]>::from(VerificationKeyBytes::from(sk)))
+        .collect();
+    let mut inputs: Vec<VerifyInput<'_>> = signing_keys
+        .iter()
+        .zip(decodable_keys.iter())
+        .map(|(sk, pk)| {
+            let mut signature = sk.sign(message.as_slice()).to_bytes();
+            signature[32..].copy_from_slice(&[0xff; 32]);
+            VerifyInput {
+                public_key: *pk,
+                signature,
+                message: message.as_slice(),
+            }
+        })
+        .collect();
+
+    // Lanes 4..8: a canonical `S` so the chunk reaches the decode, paired with a
+    // public key that does not decompress.
+    let off_curve = hex_array::<PUBLIC_KEY_LEN>(
+        "d9ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    );
+    assert!(CachedPublicKey::from_encoded(off_curve).is_none());
+    let good_s = signing_keys[0].sign(message.as_slice()).to_bytes();
+    inputs.extend((0..4).map(|_| VerifyInput {
+        public_key: off_curve,
+        signature: good_s,
+        message: message.as_slice(),
+    }));
+
+    let mut verifier =
+        Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::with_capacity(16));
+    let mut out = vec![false; inputs.len()];
+    verifier.verify_batch(&inputs, &mut out);
+
+    assert!(
+        out.iter().all(|&valid| !valid),
+        "every lane must be rejected"
+    );
+    assert_eq!(
+        resident_count(verifier.cache(), &decodable_keys),
+        4,
+        "keys that decoded must be retained even when no lane is accepted"
+    );
+    assert!(
+        verifier.cache().get(&off_curve).is_none(),
+        "a key that failed to decode must not be retained"
+    );
+}
+
 #[test]
 fn preseeded_cache_tables_match_cold_simd_decoding() {
     let message = b"pre-seeded table agreement".to_vec();

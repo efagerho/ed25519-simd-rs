@@ -41,6 +41,7 @@ pub trait KeyCache: private::Sealed {
 pub struct NullKeyCache;
 
 impl NullKeyCache {
+    /// Create the no-op cache.
     pub fn new() -> Self {
         Self
     }

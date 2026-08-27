@@ -17,8 +17,14 @@ struct CacheEntry {
 
 /// A bounded LRU [`KeyCache`] for decoded keys.
 ///
-/// Keys are attacker-controlled and tables are large, so capacity is explicit.
-/// Use [`NullKeyCache`](crate::NullKeyCache) when key reuse is unlikely.
+/// # Memory
+///
+/// A retained key costs roughly 2.8 KB, nearly all of it its multiplication
+/// table. [`with_capacity`](Self::with_capacity) reserves the whole bound and
+/// only [`set_capacity`](Self::set_capacity) gives it back. Keys are
+/// attacker-supplied, so every miss inserts and the bound is reached rather
+/// than merely available: size it from measured key reuse, or use
+/// [`NullKeyCache`](crate::NullKeyCache).
 #[derive(Debug)]
 pub struct HotKeyCache {
     // Slot-indexed entries linked by recency give O(1) lookup and eviction.
@@ -30,7 +36,8 @@ pub struct HotKeyCache {
 }
 
 impl HotKeyCache {
-    /// Create a cache bounded to at least one retained key.
+    /// Create a cache holding at most `capacity` keys, clamped to at least one.
+    /// Reserves storage for the whole bound; see [Memory](Self#memory).
     pub fn with_capacity(capacity: usize) -> Self {
         let capacity = capacity.max(1);
         Self {
@@ -42,11 +49,16 @@ impl HotKeyCache {
         }
     }
 
-    /// Set the maximum retained key count, clamped to at least one, evicting
-    /// immediately if the cache now exceeds it.
+    /// Set the maximum retained key count, clamped to at least one. Lowering it
+    /// evicts the excess least-recently-used keys and releases their storage.
     pub fn set_capacity(&mut self, capacity: usize) {
         self.capacity = capacity.max(1);
         self.evict_to_capacity();
+        if self.capacity < self.entries.capacity() {
+            // Slot indices survive a shrink, so the recency links stay valid.
+            self.entries.shrink_to(self.capacity);
+            self.index.shrink_to(self.capacity);
+        }
     }
 
     /// Detach `slot` from the recency list.
@@ -302,6 +314,33 @@ mod tests {
             assert_eq!(cache.entries.len(), 1);
             assert!(cache.get(&encoded(i)).is_some(), "key {i} just inserted");
         }
+    }
+
+    #[test]
+    fn lowering_the_capacity_releases_entry_storage() {
+        let mut cache = HotKeyCache::with_capacity(4096);
+        for i in 0..4096 {
+            cache.insert(key(i));
+        }
+        let grown = cache.entries.capacity();
+        assert!(grown >= 4096, "storage should have grown to the bound");
+
+        cache.set_capacity(8);
+        cache.assert_invariants();
+        assert_eq!(cache.entries.len(), 8);
+        assert!(
+            cache.entries.capacity() < grown / 8,
+            "shrinking the bound must return storage: {} -> {}",
+            grown,
+            cache.entries.capacity()
+        );
+        for i in 4088..4096 {
+            assert!(cache.get(&encoded(i)).is_some(), "key {i} should survive");
+        }
+        cache.insert(key(9999));
+        cache.assert_invariants();
+        assert_eq!(cache.entries.len(), 8);
+        assert!(cache.get(&encoded(4088)).is_none(), "4088 was the LRU");
     }
 
     /// Exercise link relocation under mixed operations and capacity changes.
