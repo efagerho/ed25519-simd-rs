@@ -7,6 +7,7 @@ use ed25519_simd::{
     HotKeyCache, KeyCache, NullKeyCache, PUBLIC_KEY_LEN, SIGNATURE_LEN, Verifier, VerifyInput,
     VerifyPolicy,
 };
+use rand::{RngCore, SeedableRng, rngs::StdRng};
 use serde_json::Value;
 use support::{
     Case, hex_array, hex_vec, signing_key_from_index, solana_ed25519_verify_dalek,
@@ -23,34 +24,17 @@ fn solana_ed25519_verify_batch(inputs: &[VerifyInput<'_>]) -> bool {
     batch.verify(rand::thread_rng()).is_ok()
 }
 
-struct Lcg(u64);
-impl Lcg {
-    fn next_u64(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-        z ^ (z >> 31)
-    }
-    fn fill(&mut self, buf: &mut [u8]) {
-        for chunk in buf.chunks_mut(8) {
-            let bytes = self.next_u64().to_le_bytes();
-            chunk.copy_from_slice(&bytes[..chunk.len()]);
-        }
-    }
-}
-
 type SolanaEd25519VerifyFn = fn([u8; PUBLIC_KEY_LEN], [u8; SIGNATURE_LEN], &[u8]) -> bool;
 
 fn build_corpus(count: usize) -> Vec<Case> {
-    let mut rng = Lcg(0x0123_4567_89ab_cdef);
+    let mut rng = StdRng::seed_from_u64(0x0123_4567_89ab_cdef);
     let mut cases = Vec::with_capacity(count);
 
     for i in 0..count {
         let kind = i % 5;
         let len = (rng.next_u64() % 300) as usize;
         let mut message = vec![0u8; len];
-        rng.fill(&mut message);
+        rng.fill_bytes(&mut message);
 
         let signing_key = signing_key_from_index(rng.next_u64());
         let public_key = <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key));
@@ -87,7 +71,7 @@ fn build_corpus(count: usize) -> Vec<Case> {
             }
             3 => {
                 let mut public_key = [0u8; 32];
-                rng.fill(&mut public_key);
+                rng.fill_bytes(&mut public_key);
                 Case {
                     public_key,
                     signature,
@@ -96,7 +80,7 @@ fn build_corpus(count: usize) -> Vec<Case> {
             }
             _ => {
                 let mut signature = [0u8; 64];
-                rng.fill(&mut signature);
+                rng.fill_bytes(&mut signature);
                 Case {
                     public_key,
                     signature,
@@ -160,13 +144,13 @@ fn single_verify_matches_solana_ed25519_on_canonical_corpus() {
 fn null_cache_matches_solana_ed25519() {
     for &size in &[8usize, 12, 16, 32] {
         for trial in 0..4u64 {
-            let mut rng = Lcg(0xc01d_0000 + trial * 977 + size as u64);
+            let mut rng = StdRng::seed_from_u64(0xc01d_0000 + trial * 977 + size as u64);
             let len = (rng.next_u64() % 200) as usize;
 
             let mut cases: Vec<Case> = Vec::with_capacity(size);
             for _ in 0..size {
                 let mut message = vec![0u8; len];
-                rng.fill(&mut message);
+                rng.fill_bytes(&mut message);
                 let signing_key = signing_key_from_index(rng.next_u64());
                 let public_key = <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key));
                 let mut signature = signing_key.sign(&message).to_bytes();
@@ -210,12 +194,12 @@ fn block_count_bucketed_batches_match_solana_ed25519() {
         63, 2048, 6, 768, 127, 4095, 7, 1537, 48, 1024, 8, 511, 113, 2048, 9, 4096, 64, 1023, 10,
         256, 129, 3071,
     ];
-    let mut rng = Lcg(0xb0cc_e7ed_5eed);
+    let mut rng = StdRng::seed_from_u64(0xb0cc_e7ed_5eed);
     let mut cases = Vec::with_capacity(lengths.len());
 
     for (idx, &len) in lengths.iter().enumerate() {
         let mut message = vec![0u8; len];
-        rng.fill(&mut message);
+        rng.fill_bytes(&mut message);
         let signing_key = signing_key_from_index(idx as u64 + 10_000);
         let public_key = <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key));
         let mut signature = signing_key.sign(&message).to_bytes();
@@ -265,12 +249,12 @@ fn block_count_bucketed_batch_with_non_multiple_of_eight_tail_matches_solana_ed2
         "must not be a multiple of SIMD_LANES (8)"
     );
 
-    let mut rng = Lcg(0xba7c_4ed0_7a11);
+    let mut rng = StdRng::seed_from_u64(0xba7c_4ed0_7a11);
     let mut cases = Vec::with_capacity(lengths.len());
 
     for (idx, &len) in lengths.iter().enumerate() {
         let mut message = vec![0u8; len];
-        rng.fill(&mut message);
+        rng.fill_bytes(&mut message);
         let signing_key = signing_key_from_index(idx as u64 + 20_000);
         let public_key = <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key));
         let mut signature = signing_key.sign(&message).to_bytes();
@@ -311,7 +295,7 @@ fn block_count_bucketed_batch_with_non_multiple_of_eight_tail_matches_solana_ed2
 /// Stresses the SIMD distinct-key decode/table path against solana-ed25519.
 #[test]
 fn null_cache_decode_build_stress() {
-    let mut rng = Lcg(0x5151_5151_5151_5151);
+    let mut rng = StdRng::seed_from_u64(0x5151_5151_5151_5151);
     let mut zip = Verifier::with_cache(VerifyPolicy::Zip215, NullKeyCache::new());
     let mut dalek = Verifier::with_cache(VerifyPolicy::Dalek, NullKeyCache::new());
 
@@ -320,7 +304,7 @@ fn null_cache_decode_build_stress() {
         let mut cases: Vec<Case> = Vec::with_capacity(8);
         for _ in 0..8 {
             let mut message = vec![0u8; len];
-            rng.fill(&mut message);
+            rng.fill_bytes(&mut message);
             let signing_key = signing_key_from_index(rng.next_u64());
             let public_key = <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key));
             let mut signature = signing_key.sign(&message).to_bytes();
@@ -363,7 +347,7 @@ fn null_cache_decode_build_stress() {
 fn batch_verify_matches_solana_ed25519() {
     for &size in &[8usize, 9, 16, 31, 32] {
         for trial in 0..6u64 {
-            let mut rng = Lcg(0xdead_0000 + trial * 911 + size as u64);
+            let mut rng = StdRng::seed_from_u64(0xdead_0000 + trial * 911 + size as u64);
             let uniform = trial % 2 == 0;
             let len = (rng.next_u64() % 200) as usize;
 
@@ -371,7 +355,7 @@ fn batch_verify_matches_solana_ed25519() {
             let shared_key_index = rng.next_u64();
             for _ in 0..size {
                 let mut message = vec![0u8; len];
-                rng.fill(&mut message);
+                rng.fill_bytes(&mut message);
                 let key_index = if uniform {
                     shared_key_index
                 } else {
@@ -425,7 +409,7 @@ fn batch_dalek_matches_solana_ed25519_simd() {
 
     for &size in &[8usize, 16, 24, 31] {
         for trial in 0..6u64 {
-            let mut rng = Lcg(0xda1e_0000 + trial * 733 + size as u64);
+            let mut rng = StdRng::seed_from_u64(0xda1e_0000 + trial * 733 + size as u64);
             let uniform = trial % 2 == 0;
             let len = (rng.next_u64() % 200) as usize;
 
@@ -433,7 +417,7 @@ fn batch_dalek_matches_solana_ed25519_simd() {
             let shared = rng.next_u64();
             for j in 0..size {
                 let mut message = vec![0u8; len];
-                rng.fill(&mut message);
+                rng.fill_bytes(&mut message);
                 let key_index = if uniform { shared } else { rng.next_u64() };
                 let signing_key = signing_key_from_index(key_index);
                 let public_key = <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key));
@@ -515,23 +499,25 @@ fn per_lane_masking_matches_solana_ed25519_under_heavy_garbage() {
     for &policy in &[Zip215, Dalek] {
         for &size in &[8usize, 9, 16, 17, 32, 33, 64] {
             for trial in 0..8u64 {
-                let mut rng = Lcg(0x6a11_0000 + trial * 1009 + size as u64 * 7 + policy as u64);
+                let mut rng = StdRng::seed_from_u64(
+                    0x6a11_0000 + trial * 1009 + size as u64 * 7 + policy as u64,
+                );
                 let len = (rng.next_u64() % 96) as usize;
 
                 let mut cases: Vec<Case> = Vec::with_capacity(size);
                 for _ in 0..size {
                     let mut message = vec![0u8; len];
-                    rng.fill(&mut message);
+                    rng.fill_bytes(&mut message);
                     let signing_key = signing_key_from_index(rng.next_u64());
                     let mut public_key = <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key));
                     let mut signature = signing_key.sign(&message).to_bytes();
 
                     match rng.next_u64() % 10 {
-                        0 => rng.fill(&mut public_key),
+                        0 => rng.fill_bytes(&mut public_key),
                         1 => public_key = [0u8; 32],
-                        2 => rng.fill(&mut signature[..32]),
+                        2 => rng.fill_bytes(&mut signature[..32]),
                         3 => signature[..32].copy_from_slice(&[0xff; 32]),
-                        4 => rng.fill(&mut signature[32..]),
+                        4 => rng.fill_bytes(&mut signature[32..]),
                         5 => signature[32..].copy_from_slice(&[0xff; 32]),
                         6 => signature = [0u8; 64],
                         7 => {

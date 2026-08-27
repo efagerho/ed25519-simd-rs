@@ -492,19 +492,8 @@ mod tests {
 
     fn hex<const N: usize>(s: &str) -> [u8; N] {
         let mut out = [0u8; N];
-        let bytes = s.as_bytes();
-        for i in 0..N {
-            out[i] = (nibble(bytes[i * 2]) << 4) | nibble(bytes[i * 2 + 1]);
-        }
+        hex::decode_to_slice(s, &mut out).expect("valid test vector hex");
         out
-    }
-
-    fn nibble(b: u8) -> u8 {
-        match b {
-            b'0'..=b'9' => b - b'0',
-            b'a'..=b'f' => b - b'a' + 10,
-            _ => panic!("bad hex"),
-        }
     }
 
     #[test]

@@ -8,29 +8,13 @@ use ed25519_simd::{
 };
 
 pub fn hex_vec(s: &str) -> Vec<u8> {
-    let digits: Vec<u8> = s.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
-    assert_eq!(digits.len() % 2, 0);
-    digits
-        .chunks_exact(2)
-        .map(|pair| (hex_nibble(pair[0]) << 4) | hex_nibble(pair[1]))
-        .collect()
+    hex::decode(s).expect("valid test vector hex")
 }
 
 pub fn hex_array<const N: usize>(s: &str) -> [u8; N] {
-    let bytes = hex_vec(s);
-    assert_eq!(bytes.len(), N);
     let mut out = [0u8; N];
-    out.copy_from_slice(&bytes);
+    hex::decode_to_slice(s, &mut out).expect("valid fixed-length test vector hex");
     out
-}
-
-fn hex_nibble(b: u8) -> u8 {
-    match b {
-        b'0'..=b'9' => b - b'0',
-        b'a'..=b'f' => b - b'a' + 10,
-        b'A'..=b'F' => b - b'A' + 10,
-        _ => panic!("bad hex byte"),
-    }
 }
 
 pub fn verify(policy: VerifyPolicy, input: VerifyInput<'_>) -> bool {

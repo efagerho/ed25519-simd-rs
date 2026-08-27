@@ -2,6 +2,7 @@ mod support;
 
 use curve25519::ed_sigs::VerificationKeyBytes;
 use ed25519_simd::{HotKeyCache, NullKeyCache, Verifier, VerifyInput, VerifyPolicy};
+use rand::{RngCore, SeedableRng, rngs::StdRng};
 use support::{
     Case, signing_key_from_index, solana_ed25519_verify_dalek, solana_ed25519_verify_zebra,
     verify_batch,
@@ -107,11 +108,5 @@ fn valid_cases(size: usize) -> Vec<Case> {
 }
 
 fn fill_message(message: &mut [u8], seed: u64) {
-    let mut state = seed ^ 0x9e37_79b9_7f4a_7c15;
-    for byte in message {
-        state = state
-            .wrapping_mul(0xd134_2543_de82_ef95)
-            .wrapping_add(0xa076_1d64_78bd_642f);
-        *byte = (state >> 56) as u8;
-    }
+    StdRng::seed_from_u64(seed ^ 0x9e37_79b9_7f4a_7c15).fill_bytes(message);
 }

@@ -318,95 +318,15 @@ fn load_u64(bytes: &[u8; 64], offset: usize) -> u64 {
 
 #[cfg(test)]
 fn reduce_wide_slow(bytes: [u8; 64]) -> [u8; 32] {
-    let modulus = u256_from_le_bytes(&L_BYTES);
-    let mut r = [0u64; 4];
+    use num_bigint::BigUint;
+    use std::sync::LazyLock;
 
-    let mut bit = 512;
-    while bit > 0 {
-        bit -= 1;
-        shl1(&mut r);
-        if get_bit(&bytes, bit) {
-            r[0] |= 1;
-        }
-        if cmp_u256(&r, &modulus) != core::cmp::Ordering::Less {
-            sub_u256(&mut r, &modulus);
-        }
-    }
+    static MODULUS: LazyLock<BigUint> = LazyLock::new(|| BigUint::from_bytes_le(&L_BYTES));
 
-    u256_to_le_bytes(r)
-}
-
-#[cfg(test)]
-fn get_bit(bytes: &[u8], bit: usize) -> bool {
-    ((bytes[bit / 8] >> (bit % 8)) & 1) != 0
-}
-
-#[cfg(test)]
-fn u256_from_le_bytes(bytes: &[u8; 32]) -> [u64; 4] {
-    let mut out = [0u64; 4];
-    let mut i = 0;
-    while i < 4 {
-        let mut limb = [0u8; 8];
-        limb.copy_from_slice(&bytes[i * 8..i * 8 + 8]);
-        out[i] = u64::from_le_bytes(limb);
-        i += 1;
-    }
-    out
-}
-
-#[cfg(test)]
-fn u256_to_le_bytes(limbs: [u64; 4]) -> [u8; 32] {
+    let reduced = (BigUint::from_bytes_le(&bytes) % &*MODULUS).to_bytes_le();
     let mut out = [0u8; 32];
-    let mut i = 0;
-    while i < 4 {
-        out[i * 8..i * 8 + 8].copy_from_slice(&limbs[i].to_le_bytes());
-        i += 1;
-    }
+    out[..reduced.len()].copy_from_slice(&reduced);
     out
-}
-
-#[cfg(test)]
-fn shl1(value: &mut [u64; 4]) {
-    let mut carry = 0u64;
-    let mut i = 0;
-    while i < 4 {
-        let next = value[i] >> 63;
-        value[i] = (value[i] << 1) | carry;
-        carry = next;
-        i += 1;
-    }
-}
-
-#[cfg(test)]
-fn cmp_u256(a: &[u64; 4], b: &[u64; 4]) -> core::cmp::Ordering {
-    let mut i = 4;
-    while i > 0 {
-        i -= 1;
-        match a[i].cmp(&b[i]) {
-            core::cmp::Ordering::Equal => {}
-            ord => return ord,
-        }
-    }
-    core::cmp::Ordering::Equal
-}
-
-#[cfg(test)]
-fn sub_u256(a: &mut [u64; 4], b: &[u64; 4]) {
-    let mut borrow = 0u128;
-    let base = 1u128 << 64;
-    let mut i = 0;
-    while i < 4 {
-        let ai = a[i] as u128;
-        let bi = b[i] as u128 + borrow;
-        if ai >= bi {
-            a[i] = (ai - bi) as u64;
-            borrow = 0;
-        } else {
-            a[i] = (ai + base - bi) as u64;
-            borrow = 1;
-        }
-        i += 1;
-    }
 }
 
 #[cfg(test)]
