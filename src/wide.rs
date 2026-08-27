@@ -15,10 +15,6 @@ pub(crate) mod avx512ifma {
     // time instead of silently corrupting or truncating lanes at runtime.
     const _: () = assert!(LANES == 8, "avx512ifma assumes exactly 8 SIMD lanes");
     const LIMB_MASK: u64 = (1u64 << 51) - 1;
-    #[cfg(test)]
-    const FIELD_P_LIMBS: [u64; LIMB_COUNT] =
-        [LIMB_MASK - 18, LIMB_MASK, LIMB_MASK, LIMB_MASK, LIMB_MASK];
-
     pub(crate) struct WideRPoints {
         point: WidePoint,
         x_zero_mask: u8,
@@ -1363,85 +1359,6 @@ pub(crate) mod avx512ifma {
     fn mask_to_lanes(mask: __mmask8) -> [bool; LANES] {
         core::array::from_fn(|lane| (mask & (1 << lane)) != 0)
     }
-
-    /// Scalar reference for `WideFe::canonical`, kept only as a test check for
-    /// the vectorized path.
-    #[cfg(test)]
-    fn canonicalize_field_limbs(limbs: [u64; LIMB_COUNT]) -> [u64; LIMB_COUNT] {
-        // The partial carry chain below relies on limbs already being < 2^52.
-        debug_assert!(limbs.iter().all(|&l| l < (1u64 << 52)));
-        let mut h = [
-            limbs[0] as u128,
-            limbs[1] as u128,
-            limbs[2] as u128,
-            limbs[3] as u128,
-            limbs[4] as u128,
-        ];
-
-        let mut i = 0;
-        while i < 4 {
-            let carry = h[i] >> 51;
-            h[i] &= LIMB_MASK as u128;
-            h[i + 1] += carry;
-            i += 1;
-        }
-
-        let carry = h[4] >> 51;
-        h[4] &= LIMB_MASK as u128;
-        h[0] += carry * 19;
-
-        let carry = h[0] >> 51;
-        h[0] &= LIMB_MASK as u128;
-        h[1] += carry;
-
-        let carry = h[1] >> 51;
-        h[1] &= LIMB_MASK as u128;
-        h[2] += carry;
-
-        let mut out = [
-            h[0] as u64,
-            h[1] as u64,
-            h[2] as u64,
-            h[3] as u64,
-            h[4] as u64,
-        ];
-        if cmp_field_limbs(&out, &FIELD_P_LIMBS) != core::cmp::Ordering::Less {
-            sub_field_limbs(&mut out, &FIELD_P_LIMBS);
-        }
-        out
-    }
-
-    #[cfg(test)]
-    fn cmp_field_limbs(lhs: &[u64; LIMB_COUNT], rhs: &[u64; LIMB_COUNT]) -> core::cmp::Ordering {
-        let mut i = 5;
-        while i > 0 {
-            i -= 1;
-            match lhs[i].cmp(&rhs[i]) {
-                core::cmp::Ordering::Equal => {}
-                order => return order,
-            }
-        }
-        core::cmp::Ordering::Equal
-    }
-
-    #[cfg(test)]
-    fn sub_field_limbs(lhs: &mut [u64; LIMB_COUNT], rhs: &[u64; LIMB_COUNT]) {
-        let mut borrow = 0i128;
-        let base = 1i128 << 51;
-        let mut i = 0;
-        while i < 5 {
-            let value = lhs[i] as i128 - rhs[i] as i128 - borrow;
-            if value < 0 {
-                lhs[i] = (value + base) as u64;
-                borrow = 1;
-            } else {
-                lhs[i] = value as u64;
-                borrow = 0;
-            }
-            i += 1;
-        }
-    }
-
     #[cfg(test)]
     mod simd_torsion_tests {
         use super::*;
@@ -1473,12 +1390,16 @@ pub(crate) mod avx512ifma {
 
             for lane in 0..LANES {
                 let input: [u64; LIMB_COUNT] = core::array::from_fn(|limb| rows[limb][lane]);
-                let expected = canonicalize_field_limbs(input);
+                // `field.rs` is the scalar reference for this field, and
+                // `Fe51::from_limbs` canonicalizes, so its limbs are the
+                // expected canonical form. Comparing limbs rather than bytes
+                // pins the exact representation, not just the residue.
+                let expected = crate::field::Fe51::from_limbs(input).reduced_limbs();
                 let actual: [u64; LIMB_COUNT] =
                     core::array::from_fn(|limb| canonical_rows[limb][lane]);
                 assert_eq!(
                     actual, expected,
-                    "lane {lane} diverged from scalar reference"
+                    "lane {lane} diverged from the field.rs Fe51 reference"
                 );
                 assert_eq!(
                     is_zero[lane],
@@ -1490,20 +1411,13 @@ pub(crate) mod avx512ifma {
                     (expected[0] & 1) != 0,
                     "is_odd_lanes lane {lane}"
                 );
-
-                let expected_bytes = crate::field::Fe51::from_limbs(input).to_bytes();
-                let actual_bytes = crate::field::Fe51::from_limbs(actual).to_bytes();
-                assert_eq!(
-                    actual_bytes, expected_bytes,
-                    "lane {lane} diverged from field.rs Fe51 reference"
-                );
             }
         }
 
         #[test]
         fn canonical_matches_references_on_boundary_values() {
             let zero = [0u64; LIMB_COUNT];
-            let p = FIELD_P_LIMBS;
+            let p = crate::field::P_LIMBS;
             let p_minus_1 = {
                 let mut l = p;
                 l[0] -= 1;
@@ -1518,20 +1432,14 @@ pub(crate) mod avx512ifma {
             let max_limbs = [(1u64 << 52) - 1; LIMB_COUNT];
             let hand_picked = [zero, p, p_minus_1, p_plus_1, max_limbs];
 
-            let mut state = 0x2545f4914f6cdd1du64;
-            let mut next = || {
-                state = state
-                    .wrapping_mul(0xd1342543de82ef95)
-                    .wrapping_add(0x9e3779b97f4a7c15);
-                state
-            };
+            let mut rng = crate::test_rng::TestRng::new(0xbb67_ae85_84ca_a73b);
 
             let mut rows = [[0u64; LANES]; LIMB_COUNT];
             for lane in 0..LANES {
                 let limbs = if lane < hand_picked.len() {
                     hand_picked[lane]
                 } else {
-                    core::array::from_fn(|_| next() & ((1u64 << 52) - 1))
+                    core::array::from_fn(|_| rng.next_u64() & ((1u64 << 52) - 1))
                 };
                 for limb in 0..5 {
                     rows[limb][lane] = limbs[limb];
@@ -1542,20 +1450,14 @@ pub(crate) mod avx512ifma {
 
         #[test]
         fn canonical_matches_references_on_random_values() {
-            let mut state = 0x9e3779b97f4a7c15u64;
-            let mut next = || {
-                state = state
-                    .wrapping_mul(0xd1342543de82ef95)
-                    .wrapping_add(0x2545f4914f6cdd1d);
-                state
-            };
+            let mut rng = crate::test_rng::TestRng::new(0x9e37_79b9_7f4a_7c15);
 
             let mut round = 0;
             while round < 512 {
                 let mut rows = [[0u64; LANES]; LIMB_COUNT];
                 for row in &mut rows {
                     for value in row {
-                        *value = next() & ((1u64 << 52) - 1);
+                        *value = rng.next_u64() & ((1u64 << 52) - 1);
                     }
                 }
                 check_canonical(rows);
@@ -1647,18 +1549,13 @@ pub(crate) mod avx512ifma {
         #[test]
         fn wide_pow_matches_scalar_reference() {
             // Keep scalar and SIMD decompression exponent chains in sync.
-            let mut state = 0x9e3779b97f4a7c15u64;
-            let mut next = move || {
-                state = state
-                    .wrapping_mul(0xd1342543de82ef95)
-                    .wrapping_add(0x9e3779b97f4a7c15);
-                state
-            };
+            let mut rng = crate::test_rng::TestRng::new(0x3c6e_f372_fe94_f82b);
 
             let mut round = 0;
             while round < 200 {
                 let fields: [crate::field::Fe51; LANES] = core::array::from_fn(|_| {
-                    let limbs: [u64; LIMB_COUNT] = core::array::from_fn(|_| next() & LIMB_MASK);
+                    let limbs: [u64; LIMB_COUNT] =
+                        core::array::from_fn(|_| rng.next_u64() & LIMB_MASK);
                     crate::field::Fe51::from_limbs(limbs)
                 });
                 let wide_result = WideFe::from_fields(&fields)

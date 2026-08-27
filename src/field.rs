@@ -2,7 +2,7 @@ const LIMB_BITS: usize = 51;
 const MASK: u64 = (1u64 << LIMB_BITS) - 1;
 // Number of 51-bit limbs needed to represent a value modulo p = 2^255 - 19.
 pub(crate) const LIMB_COUNT: usize = 5;
-const P_LIMBS: [u64; LIMB_COUNT] = [MASK - 18, MASK, MASK, MASK, MASK];
+pub(crate) const P_LIMBS: [u64; LIMB_COUNT] = [MASK - 18, MASK, MASK, MASK, MASK];
 
 // Curve constants in 51-bit limbs. These are the single source of truth for both
 // the scalar path here and the AVX-512 field in `wide.rs` (which broadcasts them
