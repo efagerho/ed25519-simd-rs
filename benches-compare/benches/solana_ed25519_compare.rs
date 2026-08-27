@@ -77,8 +77,7 @@ fn generate_distinct_keys(n: usize, msg_len: MsgLen) -> Vec<Owned> {
         .collect()
 }
 
-/// Signatures over a small, fixed set of keys, cycled to fill the batch —
-/// the hot-key-repeat workload `HotKeyCache` is meant for.
+/// Fill a batch by cycling through a small set of hot keys.
 fn generate_hot_keys(n: usize, hot_key_count: usize, msg_len: MsgLen) -> Vec<Owned> {
     let mut rng = SplitMix(0x5eed_1234);
     let hot_keys: Vec<SigningKey> = (0..hot_key_count)
@@ -136,8 +135,7 @@ fn solana_ed25519_batch_zip215(inputs: &[VerifyInput<'_>]) -> bool {
     batch.verify(rand::thread_rng()).is_ok()
 }
 
-// These loops verify every element with `&`, so scattered-invalid batches do
-// not short-circuit. Parsing stays inside the loop to match cold-cache backends.
+// Verify every element without short-circuiting; parse inside the timed loop.
 fn solana_ed25519_dalek_loop(inputs: &[VerifyInput<'_>]) -> bool {
     inputs.iter().fold(true, |acc, input| {
         let vk_bytes = VerificationKeyBytes::from(input.public_key);
@@ -248,9 +246,7 @@ fn bench_ours_hot_key_cache(
     });
 }
 
-/// Compares `NullKeyCache` against `HotKeyCache` on a batch that repeats a
-/// small set of `hot_key_count` keys, quantifying the caching win the README
-/// only describes qualitatively.
+/// Compare null and hot caches on `hot_key_count` repeating keys.
 fn bench_hot_keys_scenario(c: &mut Criterion, group_name: &str, hot_key_count: usize) {
     let mut group = c.benchmark_group(group_name);
     for n in SIZES {

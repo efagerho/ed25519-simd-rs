@@ -1,6 +1,4 @@
-//! Acceptance-set differential tests against solana-ed25519's Ed25519 verifier.
-//!
-//! Covers ZIP-215 vs `verify_zebra`/`batch::Verifier` and Dalek vs `verify_dalek`.
+//! Acceptance tests against solana-ed25519's ZIP-215 and Dalek verifiers.
 
 mod support;
 
@@ -695,13 +693,8 @@ fn enumerate_divergences_vs_solana_ed25519() {
                     message,
                 };
 
-                // Check both cache paths. A cold cache decompresses `R` while
-                // decoding the key, so `Dalek` compares points and applies the
-                // canonical-`y` and signed-zero filters explicitly; a warm
-                // cache skips that decompression and instead compares the
-                // re-encoded `R` byte-for-byte, relying on the encoding to
-                // subsume those filters. These crafted points are exactly the
-                // inputs that separate the two, so both have to be exercised.
+                // Exercise cold-cache point comparison and warm-cache byte
+                // comparison; these crafted R values distinguish the paths.
                 let solana_ed25519_zebra = solana_ed25519_verify_zebra(*a, sig, message);
                 for (path, ours) in [
                     ("cold", verify(Zip215, input)),
@@ -789,8 +782,7 @@ fn noncanonical_encoding_now_matches_solana_ed25519() {
     );
 }
 
-/// Replays edge-case vectors through mixed-key batches and warm cache hits, so
-/// both Dalek acceptance paths stay covered.
+/// Replay edge cases through mixed-key batches and warm cache hits.
 #[test]
 fn speccheck_and_wycheproof_vectors_survive_non_uniform_batches_and_warm_cache() {
     // Stable filler lanes force the mixed-key decode path.
@@ -827,9 +819,7 @@ fn speccheck_and_wycheproof_vectors_survive_non_uniform_batches_and_warm_cache()
                 VerifyPolicy::Dalek => solana_ed25519_verify_dalek(public_key, signature, message),
             };
 
-            // Non-uniform batch: the vector shares a chunk with 7 distinct,
-            // ordinary keys, forcing `decode_keys_and_decompress_r` instead
-            // of the uniform-key branch.
+            // Seven distinct filler keys force the mixed-key decode path.
             let mut inputs = vec![VerifyInput {
                 public_key,
                 signature,
@@ -843,9 +833,7 @@ fn speccheck_and_wycheproof_vectors_survive_non_uniform_batches_and_warm_cache()
                 non_uniform_mismatches.push((name.clone(), policy, out[0], oracle));
             }
 
-            // Warm cache: verify once so decodable keys hit on the second
-            // pass, forcing the `decoded_r == None` branch
-            // (`verify_prepared_dalek`'s byte comparison for Dalek).
+            // A second pass forces Dalek's warm-cache byte comparison.
             let mut cached = Verifier::with_cache(policy, HotKeyCache::with_capacity(1024));
             let input = VerifyInput {
                 public_key,

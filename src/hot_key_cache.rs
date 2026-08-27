@@ -15,21 +15,13 @@ struct CacheEntry {
     older: Cell<usize>,
 }
 
-/// A [`KeyCache`] that retains hot decoded keys across batches, bounded to a
-/// caller-chosen capacity and evicting the least recently used key.
+/// A bounded LRU [`KeyCache`] for decoded keys.
 ///
-/// The capacity is mandatory: keys are attacker-supplied, and each retained one
-/// costs a few kilobytes, so an unbounded cache is a memory-exhaustion vector.
-/// Picking a bound also forces the question this cache only pays off when you
-/// can answer — how many keys actually repeat. Without an answer, use
-/// [`NullKeyCache`](crate::NullKeyCache) instead.
+/// Keys are attacker-controlled and tables are large, so capacity is explicit.
+/// Use [`NullKeyCache`](crate::NullKeyCache) when key reuse is unlikely.
 #[derive(Debug)]
 pub struct HotKeyCache {
-    // Resident entries in arbitrary slot order, threaded by the recency list
-    // below; `index` maps an encoded key to its slot. Recency is tracked by
-    // list position rather than a timestamp, so both lookup and eviction are
-    // O(1) — eviction cost cannot be amplified by a caller feeding the cache
-    // nothing but distinct keys.
+    // Slot-indexed entries linked by recency give O(1) lookup and eviction.
     entries: Vec<CacheEntry>,
     index: HashMap<[u8; PUBLIC_KEY_LEN], usize>,
     capacity: usize,
@@ -92,9 +84,7 @@ impl HotKeyCache {
         }
     }
 
-    /// Evict from the least-recently-used end. The loop only runs while at
-    /// least two keys are resident, so the entry just linked as MRU — the key
-    /// the current chunk is about to use — is never the victim.
+    /// Evict LRU entries without removing the newly linked MRU key.
     fn evict_to_capacity(&mut self) {
         while self.entries.len() > self.capacity {
             let lru = self.lru.get();
@@ -108,9 +98,7 @@ impl HotKeyCache {
         let removed = self.entries.swap_remove(slot);
         self.index.remove(&removed.key.encoded);
 
-        // `swap_remove` moved the former last entry into `slot`. Nothing points
-        // at `slot` any more (it was unlinked first), so repointing what
-        // referred to the moved entry's old index finishes the move.
+        // Repoint links from the old last slot to its post-`swap_remove` slot.
         if let Some(moved) = self.entries.get(slot) {
             let (encoded, newer, older) = (moved.key.encoded, moved.newer.get(), moved.older.get());
             self.index.insert(encoded, slot);
@@ -127,9 +115,7 @@ impl HotKeyCache {
         }
     }
 
-    /// Walk the recency list in both directions and cross-check it against
-    /// `entries`/`index`, catching any link surgery that left the cache
-    /// inconsistent.
+    /// Cross-check both recency-list directions against `entries` and `index`.
     #[cfg(test)]
     fn assert_invariants(&self) {
         assert_eq!(self.entries.len(), self.index.len());
@@ -196,8 +182,7 @@ mod tests {
     use crate::edwards::{EdwardsPoint, PointTable};
     use rand::{RngCore, SeedableRng, rngs::StdRng};
 
-    /// A distinct cached key per index. The table contents are irrelevant to
-    /// cache bookkeeping, so reuse the identity table and vary only `encoded`.
+    /// Give each index a distinct encoding over the shared identity table.
     fn key(index: u64) -> CachedPublicKey {
         let mut encoded = [0u8; PUBLIC_KEY_LEN];
         encoded[..8].copy_from_slice(&index.to_le_bytes());
@@ -238,9 +223,7 @@ mod tests {
 
     #[test]
     fn a_repeatedly_used_hot_set_survives_distinct_key_churn() {
-        // The regression this cache exists for: sampling eviction candidates
-        // from a fixed window (a `HashMap`'s iteration order, say) evicts hot
-        // keys and retains cold ones once the hot set outgrows the window.
+        // Ensure distinct-key churn cannot evict a repeatedly touched hot set.
         let capacity = 64;
         let hot_count = 48;
         let mut cache = HotKeyCache::with_capacity(capacity);
@@ -308,9 +291,7 @@ mod tests {
         }
     }
 
-    /// Drive interleaved inserts, hits and capacity changes so `swap_remove`
-    /// relocates entries from every list position, and check the structure
-    /// after each step.
+    /// Exercise link relocation under mixed operations and capacity changes.
     #[test]
     fn link_surgery_stays_consistent_under_mixed_operations() {
         let mut cache = HotKeyCache::with_capacity(16);

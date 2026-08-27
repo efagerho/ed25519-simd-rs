@@ -40,11 +40,8 @@ pub fn verify(policy: VerifyPolicy, input: VerifyInput<'_>) -> bool {
     out[0]
 }
 
-/// Verify the same input twice through a `HotKeyCache` and return the second
-/// result, so a decodable public key is a cache hit on the reported run. That
-/// selects the code paths a cold cache never reaches: `R` is not decompressed
-/// as a side effect of key decoding, so `Dalek` compares the re-encoded
-/// recomputed `R` byte-for-byte instead of comparing points projectively.
+/// Verify twice and return the warm-cache result, exercising Dalek's byte
+/// comparison instead of its cold-cache projective comparison.
 pub fn verify_warm(policy: VerifyPolicy, input: VerifyInput<'_>) -> bool {
     let mut verifier = Verifier::with_cache(policy, HotKeyCache::with_capacity(8));
     let mut out = [false];

@@ -10,9 +10,7 @@ pub(crate) mod avx512ifma {
     use std::arch::x86_64::*;
 
     const LANES: usize = crate::batch::SIMD_LANES;
-    // `__mmask8` and the raw 512-bit loadu/storeu intrinsics throughout this
-    // module hard-code 8 lanes; this catches a `SIMD_LANES` change at compile
-    // time instead of silently corrupting or truncating lanes at runtime.
+    // These intrinsics hard-code eight lanes; reject a changed `SIMD_LANES`.
     const _: () = assert!(LANES == 8, "avx512ifma assumes exactly 8 SIMD lanes");
     const LIMB_MASK: u64 = (1u64 << 51) - 1;
     pub(crate) struct WideRPoints {
@@ -21,9 +19,7 @@ pub(crate) mod avx512ifma {
     }
 
     impl WideRPoints {
-        /// Decompression accepts "negative zero" encodings where the sign bit
-        /// is set for an `x == 0` point. Dalek rejects those encodings, so the
-        /// verifier checks these lanes in addition to canonical `y` bytes.
+        /// Lanes with Dalek-invalid negative-zero encodings.
         pub(crate) fn x_zero_lanes(&self) -> [bool; LANES] {
             mask_to_lanes(self.x_zero_mask as __mmask8)
         }
@@ -43,9 +39,7 @@ pub(crate) mod avx512ifma {
         )
     }
 
-    /// Decode public keys and `R` points together, interleaving the
-    /// two inverse-square-root chains (the latency-bound part of decompression).
-    /// Returns the key tables + validity and the decompressed `R` + validity.
+    /// Decode keys and `R` together, interleaving their inverse-square-root chains.
     pub(crate) fn decode_keys_and_decompress_r(
         keys: &[[u8; PUBLIC_KEY_LEN]; LANES],
         r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
@@ -67,10 +61,7 @@ pub(crate) mod avx512ifma {
     /// Build the per-lane radix-16 cached tables from an already-decompressed
     /// SIMD point.
     fn build_tables_from_point(p: WidePoint) -> [PointTable; LANES] {
-        // Tree-balanced multiples (P..8P): critical path ~4 deep instead of the
-        // serial 7, with independent operations at each level to expose ILP.
-        // The four self-additions use `double`, which is 4S+4M against a
-        // general addition's 8M and keeps the same dependency structure.
+        // Build P..8P as a depth-4 tree; doublings cost 4S+4M instead of 8M.
         let p2 = p.double();
         let p4 = p2.double();
         let p3 = p2.add(&p);
@@ -95,8 +86,7 @@ pub(crate) mod avx512ifma {
                 let z2 = m.z.double();
                 let t2d = m.t.multiply(&two_d);
                 let neg_t2d = t2d.negate();
-                // These strict values may be stored as loose fields; table
-                // consumers tolerate `< 2^52` limbs.
+                // Table consumers accept these strict values as loose fields.
                 (
                     ypx.to_fields_loose(),
                     ymx.to_fields_loose(),
@@ -201,8 +191,7 @@ pub(crate) mod avx512ifma {
         let first_ok = vx2.equals_mask(&s.u);
 
         let x_alt = x.multiply(&WideFe::sqrt_m1());
-        // `(x*sqrt(-1))^2*v == -(x^2*v)`, so the alternate candidate is
-        // valid exactly when the already-computed `vx2` equals `-u`.
+        // The alternate root is valid iff the existing `vx2` equals `-u`.
         let second_ok = vx2.add_loose(&s.u).is_zero_mask();
 
         let alt_mask = !first_ok & second_ok;
@@ -210,8 +199,7 @@ pub(crate) mod avx512ifma {
 
         x = x.blend(alt_mask, &x_alt);
 
-        // The point built for invalid lanes (not in `valid_mask`) is garbage;
-        // callers must gate on `valid_mask`.
+        // Points outside `valid_mask` are garbage.
         let (x_odd, x_zero_mask) = if TRACK_X_ZERO {
             x.odd_and_zero_masks()
         } else {
@@ -272,9 +260,8 @@ pub(crate) mod avx512ifma {
         let s_digits = prepared.s_digits;
         let k_digits = prepared.k_digits;
 
-        // Start directly from the cached top digit. Its cached `(Y+X, Y-X,
-        // 2Z)` fields recover `(2X, 2Y, 2Z)`, a projectively equivalent point.
-        // `T` is not needed because the next operation is a doubling.
+        // Recover a projective point from the cached top digit; the next
+        // doubling does not need `T`.
         let selected: [_; LANES] = core::array::from_fn(|lane| {
             public_key_tables[lane].select_signed_cached_ref(-k_digits[lane][63])
         });
@@ -285,8 +272,7 @@ pub(crate) mod avx512ifma {
         add_base_pair_digit(&mut acc, base_table, s_digits, 31);
         add_public_digit_before_double(&mut acc, public_key_tables, k_digits, 62);
 
-        // Every public-key addition in these complete digit pairs is followed
-        // by a doubling, so its extended `T` output is dead.
+        // These public-key additions feed doublings, which do not use `T`.
         for pair in (1..31).rev() {
             acc = acc.double4();
             add_public_digit_before_double(&mut acc, public_key_tables, k_digits, pair * 2 + 1);
@@ -296,9 +282,7 @@ pub(crate) mod avx512ifma {
             add_public_digit_before_double(&mut acc, public_key_tables, k_digits, pair * 2);
         }
 
-        // The last public-key addition must produce `T`: ZIP-215 consumes it
-        // in the following subtraction, while the shared ladder serves both
-        // verification policies.
+        // The final public-key addition needs `T` for ZIP-215 subtraction.
         acc = acc.double4();
         add_public_digit_before_double(&mut acc, public_key_tables, k_digits, 1);
         acc = acc.double4();
@@ -543,17 +527,15 @@ pub(crate) mod avx512ifma {
                 Self::reduce_loose(h)
             }
         }
-        // Deferred ops produce loose values: limb0 < 2^60, limbs 1..4 < 2^51.
-        // `_wide` subtracts use a 2048*p bias for up to two loose subtrahends.
-        // `square`/`square_loose` share accumulation and differ only in reduction.
+        // Loose values have limb0 < 2^60 and limbs 1..4 < 2^51; wide
+        // subtraction uses a 2048*p bias for up to two loose subtrahends.
         fn square_accum(&self) -> ([__m512i; LIMB_COUNT], [__m512i; LIMB_COUNT]) {
             unsafe {
                 let z = _mm512_setzero_si512();
                 let mut lo = [z; LIMB_COUNT];
                 let mut hi = [z; LIMB_COUNT];
 
-                // Normalize loose limb0 before squaring; torsion cases can represent
-                // zero as p, and doubled IFMA inputs must stay under 52 bits.
+                // Normalize loose limb0 to keep doubled IFMA inputs under 52 bits.
                 let limbs = {
                     let mask = _mm512_set1_epi64(LIMB_MASK as i64);
                     let mut l = self.limbs;
@@ -607,8 +589,7 @@ pub(crate) mod avx512ifma {
             let (lo, hi) = self.square_accum();
             Self::reduce_ifma_loose(lo, hi)
         }
-        // Shared accumulation for `multiply`/`multiply_loose`: they differ only
-        // in which `reduce_ifma*` pass is applied to the raw (lo, hi) columns.
+        // Strict and loose multiplication differ only in final reduction.
         fn multiply_accum(&self, rhs: &Self) -> ([__m512i; LIMB_COUNT], [__m512i; LIMB_COUNT]) {
             unsafe {
                 let z = _mm512_setzero_si512();
@@ -661,8 +642,7 @@ pub(crate) mod avx512ifma {
             Self::reduce_ifma_loose(lo, hi)
         }
 
-        // `reduce_ifma` without the trailing `reduce_loose` pass: one IFMA carry
-        // pass only. Leaves limb0 < 2^60, limbs 1..4 < 2^51.
+        // One IFMA carry pass leaves limb0 < 2^60 and limbs 1..4 < 2^51.
         fn reduce_ifma_loose(mut lo: [__m512i; LIMB_COUNT], hi: [__m512i; LIMB_COUNT]) -> Self {
             unsafe {
                 let mask = _mm512_set1_epi64(LIMB_MASK as i64);
@@ -718,9 +698,7 @@ pub(crate) mod avx512ifma {
             }
         }
 
-        // `self + 2048*p - lhs - 2*rhs`, with all three possibly loose. Folding
-        // the doubling of `rhs` in here saves the separate carry pass that
-        // reducing `2*rhs` on its own would cost.
+        // Fold `2*rhs` into the wide subtraction to avoid a separate carry pass.
         fn subtract_sum_doubled_wide(&self, lhs: &Self, rhs: &Self) -> Self {
             unsafe {
                 let b0 = _mm512_set1_epi64((2048 * (LIMB_MASK - 18)) as i64);
@@ -800,8 +778,7 @@ pub(crate) mod avx512ifma {
             let h = g.square_repeat::<50>().multiply(&e);
             h.square_repeat::<5>().multiply(&z11)
         }
-        // Intermediate squarings stay loose; the final result is strict because
-        // callers feed it to `multiply`, which requires `< 2^52` inputs.
+        // Keep intermediates loose; reduce only the final result for multiplication.
         fn square_repeat<const N: usize>(&self) -> Self {
             let mut out = *self;
             for i in 0..N {
@@ -885,8 +862,7 @@ pub(crate) mod avx512ifma {
                 _mm512_test_epi64_mask(c.limbs[0], one) as u8
             }
         }
-        /// Return parity and zero masks from one canonicalization. Dalek's R
-        /// decoder needs both predicates on the same recovered x coordinate.
+        /// Return parity and zero masks from one canonicalization.
         fn odd_and_zero_masks(self) -> (u8, u8) {
             unsafe {
                 let c = self.canonical();
@@ -903,8 +879,8 @@ pub(crate) mod avx512ifma {
                 )
             }
         }
-        /// Vectorized `Fe51::canonical` for all lanes. `reduce64` bounds limbs
-        /// 1..4, making `>= p` an exact high-limb check plus limb0 threshold.
+        /// Vectorized `Fe51::canonical`; bounded high limbs reduce `>= p` to a
+        /// high-limb check and limb-0 threshold.
         fn canonical(&self) -> Self {
             unsafe {
                 let reduced = Self::reduce64(self.limbs);
@@ -963,16 +939,11 @@ pub(crate) mod avx512ifma {
                 lo[4] = _mm512_and_si512(lo[4], mask);
                 lo[0] = _mm512_add_epi64(lo[0], _mm512_mullo_epi64(carry, nineteen));
 
-                // The wrapped residual is confined to limb 0.  Carrying that
-                // one limb into limb 1 is sufficient to restore the `< 2^52`
-                // IFMA-input bound; limbs 1..4 were already masked below
-                // `2^51` by the first pass.
+                // Only limb 0 retains a residual; carry it to restore IFMA bounds.
                 Self::carry_limb0(lo)
             }
         }
-        /// Carry the wraparound residual from limb 0 into limb 1.  Callers
-        /// guarantee limb 0 `< 2^60` and limbs 1..4 `< 2^51`, so the result is
-        /// strict enough (`< 2^52` in every limb) for another IFMA operation.
+        /// Carry loose limb 0, restoring the `< 2^52` IFMA input bound.
         fn carry_limb0(mut h: [__m512i; LIMB_COUNT]) -> Self {
             unsafe {
                 let mask = _mm512_set1_epi64(LIMB_MASK as i64);
@@ -1084,9 +1055,8 @@ pub(crate) mod avx512ifma {
     }
 
     impl WidePoint {
-        /// Recover a projectively equivalent `(X:Y:Z)` from cached coordinates.
-        /// The returned `T` is intentionally absent: callers must perform a
-        /// doubling before any operation that consumes the extended coordinate.
+        /// Recover `(X:Y:Z)` without `T`; callers must double before an
+        /// extended-coordinate operation.
         #[inline(never)]
         fn from_cached_refs_without_t(points: &[&CachedPoint; LANES]) -> Self {
             let field = |pick: fn(&CachedPoint) -> &Fe51| {
@@ -1113,9 +1083,7 @@ pub(crate) mod avx512ifma {
             }
             bytes
         }
-        /// Compare against a point whose `z` is one, cross-multiplying only by
-        /// `self.z`. Callers pass a freshly decompressed point; anything else
-        /// needs the omitted `affine.z` factor to be a valid comparison.
+        /// Compare with a freshly decompressed point whose `z` is one.
         fn equals_affine_lanes(&self, affine: &Self) -> [bool; LANES] {
             debug_assert!(
                 affine.z.equals_lanes(&WideFe::one()).iter().all(|&eq| eq),
@@ -1148,10 +1116,8 @@ pub(crate) mod avx512ifma {
         }
         /// Add the per-lane cached points selected for one digit.
         ///
-        /// Each cached field is transposed out of the per-lane tables
-        /// immediately before the multiply that consumes it. Gathering all four
-        /// up front instead costs 20 live `zmm` registers, which does not fit
-        /// alongside the accumulator and spills to the stack.
+        /// Transpose each cached field just before use; gathering all four needs
+        /// 20 live ZMM registers and spills.
         #[inline(always)]
         fn add_cached_refs_assign(&mut self, points: &[&CachedPoint; LANES], compute_t: bool) {
             self.add_selected_cached_refs_assign(SelectedCachedRefs::Projective(points), compute_t);
@@ -1202,12 +1168,8 @@ pub(crate) mod avx512ifma {
         }
         /// Return whether `self - rhs` is killed by the Ed25519 cofactor.
         ///
-        /// `rhs` is freshly decompressed, so `rhs.z == 1`.  ZIP-215 needs to
-        /// decide whether `Q = self - rhs` is in the cyclic 8-torsion group.
-        /// This is equivalent to `2Q` being in the 4-torsion group, whose four
-        /// points have `x*y == 0`.  The extended-coordinate doubling formula
-        /// gives the numerator of `x(2Q)*y(2Q)` as `E*H`, so neither the full
-        /// subtraction nor any doubled point has to be materialized.
+        /// For `Q = self - rhs`, test `x(2Q)*y(2Q) == 0` via its numerator
+        /// `E*H`, avoiding materialization of `Q` or `2Q`. Requires `rhs.z == 1`.
         fn subtract_affine_and_check_8_torsion(&self, rhs: &Self) -> [bool; LANES] {
             debug_assert!(
                 rhs.z.equals_lanes(&WideFe::one()).iter().all(|&eq| eq),
@@ -1325,8 +1287,7 @@ pub(crate) mod avx512ifma {
                 }
             }
         }
-        // Curve constants are defined once in `field.rs` and broadcast here, so
-        // the scalar and SIMD field paths cannot drift.
+        // Broadcast the shared scalar/SIMD constants from `field.rs`.
         fn d() -> Self {
             Self::constant(crate::field::D_LIMBS)
         }
@@ -1391,10 +1352,7 @@ pub(crate) mod avx512ifma {
 
             for lane in 0..LANES {
                 let input: [u64; LIMB_COUNT] = core::array::from_fn(|limb| rows[limb][lane]);
-                // `field.rs` is the scalar reference for this field, and
-                // `Fe51::from_limbs` canonicalizes, so its limbs are the
-                // expected canonical form. Comparing limbs rather than bytes
-                // pins the exact representation, not just the residue.
+                // Limb comparison pins the representation, not just the residue.
                 let expected = crate::field::Fe51::from_limbs(input).reduced_limbs();
                 let actual: [u64; LIMB_COUNT] =
                     core::array::from_fn(|limb| canonical_rows[limb][lane]);
@@ -1468,9 +1426,7 @@ pub(crate) mod avx512ifma {
 
         #[test]
         fn square_repeat_matches_strict_reference() {
-            // square_repeat keeps every squaring but the last loose; verify
-            // that's bit-identical to N strict squarings for every N actually
-            // used by pow_p_minus_5_over_8/invert, plus the N=0/1 boundary.
+            // Check every exponent-chain count plus the N=0/1 boundaries.
             macro_rules! check {
                 ($x:expr, $n:literal) => {
                     let x = $x;
@@ -1530,8 +1486,7 @@ pub(crate) mod avx512ifma {
 
         #[test]
         fn pow_x2_matches_sequential() {
-            // The interleaved two-input exponentiation must be bit-identical to
-            // two independent sequential pows on every lane.
+            // Compare interleaved exponentiation with two sequential chains.
             let a = WideFe::constant(crate::field::D_LIMBS);
             let b = WideFe::constant(crate::field::SQRT_M1_LIMBS);
             let (xa, xb) = WideFe::pow_p_minus_5_over_8_x2(&a, &b);

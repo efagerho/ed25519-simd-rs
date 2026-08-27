@@ -4,9 +4,7 @@ const MASK: u64 = (1u64 << LIMB_BITS) - 1;
 pub(crate) const LIMB_COUNT: usize = 5;
 pub(crate) const P_LIMBS: [u64; LIMB_COUNT] = [MASK - 18, MASK, MASK, MASK, MASK];
 
-// Curve constants in 51-bit limbs. These are the single source of truth for both
-// the scalar path here and the AVX-512 field in `wide.rs` (which broadcasts them
-// into SIMD lanes via `WideFe::constant`), so the two paths can never drift.
+// Single source of 51-bit curve constants for scalar and SIMD paths.
 pub(crate) const D_LIMBS: [u64; LIMB_COUNT] = [
     929_955_233_495_203,
     466_365_720_129_213,
@@ -148,9 +146,8 @@ impl Fe51 {
     }
 
     pub(crate) fn subtract(&self, rhs: &Self) -> Self {
-        // Bias by 16*p so the limb-wise difference cannot underflow: operand
-        // limbs are < 2^52 (the loosely-reduced invariant) while every bias
-        // limb is >= 2^55 - 304, and the sums stay well below 2^64.
+        // For loose limbs < 2^52, a 16*p bias prevents underflow while keeping
+        // the sums below 2^64.
         const BIAS: [u64; LIMB_COUNT] =
             [16 * (MASK - 18), 16 * MASK, 16 * MASK, 16 * MASK, 16 * MASK];
         let mut h = [0u128; LIMB_COUNT];
@@ -216,9 +213,7 @@ impl Fe51 {
             .multiply(&v3)
             .multiply(&u.multiply(&v7).pow_p_minus_5_over_8());
 
-        // (sqrt(-1)*x)^2 * v == -(x^2 * v), so if the first candidate is off by
-        // exactly a factor of -1, negating the already-computed `vx2` and
-        // comparing to `u` decides it without recomputing `v * x^2`.
+        // Since `(sqrt(-1)*x)^2*v = -vx2`, the alternate root needs `vx2 == -u`.
         let vx2 = v.multiply(&x.square());
         if vx2.equals(u) {
             Some(x)

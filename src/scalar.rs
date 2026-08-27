@@ -24,10 +24,7 @@ impl Scalar {
     }
 
     pub(crate) fn to_radix16(self) -> Radix16 {
-        // Balanced base-16 digits with no carry chain. Adding 8 to every nibble
-        // at once is just the 256-bit addition `self + 0x88..88`, so the binary
-        // adder performs all the carry propagation: nibble `i` of the sum is
-        // `d_i + 8`, and the digits fall out by masking off the bias.
+        // Adding 0x88..88 lets the binary carry chain produce balanced digits.
         let mut biased = [0u8; 32];
         let mut carry = 0u16;
         let mut i = 0;
@@ -417,9 +414,7 @@ mod tests {
     use super::*;
     use rand::{RngCore, SeedableRng, rngs::StdRng};
 
-    /// Reconstruct the integer a signed radix-16 digit array represents.
-    /// Wrapping 256-bit arithmetic is exact here: the sum equals the scalar,
-    /// which fits in 256 bits.
+    /// Reconstruct a scalar from its signed radix-16 digits.
     fn value_from_digits(digits: &Radix16) -> [u8; 32] {
         let mut acc = [0u64; 4];
         let mut i = 64;
@@ -502,9 +497,7 @@ mod tests {
             assert_eq!(value_from_digits(&new), bytes, "new digits for {bytes:?}");
             assert_eq!(value_from_digits(&old), bytes, "old digits for {bytes:?}");
 
-            // Ranges the point tables rely on: a digit and its negation must
-            // both index a -8..=8 table, and folded base pairs must stay inside
-            // the 136-entry basepoint table.
+            // Check the bounds required by the point tables.
             for (i, &d) in new.iter().enumerate() {
                 assert!((-8..=8).contains(&d), "digit {i} = {d}");
                 assert!((-8..=8).contains(&-d), "negated digit {i} = {}", -d);

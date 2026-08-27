@@ -183,9 +183,7 @@ impl PointTable {
 
 impl BasepointTable {
     pub(crate) fn new() -> Self {
-        // Built once per process (see BASE_TABLE in verifier.rs), so there's
-        // no reason to special-case even m via double() to save a handful of
-        // multiplies: this whole computation runs once ever.
+        // One-time base-table setup does not need an even-multiple fast path.
         let basepoint = EdwardsPoint::basepoint();
         let mut points: [EdwardsPoint; BASEPOINT_TABLE_SIZE] =
             core::array::from_fn(|_| basepoint.clone());
@@ -251,9 +249,7 @@ impl EdwardsPoint {
     }
 
     pub(crate) fn basepoint() -> Self {
-        // Built once per process (see BASE_TABLE in verifier.rs), so a
-        // decompress here (instead of hardcoded limb constants) costs
-        // nothing worth avoiding.
+        // One-time base-table setup makes decompression negligible.
         Self::decompress(&BASEPOINT_COMPRESSED).expect("basepoint encoding is valid")
     }
 

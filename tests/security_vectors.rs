@@ -74,9 +74,8 @@ fn speccheck_vectors_match_zip215_and_dalek_policies() {
         serde_json::from_str(include_str!("vectors/ed25519_speccheck.json")).unwrap();
     let cases = cases.as_array().unwrap();
 
-    // Pinned speccheck expectations: Dalek rejects the small-/mixed-order cases
-    // accepted by ZIP-215; both reject non-canonical S. solana-ed25519 is
-    // cross-checked against these arrays as a fixture guard.
+    // Dalek rejects small/mixed-order cases accepted by ZIP-215; both reject
+    // noncanonical S. Cross-check solana-ed25519 to guard the fixture.
     let zip215_expected = [
         true, true, true, true, true, true, false, false, false, true, true, true,
     ];
