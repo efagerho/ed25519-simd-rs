@@ -1,10 +1,11 @@
 pub(crate) mod avx512ifma {
     use crate::batch::{PUBLIC_KEY_LEN, PreparedBatch, R_ENCODING_LEN};
-    #[cfg(test)]
-    use crate::edwards::EdwardsPoint;
     use crate::edwards::{
-        AffineCachedPoint, BasepointTable, CachedPoint, POINT_ENCODING_LEN, PointTable,
+        AffineCachedPoint, BasepointTableEntries, CachedPoint, POINT_ENCODING_LEN, PointTable,
+        select_signed_affine_ref,
     };
+    #[cfg(test)]
+    use crate::edwards::{BasepointTable, EdwardsPoint};
     use crate::field::{Fe51, LIMB_COUNT};
     use crate::scalar::Radix16;
     use std::arch::x86_64::*;
@@ -121,7 +122,7 @@ pub(crate) mod avx512ifma {
     pub(crate) fn verify_prepared_zip215(
         prepared: &PreparedBatch<'_>,
         r: &WideRPoints,
-        base_table: &BasepointTable,
+        base_table: &BasepointTableEntries,
     ) -> [bool; LANES] {
         let combined = mul_base_minus_public::<true>(base_table, prepared);
         combined.subtract_affine_and_check_8_torsion(&r.point)
@@ -130,7 +131,7 @@ pub(crate) mod avx512ifma {
     pub(crate) fn verify_prepared_dalek(
         prepared: &PreparedBatch<'_>,
         r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
-        base_table: &BasepointTable,
+        base_table: &BasepointTableEntries,
     ) -> [bool; LANES] {
         let combined = mul_base_minus_public::<false>(base_table, prepared);
         let recomputed = combined.compress();
@@ -140,7 +141,7 @@ pub(crate) mod avx512ifma {
     pub(crate) fn verify_prepared_dalek_projective(
         prepared: &PreparedBatch<'_>,
         r: &WideRPoints,
-        base_table: &BasepointTable,
+        base_table: &BasepointTableEntries,
     ) -> [bool; LANES] {
         let combined = mul_base_minus_public::<false>(base_table, prepared);
         combined.equals_affine_lanes(&r.point)
@@ -262,7 +263,7 @@ pub(crate) mod avx512ifma {
     }
     // Only ZIP-215's final torsion subtraction needs T.
     fn mul_base_minus_public<const NEED_T: bool>(
-        base_table: &BasepointTable,
+        base_table: &BasepointTableEntries,
         prepared: &PreparedBatch<'_>,
     ) -> WidePoint {
         let public_key_tables = &prepared.public_key_tables;
@@ -306,12 +307,12 @@ pub(crate) mod avx512ifma {
     #[inline]
     fn add_base_pair_digit(
         acc: &mut WidePoint,
-        base_table: &BasepointTable,
+        base_table: &BasepointTableEntries,
         s_digits: &[Radix16; LANES],
         pair: usize,
     ) {
         let selected: [_; LANES] = core::array::from_fn(|lane| {
-            base_table.select_signed_affine_ref(base_pair_digit(&s_digits[lane], pair))
+            select_signed_affine_ref(base_table, base_pair_digit(&s_digits[lane], pair))
         });
         acc.add_affine_cached_refs_assign(&selected);
     }
@@ -1733,7 +1734,7 @@ pub(crate) mod avx512ifma {
                 s_digits: &s_digits,
                 k_digits: &k_digits,
             };
-            let combined = mul_base_minus_public::<true>(&base_table, &prepared);
+            let combined = mul_base_minus_public::<true>(base_table.entries(), &prepared);
             let pts = combined.to_points();
             assert_eq!(
                 pts[0].compress(),
