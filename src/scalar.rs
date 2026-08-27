@@ -415,6 +415,7 @@ fn sub_u256(a: &mut [u64; 4], b: &[u64; 4]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::{RngCore, SeedableRng, rngs::StdRng};
 
     /// Reconstruct the integer a signed radix-16 digit array represents.
     /// Wrapping 256-bit arithmetic is exact here: the sum equals the scalar,
@@ -482,10 +483,10 @@ mod tests {
         });
         cases.push(l_minus_1);
 
-        let mut rng = crate::test_rng::TestRng::new(0x243f_6a88_85a3_08d3);
+        let mut rng = StdRng::seed_from_u64(0x243f_6a88_85a3_08d3);
         for _ in 0..4096 {
             let mut b = [0u8; 32];
-            rng.fill(&mut b);
+            rng.fill_bytes(&mut b);
             b[31] &= 0x0f; // keep it below L
             if is_canonical(&b) {
                 cases.push(b);
@@ -541,11 +542,11 @@ mod tests {
             assert!(is_canonical(&reduced));
         }
 
-        let mut rng = crate::test_rng::TestRng::new(0x6a09_e667_f3bc_c908);
+        let mut rng = StdRng::seed_from_u64(0x6a09_e667_f3bc_c908);
         let mut round = 0;
         while round < 2048 {
             let mut bytes = [0u8; 64];
-            rng.fill(&mut bytes);
+            rng.fill_bytes(&mut bytes);
 
             let reduced = reduce_wide(bytes);
             assert_eq!(reduced, reduce_wide_slow(bytes), "round {round}");
