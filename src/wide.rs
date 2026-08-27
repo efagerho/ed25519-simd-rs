@@ -849,12 +849,11 @@ pub(crate) mod avx512ifma {
         fn canonical_zero_mask(&self) -> u8 {
             unsafe {
                 let zero = _mm512_setzero_si512();
-                let mask = _mm512_cmpeq_epu64_mask(self.limbs[0], zero)
+                _mm512_cmpeq_epu64_mask(self.limbs[0], zero)
                     & _mm512_cmpeq_epu64_mask(self.limbs[1], zero)
                     & _mm512_cmpeq_epu64_mask(self.limbs[2], zero)
                     & _mm512_cmpeq_epu64_mask(self.limbs[3], zero)
-                    & _mm512_cmpeq_epu64_mask(self.limbs[4], zero);
-                mask as u8
+                    & _mm512_cmpeq_epu64_mask(self.limbs[4], zero)
             }
         }
         #[cfg(test)]
@@ -871,7 +870,7 @@ pub(crate) mod avx512ifma {
             unsafe {
                 let c = self.canonical();
                 let one = _mm512_set1_epi64(1);
-                _mm512_test_epi64_mask(c.limbs[0], one) as u8
+                _mm512_test_epi64_mask(c.limbs[0], one)
             }
         }
         /// Return parity and zero masks from one canonicalization.
@@ -880,7 +879,7 @@ pub(crate) mod avx512ifma {
                 let c = self.canonical();
                 let one = _mm512_set1_epi64(1);
                 (
-                    _mm512_test_epi64_mask(c.limbs[0], one) as u8,
+                    _mm512_test_epi64_mask(c.limbs[0], one),
                     c.canonical_zero_mask(),
                 )
             }
