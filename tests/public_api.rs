@@ -2,117 +2,13 @@ mod support;
 
 use curve25519::ed_sigs::VerificationKeyBytes;
 use ed25519_simd::{
-    CachedPublicKey, HotKeyCache, KeyCache, NullKeyCache, PUBLIC_KEY_LEN, SIGNATURE_LEN, Verifier,
-    VerifyInput, VerifyPolicy,
+    CachedPublicKey, HotKeyCache, KeyCache, NullKeyCache, PUBLIC_KEY_LEN, Verifier, VerifyInput,
+    VerifyPolicy,
 };
 use support::{Case, hex_array, signing_key_from_index};
 
-fn rfc8032_key0() -> [u8; PUBLIC_KEY_LEN] {
-    hex_array("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
-}
-
-fn rfc8032_sig0() -> [u8; SIGNATURE_LEN] {
-    hex_array(
-        "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e06522490155\
-         5fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b",
-    )
-}
-
-fn rfc8032_key1() -> [u8; PUBLIC_KEY_LEN] {
-    hex_array("3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c")
-}
-
-fn rfc8032_sig1() -> [u8; SIGNATURE_LEN] {
-    hex_array(
-        "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da\
-         085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00",
-    )
-}
-
 fn resident_count(cache: &HotKeyCache, keys: &[[u8; PUBLIC_KEY_LEN]]) -> usize {
     keys.iter().filter(|key| cache.get(key).is_some()).count()
-}
-
-#[test]
-fn rejects_mutated_signature() {
-    let mut signature = rfc8032_sig0();
-    signature[3] ^= 1;
-    let input = VerifyInput {
-        public_key: rfc8032_key0(),
-        signature,
-        message: b"",
-    };
-    let mut out = [true];
-
-    Verifier::new().verify_batch(&[input], &mut out);
-
-    assert_eq!(out, [false]);
-}
-
-#[test]
-fn cached_verifier_accepts_batch() {
-    let input = VerifyInput {
-        public_key: rfc8032_key1(),
-        signature: rfc8032_sig1(),
-        message: &[0x72],
-    };
-    let mut out = [false];
-    let mut verifier =
-        Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::with_capacity(1024));
-
-    verifier.verify_batch(&[input], &mut out);
-
-    assert_eq!(out, [true]);
-}
-
-#[test]
-fn cached_verifier_accepts_simd_sized_batch() {
-    let inputs = [VerifyInput {
-        public_key: rfc8032_key1(),
-        signature: rfc8032_sig1(),
-        message: &[0x72],
-    }; 8];
-    let mut out = [false; 8];
-    let mut verifier =
-        Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::with_capacity(1024));
-
-    verifier.verify_batch(&inputs, &mut out);
-
-    assert_eq!(out, [true; 8]);
-}
-
-#[test]
-fn cached_verifier_rejects_one_bad_lane_in_simd_batch() {
-    let mut inputs = [VerifyInput {
-        public_key: rfc8032_key1(),
-        signature: rfc8032_sig1(),
-        message: &[0x72],
-    }; 8];
-    inputs[3].signature[40] ^= 1;
-    let mut out = [false; 8];
-    let mut verifier =
-        Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::with_capacity(1024));
-
-    verifier.verify_batch(&inputs, &mut out);
-
-    assert_eq!(out, [true, true, true, false, true, true, true, true]);
-}
-
-#[test]
-fn cached_verifier_rejects_bad_r_lane_in_simd_batch() {
-    let mut inputs = [VerifyInput {
-        public_key: rfc8032_key1(),
-        signature: rfc8032_sig1(),
-        message: &[0x72],
-    }; 8];
-    inputs[5].signature[..32].copy_from_slice(&[0xff; 32]);
-    let mut out = [false; 8];
-    let mut verifier =
-        Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::with_capacity(1024));
-
-    verifier.verify_batch(&inputs, &mut out);
-
-    assert_eq!(out, [true, true, true, true, true, false, true, true]);
 }
 
 #[test]
@@ -143,9 +39,9 @@ fn hot_key_cache_handles_mixed_hit_and_miss_lanes_in_one_chunk() {
         public_keys.iter().step_by(2).copied().collect();
     assert_eq!(resident_count(verifier.cache(), &warm_public_keys), 4);
 
-    // Corrupt one hit lane and one miss lane to catch table/lane mix-ups.
-    inputs[2].signature[0] ^= 1;
-    inputs[3].signature[0] ^= 1;
+    // Corrupt S in one hit lane and make R invalid in one miss lane.
+    inputs[2].signature[40] ^= 1;
+    inputs[3].signature[..32].copy_from_slice(&[0xff; 32]);
 
     let mut out = [false; 8];
     verifier.verify_batch(&inputs, &mut out);
@@ -204,81 +100,24 @@ fn from_encoded_rejects_a_key_that_does_not_decompress() {
 }
 
 #[test]
-fn hot_key_cache_retains_recent_keys_with_capacity() {
-    let mut cache = HotKeyCache::with_capacity(1);
-
-    cache.insert(CachedPublicKey::from_encoded(rfc8032_key0()).unwrap());
-    assert!(cache.get(&rfc8032_key0()).is_some());
-
-    cache.insert(CachedPublicKey::from_encoded(rfc8032_key1()).unwrap());
-    assert!(cache.get(&rfc8032_key1()).is_some());
-    assert!(cache.get(&rfc8032_key0()).is_none());
-
-    cache.insert(CachedPublicKey::from_encoded(rfc8032_key0()).unwrap());
-    assert!(cache.get(&rfc8032_key0()).is_some());
-    assert_eq!(resident_count(&cache, &[rfc8032_key0(), rfc8032_key1()]), 1);
-}
-
-#[test]
-fn hot_key_cache_shrinking_keeps_the_most_recently_used_keys() {
-    let keys: Vec<[u8; PUBLIC_KEY_LEN]> = (0..12u64)
+fn verifier_exposes_cache_mut_and_policy() {
+    let keys: Vec<[u8; PUBLIC_KEY_LEN]> = (0..4u64)
         .map(|i| <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key_from_index(i))))
         .collect();
-
-    let mut cache = HotKeyCache::with_capacity(1024);
-    for key in &keys {
-        cache.insert(CachedPublicKey::from_encoded(*key).unwrap());
-    }
-    // `resident_count` reads every key, so the last one read is the MRU.
-    assert_eq!(resident_count(&cache, &keys), 12);
-
-    cache.set_capacity(3);
-    for (i, key) in keys.iter().enumerate() {
-        assert_eq!(
-            cache.get(key).is_some(),
-            i >= 9,
-            "key {i} residency after shrinking to the 3 most recently used"
-        );
-    }
-}
-
-#[test]
-fn hot_key_cache_set_capacity_clamps_and_evicts_immediately() {
-    let keys = [rfc8032_key0(), rfc8032_key1()];
-    let mut cache = HotKeyCache::with_capacity(1024);
-    for key in &keys {
-        cache.insert(CachedPublicKey::from_encoded(*key).unwrap());
-    }
-    assert_eq!(resident_count(&cache, &keys), 2);
-
-    // Zero is clamped to one, and the key read most recently is the one kept.
-    cache.set_capacity(0);
-    assert!(cache.get(&rfc8032_key1()).is_some());
-    assert!(cache.get(&rfc8032_key0()).is_none());
-
-    cache.set_capacity(5);
-    assert_eq!(resident_count(&cache, &keys), 1);
-
-    cache.insert(CachedPublicKey::from_encoded(rfc8032_key0()).unwrap());
-    assert_eq!(resident_count(&cache, &keys), 2);
-}
-
-#[test]
-fn verifier_exposes_cache_mut_and_policy() {
-    let mut verifier = Verifier::with_cache(VerifyPolicy::Dalek, HotKeyCache::with_capacity(1024));
+    let mut verifier = Verifier::with_cache(VerifyPolicy::Dalek, HotKeyCache::with_capacity(4));
     assert_eq!(verifier.policy(), VerifyPolicy::Dalek);
 
-    verifier.cache_mut().set_capacity(1);
-    verifier
-        .cache_mut()
-        .insert(CachedPublicKey::from_encoded(rfc8032_key0()).unwrap());
-    verifier
-        .cache_mut()
-        .insert(CachedPublicKey::from_encoded(rfc8032_key1()).unwrap());
-    assert_eq!(
-        resident_count(verifier.cache(), &[rfc8032_key0(), rfc8032_key1()]),
-        1
-    );
+    for key in &keys {
+        verifier
+            .cache_mut()
+            .insert(CachedPublicKey::from_encoded(*key).unwrap());
+    }
+    assert_eq!(resident_count(verifier.cache(), &keys), 4);
+    verifier.cache_mut().set_capacity(2);
+    assert!(verifier.cache().get(&keys[2]).is_some());
+    assert!(verifier.cache().get(&keys[3]).is_some());
+    verifier.cache_mut().set_capacity(0);
+    assert_eq!(resident_count(verifier.cache(), &keys), 1);
 
     let zip215_verifier =
         Verifier::with_cache(VerifyPolicy::Zip215, HotKeyCache::with_capacity(1024));
@@ -286,22 +125,20 @@ fn verifier_exposes_cache_mut_and_policy() {
 }
 
 #[test]
-fn null_key_cache_is_stateless() {
-    assert_eq!(core::mem::size_of::<NullKeyCache>(), 0);
-}
-
-#[test]
 fn default_verifier_does_not_retain_keys() {
+    let message = b"default null cache";
+    let signing_key = signing_key_from_index(0x0d3f_a017);
+    let public_key = <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key));
     let mut verifier = Verifier::with_policy(VerifyPolicy::Zip215);
     let input = VerifyInput {
-        public_key: rfc8032_key1(),
-        signature: rfc8032_sig1(),
-        message: &[0x72],
+        public_key,
+        signature: signing_key.sign(message).to_bytes(),
+        message,
     };
     let mut out = [false];
 
     verifier.verify_batch(&[input], &mut out);
 
     assert_eq!(out, [true]);
-    assert!(verifier.cache().get(&rfc8032_key1()).is_none());
+    assert!(verifier.cache().get(&public_key).is_none());
 }

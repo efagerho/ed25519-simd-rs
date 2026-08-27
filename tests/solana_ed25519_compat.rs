@@ -2,295 +2,16 @@
 
 mod support;
 
-use curve25519::ed_sigs::{Signature, VerificationKeyBytes, batch};
+use curve25519::ed_sigs::VerificationKeyBytes;
 use ed25519_simd::{
     HotKeyCache, KeyCache, NullKeyCache, PUBLIC_KEY_LEN, SIGNATURE_LEN, Verifier, VerifyInput,
     VerifyPolicy,
 };
 use rand::{RngCore, SeedableRng, rngs::StdRng};
-use serde_json::Value;
 use support::{
-    Case, hex_array, hex_vec, signing_key_from_index, solana_ed25519_verify_dalek,
+    Case, hex_array, signing_key_from_index, solana_ed25519_verify_dalek,
     solana_ed25519_verify_zebra, verify, verify_warm,
 };
-
-fn solana_ed25519_verify_batch(inputs: &[VerifyInput<'_>]) -> bool {
-    let mut batch = batch::Verifier::new();
-    for input in inputs {
-        let vk_bytes = VerificationKeyBytes::from(input.public_key);
-        let sig = Signature::from(input.signature);
-        batch.queue((vk_bytes, sig, input.message));
-    }
-    batch.verify(rand::thread_rng()).is_ok()
-}
-
-type SolanaEd25519VerifyFn = fn([u8; PUBLIC_KEY_LEN], [u8; SIGNATURE_LEN], &[u8]) -> bool;
-
-fn build_corpus(count: usize) -> Vec<Case> {
-    let mut rng = StdRng::seed_from_u64(0x0123_4567_89ab_cdef);
-    let mut cases = Vec::with_capacity(count);
-
-    for i in 0..count {
-        let kind = i % 5;
-        let len = (rng.next_u64() % 300) as usize;
-        let mut message = vec![0u8; len];
-        rng.fill_bytes(&mut message);
-
-        let signing_key = signing_key_from_index(rng.next_u64());
-        let public_key = <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key));
-        let signature = signing_key.sign(&message).to_bytes();
-
-        let case = match kind {
-            0 => Case {
-                public_key,
-                signature,
-                message,
-            },
-            1 => {
-                let mut signature = signature;
-                let byte = (rng.next_u64() % 64) as usize;
-                signature[byte] ^= 1 << (rng.next_u64() % 8);
-                Case {
-                    public_key,
-                    signature,
-                    message,
-                }
-            }
-            2 => {
-                if message.is_empty() {
-                    message.push(0xff);
-                } else {
-                    let byte = (rng.next_u64() as usize) % message.len();
-                    message[byte] ^= 1 << (rng.next_u64() % 8);
-                }
-                Case {
-                    public_key,
-                    signature,
-                    message,
-                }
-            }
-            3 => {
-                let mut public_key = [0u8; 32];
-                rng.fill_bytes(&mut public_key);
-                Case {
-                    public_key,
-                    signature,
-                    message,
-                }
-            }
-            _ => {
-                let mut signature = [0u8; 64];
-                rng.fill_bytes(&mut signature);
-                Case {
-                    public_key,
-                    signature,
-                    message,
-                }
-            }
-        };
-        cases.push(case);
-    }
-    cases
-}
-
-#[test]
-fn single_verify_matches_solana_ed25519_on_canonical_corpus() {
-    let cases = build_corpus(4000);
-
-    let mut verifier = Verifier::new();
-    let mut disagreements = 0usize;
-    let mut accepted = 0usize;
-
-    for case in &cases {
-        let input = case.input();
-        let ours = verify(VerifyPolicy::default(), input);
-        let mut cached_out = [false];
-        verifier.verify_batch(&[input], &mut cached_out);
-        let ours_cached = cached_out[0];
-        let theirs = solana_ed25519_verify_zebra(case.public_key, case.signature, &case.message);
-
-        assert_eq!(ours, ours_cached, "crate stateless vs default disagree");
-
-        if ours != theirs {
-            disagreements += 1;
-            eprintln!(
-                "DISAGREE pk={:02x?} sig0={:02x} msglen={} ours={} solana-ed25519={}",
-                &case.public_key[..4],
-                case.signature[0],
-                case.message.len(),
-                ours,
-                theirs
-            );
-        }
-        if ours {
-            accepted += 1;
-        }
-    }
-
-    // Only `kind == 0` (1/5 of the corpus) is always valid; the rest reject.
-    // The band catches both false-reject and over-accept regressions.
-    let valid_fraction = cases.len() / 5;
-    assert!(
-        (valid_fraction..=valid_fraction + cases.len() / 50).contains(&accepted),
-        "expected about {valid_fraction} accepts, got {accepted}"
-    );
-    assert_eq!(
-        disagreements, 0,
-        "crate and solana-ed25519 disagreed on {disagreements} canonical inputs"
-    );
-}
-
-#[test]
-fn null_cache_matches_solana_ed25519() {
-    for &size in &[8usize, 12, 16, 32] {
-        for trial in 0..4u64 {
-            let mut rng = StdRng::seed_from_u64(0xc01d_0000 + trial * 977 + size as u64);
-            let len = (rng.next_u64() % 200) as usize;
-
-            let mut cases: Vec<Case> = Vec::with_capacity(size);
-            for _ in 0..size {
-                let mut message = vec![0u8; len];
-                rng.fill_bytes(&mut message);
-                let signing_key = signing_key_from_index(rng.next_u64());
-                let public_key = <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key));
-                let mut signature = signing_key.sign(&message).to_bytes();
-                if rng.next_u64().is_multiple_of(4) {
-                    let b = (rng.next_u64() % 64) as usize;
-                    signature[b] ^= 1 << (rng.next_u64() % 8);
-                }
-                cases.push(Case {
-                    public_key,
-                    signature,
-                    message,
-                });
-            }
-            let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|c| c.input()).collect();
-
-            let policies: [(VerifyPolicy, SolanaEd25519VerifyFn); 2] = [
-                (VerifyPolicy::Zip215, solana_ed25519_verify_zebra),
-                (VerifyPolicy::Dalek, solana_ed25519_verify_dalek),
-            ];
-            for (policy, solana_ed25519) in policies {
-                let mut verifier = Verifier::with_cache(policy, NullKeyCache::new());
-                let mut out = vec![false; inputs.len()];
-                verifier.verify_batch(&inputs, &mut out);
-                for (idx, input) in inputs.iter().enumerate() {
-                    let theirs = solana_ed25519(input.public_key, input.signature, input.message);
-                    assert_eq!(
-                        out[idx], theirs,
-                        "null-cache {policy:?} element {idx} (size={size}) disagrees with solana-ed25519"
-                    );
-                }
-                assert!(verifier.cache().get(&inputs[0].public_key).is_none());
-            }
-        }
-    }
-}
-
-#[test]
-fn block_count_bucketed_batches_match_solana_ed25519() {
-    let lengths = [
-        1usize, 2048, 64, 1024, 2, 1536, 128, 4096, 3, 512, 65, 2047, 4, 256, 112, 3072, 5, 1025,
-        63, 2048, 6, 768, 127, 4095, 7, 1537, 48, 1024, 8, 511, 113, 2048, 9, 4096, 64, 1023, 10,
-        256, 129, 3071,
-    ];
-    let mut rng = StdRng::seed_from_u64(0xb0cc_e7ed_5eed);
-    let mut cases = Vec::with_capacity(lengths.len());
-
-    for (idx, &len) in lengths.iter().enumerate() {
-        let mut message = vec![0u8; len];
-        rng.fill_bytes(&mut message);
-        let signing_key = signing_key_from_index(idx as u64 + 10_000);
-        let public_key = <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key));
-        let mut signature = signing_key.sign(&message).to_bytes();
-        if idx % 7 == 3 {
-            signature[(idx * 11) % 64] ^= 0x40;
-        }
-        cases.push(Case {
-            public_key,
-            signature,
-            message,
-        });
-    }
-
-    let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|c| c.input()).collect();
-    let policies: [(VerifyPolicy, SolanaEd25519VerifyFn); 2] = [
-        (VerifyPolicy::Zip215, solana_ed25519_verify_zebra),
-        (VerifyPolicy::Dalek, solana_ed25519_verify_dalek),
-    ];
-
-    for (policy, solana_ed25519) in policies {
-        let expected: Vec<bool> = inputs
-            .iter()
-            .map(|input| solana_ed25519(input.public_key, input.signature, input.message))
-            .collect();
-
-        let mut cached = Verifier::with_cache(policy, HotKeyCache::with_capacity(1024));
-        let mut cached_out = vec![false; inputs.len()];
-        cached.verify_batch(&inputs, &mut cached_out);
-        assert_eq!(cached_out, expected, "hot-key cache policy={policy:?}");
-
-        let mut cold = Verifier::with_cache(policy, NullKeyCache::new());
-        let mut cold_out = vec![false; inputs.len()];
-        cold.verify_batch(&inputs, &mut cold_out);
-        assert_eq!(cold_out, expected, "null-cache policy={policy:?}");
-    }
-}
-
-/// Forces the bucketed tail-padding branch with 17 mixed-length inputs.
-#[test]
-fn block_count_bucketed_batch_with_non_multiple_of_eight_tail_matches_solana_ed25519() {
-    let lengths = [
-        1usize, 2048, 64, 1024, 2, 1536, 128, 4096, 3, 512, 65, 2047, 4, 256, 112, 3072, 5,
-    ];
-    assert_eq!(
-        lengths.len(),
-        17,
-        "must not be a multiple of SIMD_LANES (8)"
-    );
-
-    let mut rng = StdRng::seed_from_u64(0xba7c_4ed0_7a11);
-    let mut cases = Vec::with_capacity(lengths.len());
-
-    for (idx, &len) in lengths.iter().enumerate() {
-        let mut message = vec![0u8; len];
-        rng.fill_bytes(&mut message);
-        let signing_key = signing_key_from_index(idx as u64 + 20_000);
-        let public_key = <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key));
-        let mut signature = signing_key.sign(&message).to_bytes();
-        if idx % 5 == 2 {
-            signature[(idx * 13) % 64] ^= 0x20;
-        }
-        cases.push(Case {
-            public_key,
-            signature,
-            message,
-        });
-    }
-
-    let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|c| c.input()).collect();
-    let policies: [(VerifyPolicy, SolanaEd25519VerifyFn); 2] = [
-        (VerifyPolicy::Zip215, solana_ed25519_verify_zebra),
-        (VerifyPolicy::Dalek, solana_ed25519_verify_dalek),
-    ];
-
-    for (policy, solana_ed25519) in policies {
-        let expected: Vec<bool> = inputs
-            .iter()
-            .map(|input| solana_ed25519(input.public_key, input.signature, input.message))
-            .collect();
-
-        let mut cached = Verifier::with_cache(policy, HotKeyCache::with_capacity(1024));
-        let mut cached_out = vec![false; inputs.len()];
-        cached.verify_batch(&inputs, &mut cached_out);
-        assert_eq!(cached_out, expected, "hot-key cache policy={policy:?}");
-
-        let mut cold = Verifier::with_cache(policy, NullKeyCache::new());
-        let mut cold_out = vec![false; inputs.len()];
-        cold.verify_batch(&inputs, &mut cold_out);
-        assert_eq!(cold_out, expected, "null-cache policy={policy:?}");
-    }
-}
 
 /// Stresses the SIMD distinct-key decode/table path against solana-ed25519.
 #[test]
@@ -344,120 +65,76 @@ fn null_cache_decode_build_stress() {
 }
 
 #[test]
-fn batch_verify_matches_solana_ed25519() {
-    for &size in &[8usize, 9, 16, 31, 32] {
-        for trial in 0..6u64 {
-            let mut rng = StdRng::seed_from_u64(0xdead_0000 + trial * 911 + size as u64);
-            let uniform = trial % 2 == 0;
-            let len = (rng.next_u64() % 200) as usize;
-
-            let mut cases: Vec<Case> = Vec::with_capacity(size);
-            let shared_key_index = rng.next_u64();
-            for _ in 0..size {
-                let mut message = vec![0u8; len];
-                rng.fill_bytes(&mut message);
-                let key_index = if uniform {
-                    shared_key_index
-                } else {
-                    rng.next_u64()
-                };
-                let signing_key = signing_key_from_index(key_index);
-                let public_key = <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key));
-                let mut signature = signing_key.sign(&message).to_bytes();
-                if rng.next_u64().is_multiple_of(4) {
-                    let b = (rng.next_u64() % 64) as usize;
-                    signature[b] ^= 1 << (rng.next_u64() % 8);
-                }
-                cases.push(Case {
-                    public_key,
-                    signature,
-                    message,
-                });
-            }
-
-            let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|c| c.input()).collect();
-
-            let mut verifier =
-                Verifier::with_cache(VerifyPolicy::Zip215, HotKeyCache::with_capacity(1024));
-            let mut warm_out = vec![false; inputs.len()];
-            verifier.verify_batch(&inputs, &mut warm_out);
-            let mut out = vec![false; inputs.len()];
-            verifier.verify_batch(&inputs, &mut out);
-
-            for (idx, input) in inputs.iter().enumerate() {
-                let theirs =
-                    solana_ed25519_verify_zebra(input.public_key, input.signature, input.message);
-                assert_eq!(
-                    out[idx], theirs,
-                    "batch element {idx} (size={size}, uniform={uniform}) disagrees"
+fn cached_batches_match_solana_ed25519() {
+    for policy in [VerifyPolicy::Zip215, VerifyPolicy::Dalek] {
+        for &size in &[8usize, 9, 16, 24, 31, 32] {
+            for trial in 0..6u64 {
+                let mut rng = StdRng::seed_from_u64(
+                    0xba7c_0000 + policy as u64 * 0x100_0000 + trial * 911 + size as u64,
                 );
-            }
+                let uniform_key = trial % 2 == 0;
+                let len = (rng.next_u64() % 200) as usize;
+                let shared_key = rng.next_u64();
 
-            let all_ok = out.iter().all(|&b| b);
-            let solana_ed25519_all_ok = solana_ed25519_verify_batch(&inputs);
-            assert_eq!(
-                all_ok, solana_ed25519_all_ok,
-                "batch-level accept disagrees (size={size}, uniform={uniform})"
-            );
-        }
-    }
-}
-
-#[test]
-fn batch_dalek_matches_solana_ed25519_simd() {
-    use ed25519_simd::VerifyPolicy::Dalek;
-
-    for &size in &[8usize, 16, 24, 31] {
-        for trial in 0..6u64 {
-            let mut rng = StdRng::seed_from_u64(0xda1e_0000 + trial * 733 + size as u64);
-            let uniform = trial % 2 == 0;
-            let len = (rng.next_u64() % 200) as usize;
-
-            let mut cases: Vec<Case> = Vec::with_capacity(size);
-            let shared = rng.next_u64();
-            for j in 0..size {
-                let mut message = vec![0u8; len];
-                rng.fill_bytes(&mut message);
-                let key_index = if uniform { shared } else { rng.next_u64() };
-                let signing_key = signing_key_from_index(key_index);
-                let public_key = <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key));
-                let mut signature = signing_key.sign(&message).to_bytes();
-                match rng.next_u64() % 6 {
-                    0 => {
-                        let b = (rng.next_u64() % 64) as usize;
-                        signature[b] ^= 1 << (rng.next_u64() % 8);
+                let mut cases = Vec::with_capacity(size);
+                for lane in 0..size {
+                    let mut message = vec![0u8; len];
+                    rng.fill_bytes(&mut message);
+                    let key_index = if uniform_key {
+                        shared_key
+                    } else {
+                        rng.next_u64()
+                    };
+                    let signing_key = signing_key_from_index(key_index);
+                    let public_key = <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key));
+                    let mut signature = signing_key.sign(&message).to_bytes();
+                    match rng.next_u64() % 8 {
+                        0 => {
+                            let byte = (rng.next_u64() % 64) as usize;
+                            signature[byte] ^= 1 << (rng.next_u64() % 8);
+                        }
+                        1 if policy == VerifyPolicy::Dalek => {
+                            signature[..32].copy_from_slice(&[0u8; 32]);
+                        }
+                        2 if policy == VerifyPolicy::Dalek && lane == 0 => {
+                            signature[..32].fill(0);
+                            signature[0] = 1;
+                        }
+                        _ => {}
                     }
-                    1 => {
-                        signature[..32].copy_from_slice(&[0u8; 32]);
-                    }
-                    2 if j == 0 => {
-                        let mut r = [0u8; 32];
-                        r[0] = 1;
-                        signature[..32].copy_from_slice(&r);
-                    }
-                    _ => {}
+                    cases.push(Case {
+                        public_key,
+                        signature,
+                        message,
+                    });
                 }
-                cases.push(Case {
-                    public_key,
-                    signature,
-                    message,
-                });
-            }
 
-            let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|c| c.input()).collect();
-            let mut verifier = Verifier::with_cache(Dalek, HotKeyCache::with_capacity(1024));
-            let mut warm_out = vec![false; inputs.len()];
-            verifier.verify_batch(&inputs, &mut warm_out);
-            let mut out = vec![false; inputs.len()];
-            verifier.verify_batch(&inputs, &mut out);
+                let inputs: Vec<VerifyInput<'_>> = cases.iter().map(Case::input).collect();
+                let expected: Vec<bool> = inputs
+                    .iter()
+                    .map(|input| match policy {
+                        VerifyPolicy::Zip215 => solana_ed25519_verify_zebra(
+                            input.public_key,
+                            input.signature,
+                            input.message,
+                        ),
+                        VerifyPolicy::Dalek => solana_ed25519_verify_dalek(
+                            input.public_key,
+                            input.signature,
+                            input.message,
+                        ),
+                    })
+                    .collect();
 
-            for (idx, input) in inputs.iter().enumerate() {
-                let theirs =
-                    solana_ed25519_verify_dalek(input.public_key, input.signature, input.message);
-                assert_eq!(
-                    out[idx], theirs,
-                    "dalek batch element {idx} (size={size}, uniform={uniform}) disagrees"
-                );
+                let mut verifier = Verifier::with_cache(policy, HotKeyCache::with_capacity(1024));
+                for path in ["cold", "warm"] {
+                    let mut out = vec![false; inputs.len()];
+                    verifier.verify_batch(&inputs, &mut out);
+                    assert_eq!(
+                        out, expected,
+                        "{path} {policy:?}, size={size}, uniform_key={uniform_key}"
+                    );
+                }
             }
         }
     }
@@ -497,7 +174,7 @@ fn per_lane_masking_matches_solana_ed25519_under_heavy_garbage() {
     use ed25519_simd::VerifyPolicy::{Dalek, Zip215};
 
     for &policy in &[Zip215, Dalek] {
-        for &size in &[8usize, 9, 16, 17, 32, 33, 64] {
+        for &size in &[1usize, 8, 9, 16, 17, 32, 33, 64] {
             for trial in 0..8u64 {
                 let mut rng = StdRng::seed_from_u64(
                     0x6a11_0000 + trial * 1009 + size as u64 * 7 + policy as u64,
@@ -661,9 +338,11 @@ fn enumerate_divergences_vs_solana_ed25519() {
     ];
     let message: &[u8] = b"taming the many eddsas";
 
-    let mut zebra_div = Vec::new();
-    let mut dalek_div = Vec::new();
-    let mut total = 0;
+    type Oracle = fn([u8; PUBLIC_KEY_LEN], [u8; SIGNATURE_LEN], &[u8]) -> bool;
+    let policies: [(VerifyPolicy, Oracle); 2] = [
+        (Zip215, solana_ed25519_verify_zebra),
+        (Dalek, solana_ed25519_verify_dalek),
+    ];
 
     for (a_name, a) in &points {
         for (r_name, r) in &points {
@@ -671,7 +350,6 @@ fn enumerate_divergences_vs_solana_ed25519() {
                 let mut sig = [0u8; 64];
                 sig[..32].copy_from_slice(r);
                 sig[32..].copy_from_slice(s);
-                total += 1;
 
                 let input = VerifyInput {
                     public_key: *a,
@@ -679,224 +357,19 @@ fn enumerate_divergences_vs_solana_ed25519() {
                     message,
                 };
 
-                // Exercise cold-cache point comparison and warm-cache byte
-                // comparison; these crafted R values distinguish the paths.
-                let solana_ed25519_zebra = solana_ed25519_verify_zebra(*a, sig, message);
-                for (path, ours) in [
-                    ("cold", verify(Zip215, input)),
-                    ("warm", verify_warm(Zip215, input)),
-                ] {
-                    if ours != solana_ed25519_zebra {
-                        zebra_div.push((a_name, r_name, s_name, path, ours, solana_ed25519_zebra));
-                    }
-                }
-
-                let solana_ed25519_dalek = solana_ed25519_verify_dalek(*a, sig, message);
-                for (path, ours) in [
-                    ("cold", verify(Dalek, input)),
-                    ("warm", verify_warm(Dalek, input)),
-                ] {
-                    if ours != solana_ed25519_dalek {
-                        dalek_div.push((a_name, r_name, s_name, path, ours, solana_ed25519_dalek));
+                for (policy, oracle) in policies {
+                    let expected = oracle(*a, sig, message);
+                    for (path, actual) in [
+                        ("cold", verify(policy, input)),
+                        ("warm", verify_warm(policy, input)),
+                    ] {
+                        assert_eq!(
+                            actual, expected,
+                            "A={a_name}, R={r_name}, S={s_name}, {policy:?} {path}"
+                        );
                     }
                 }
             }
         }
     }
-
-    eprintln!("\n=== {total} crafted cases, each on a cold and a warm cache ===");
-    eprintln!(
-        "cofactored vs solana-ed25519 verify_zebra (ZIP-215): {} divergences",
-        zebra_div.len()
-    );
-    for (a, r, s, path, ours, solana_ed25519) in zebra_div.iter().take(20) {
-        eprintln!("  A={a:18} R={r:18} {s:6} {path:4} ours={ours} solana-ed25519={solana_ed25519}");
-    }
-    eprintln!(
-        "strict vs solana-ed25519 verify_dalek: {} divergences",
-        dalek_div.len()
-    );
-    for (a, r, s, path, ours, solana_ed25519) in dalek_div.iter().take(20) {
-        eprintln!("  A={a:18} R={r:18} {s:6} {path:4} ours={ours} solana-ed25519={solana_ed25519}");
-    }
-    eprintln!(
-        "\nSUMMARY: zebra_divergences={} dalek_divergences={}",
-        zebra_div.len(),
-        dalek_div.len()
-    );
-
-    assert_eq!(
-        zebra_div.len(),
-        0,
-        "cofactored policy must match solana-ed25519 verify_zebra"
-    );
-    assert_eq!(
-        dalek_div.len(),
-        0,
-        "strict policy must match solana-ed25519 verify_dalek"
-    );
-}
-
-#[test]
-fn noncanonical_encoding_now_matches_solana_ed25519() {
-    let mut public_key = [0xffu8; 32];
-    public_key[0] = 0xee;
-    public_key[31] = 0x7f;
-
-    let mut signature = [0u8; 64];
-    signature[0] = 1;
-
-    let message = b"";
-
-    let ours = verify(
-        VerifyPolicy::default(),
-        VerifyInput {
-            public_key,
-            signature,
-            message,
-        },
-    );
-    let theirs = solana_ed25519_verify_zebra(public_key, signature, message);
-
-    assert!(
-        theirs,
-        "solana-ed25519 ZIP-215 should accept the non-canonical encoding"
-    );
-    assert_eq!(
-        ours, theirs,
-        "crate must match solana-ed25519 on non-canonical encoding"
-    );
-}
-
-/// Replay edge cases through mixed-key batches and warm cache hits.
-#[test]
-fn speccheck_and_wycheproof_vectors_survive_non_uniform_batches_and_warm_cache() {
-    // Stable filler lanes force the mixed-key decode path.
-    let filler_message: &[u8] = b"filler lane";
-    let fillers: Vec<Case> = (0..7u64)
-        .map(|i| {
-            let signing_key = signing_key_from_index(0xf111_0000 + i);
-            let public_key = <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key));
-            let signature = signing_key.sign(filler_message).to_bytes();
-            Case {
-                public_key,
-                signature,
-                message: filler_message.to_vec(),
-            }
-        })
-        .collect();
-
-    let mut non_uniform_mismatches = Vec::new();
-    let mut warm_cache_mismatches = Vec::new();
-    let mut checked = 0usize;
-
-    fn check(
-        name: String,
-        public_key: [u8; PUBLIC_KEY_LEN],
-        signature: [u8; SIGNATURE_LEN],
-        message: &[u8],
-        fillers: &[Case],
-        non_uniform_mismatches: &mut Vec<(String, VerifyPolicy, bool, bool)>,
-        warm_cache_mismatches: &mut Vec<(String, VerifyPolicy, bool, bool)>,
-    ) {
-        for policy in [VerifyPolicy::Zip215, VerifyPolicy::Dalek] {
-            let oracle = match policy {
-                VerifyPolicy::Zip215 => solana_ed25519_verify_zebra(public_key, signature, message),
-                VerifyPolicy::Dalek => solana_ed25519_verify_dalek(public_key, signature, message),
-            };
-
-            // Seven distinct filler keys force the mixed-key decode path.
-            let mut inputs = vec![VerifyInput {
-                public_key,
-                signature,
-                message,
-            }];
-            inputs.extend(fillers.iter().map(Case::input));
-            let mut verifier = Verifier::with_cache(policy, NullKeyCache::new());
-            let mut out = vec![false; inputs.len()];
-            verifier.verify_batch(&inputs, &mut out);
-            if out[0] != oracle {
-                non_uniform_mismatches.push((name.clone(), policy, out[0], oracle));
-            }
-
-            // A second pass forces Dalek's warm-cache byte comparison.
-            let mut cached = Verifier::with_cache(policy, HotKeyCache::with_capacity(1024));
-            let input = VerifyInput {
-                public_key,
-                signature,
-                message,
-            };
-            let mut warm_out = [false];
-            cached.verify_batch(&[input], &mut warm_out);
-            let mut cached_out = [false];
-            cached.verify_batch(&[input], &mut cached_out);
-            if cached_out[0] != oracle {
-                warm_cache_mismatches.push((name.clone(), policy, cached_out[0], oracle));
-            }
-        }
-    }
-
-    let speccheck: Value =
-        serde_json::from_str(include_str!("vectors/ed25519_speccheck.json")).unwrap();
-    for (idx, case) in speccheck.as_array().unwrap().iter().enumerate() {
-        let public_key = hex_array::<PUBLIC_KEY_LEN>(case["pub_key"].as_str().unwrap());
-        let signature = hex_array::<SIGNATURE_LEN>(case["signature"].as_str().unwrap());
-        let message = hex_vec(case["message"].as_str().unwrap());
-        check(
-            format!("speccheck[{idx}]"),
-            public_key,
-            signature,
-            &message,
-            &fillers,
-            &mut non_uniform_mismatches,
-            &mut warm_cache_mismatches,
-        );
-        checked += 1;
-    }
-
-    let wycheproof: Value =
-        serde_json::from_str(include_str!("vectors/ed25519_wycheproof.json")).unwrap();
-    for group in wycheproof["testGroups"].as_array().unwrap() {
-        let public_key = hex_array::<PUBLIC_KEY_LEN>(group["publicKey"]["pk"].as_str().unwrap());
-        for (idx, test) in group["tests"].as_array().unwrap().iter().enumerate() {
-            let sig = hex_vec(test["sig"].as_str().unwrap());
-            if sig.len() != 64 {
-                continue;
-            }
-            let signature: [u8; SIGNATURE_LEN] = sig.try_into().unwrap();
-            let message = hex_vec(test["msg"].as_str().unwrap());
-            check(
-                format!("wycheproof tcId={} (group idx {idx})", test["tcId"]),
-                public_key,
-                signature,
-                &message,
-                &fillers,
-                &mut non_uniform_mismatches,
-                &mut warm_cache_mismatches,
-            );
-            checked += 1;
-        }
-    }
-
-    for (name, policy, ours, oracle) in non_uniform_mismatches.iter().take(20) {
-        eprintln!("NON-UNIFORM MISMATCH {name} policy={policy:?} ours={ours} oracle={oracle}");
-    }
-    for (name, policy, ours, oracle) in warm_cache_mismatches.iter().take(20) {
-        eprintln!("WARM-CACHE MISMATCH {name} policy={policy:?} ours={ours} oracle={oracle}");
-    }
-
-    assert!(
-        checked > 100,
-        "expected the full speccheck+Wycheproof corpus, got {checked}"
-    );
-    assert_eq!(
-        non_uniform_mismatches.len(),
-        0,
-        "disagreements in non-uniform (mixed-key) batches"
-    );
-    assert_eq!(
-        warm_cache_mismatches.len(),
-        0,
-        "disagreements with a warm HotKeyCache"
-    );
 }

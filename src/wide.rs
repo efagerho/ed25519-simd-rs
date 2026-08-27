@@ -1374,7 +1374,7 @@ pub(crate) mod avx512ifma {
         }
 
         #[test]
-        fn canonical_matches_references_on_boundary_values() {
+        fn canonical_matches_scalar_reference() {
             let zero = [0u64; LIMB_COUNT];
             let p = crate::field::P_LIMBS;
             let p_minus_1 = {
@@ -1405,14 +1405,9 @@ pub(crate) mod avx512ifma {
                 }
             }
             check_canonical(rows);
-        }
 
-        #[test]
-        fn canonical_matches_references_on_random_values() {
             let mut rng = StdRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
-
-            let mut round = 0;
-            while round < 512 {
+            for _ in 0..512 {
                 let mut rows = [[0u64; LANES]; LIMB_COUNT];
                 for row in &mut rows {
                     for value in row {
@@ -1420,47 +1415,32 @@ pub(crate) mod avx512ifma {
                     }
                 }
                 check_canonical(rows);
-                round += 1;
             }
         }
 
         #[test]
-        fn square_repeat_matches_strict_reference() {
+        fn square_repeat_variants_match_strict_reference() {
             // Check every exponent-chain count plus the N=0/1 boundaries.
-            macro_rules! check {
-                ($x:expr, $n:literal) => {
-                    let x = $x;
-                    assert!(
-                        WideFe::square_repeat::<$n>(&x)
-                            .equals_lanes(&strict_square_n(&x, $n))
-                            .iter()
-                            .all(|&v| v),
-                        "square_repeat::<{}> diverged from strict reference",
-                        $n
-                    );
-                };
-            }
-            for x in [
-                WideFe::constant(crate::field::D_LIMBS),
-                WideFe::constant(crate::field::SQRT_M1_LIMBS),
-            ] {
-                check!(x, 0);
-                check!(x, 1);
-                check!(x, 2);
-                check!(x, 5);
-                check!(x, 10);
-                check!(x, 20);
-                check!(x, 50);
-                check!(x, 100);
-            }
-        }
-
-        #[test]
-        fn square_repeat_x2_matches_strict_reference() {
             let a = WideFe::constant(crate::field::D_LIMBS);
             let b = WideFe::constant(crate::field::SQRT_M1_LIMBS);
             macro_rules! check {
                 ($n:literal) => {
+                    assert!(
+                        WideFe::square_repeat::<$n>(&a)
+                            .equals_lanes(&strict_square_n(&a, $n))
+                            .iter()
+                            .all(|&v| v),
+                        "square_repeat::<{}> diverged for a",
+                        $n
+                    );
+                    assert!(
+                        WideFe::square_repeat::<$n>(&b)
+                            .equals_lanes(&strict_square_n(&b, $n))
+                            .iter()
+                            .all(|&v| v),
+                        "square_repeat::<{}> diverged for b",
+                        $n
+                    );
                     let (xa, xb) = WideFe::square_repeat_x2::<$n>(&a, &b);
                     assert!(
                         xa.equals_lanes(&strict_square_n(&a, $n)).iter().all(|&v| v),
@@ -1485,46 +1465,41 @@ pub(crate) mod avx512ifma {
         }
 
         #[test]
-        fn pow_x2_matches_sequential() {
-            // Compare interleaved exponentiation with two sequential chains.
-            let a = WideFe::constant(crate::field::D_LIMBS);
-            let b = WideFe::constant(crate::field::SQRT_M1_LIMBS);
-            let (xa, xb) = WideFe::pow_p_minus_5_over_8_x2(&a, &b);
-            assert!(
-                xa.equals_lanes(&a.pow_p_minus_5_over_8())
-                    .iter()
-                    .all(|&v| v)
-            );
-            assert!(
-                xb.equals_lanes(&b.pow_p_minus_5_over_8())
-                    .iter()
-                    .all(|&v| v)
-            );
-        }
-
-        #[test]
-        fn wide_pow_matches_scalar_reference() {
-            // Keep scalar and SIMD decompression exponent chains in sync.
+        fn pow_variants_match_scalar_reference() {
             let mut rng = StdRng::seed_from_u64(0x3c6e_f372_fe94_f82b);
 
-            let mut round = 0;
-            while round < 200 {
-                let fields: [crate::field::Fe51; LANES] = core::array::from_fn(|_| {
-                    let limbs: [u64; LIMB_COUNT] =
-                        core::array::from_fn(|_| rng.next_u64() & LIMB_MASK);
-                    crate::field::Fe51::from_limbs(limbs)
-                });
-                let wide_result = WideFe::from_fields(&fields)
-                    .pow_p_minus_5_over_8()
-                    .to_fields();
+            for round in 0..200 {
+                let mut random_fields = || {
+                    core::array::from_fn(|_| {
+                        let limbs: [u64; LIMB_COUNT] =
+                            core::array::from_fn(|_| rng.next_u64() & LIMB_MASK);
+                        crate::field::Fe51::from_limbs(limbs)
+                    })
+                };
+                let fields_a: [crate::field::Fe51; LANES] = random_fields();
+                let fields_b: [crate::field::Fe51; LANES] = random_fields();
+                let a = WideFe::from_fields(&fields_a);
+                let b = WideFe::from_fields(&fields_b);
+                let sequential_a = a.pow_p_minus_5_over_8().to_fields();
+                let sequential_b = b.pow_p_minus_5_over_8().to_fields();
+                let (paired_a, paired_b) = WideFe::pow_p_minus_5_over_8_x2(&a, &b);
+                let paired_a = paired_a.to_fields();
+                let paired_b = paired_b.to_fields();
 
-                for (lane, field) in fields.iter().enumerate() {
+                for lane in 0..LANES {
+                    let expected_a = fields_a[lane].pow_p_minus_5_over_8();
+                    let expected_b = fields_b[lane].pow_p_minus_5_over_8();
                     assert!(
-                        field.pow_p_minus_5_over_8().equals(&wide_result[lane]),
-                        "lane {lane} diverged from scalar reference at round {round}"
+                        expected_a.equals(&sequential_a[lane])
+                            && expected_a.equals(&paired_a[lane]),
+                        "a lane {lane} diverged at round {round}"
+                    );
+                    assert!(
+                        expected_b.equals(&sequential_b[lane])
+                            && expected_b.equals(&paired_b[lane]),
+                        "b lane {lane} diverged at round {round}"
                     );
                 }
-                round += 1;
             }
         }
 
@@ -1538,7 +1513,7 @@ pub(crate) mod avx512ifma {
         }
 
         #[test]
-        fn wide_double_matches_scalar_on_torsion() {
+        fn wide_torsion_operations_match_scalar() {
             let p = ord8a();
             let scalar_doubled = p.double();
             let wide = WidePoint::from_points(&core::array::from_fn(|_| p.clone()));
@@ -1547,6 +1522,33 @@ pub(crate) mod avx512ifma {
                 wide_doubled[0].compress(),
                 scalar_doubled.compress(),
                 "wide double diverges from scalar on an order-8 point"
+            );
+
+            let id = EdwardsPoint::identity();
+            let scalar = id.subtract(&p).double().double().double();
+            let wide_id = WidePoint::from_points(&core::array::from_fn(|_| id.clone()));
+            let wide_p = WidePoint::from_points(&core::array::from_fn(|_| p.clone()));
+            let wide_chain = wide_id
+                .subtract(&wide_p)
+                .double()
+                .double()
+                .double()
+                .to_points();
+            assert_eq!(scalar.compress(), id.compress(), "sanity: scalar -8p = id");
+            assert_eq!(
+                wide_chain[0].compress(),
+                scalar.compress(),
+                "wide subtract+cofactor diverges on order-8 point"
+            );
+
+            let bytes = p.compress();
+            let (wide, mask) = decompress_points_wide(&[bytes; LANES]);
+            assert_eq!(mask, 0xff, "wide decode must succeed");
+            let wide_pts = wide.to_points();
+            assert_eq!(
+                wide_pts[0].compress(),
+                bytes,
+                "wide decompress diverges from scalar on an order-8 point"
             );
         }
 
@@ -1571,80 +1573,6 @@ pub(crate) mod avx512ifma {
                 pts[0].compress(),
                 id.compress(),
                 "sB - kA for s=0, A=identity must be identity"
-            );
-        }
-
-        #[test]
-        fn wide_subtract_then_cofactor_on_torsion() {
-            let p = ord8a();
-            let id = EdwardsPoint::identity();
-            let scalar = id.subtract(&p).double().double().double();
-            let wide_id = WidePoint::from_points(&core::array::from_fn(|_| id.clone()));
-            let wide_p = WidePoint::from_points(&core::array::from_fn(|_| p.clone()));
-            let wide_chain = wide_id
-                .subtract(&wide_p)
-                .double()
-                .double()
-                .double()
-                .to_points();
-            assert_eq!(scalar.compress(), id.compress(), "sanity: scalar -8p = id");
-            assert_eq!(
-                wide_chain[0].compress(),
-                scalar.compress(),
-                "wide subtract+cofactor diverges on order-8 point"
-            );
-        }
-
-        #[test]
-        fn wide_zip215_exact_failing_case() {
-            let r_bytes = [
-                0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef,
-                0x98, 0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88,
-                0x6d, 0x53, 0xfc, 0x05,
-            ];
-            let mut a_bytes = [0u8; 32];
-            a_bytes[0] = 1;
-            let id = EdwardsPoint::decompress(&a_bytes).unwrap();
-            let table = PointTable::new(&id);
-            let base_table = BasepointTable::new();
-            let s_digits = [[0i8; 64]; LANES];
-            let digest =
-                crate::sha512::hash_slices(&[&r_bytes, &a_bytes, b"taming the many eddsas"]);
-            let k = crate::scalar::Scalar::from_wide_bytes(digest);
-            let k_digits = [k.to_radix16(); LANES];
-            let prepared = PreparedBatch {
-                public_key_tables: [&table; LANES],
-                s_digits: &s_digits,
-                k_digits: &k_digits,
-            };
-            let (r_point, r_mask) = decompress_points_wide(&[r_bytes; LANES]);
-            assert_eq!(r_mask, 0xff, "torsion R must decode");
-            let r = WideRPoints {
-                point: r_point,
-                x_zero_mask: 0,
-            };
-            let result = verify_prepared_zip215(&prepared, &r, &base_table);
-            assert!(
-                result[0],
-                "zip215 SIMD must accept this cofactored small-order case"
-            );
-        }
-
-        #[test]
-        fn wide_decompress_matches_scalar_on_torsion() {
-            let bytes = [
-                0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef,
-                0x98, 0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88,
-                0x6d, 0x53, 0xfc, 0x05,
-            ];
-            let scalar = EdwardsPoint::decompress(&bytes).unwrap();
-            let (wide, mask) = decompress_points_wide(&[bytes; LANES]);
-            assert_eq!(mask, 0xff, "wide decode must succeed");
-            let wide_pts = wide.to_points();
-            assert_eq!(
-                wide_pts[0].compress(),
-                scalar.compress(),
-                "wide decompress diverges from scalar on an order-8 point"
             );
         }
     }

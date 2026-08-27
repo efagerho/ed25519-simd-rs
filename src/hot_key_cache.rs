@@ -278,12 +278,8 @@ mod tests {
             cache.get(&encoded(7)).is_some(),
             "the MRU key should survive"
         );
-    }
 
-    #[test]
-    fn capacity_one_keeps_only_the_newest_key() {
-        let mut cache = HotKeyCache::with_capacity(1);
-        for i in 0..4 {
+        for i in 8..12 {
             cache.insert(key(i));
             cache.assert_invariants();
             assert_eq!(cache.entries.len(), 1);
