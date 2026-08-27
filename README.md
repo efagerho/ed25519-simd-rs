@@ -22,6 +22,19 @@ Build with the target CPU enabled, e.g.:
 RUSTFLAGS="-C target-cpu=native" cargo build --release
 ```
 
+For the throughput reported below, enable whole-program LTO and one codegen
+unit in the consuming workspace. Cargo does not apply release-profile settings
+from dependency manifests:
+
+```toml
+[profile.release]
+lto = true
+codegen-units = 1
+```
+
+Without those settings, verification remains correct but leaves more large
+SIMD helpers across call boundaries and is typically a few percent slower.
+
 Doc tests compile through `rustdoc`, so pass the same CPU target there too:
 
 ```sh
