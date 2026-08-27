@@ -165,10 +165,12 @@ The following numbers are Criterion medians in microseconds per signature for
 distinct-key batches. The `ed25519-simd` rows use `NullKeyCache`, so decoded keys
 are not retained across batches.
 
-The `ed25519-simd` rows were re-measured after the rows for the other libraries,
-on the same host, by filtering the same bench to this crate only
-(`cargo bench --bench solana_ed25519_compare -- ed25519_simd`). Every re-measured
-median had a Criterion confidence interval narrower than 0.2%.
+Every row in these tables comes from a single run of the bench, so the
+comparisons between backends are like-for-like. The median confidence interval
+was 0.04% of the median and the widest 0.79%. Measuring this crate's rows on
+their own moves them by up to about 2% relative to running the whole comparison,
+because the other backends evict shared cache between samples, so partial
+re-measurements should not be pasted into these tables.
 
 Command. The comparison bench lives in the `benches-compare` workspace member
 (it depends on several other Ed25519/crypto libraries purely for comparison,
@@ -185,46 +187,46 @@ Message length 1:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 4.73 | 4.73 | 4.73 | 4.73 |
-| ed25519-simd Dalek null-cache | 4.69 | 4.69 | 4.69 | 4.69 |
-| solana-ed25519 Zip215 batch[^batch-api] | 14.05 | 13.03 | 12.58 | 12.33 |
-| solana-ed25519 Dalek loop | 22.40 | 22.40 | 22.41 | 22.41 |
-| ed25519-dalek batch[^batch-api] | 14.35 | 13.24 | 12.73 | 12.47 |
-| ed25519-dalek loop | 20.22 | 20.15 | 20.19 | 20.19 |
-| aws-lc-rs parsed loop | 22.56 | 22.60 | 22.57 | 22.60 |
-| ring loop | 30.63 | 30.53 | 30.54 | 31.71 |
-| sodiumoxide loop | 35.60 | 35.46 | 35.49 | 35.62 |
-| openssl loop | 59.14 | 58.77 | 59.31 | 59.24 |
+| ed25519-simd Zip215 null-cache | 4.84 | 4.84 | 4.84 | 4.84 |
+| ed25519-simd Dalek null-cache | 4.70 | 4.69 | 4.69 | 4.70 |
+| solana-ed25519 Zip215 batch[^batch-api] | 13.86 | 12.85 | 12.40 | 12.17 |
+| solana-ed25519 Dalek loop | 22.45 | 22.39 | 22.38 | 22.45 |
+| ed25519-dalek batch[^batch-api] | 14.30 | 13.21 | 12.68 | 12.44 |
+| ed25519-dalek loop | 20.24 | 20.21 | 20.20 | 20.22 |
+| aws-lc-rs parsed loop | 22.59 | 22.61 | 22.62 | 22.59 |
+| ring loop | 30.67 | 30.60 | 30.59 | 31.58 |
+| sodiumoxide loop | 35.56 | 35.49 | 35.48 | 35.61 |
+| openssl loop | 59.35 | 59.34 | 59.17 | 59.38 |
 
 Message length 1024:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 5.01 | 5.01 | 5.01 | 5.01 |
-| ed25519-simd Dalek null-cache | 4.96 | 4.97 | 4.97 | 4.97 |
-| solana-ed25519 Zip215 batch[^batch-api] | 15.01 | 14.04 | 13.59 | 13.32 |
-| solana-ed25519 Dalek loop | 23.52 | 23.52 | 23.41 | 23.45 |
-| ed25519-dalek batch[^batch-api] | 15.41 | 14.30 | 13.70 | 13.46 |
-| ed25519-dalek loop | 21.18 | 21.22 | 21.19 | 21.20 |
-| aws-lc-rs parsed loop | 23.70 | 23.71 | 23.78 | 23.68 |
-| ring loop | 31.68 | 31.66 | 31.78 | 32.60 |
-| sodiumoxide loop | 36.77 | 36.77 | 36.79 | 36.81 |
-| openssl loop | 59.80 | 60.35 | 59.65 | 59.76 |
+| ed25519-simd Zip215 null-cache | 5.11 | 5.11 | 5.12 | 5.12 |
+| ed25519-simd Dalek null-cache | 4.98 | 4.97 | 4.97 | 4.97 |
+| solana-ed25519 Zip215 batch[^batch-api] | 14.84 | 13.84 | 13.38 | 13.17 |
+| solana-ed25519 Dalek loop | 23.47 | 23.48 | 23.46 | 23.48 |
+| ed25519-dalek batch[^batch-api] | 15.33 | 14.26 | 13.67 | 13.40 |
+| ed25519-dalek loop | 21.25 | 21.23 | 21.21 | 21.22 |
+| aws-lc-rs parsed loop | 23.73 | 23.72 | 23.73 | 23.72 |
+| ring loop | 31.76 | 31.75 | 31.71 | 32.67 |
+| sodiumoxide loop | 36.80 | 36.78 | 36.81 | 36.82 |
+| openssl loop | 60.02 | 60.21 | 60.00 | 60.02 |
 
 Mixed message lengths:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 4.87 | 4.82 | 4.83 | 4.80 |
-| ed25519-simd Dalek null-cache | 4.83 | 4.78 | 4.79 | 4.76 |
-| solana-ed25519 Zip215 batch[^batch-api] | 14.25 | 13.16 | 12.72 | 12.49 |
-| solana-ed25519 Dalek loop | 22.54 | 22.51 | 22.60 | 22.64 |
-| ed25519-dalek batch[^batch-api] | 14.46 | 13.44 | 12.93 | 12.63 |
-| ed25519-dalek loop | 20.33 | 20.32 | 20.36 | 20.34 |
-| aws-lc-rs parsed loop | 22.74 | 22.86 | 22.85 | 22.83 |
-| ring loop | 30.77 | 30.85 | 30.84 | 31.67 |
-| sodiumoxide loop | 35.73 | 35.78 | 35.75 | 35.80 |
-| openssl loop | 59.27 | 59.90 | 59.17 | 59.65 |
+| ed25519-simd Zip215 null-cache | 4.97 | 4.92 | 4.94 | 4.91 |
+| ed25519-simd Dalek null-cache | 4.83 | 4.79 | 4.80 | 4.76 |
+| solana-ed25519 Zip215 batch[^batch-api] | 14.03 | 12.99 | 12.56 | 12.32 |
+| solana-ed25519 Dalek loop | 22.57 | 22.55 | 22.59 | 22.63 |
+| ed25519-dalek batch[^batch-api] | 14.39 | 13.40 | 12.84 | 12.60 |
+| ed25519-dalek loop | 20.36 | 20.35 | 20.37 | 20.38 |
+| aws-lc-rs parsed loop | 22.79 | 22.80 | 22.77 | 22.78 |
+| ring loop | 30.80 | 30.79 | 30.75 | 31.73 |
+| sodiumoxide loop | 35.68 | 35.66 | 35.71 | 35.77 |
+| openssl loop | 59.52 | 59.28 | 59.56 | 59.56 |
 
 [^batch-api]: The batch APIs for `solana-ed25519` and `ed25519-dalek` return a
     single pass/fail result for the whole batch. They do not identify exactly
@@ -248,8 +250,8 @@ repeats a small key set:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 4.69 | 4.69 | 4.69 | 4.69 |
-| ed25519-simd Zip215 hot-key cache (warm) | 4.26 | 4.26 | 4.26 | 4.26 |
+| ed25519-simd Zip215 null-cache | 4.70 | 4.70 | 4.70 | 4.70 |
+| ed25519-simd Zip215 hot-key cache (warm) | 4.25 | 4.25 | 4.26 | 4.25 |
 
 ## Compatibility Target
 
