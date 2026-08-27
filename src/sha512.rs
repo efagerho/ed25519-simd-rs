@@ -94,8 +94,7 @@ const K: [u64; 80] = [
     0x6c44198c4a475817,
 ];
 
-/// Independent test reference for the AVX-512 path, backed by the `sha2` crate
-/// rather than any SHA-512 code written in this repo.
+/// Independent `sha2`-backed reference for the AVX-512 path.
 #[cfg(test)]
 pub(crate) fn hash_slices(slices: &[&[u8]]) -> [u8; 64] {
     use sha2::Digest;
@@ -276,9 +275,7 @@ mod avx512 {
         if word_offset == padding.length_start + 8 {
             return padding.bit_len;
         }
-        // The high length word (at `length_start`) is always zero (see the
-        // debug_assert in `hash_ed25519_challenge_words`), so it folds into
-        // this zero-padding range by widening the bound past that word.
+        // The always-zero high length word is part of this padding range.
         if word_offset > padding.total_len && word_end <= padding.length_start + 8 {
             return 0;
         }

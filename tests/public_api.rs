@@ -155,12 +155,7 @@ fn hot_key_cache_handles_mixed_hit_and_miss_lanes_in_one_chunk() {
     assert_eq!(resident_count(verifier.cache(), &public_keys), 8);
 }
 
-/// `CachedPublicKey::from_encoded` builds its multiplication table with the
-/// scalar point arithmetic in `edwards.rs`, while a cache miss inside the
-/// verifier builds one with the independent AVX-512 builder. Pre-seeding a cache
-/// is the only way to reach the scalar builder from the public API, so verify a
-/// chunk in which every lane hits a pre-seeded table and check it against the
-/// same chunk decoded cold through the SIMD builder.
+/// Compare preseeded scalar-built tables with cold AVX-512-built tables.
 #[test]
 fn preseeded_cache_tables_match_cold_simd_decoding() {
     let message = b"pre-seeded table agreement".to_vec();
@@ -201,8 +196,7 @@ fn preseeded_cache_tables_match_cold_simd_decoding() {
 
 #[test]
 fn from_encoded_rejects_a_key_that_does_not_decompress() {
-    // y = p - 20 with the x sign bit set is not on the curve, so callers
-    // pre-seeding a cache have to handle `None` rather than unwrap blindly.
+    // y=p-20 with the sign bit set is not on the curve.
     let off_curve = hex_array::<PUBLIC_KEY_LEN>(
         "d9ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
     );

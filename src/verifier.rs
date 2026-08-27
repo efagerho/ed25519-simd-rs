@@ -7,8 +7,7 @@ use crate::sha512;
 use crate::wide::avx512ifma;
 use std::sync::LazyLock;
 
-/// One signature verification request: a public key, a signature over
-/// `message`, and the message itself.
+/// One public key, signature, and message to verify.
 #[derive(Clone, Copy, Debug)]
 pub struct VerifyInput<'a> {
     /// Encoded Ed25519 public key.
@@ -43,9 +42,7 @@ struct ChunkParts<'a> {
 pub struct Verifier<C: KeyCache = NullKeyCache> {
     policy: VerifyPolicy,
     base_table: &'static BasepointTable,
-    // Placeholder table for lanes whose key failed decode/lookup; results for
-    // those lanes are masked out via `valid`, so its contents never affect
-    // the output, but the multiscalar ladder still needs a real table.
+    // Invalid lanes are masked out but still need a real ladder table.
     identity_table: &'static PointTable,
     bucket_order: Vec<usize>,
     cache: C,
@@ -140,7 +137,7 @@ impl<C: KeyCache> Verifier<C> {
         let missing_key_lanes: [bool; SIMD_LANES] =
             core::array::from_fn(|lane| cached_keys[lane].is_none());
 
-        // Decode uncached public keys and batch the R decompression only when a lane missed the cache.
+        // Decode missing keys and their R points together.
         let mut decoded_r: Option<(avx512ifma::WideRPoints, [bool; SIMD_LANES])> = None;
         let mut decoded_key_tables: Option<([PointTable; SIMD_LANES], [bool; SIMD_LANES])> = None;
         if any_lane(&missing_key_lanes) {
@@ -154,7 +151,7 @@ impl<C: KeyCache> Verifier<C> {
             decoded_r = Some((r_points, lane_flags_from_mask(r_valid_bits)));
         }
 
-        // Build per-lane public key tables from cache hits or freshly decoded misses.
+        // Combine cached and freshly decoded key tables.
         let public_key_tables: [&PointTable; SIMD_LANES] = core::array::from_fn(|lane| {
             if let Some(key) = cached_keys[lane] {
                 &key.table
@@ -176,7 +173,6 @@ impl<C: KeyCache> Verifier<C> {
             return;
         }
 
-        // Build shared challenge digits before dispatching to the policy-specific verifier.
         let k_digits = challenge_digits(&r_bytes, &public_keys, messages);
 
         let prepared = PreparedBatch {
@@ -193,7 +189,6 @@ impl<C: KeyCache> Verifier<C> {
             }
         }
 
-        // Try to insert any recently decoded keys into the cache.
         if let Some((tables, key_valid_lanes)) = decoded_key_tables {
             for (lane, table) in tables.into_iter().enumerate() {
                 if missing_key_lanes[lane] && key_valid_lanes[lane] {
@@ -215,7 +210,7 @@ impl<C: KeyCache> Verifier<C> {
         valid: &[bool; SIMD_LANES],
         out: &mut [bool; SIMD_LANES],
     ) {
-        // Reuse the R points decompressed above on a cache miss; decompress them here otherwise.
+        // Cache misses already decompressed R alongside their keys.
         let (r_points, r_valid_lanes) = match decoded_r {
             Some(decoded) => decoded,
             None => {
@@ -224,7 +219,6 @@ impl<C: KeyCache> Verifier<C> {
             }
         };
 
-        // Run the batched verification equation, then mask with per-lane input/R validity.
         let simd = avx512ifma::verify_prepared_zip215(prepared, &r_points, self.base_table);
         for lane in 0..SIMD_LANES {
             out[lane] = simd[lane] && valid[lane] && r_valid_lanes[lane];
