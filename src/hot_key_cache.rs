@@ -19,11 +19,10 @@ struct CacheEntry {
 ///
 /// # Memory
 ///
-/// A retained key costs roughly 2.8 KB, nearly all of it its multiplication
-/// table. [`with_capacity`](Self::with_capacity) reserves the whole bound and
-/// only [`set_capacity`](Self::set_capacity) gives it back. Keys are
-/// attacker-supplied, so every miss inserts and the bound is reached rather
-/// than merely available: size it from measured key reuse, or use
+/// A retained key costs roughly 2.8 KB, nearly all of it its 17-entry
+/// multiplication table. [`with_capacity`](Self::with_capacity) reserves
+/// allocator capacity for the whole bound, but pages generally become resident
+/// as entries are written. Size the bound from measured key reuse, or use
 /// [`NullKeyCache`](crate::NullKeyCache).
 #[derive(Debug)]
 pub struct HotKeyCache {
@@ -37,7 +36,7 @@ pub struct HotKeyCache {
 
 impl HotKeyCache {
     /// Create a cache holding at most `capacity` keys, clamped to at least one.
-    /// Reserves storage for the whole bound; see [Memory](Self#memory).
+    /// Reserves allocator capacity for the whole bound; see [Memory](Self#memory).
     pub fn with_capacity(capacity: usize) -> Self {
         let capacity = capacity.max(1);
         Self {
@@ -50,7 +49,8 @@ impl HotKeyCache {
     }
 
     /// Set the maximum retained key count, clamped to at least one. Lowering it
-    /// evicts the excess least-recently-used keys and releases their storage.
+    /// evicts excess keys and requests smaller backing allocations. The
+    /// allocator may retain freed memory.
     pub fn set_capacity(&mut self, capacity: usize) {
         self.capacity = capacity.max(1);
         self.evict_to_capacity();
@@ -317,7 +317,7 @@ mod tests {
     }
 
     #[test]
-    fn lowering_the_capacity_releases_entry_storage() {
+    fn lowering_the_capacity_shrinks_entry_allocation() {
         let mut cache = HotKeyCache::with_capacity(4096);
         for i in 0..4096 {
             cache.insert(key(i));
@@ -330,7 +330,7 @@ mod tests {
         assert_eq!(cache.entries.len(), 8);
         assert!(
             cache.entries.capacity() < grown / 8,
-            "shrinking the bound must return storage: {} -> {}",
+            "shrinking the bound must reduce capacity: {} -> {}",
             grown,
             cache.entries.capacity()
         );

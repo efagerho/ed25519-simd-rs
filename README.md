@@ -141,23 +141,22 @@ repetitive:
 
 - `HotKeyCache::with_capacity(n)` is the only constructor: the bound is
   mandatory. Public keys are attacker-supplied and each retained one costs
-  about 2.8 KB, nearly all of it the 273-entry multiplication table that makes
+  about 2.8 KB, nearly all of it the 17-entry multiplication table that makes
   a hit worthwhile, so an unbounded cache would be a memory-exhaustion vector.
   Requiring a bound also forces the question that decides whether this cache
   helps at all — how many keys actually repeat. If you can't answer it, use
   `NullKeyCache`.
-- **Keep the bound tight.** `with_capacity` reserves the whole bound, so `n`
-  costs about `n * 2.8 KB` immediately: 11 MB at 4096, 2.7 GB at 1,000,000.
-  That is deliberate — every miss inserts, so the cache reaches `n` either way,
-  and reserving up front makes an over-sized bound fail at startup rather than
-  look like a slow leak. Size `n` from measured key reuse.
+- **Keep the bound tight.** `with_capacity` reserves allocator capacity for the
+  whole bound, but the backing pages generally become resident as entries are
+  written. A full cache costs about `n * 2.8 KB`: 11 MB at 4096 and 2.8 GB at
+  1,000,000. Size `n` from measured key reuse.
 - Eviction is exact least-recently-used, and both lookup and eviction are
   O(1), so a caller feeding the verifier nothing but distinct keys cannot
   amplify eviction cost.
 - `HotKeyCache::set_capacity(n)` re-bounds an existing cache, evicting
-  immediately down to the new bound and releasing the evicted entries'
-  storage. It is the only thing that returns memory. `n` is clamped to at least
-  one.
+  immediately down to the new bound and requesting smaller backing allocations.
+  The allocator may retain freed memory, so process RSS is not guaranteed to
+  fall. `n` is clamped to at least one.
 - Successful key decodes are retained after verification, so reuse the same
   verifier across batches when the key distribution is hot.
 

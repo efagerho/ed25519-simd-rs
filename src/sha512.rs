@@ -158,9 +158,6 @@ mod avx512 {
                 let total_len = 64 + messages[lane].len();
                 let block_count = challenge_block_count(messages[lane].len());
                 total_lens[lane] = total_len;
-                // A slice cannot reach the 2^61 bytes needed for a nonzero
-                // high length word, so track the bit length as u64.
-                debug_assert!(total_len < (1 << 61), "message too long for u64 bit length");
                 bit_lens[lane] = (total_len as u64) << 3;
                 length_starts[lane] = block_count * 128 - 16;
                 block_counts[lane] = block_count;
@@ -275,9 +272,13 @@ mod avx512 {
         if word_offset == padding.length_start + 8 {
             return padding.bit_len;
         }
-        // The always-zero high length word is part of this padding range.
+        // This zero-padding range includes the high length word.
         if word_offset > padding.total_len && word_end <= padding.length_start + 8 {
-            return 0;
+            return if word_offset == padding.length_start {
+                (padding.total_len >> 61) as u64
+            } else {
+                0
+            };
         }
 
         mixed_message_tail_word(messages[lane], word_offset, padding)
@@ -478,11 +479,42 @@ mod avx512 {
     fn ror<const R: u32, const L: u32>(x: __m512i) -> __m512i {
         unsafe { _mm512_or_si512(_mm512_srli_epi64::<R>(x), _mm512_slli_epi64::<L>(x)) }
     }
+
     fn loadu(values: [u64; LANES]) -> __m512i {
         unsafe { _mm512_loadu_si512(values.as_ptr() as *const __m512i) }
     }
     fn storeu(value: __m512i, out: &mut [u64; LANES]) {
         unsafe { _mm512_storeu_si512(out.as_mut_ptr() as *mut __m512i, value) }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn length_trailer_includes_the_high_word() {
+            let total_len = 1usize << 61;
+            let padding = Padding {
+                total_len,
+                bit_len: (total_len as u64) << 3,
+                length_start: total_len + 112,
+            };
+            let r_bytes = [[0u8; R_ENCODING_LEN]; LANES];
+            let public_keys = [[0u8; PUBLIC_KEY_LEN]; LANES];
+            let messages = [&[][..]; LANES];
+
+            let trailer = core::array::from_fn(|word| {
+                mixed_block_word(
+                    &r_bytes,
+                    &public_keys,
+                    messages,
+                    0,
+                    padding.length_start + word * 8,
+                    padding,
+                )
+            });
+            assert_eq!(trailer, [1, 0]);
+        }
     }
 }
 
