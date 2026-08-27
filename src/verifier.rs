@@ -36,6 +36,19 @@ struct ChunkParts<'a> {
     messages: [&'a [u8]; SIMD_LANES],
 }
 
+#[derive(Debug)]
+struct ChunkScratch {
+    key_tables: [Option<PointTable>; SIMD_LANES],
+}
+
+impl ChunkScratch {
+    fn new() -> Self {
+        Self {
+            key_tables: core::array::from_fn(|_| None),
+        }
+    }
+}
+
 /// Batch Ed25519 verifier for a fixed [`VerifyPolicy`] and [`KeyCache`].
 /// Reuse one across [`verify_batch`](Verifier::verify_batch) calls.
 #[derive(Debug)]
@@ -45,6 +58,7 @@ pub struct Verifier<C: KeyCache = NullKeyCache> {
     // Invalid lanes are masked out but still need a real ladder table.
     identity_table: &'static PointTable,
     bucket_order: Vec<usize>,
+    scratch: Box<ChunkScratch>,
     cache: C,
 }
 
@@ -75,6 +89,7 @@ impl<C: KeyCache> Verifier<C> {
             base_table: &*BASE_TABLE,
             identity_table: &*IDENTITY_TABLE,
             bucket_order: Vec::new(),
+            scratch: Box::new(ChunkScratch::new()),
             cache,
         }
     }
@@ -139,15 +154,15 @@ impl<C: KeyCache> Verifier<C> {
 
         // Decode missing keys and their R points together.
         let mut decoded_r: Option<(avx512ifma::WideRPoints, [bool; SIMD_LANES])> = None;
-        let mut decoded_key_tables: Option<([PointTable; SIMD_LANES], [bool; SIMD_LANES])> = None;
+        let mut decoded_key_lanes = [false; SIMD_LANES];
         if any_lane(&missing_key_lanes) {
-            let (tables, key_valid_bits, r_points, r_valid_bits) =
-                avx512ifma::decode_keys_and_decompress_r(
-                    &public_keys,
-                    &r_bytes,
-                    policy == VerifyPolicy::Dalek,
-                );
-            decoded_key_tables = Some((tables, lane_flags_from_mask(key_valid_bits)));
+            let (key_valid_bits, r_points, r_valid_bits) = avx512ifma::decode_keys_and_decompress_r(
+                &public_keys,
+                &r_bytes,
+                policy == VerifyPolicy::Dalek,
+                &mut self.scratch.key_tables,
+            );
+            decoded_key_lanes = lane_flags_from_mask(key_valid_bits);
             decoded_r = Some((r_points, lane_flags_from_mask(r_valid_bits)));
         }
 
@@ -157,11 +172,10 @@ impl<C: KeyCache> Verifier<C> {
                 &key.table
             } else {
                 // Cache misses populate `decoded_key_tables` above.
-                let (tables, key_valid_lanes) = decoded_key_tables
-                    .as_ref()
-                    .expect("a cache miss always triggers a decode");
-                if key_valid_lanes[lane] {
-                    &tables[lane]
+                if decoded_key_lanes[lane] {
+                    self.scratch.key_tables[lane]
+                        .as_ref()
+                        .expect("a valid decoded lane has a table")
                 } else {
                     valid[lane] = false;
                     self.identity_table
@@ -189,9 +203,12 @@ impl<C: KeyCache> Verifier<C> {
             }
         }
 
-        if let Some((tables, key_valid_lanes)) = decoded_key_tables {
-            for (lane, table) in tables.into_iter().enumerate() {
-                if missing_key_lanes[lane] && key_valid_lanes[lane] {
+        if any_lane(&missing_key_lanes) {
+            for lane in 0..SIMD_LANES {
+                let table = self.scratch.key_tables[lane]
+                    .take()
+                    .expect("a decoded lane has a table");
+                if missing_key_lanes[lane] && decoded_key_lanes[lane] {
                     self.cache.insert(CachedPublicKey {
                         encoded: public_keys[lane],
                         table,
