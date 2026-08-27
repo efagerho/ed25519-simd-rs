@@ -15,6 +15,8 @@ mod hot_key_cache;
 mod policy;
 mod scalar;
 mod sha512;
+#[cfg(test)]
+mod test_rng;
 mod verifier;
 mod wide;
 
