@@ -47,41 +47,6 @@ impl Scalar {
         }
         digits
     }
-
-    #[cfg(test)]
-    pub(crate) fn to_radix16_carry_loop(self) -> Radix16 {
-        let mut digits = [0i8; 64];
-        let mut i = 0;
-        while i < 32 {
-            digits[2 * i] = (self.bytes[i] & 0x0f) as i8;
-            digits[2 * i + 1] = (self.bytes[i] >> 4) as i8;
-            i += 1;
-        }
-        let mut carry = 0i8;
-        i = 0;
-        while i < 64 {
-            let digit = digits[i] + carry;
-            if digit > 8 {
-                digits[i] = digit - 16;
-                carry = 1;
-            } else {
-                digits[i] = digit;
-                carry = 0;
-            }
-            i += 1;
-        }
-        debug_assert_eq!(carry, 0);
-        digits
-    }
-
-    /// Kept as a scalar reference for tests; the verifier's hot path uses
-    /// `from_wide_words` to avoid the byte round trip this does internally.
-    #[cfg(test)]
-    pub(crate) fn from_wide_bytes(bytes: [u8; 64]) -> Self {
-        Self {
-            bytes: reduce_wide(bytes),
-        }
-    }
 }
 
 pub(crate) fn is_canonical(bytes: &[u8; 32]) -> bool {
@@ -376,7 +341,7 @@ mod tests {
     }
 
     #[test]
-    fn radix16_is_carry_loop_equivalent_and_in_range() {
+    fn radix16_represents_scalar_and_stays_in_range() {
         let mut cases: Vec<[u8; 32]> = Vec::new();
         let mut l_minus_1 = L_BYTES;
         l_minus_1[0] -= 1;
@@ -410,20 +375,17 @@ mod tests {
 
         for bytes in cases {
             let scalar = Scalar::from_canonical_bytes(bytes);
-            let new = scalar.to_radix16();
-            let old = scalar.to_radix16_carry_loop();
+            let digits = scalar.to_radix16();
 
-            // Both must represent exactly the scalar.
-            assert_eq!(value_from_digits(&new), bytes, "new digits for {bytes:?}");
-            assert_eq!(value_from_digits(&old), bytes, "old digits for {bytes:?}");
+            assert_eq!(value_from_digits(&digits), bytes, "digits for {bytes:?}");
 
             // Check the bounds required by the point tables.
-            for (i, &d) in new.iter().enumerate() {
+            for (i, &d) in digits.iter().enumerate() {
                 assert!((-8..=8).contains(&d), "digit {i} = {d}");
                 assert!((-8..=8).contains(&-d), "negated digit {i} = {}", -d);
             }
             for pair in 0..32 {
-                let folded = new[pair * 2] as i32 + ((new[pair * 2 + 1] as i32) << 4);
+                let folded = digits[pair * 2] as i32 + ((digits[pair * 2 + 1] as i32) << 4);
                 assert!(
                     (-136..=136).contains(&folded),
                     "base pair {pair} = {folded}"

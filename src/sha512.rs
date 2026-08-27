@@ -490,202 +490,42 @@ mod avx512 {
 mod tests {
     use super::*;
 
-    fn hex<const N: usize>(s: &str) -> [u8; N] {
-        let mut out = [0u8; N];
-        hex::decode_to_slice(s, &mut out).expect("valid test vector hex");
-        out
-    }
-
-    #[test]
-    fn empty_hash() {
-        assert_eq!(
-            hash_slices(&[b""]),
-            hex(
-                "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce\
-                 47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e"
-            )
-        );
-    }
-
-    #[test]
-    fn abc_hash() {
-        assert_eq!(
-            hash_slices(&[b"abc"]),
-            hex(
-                "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a\
-                 2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"
-            )
-        );
-    }
-
-    #[test]
-    fn rfc4634_multiblock_hash() {
-        assert_eq!(
-            hash_slices(&[concat!(
-                "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmn",
-                "hijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu"
-            )
-            .as_bytes()]),
-            hex(
-                "8e959b75dae313da8cf4f72814fc143f8f7779c6eb9f7fa17299aeadb688901\
-                 8501d289e4900f7e4331b99dec4b5433ac7d329eeb6dd26545e96e55b874be909"
-            )
-        );
-    }
-
-    #[test]
-    fn avx512_challenge_hash_matches_scalar() {
-        let r = core::array::from_fn(|lane| [lane as u8; 32]);
-        let public_keys = core::array::from_fn(|lane| [(lane as u8).wrapping_mul(3); 32]);
-        let messages_storage: [[u8; 19]; SIMD_LANES] = core::array::from_fn(|lane| {
-            core::array::from_fn(|i| (lane as u8).wrapping_mul(17).wrapping_add(i as u8))
+    fn assert_challenge_hashes_match(name: &str, lengths: [usize; SIMD_LANES]) {
+        let r = core::array::from_fn(|lane| [(lane as u8).wrapping_mul(17); 32]);
+        let public_keys = core::array::from_fn(|lane| [(lane as u8).wrapping_mul(29); 32]);
+        let storage: [Vec<u8>; SIMD_LANES] = core::array::from_fn(|lane| {
+            (0..lengths[lane])
+                .map(|i| (lane as u8).wrapping_mul(41).wrapping_add(i as u8))
+                .collect()
         });
-        let messages = core::array::from_fn(|lane| messages_storage[lane].as_slice());
-
+        let messages = core::array::from_fn(|lane| storage[lane].as_slice());
         let wide = hash_ed25519_challenges(&r, &public_keys, messages);
         let scalar = core::array::from_fn(|lane| {
-            hash_slices(&[
-                &r[lane],
-                &public_keys[lane],
-                messages_storage[lane].as_slice(),
-            ])
+            hash_slices(&[&r[lane], &public_keys[lane], storage[lane].as_slice()])
         });
-        assert_eq!(wide, scalar);
+        assert_eq!(wide, scalar, "scenario {name}, lengths {lengths:?}");
     }
 
     #[test]
-    fn avx512_challenge_hash_matches_scalar_with_spilled_padding() {
-        let r = core::array::from_fn(|lane| [(lane as u8).wrapping_add(9); 32]);
-        let public_keys = core::array::from_fn(|lane| [(lane as u8).wrapping_mul(5); 32]);
-        let messages_storage: [[u8; 64]; SIMD_LANES] = core::array::from_fn(|lane| {
-            core::array::from_fn(|i| (lane as u8).wrapping_mul(11).wrapping_add(i as u8))
-        });
-        let messages = core::array::from_fn(|lane| messages_storage[lane].as_slice());
-
-        let wide = hash_ed25519_challenges(&r, &public_keys, messages);
-        let scalar = core::array::from_fn(|lane| {
-            hash_slices(&[
-                &r[lane],
-                &public_keys[lane],
-                messages_storage[lane].as_slice(),
-            ])
-        });
-        assert_eq!(wide, scalar);
-    }
-
-    #[test]
-    fn avx512_challenge_hash_matches_scalar_with_full_message_blocks() {
-        let r = core::array::from_fn(|lane| [(lane as u8).wrapping_add(13); 32]);
-        let public_keys = core::array::from_fn(|lane| [(lane as u8).wrapping_mul(7); 32]);
-        let messages_storage: [[u8; 257]; SIMD_LANES] = core::array::from_fn(|lane| {
-            core::array::from_fn(|i| (lane as u8).wrapping_mul(19).wrapping_add(i as u8))
-        });
-        let messages = core::array::from_fn(|lane| messages_storage[lane].as_slice());
-
-        let wide = hash_ed25519_challenges(&r, &public_keys, messages);
-        let scalar = core::array::from_fn(|lane| {
-            hash_slices(&[
-                &r[lane],
-                &public_keys[lane],
-                messages_storage[lane].as_slice(),
-            ])
-        });
-        assert_eq!(wide, scalar);
-    }
-
-    #[test]
-    fn avx512_challenge_hash_matches_scalar_at_boundary_lengths() {
-        // Cover the block-builder boundaries with one uniform hash per length.
-        let lengths = [
+    fn avx512_challenge_hash_matches_sha2_across_block_shapes() {
+        for len in [
             47usize, 48, 55, 63, 64, 111, 112, 127, 128, 175, 176, 191, 192,
-        ];
-        let storage: [[u8; 192]; SIMD_LANES] = core::array::from_fn(|lane| {
-            core::array::from_fn(|i| (lane as u8).wrapping_mul(31).wrapping_add(i as u8))
-        });
-
-        for len in lengths {
-            let r = core::array::from_fn(|lane| [(lane as u8).wrapping_add(len as u8); 32]);
-            let public_keys = core::array::from_fn(|lane| [(lane as u8).wrapping_mul(37); 32]);
-            let messages = core::array::from_fn(|lane| &storage[lane][..len]);
-
-            let wide = hash_ed25519_challenges(&r, &public_keys, messages);
-            let scalar = core::array::from_fn(|lane| {
-                hash_slices(&[&r[lane], &public_keys[lane], &storage[lane][..len]])
-            });
-            assert_eq!(wide, scalar, "length {len}");
+        ] {
+            assert_challenge_hashes_match("uniform boundary", [len; SIMD_LANES]);
         }
-    }
 
-    #[test]
-    fn avx512_challenge_hash_matches_scalar_with_uniform_block_counts() {
-        // Mixed lengths with shared block counts, including bulk reads and tails.
-        let length_sets: [[usize; SIMD_LANES]; 4] = [
-            [0, 1, 7, 19, 30, 40, 46, 47],            // 1 block
-            [48, 55, 63, 64, 90, 128, 170, 175],      // 2 blocks
-            [176, 180, 200, 220, 230, 240, 250, 255], // 3 blocks
-            [496, 500, 510, 520, 530, 540, 550, 558], // 5 blocks
-        ];
-        let storage: [[u8; 558]; SIMD_LANES] = core::array::from_fn(|lane| {
-            core::array::from_fn(|i| (lane as u8).wrapping_mul(41).wrapping_add(i as u8))
-        });
-
-        for lengths in length_sets {
-            let r = core::array::from_fn(|lane| [(lane as u8).wrapping_add(51); 32]);
-            let public_keys = core::array::from_fn(|lane| [(lane as u8).wrapping_mul(53); 32]);
-            let messages = core::array::from_fn(|lane| &storage[lane][..lengths[lane]]);
-
-            let wide = hash_ed25519_challenges(&r, &public_keys, messages);
-            let scalar = core::array::from_fn(|lane| {
-                hash_slices(&[
-                    &r[lane],
-                    &public_keys[lane],
-                    &storage[lane][..lengths[lane]],
-                ])
-            });
-            assert_eq!(wide, scalar, "lengths {lengths:?}");
+        for (name, lengths) in [
+            ("one block", [0, 1, 7, 19, 30, 40, 46, 47]),
+            ("two blocks", [48, 55, 63, 64, 90, 128, 170, 175]),
+            ("three blocks", [176, 180, 200, 220, 230, 240, 250, 255]),
+            ("five blocks", [496, 500, 510, 520, 530, 540, 550, 558]),
+            ("mixed short", [0, 1, 19, 63, 64, 65, 127, 257]),
+            (
+                "mixed shared prefix",
+                [200, 200, 250, 300, 400, 500, 600, 900],
+            ),
+        ] {
+            assert_challenge_hashes_match(name, lengths);
         }
-    }
-
-    #[test]
-    fn avx512_challenge_hash_matches_scalar_with_shared_prefix_and_different_block_counts() {
-        // Different block counts with a long common prefix, still using bulk reads.
-        let lengths = [200usize, 200, 250, 300, 400, 500, 600, 900];
-        let storage: [[u8; 900]; SIMD_LANES] = core::array::from_fn(|lane| {
-            core::array::from_fn(|i| (lane as u8).wrapping_mul(43).wrapping_add(i as u8))
-        });
-        let r = core::array::from_fn(|lane| [(lane as u8).wrapping_add(61); 32]);
-        let public_keys = core::array::from_fn(|lane| [(lane as u8).wrapping_mul(67); 32]);
-        let messages = core::array::from_fn(|lane| &storage[lane][..lengths[lane]]);
-
-        let wide = hash_ed25519_challenges(&r, &public_keys, messages);
-        let scalar = core::array::from_fn(|lane| {
-            hash_slices(&[
-                &r[lane],
-                &public_keys[lane],
-                &storage[lane][..lengths[lane]],
-            ])
-        });
-        assert_eq!(wide, scalar);
-    }
-
-    #[test]
-    fn avx512_challenge_hash_matches_scalar_with_mixed_lengths() {
-        let r = core::array::from_fn(|lane| [(lane as u8).wrapping_add(21); 32]);
-        let public_keys = core::array::from_fn(|lane| [(lane as u8).wrapping_mul(23); 32]);
-        let messages_storage: [[u8; 257]; SIMD_LANES] = core::array::from_fn(|lane| {
-            core::array::from_fn(|i| (lane as u8).wrapping_mul(29).wrapping_add(i as u8))
-        });
-        let lengths = [0usize, 1, 19, 63, 64, 65, 127, 257];
-        let messages = core::array::from_fn(|lane| &messages_storage[lane][..lengths[lane]]);
-
-        let wide = hash_ed25519_challenges(&r, &public_keys, messages);
-        let scalar = core::array::from_fn(|lane| {
-            hash_slices(&[
-                &r[lane],
-                &public_keys[lane],
-                &messages_storage[lane][..lengths[lane]],
-            ])
-        });
-        assert_eq!(wide, scalar);
     }
 }

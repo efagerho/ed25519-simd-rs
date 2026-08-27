@@ -26,12 +26,6 @@ pub(crate) const SQRT_M1_LIMBS: [u64; LIMB_COUNT] = [
     2_117_202_627_021_982,
     765_476_049_583_133,
 ];
-#[cfg(test)]
-const P_BYTES: [u8; 32] = [
-    0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f,
-];
-
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Fe51 {
     limbs: [u64; LIMB_COUNT],
@@ -332,14 +326,6 @@ impl Fe51 {
         Self::pack_limbs(h)
     }
 
-    #[cfg(test)]
-    pub(crate) fn from_canonical_bytes(bytes: &[u8; 32]) -> Option<Self> {
-        if !is_canonical_bytes(bytes) {
-            return None;
-        }
-        Some(Self::from_bytes_unchecked(bytes))
-    }
-
     pub(crate) fn invert(&self) -> Self {
         let mut exp = [0xffu8; 32];
         exp[0] = 0xeb;
@@ -359,21 +345,6 @@ impl Fe51 {
         }
         acc
     }
-}
-
-#[cfg(test)]
-fn is_canonical_bytes(bytes: &[u8; 32]) -> bool {
-    let mut i = 32;
-    while i > 0 {
-        i -= 1;
-        if bytes[i] < P_BYTES[i] {
-            return true;
-        }
-        if bytes[i] > P_BYTES[i] {
-            return false;
-        }
-    }
-    false
 }
 
 fn load_u64_le(bytes: &[u8; 32], offset: usize) -> u64 {
@@ -436,17 +407,5 @@ mod tests {
             let x = Fe51::from_limbs(limbs);
             assert!(x.square().equals(&x.multiply(&x)));
         }
-    }
-
-    #[test]
-    fn canonical_bytes_bound() {
-        let mut p_minus_one = P_BYTES;
-        p_minus_one[0] -= 1;
-        assert!(Fe51::from_canonical_bytes(&p_minus_one).is_some());
-        assert!(Fe51::from_canonical_bytes(&P_BYTES).is_none());
-
-        let mut high_bit = [0u8; 32];
-        high_bit[31] = 0x80;
-        assert!(Fe51::from_canonical_bytes(&high_bit).is_none());
     }
 }

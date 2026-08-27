@@ -7,7 +7,7 @@ use ed25519_simd::{SIGNATURE_LEN, VerifyInput, VerifyPolicy};
 use serde_json::Value;
 use support::{
     Case, hex_array, hex_vec, signing_key_from_index, solana_ed25519_verify_dalek,
-    solana_ed25519_verify_zebra, verify,
+    solana_ed25519_verify_zebra, verify, verify_batch, verify_warm,
 };
 
 const L_BYTES: [u8; 32] = [
@@ -15,15 +15,53 @@ const L_BYTES: [u8; 32] = [
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
 ];
 
+fn mixed_batch_fillers() -> Vec<Case> {
+    let message = b"filler lane";
+    (0..7u64)
+        .map(|i| {
+            let signing_key = signing_key_from_index(0xf111_0000 + i);
+            Case {
+                public_key: <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key)),
+                signature: signing_key.sign(message).to_bytes(),
+                message: message.to_vec(),
+            }
+        })
+        .collect()
+}
+
+fn assert_vector_paths(
+    name: &str,
+    policy: VerifyPolicy,
+    input: VerifyInput<'_>,
+    expected: bool,
+    fillers: &[Case],
+) {
+    assert_eq!(verify(policy, input), expected, "{name}, cold {policy:?}");
+    assert_eq!(
+        verify_warm(policy, input),
+        expected,
+        "{name}, warm {policy:?}"
+    );
+
+    let mut inputs = vec![input];
+    inputs.extend(fillers.iter().map(Case::input));
+    assert_eq!(
+        verify_batch(policy, &inputs)[0],
+        expected,
+        "{name}, mixed batch {policy:?}"
+    );
+}
+
 #[test]
 fn wycheproof_fixed_length_vectors_match_dalek_policy() {
     let suite: Value =
         serde_json::from_str(include_str!("vectors/ed25519_wycheproof.json")).unwrap();
     let mut checked = 0usize;
     let mut skipped_wrong_length = 0usize;
+    let fillers = mixed_batch_fillers();
 
     for group in suite["testGroups"].as_array().unwrap() {
-        let public_key = array_from_hex::<32>(group["publicKey"]["pk"].as_str().unwrap());
+        let public_key = hex_array::<32>(group["publicKey"]["pk"].as_str().unwrap());
         for test in group["tests"].as_array().unwrap() {
             let sig = hex_vec(test["sig"].as_str().unwrap());
             if sig.len() != 64 {
@@ -44,22 +82,11 @@ fn wycheproof_fixed_length_vectors_match_dalek_policy() {
                 other => panic!("unexpected Wycheproof result {other}"),
             };
 
-            assert_eq!(
-                verify(VerifyPolicy::Dalek, input),
-                expected,
-                "Wycheproof tcId={} flags={:?}",
-                test["tcId"],
-                test["flags"]
-            );
-            // Wycheproof expectations are Dalek-oriented; pin ZIP-215 against
-            // the solana-ed25519 oracle instead.
+            let name = format!("Wycheproof tcId={} flags={:?}", test["tcId"], test["flags"]);
+            assert_vector_paths(&name, VerifyPolicy::Dalek, input, expected, &fillers);
+
             let zip215_oracle = solana_ed25519_verify_zebra(public_key, signature, &message);
-            assert_eq!(
-                verify(VerifyPolicy::Zip215, input),
-                zip215_oracle,
-                "Wycheproof tcId={} ZIP-215 disagrees with solana-ed25519 oracle",
-                test["tcId"]
-            );
+            assert_vector_paths(&name, VerifyPolicy::Zip215, input, zip215_oracle, &fillers);
             checked += 1;
         }
     }
@@ -82,11 +109,12 @@ fn speccheck_vectors_match_zip215_and_dalek_policies() {
     let dalek_expected = [
         false, true, true, true, false, false, false, false, false, false, false, true,
     ];
+    let fillers = mixed_batch_fillers();
 
     assert_eq!(cases.len(), 12);
     for (idx, case) in cases.iter().enumerate() {
-        let public_key = array_from_hex::<32>(case["pub_key"].as_str().unwrap());
-        let signature = array_from_hex::<64>(case["signature"].as_str().unwrap());
+        let public_key = hex_array::<32>(case["pub_key"].as_str().unwrap());
+        let signature = hex_array::<64>(case["signature"].as_str().unwrap());
         let message = hex_vec(case["message"].as_str().unwrap());
         let input = VerifyInput {
             public_key,
@@ -95,24 +123,29 @@ fn speccheck_vectors_match_zip215_and_dalek_policies() {
         };
 
         assert_eq!(
-            verify(VerifyPolicy::Zip215, input),
-            zip215_expected[idx],
-            "speccheck vector {idx} ZIP-215 mismatch"
-        );
-        assert_eq!(
             solana_ed25519_verify_zebra(public_key, signature, &message),
             zip215_expected[idx],
             "speccheck vector {idx} solana-ed25519 ZIP-215 fixture expectation mismatch"
         );
         assert_eq!(
-            verify(VerifyPolicy::Dalek, input),
-            dalek_expected[idx],
-            "speccheck vector {idx} Dalek mismatch"
-        );
-        assert_eq!(
             solana_ed25519_verify_dalek(public_key, signature, &message),
             dalek_expected[idx],
             "speccheck vector {idx} solana-ed25519 Dalek fixture expectation mismatch"
+        );
+        let name = format!("speccheck vector {idx}");
+        assert_vector_paths(
+            &name,
+            VerifyPolicy::Zip215,
+            input,
+            zip215_expected[idx],
+            &fillers,
+        );
+        assert_vector_paths(
+            &name,
+            VerifyPolicy::Dalek,
+            input,
+            dalek_expected[idx],
+            &fillers,
         );
     }
 }
@@ -168,8 +201,4 @@ fn add_group_order_to_s(signature: &mut [u8; SIGNATURE_LEN]) {
         carry = sum >> 8;
     }
     assert_eq!(carry, 0);
-}
-
-fn array_from_hex<const N: usize>(hex: &str) -> [u8; N] {
-    hex_array(hex)
 }
