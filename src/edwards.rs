@@ -202,6 +202,8 @@ impl BasepointTable {
             points.push(points[i - 1].add(&basepoint));
         }
         let affine_points = to_affine_cached_batch(&points);
+        // Heap-built copy of the `signed_entries` layout: negatives from
+        // -136P down to -1P, identity, then 1P..136P.
         let mut entries = Vec::with_capacity(SIGNED_BASEPOINT_TABLE_SIZE);
         entries.extend(affine_points.iter().rev().map(AffineCachedPoint::negate));
         entries.push(AffineCachedPoint::identity());
@@ -408,6 +410,8 @@ mod tests {
         }
     }
 
+    /// A regression overflows this thread's stack, which aborts the whole
+    /// test process (SIGSEGV) rather than failing just this test.
     #[test]
     fn basepoint_table_constructs_on_a_small_stack() {
         std::thread::Builder::new()
