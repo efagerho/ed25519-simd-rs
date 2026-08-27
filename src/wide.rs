@@ -1362,6 +1362,7 @@ pub(crate) mod avx512ifma {
     #[cfg(test)]
     mod simd_torsion_tests {
         use super::*;
+        use rand::{RngCore, SeedableRng, rngs::StdRng};
 
         fn strict_square_n(x: &WideFe, n: usize) -> WideFe {
             let mut out = *x;
@@ -1432,7 +1433,7 @@ pub(crate) mod avx512ifma {
             let max_limbs = [(1u64 << 52) - 1; LIMB_COUNT];
             let hand_picked = [zero, p, p_minus_1, p_plus_1, max_limbs];
 
-            let mut rng = crate::test_rng::TestRng::new(0xbb67_ae85_84ca_a73b);
+            let mut rng = StdRng::seed_from_u64(0xbb67_ae85_84ca_a73b);
 
             let mut rows = [[0u64; LANES]; LIMB_COUNT];
             for lane in 0..LANES {
@@ -1450,7 +1451,7 @@ pub(crate) mod avx512ifma {
 
         #[test]
         fn canonical_matches_references_on_random_values() {
-            let mut rng = crate::test_rng::TestRng::new(0x9e37_79b9_7f4a_7c15);
+            let mut rng = StdRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
 
             let mut round = 0;
             while round < 512 {
@@ -1549,7 +1550,7 @@ pub(crate) mod avx512ifma {
         #[test]
         fn wide_pow_matches_scalar_reference() {
             // Keep scalar and SIMD decompression exponent chains in sync.
-            let mut rng = crate::test_rng::TestRng::new(0x3c6e_f372_fe94_f82b);
+            let mut rng = StdRng::seed_from_u64(0x3c6e_f372_fe94_f82b);
 
             let mut round = 0;
             while round < 200 {

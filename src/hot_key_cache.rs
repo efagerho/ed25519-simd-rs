@@ -194,6 +194,7 @@ impl KeyCache for HotKeyCache {
 mod tests {
     use super::*;
     use crate::edwards::{EdwardsPoint, PointTable};
+    use rand::{RngCore, SeedableRng, rngs::StdRng};
 
     /// A distinct cached key per index. The table contents are irrelevant to
     /// cache bookkeeping, so reuse the identity table and vary only `encoded`.
@@ -313,7 +314,7 @@ mod tests {
     #[test]
     fn link_surgery_stays_consistent_under_mixed_operations() {
         let mut cache = HotKeyCache::with_capacity(16);
-        let mut rng = crate::test_rng::TestRng::new(0x2545_f491_4f6c_dd1d);
+        let mut rng = StdRng::seed_from_u64(0x2545_f491_4f6c_dd1d);
 
         for step in 0..4096u64 {
             match rng.next_u64() % 4 {
