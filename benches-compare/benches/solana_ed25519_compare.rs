@@ -22,6 +22,7 @@ use sodiumoxide::crypto::sign::ed25519::{
 };
 
 const SIZES: [usize; 4] = [8, 16, 32, 64];
+const RAGGED_SIZES: [usize; 4] = [1, 2, 4, 7];
 
 /// One-time libsodium initialization, kept outside timed loops.
 fn init_sodiumoxide() {
@@ -45,6 +46,12 @@ struct Owned {
 enum MsgLen {
     Fixed(usize),
     Mixed,
+}
+
+#[derive(Clone, Copy)]
+enum InvalidKind {
+    MalformedSignature,
+    WellFormedWrongMessage,
 }
 
 fn generate_distinct_keys(n: usize, msg_len: MsgLen) -> Vec<Owned> {
@@ -87,12 +94,20 @@ fn generate_hot_keys(n: usize, hot_key_count: usize, msg_len: MsgLen) -> Vec<Own
         .collect()
 }
 
-/// Corrupt a scattered fraction of signatures while leaving keys valid.
-fn corrupt_fraction(cases: &mut [Owned], invalid_pct: u64) {
+fn invalidate_fraction(cases: &mut [Owned], invalid_pct: u64, kind: InvalidKind) {
     let mut rng = StdRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
     for case in cases.iter_mut() {
         if rng.next_u64() % 100 < invalid_pct {
-            rng.fill_bytes(&mut case.sig);
+            match kind {
+                InvalidKind::MalformedSignature => case.sig[32..].fill(0xff),
+                InvalidKind::WellFormedWrongMessage => {
+                    if case.msg.is_empty() {
+                        case.msg.push(1);
+                    } else {
+                        case.msg[0] ^= 1;
+                    }
+                }
+            }
         }
     }
 }
@@ -316,12 +331,48 @@ fn bench_scenario(c: &mut Criterion, group_name: &str, msg_len: MsgLen) {
     group.finish();
 }
 
-/// Distinct valid keys with a scattered invalid-signature fraction.
-fn bench_garbage_scenario(c: &mut Criterion, group_name: &str, invalid_pct: u64) {
+fn bench_ragged_batches(c: &mut Criterion) {
+    let mut group = c.benchmark_group("ragged_batches/msg_len_1");
+    for n in RAGGED_SIZES {
+        let cases = generate_distinct_keys(n, MsgLen::Fixed(1));
+        let inputs = inputs_of(&cases);
+        group.throughput(Throughput::Elements(n as u64));
+
+        for policy in [VerifyPolicy::Zip215, VerifyPolicy::Dalek] {
+            let policy_name = match policy {
+                VerifyPolicy::Zip215 => "zip215",
+                VerifyPolicy::Dalek => "dalek",
+            };
+            bench_ours_nocache(
+                &mut group,
+                &format!("ed25519_simd_nullcache/{policy_name}"),
+                policy,
+                n,
+                &inputs,
+            );
+            bench_ours_hot_key_cache(
+                &mut group,
+                &format!("ed25519_simd_hotcache/{policy_name}"),
+                policy,
+                n,
+                n,
+                &inputs,
+            );
+        }
+    }
+    group.finish();
+}
+
+fn bench_invalid_scenario(
+    c: &mut Criterion,
+    group_name: &str,
+    invalid_pct: u64,
+    kind: InvalidKind,
+) {
     let mut group = c.benchmark_group(group_name);
     for n in SIZES {
         let mut cases = generate_distinct_keys(n, MsgLen::Fixed(1));
-        corrupt_fraction(&mut cases, invalid_pct);
+        invalidate_fraction(&mut cases, invalid_pct, kind);
         let inputs = inputs_of(&cases);
         group.throughput(Throughput::Elements(n as u64));
 
@@ -363,12 +414,40 @@ fn bench_distinct_keys_len1(c: &mut Criterion) {
     bench_scenario(c, "distinct_keys/msg_len_1", MsgLen::Fixed(1));
 }
 
-fn bench_garbage_25(c: &mut Criterion) {
-    bench_garbage_scenario(c, "garbage_sigs/invalid_25pct", 25);
+fn bench_malformed_25(c: &mut Criterion) {
+    bench_invalid_scenario(
+        c,
+        "malformed_sigs/invalid_25pct",
+        25,
+        InvalidKind::MalformedSignature,
+    );
 }
 
-fn bench_garbage_50(c: &mut Criterion) {
-    bench_garbage_scenario(c, "garbage_sigs/invalid_50pct", 50);
+fn bench_malformed_50(c: &mut Criterion) {
+    bench_invalid_scenario(
+        c,
+        "malformed_sigs/invalid_50pct",
+        50,
+        InvalidKind::MalformedSignature,
+    );
+}
+
+fn bench_well_formed_invalid_25(c: &mut Criterion) {
+    bench_invalid_scenario(
+        c,
+        "well_formed_invalid/wrong_message_25pct",
+        25,
+        InvalidKind::WellFormedWrongMessage,
+    );
+}
+
+fn bench_well_formed_invalid_50(c: &mut Criterion) {
+    bench_invalid_scenario(
+        c,
+        "well_formed_invalid/wrong_message_50pct",
+        50,
+        InvalidKind::WellFormedWrongMessage,
+    );
 }
 
 fn bench_distinct_keys_len1024(c: &mut Criterion) {
@@ -388,8 +467,11 @@ criterion_group!(
     bench_distinct_keys_len1,
     bench_distinct_keys_len1024,
     bench_distinct_keys_mixed_len,
-    bench_garbage_25,
-    bench_garbage_50,
+    bench_ragged_batches,
+    bench_malformed_25,
+    bench_malformed_50,
+    bench_well_formed_invalid_25,
+    bench_well_formed_invalid_50,
     bench_hot_keys_4
 );
 criterion_main!(benches);

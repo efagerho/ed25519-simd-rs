@@ -1334,6 +1334,22 @@ pub(crate) mod avx512ifma {
             }
         }
 
+        fn assert_wide_matches(
+            actual: WideFe,
+            expected: &[crate::field::Fe51; LANES],
+            operation: &str,
+            round: usize,
+        ) {
+            for (lane, (actual, expected)) in
+                actual.to_fields().iter().zip(expected.iter()).enumerate()
+            {
+                assert!(
+                    actual.equals(expected),
+                    "{operation} lane {lane} diverged at round {round}"
+                );
+            }
+        }
+
         /// Cross-check vectorized canonical predicates against scalar references.
         fn check_canonical(rows: [[u64; LANES]; LIMB_COUNT]) {
             let wide = wide_from_rows(rows);
@@ -1411,6 +1427,131 @@ pub(crate) mod avx512ifma {
                 }
                 check_canonical(rows);
             }
+        }
+
+        #[test]
+        fn wide_field_operations_match_scalar_reference() {
+            const LOOSE_MASK: u64 = (1u64 << 52) - 1;
+
+            let mut rng = StdRng::seed_from_u64(0x510e_527f_ade6_82d1);
+            for round in 0..512 {
+                let mut random_fields = || {
+                    core::array::from_fn(|_| {
+                        crate::field::Fe51::from_limbs(core::array::from_fn(|_| {
+                            rng.next_u64() & LOOSE_MASK
+                        }))
+                    })
+                };
+                let a_fields: [crate::field::Fe51; LANES] = random_fields();
+                let b_fields: [crate::field::Fe51; LANES] = random_fields();
+                let c_fields: [crate::field::Fe51; LANES] = random_fields();
+                let a = WideFe::from_fields(&a_fields);
+                let b = WideFe::from_fields(&b_fields);
+                let c = WideFe::from_fields(&c_fields);
+
+                let add = core::array::from_fn(|lane| a_fields[lane].add(&b_fields[lane]));
+                let subtract =
+                    core::array::from_fn(|lane| a_fields[lane].subtract(&b_fields[lane]));
+                let multiply =
+                    core::array::from_fn(|lane| a_fields[lane].multiply(&b_fields[lane]));
+                let square = core::array::from_fn(|lane| a_fields[lane].square());
+                assert_wide_matches(a.add(&b), &add, "add", round);
+                assert_wide_matches(a.add_loose(&b), &add, "add_loose", round);
+                assert_wide_matches(a.subtract(&b), &subtract, "subtract", round);
+                assert_wide_matches(a.multiply(&b), &multiply, "multiply", round);
+                assert_wide_matches(a.multiply_loose(&b), &multiply, "multiply_loose", round);
+                assert_wide_matches(a.square(), &square, "square", round);
+                assert_wide_matches(a.square_loose(), &square, "square_loose", round);
+
+                let ab = a.multiply_loose(&b);
+                let bc = b.multiply_loose(&c);
+                let cc = c.square_loose();
+                let bc_fields: [crate::field::Fe51; LANES] =
+                    core::array::from_fn(|lane| b_fields[lane].multiply(&c_fields[lane]));
+                let cc_fields: [crate::field::Fe51; LANES] =
+                    core::array::from_fn(|lane| c_fields[lane].square());
+                let subtract_wide =
+                    core::array::from_fn(|lane| multiply[lane].subtract(&bc_fields[lane]));
+                let subtract_sum = core::array::from_fn(|lane| {
+                    multiply[lane]
+                        .subtract(&bc_fields[lane])
+                        .subtract(&cc_fields[lane])
+                });
+                let subtract_sum_doubled = core::array::from_fn(|lane| {
+                    multiply[lane]
+                        .subtract(&bc_fields[lane])
+                        .subtract(&cc_fields[lane].add(&cc_fields[lane]))
+                });
+                let negate_sum = core::array::from_fn(|lane| {
+                    crate::field::Fe51::zero()
+                        .subtract(&bc_fields[lane])
+                        .subtract(&cc_fields[lane])
+                });
+                assert_wide_matches(
+                    ab.subtract_wide(&bc),
+                    &subtract_wide,
+                    "subtract_wide",
+                    round,
+                );
+                assert_wide_matches(
+                    ab.subtract_sum_wide(&bc, &cc),
+                    &subtract_sum,
+                    "subtract_sum_wide",
+                    round,
+                );
+                assert_wide_matches(
+                    ab.subtract_sum_doubled_wide(&bc, &cc),
+                    &subtract_sum_doubled,
+                    "subtract_sum_doubled_wide",
+                    round,
+                );
+                assert_wide_matches(
+                    WideFe::negate_sum_wide(&bc, &cc),
+                    &negate_sum,
+                    "negate_sum_wide",
+                    round,
+                );
+            }
+
+            let near_max = core::array::from_fn(|limb| {
+                core::array::from_fn(|lane| {
+                    if limb == 0 {
+                        (1u64 << 60) - 1 - lane as u64
+                    } else {
+                        LIMB_MASK - lane as u64
+                    }
+                })
+            });
+            let fields: [crate::field::Fe51; LANES] = core::array::from_fn(|lane| {
+                crate::field::Fe51::from_limbs(core::array::from_fn(|limb| near_max[limb][lane]))
+            });
+            let wide = wide_from_rows(near_max);
+            let zero = core::array::from_fn(|lane| fields[lane].subtract(&fields[lane]));
+            let negated =
+                core::array::from_fn(|lane| crate::field::Fe51::zero().subtract(&fields[lane]));
+            let double_negated = core::array::from_fn(|lane| negated[lane].subtract(&fields[lane]));
+            let square = core::array::from_fn(|lane| fields[lane].square());
+            assert_wide_matches(wide.subtract_wide(&wide), &zero, "wide-bound subtract", 0);
+            assert_wide_matches(
+                wide.subtract_sum_wide(&wide, &wide),
+                &negated,
+                "wide-bound subtract-sum",
+                0,
+            );
+            assert_wide_matches(
+                wide.subtract_sum_doubled_wide(&wide, &wide),
+                &double_negated,
+                "wide-bound subtract-sum-doubled",
+                0,
+            );
+            assert_wide_matches(
+                WideFe::negate_sum_wide(&wide, &wide),
+                &double_negated,
+                "wide-bound negate-sum",
+                0,
+            );
+            assert_wide_matches(wide.square(), &square, "wide-bound square", 0);
+            assert_wide_matches(wide.square_loose(), &square, "wide-bound square-loose", 0);
         }
 
         #[test]
@@ -1494,6 +1635,37 @@ pub(crate) mod avx512ifma {
                             && expected_b.equals(&paired_b[lane]),
                         "b lane {lane} diverged at round {round}"
                     );
+                }
+            }
+        }
+
+        #[test]
+        fn wide_decompression_matches_scalar_reference() {
+            let mut rng = StdRng::seed_from_u64(0x1f83_d9ab_fb41_bd6b);
+
+            for round in 0..512 {
+                let encodings: [[u8; POINT_ENCODING_LEN]; LANES] = core::array::from_fn(|_| {
+                    let mut encoding = [0u8; POINT_ENCODING_LEN];
+                    rng.fill_bytes(&mut encoding);
+                    encoding
+                });
+                let (wide, mask) = decompress_points_wide(&encodings);
+                let points = wide.to_points();
+
+                for lane in 0..LANES {
+                    let expected = EdwardsPoint::decompress(&encodings[lane]);
+                    assert_eq!(
+                        (mask & (1 << lane)) != 0,
+                        expected.is_some(),
+                        "validity mask lane {lane} diverged at round {round}"
+                    );
+                    if let Some(expected) = expected {
+                        assert_eq!(
+                            points[lane].compress(),
+                            expected.compress(),
+                            "decoded point lane {lane} diverged at round {round}"
+                        );
+                    }
                 }
             }
         }

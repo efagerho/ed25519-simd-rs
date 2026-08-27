@@ -387,6 +387,25 @@ fn sub_limbs(out: &mut [u64; LIMB_COUNT], a: &[u64; LIMB_COUNT], b: &[u64; LIMB_
 #[cfg(test)]
 mod tests {
     use super::*;
+    use num_bigint::BigUint;
+    use rand::{RngCore, SeedableRng, rngs::StdRng};
+
+    fn modulus() -> BigUint {
+        (BigUint::from(1u8) << 255usize) - BigUint::from(19u8)
+    }
+
+    fn limbs_value(limbs: &[u64; LIMB_COUNT]) -> BigUint {
+        limbs
+            .iter()
+            .enumerate()
+            .fold(BigUint::from(0u8), |value, (i, limb)| {
+                value + (BigUint::from(*limb) << (i * LIMB_BITS))
+            })
+    }
+
+    fn field_value(value: Fe51) -> BigUint {
+        BigUint::from_bytes_le(&value.to_bytes())
+    }
 
     #[test]
     fn square_matches_multiply_self() {
@@ -406,6 +425,58 @@ mod tests {
         for limbs in cases {
             let x = Fe51::from_limbs(limbs);
             assert!(x.square().equals(&x.multiply(&x)));
+        }
+    }
+
+    #[test]
+    fn field_operations_match_big_integer_reference() {
+        const LOOSE_MASK: u64 = (1u64 << 52) - 1;
+
+        let modulus = modulus();
+        let mut rng = StdRng::seed_from_u64(0xa54f_f53a_5f1d_36f1);
+        let edge_cases = [
+            [0; LIMB_COUNT],
+            [1, 0, 0, 0, 0],
+            P_LIMBS,
+            [LOOSE_MASK; LIMB_COUNT],
+        ];
+
+        for round in 0..1_024 {
+            let a_limbs = edge_cases
+                .get(round)
+                .copied()
+                .unwrap_or_else(|| core::array::from_fn(|_| rng.next_u64() & LOOSE_MASK));
+            let b_limbs = edge_cases
+                .get(round.wrapping_add(1))
+                .copied()
+                .unwrap_or_else(|| core::array::from_fn(|_| rng.next_u64() & LOOSE_MASK));
+            let a = Fe51::from_limbs_unchecked(a_limbs);
+            let b = Fe51::from_limbs_unchecked(b_limbs);
+            let a_value = limbs_value(&a_limbs) % &modulus;
+            let b_value = limbs_value(&b_limbs) % &modulus;
+
+            assert_eq!(field_value(a), a_value, "a at round {round}");
+            assert_eq!(field_value(b), b_value, "b at round {round}");
+            assert_eq!(
+                field_value(a.add(&b)),
+                (&a_value + &b_value) % &modulus,
+                "add at round {round}"
+            );
+            assert_eq!(
+                field_value(a.subtract(&b)),
+                ((&a_value + &modulus) - &b_value) % &modulus,
+                "subtract at round {round}"
+            );
+            assert_eq!(
+                field_value(a.multiply(&b)),
+                (&a_value * &b_value) % &modulus,
+                "multiply at round {round}"
+            );
+            assert_eq!(
+                field_value(a.square()),
+                (&a_value * &a_value) % &modulus,
+                "square at round {round}"
+            );
         }
     }
 }
