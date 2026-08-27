@@ -130,6 +130,11 @@ impl AffineCachedPoint {
 
 /// Normalize a table of projective points with one Montgomery batch inversion.
 fn to_affine_cached_batch<const N: usize>(points: &[EdwardsPoint; N]) -> [AffineCachedPoint; N] {
+    debug_assert!(
+        points.iter().all(|point| !point.z.equals(&Fe51::zero())),
+        "batch inversion requires every Z to be nonzero"
+    );
+
     let mut prefixes: [Fe51; N] = core::array::from_fn(|_| Fe51::one());
     let mut product = Fe51::one();
     for i in 0..N {

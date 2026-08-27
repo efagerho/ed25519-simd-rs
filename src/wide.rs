@@ -15,13 +15,16 @@ pub(crate) mod avx512ifma {
     const LIMB_MASK: u64 = (1u64 << 51) - 1;
     pub(crate) struct WideRPoints {
         point: WidePoint,
-        x_zero_mask: u8,
+        x_zero_mask: Option<u8>,
     }
 
     impl WideRPoints {
-        /// Lanes with Dalek-invalid negative-zero encodings.
+        /// Dalek-invalid negative-zero lanes.
         pub(crate) fn x_zero_lanes(&self) -> [bool; LANES] {
-            mask_to_lanes(self.x_zero_mask as __mmask8)
+            let mask = self
+                .x_zero_mask
+                .expect("x-zero lanes were not tracked for this decode");
+            mask_to_lanes(mask as __mmask8)
         }
     }
 
@@ -33,7 +36,7 @@ pub(crate) mod avx512ifma {
         (
             WideRPoints {
                 point,
-                x_zero_mask: 0,
+                x_zero_mask: None,
             },
             mask,
         )
@@ -62,18 +65,18 @@ pub(crate) mod avx512ifma {
     /// SIMD point.
     fn build_tables_from_point(p: WidePoint) -> [PointTable; LANES] {
         // Build P..8P as a depth-4 tree; doublings cost 4S+4M instead of 8M.
-        let p2 = p.double();
+        let p2 = p.double_affine();
         let p4 = p2.double();
-        let p3 = p2.add(&p);
+        let p3 = p2.add_affine_rhs(&p);
         let mult = [
             p,
             p2,
             p3,
             p4,
-            p4.add(&p),  // 5P
-            p3.double(), // 6P
-            p4.add(&p3), // 7P
-            p4.double(), // 8P
+            p4.add_affine_rhs(&p), // 5P
+            p3.double(),           // 6P
+            p4.add(&p3),           // 7P
+            p4.double(),           // 8P
         ];
 
         let two_d = WideFe::two_d();
@@ -117,7 +120,7 @@ pub(crate) mod avx512ifma {
         r: &WideRPoints,
         base_table: &BasepointTable,
     ) -> [bool; LANES] {
-        let combined = mul_base_minus_public(base_table, prepared);
+        let combined = mul_base_minus_public::<true>(base_table, prepared);
         combined.subtract_affine_and_check_8_torsion(&r.point)
     }
 
@@ -126,7 +129,7 @@ pub(crate) mod avx512ifma {
         r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
         base_table: &BasepointTable,
     ) -> [bool; LANES] {
-        let combined = mul_base_minus_public(base_table, prepared);
+        let combined = mul_base_minus_public::<false>(base_table, prepared);
         let recomputed = combined.compress();
         core::array::from_fn(|lane| recomputed[lane] == r_bytes[lane])
     }
@@ -136,7 +139,7 @@ pub(crate) mod avx512ifma {
         r: &WideRPoints,
         base_table: &BasepointTable,
     ) -> [bool; LANES] {
-        let combined = mul_base_minus_public(base_table, prepared);
+        let combined = mul_base_minus_public::<false>(base_table, prepared);
         combined.equals_affine_lanes(&r.point)
     }
 
@@ -166,11 +169,12 @@ pub(crate) mod avx512ifma {
         let yy = y.square();
         let u = yy.subtract(&WideFe::one());
         let v = WideFe::one().add(&WideFe::d().multiply(&yy));
+        // u*v^7 = (u*v^3)*v^4, saving one multiply.
         let v2 = v.square();
+        let v4 = v2.square();
         let v3 = v2.multiply(&v);
-        let v7 = v3.square().multiply(&v);
         let base = u.multiply(&v3);
-        let exp = u.multiply(&v7);
+        let exp = base.multiply(&v4);
         DecompressSetup {
             u,
             v,
@@ -184,7 +188,7 @@ pub(crate) mod avx512ifma {
     fn decompress_finish<const COMPUTE_T: bool, const TRACK_X_ZERO: bool>(
         s: DecompressSetup,
         pow: WideFe,
-    ) -> (WidePoint, u8, u8) {
+    ) -> (WidePoint, u8, Option<u8>) {
         let mut x = s.base.multiply(&pow);
 
         let vx2 = s.v.multiply(&x.square());
@@ -201,9 +205,10 @@ pub(crate) mod avx512ifma {
 
         // Points outside `valid_mask` are garbage.
         let (x_odd, x_zero_mask) = if TRACK_X_ZERO {
-            x.odd_and_zero_masks()
+            let (odd, zero) = x.odd_and_zero_masks();
+            (odd, Some(zero))
         } else {
-            (x.is_odd_mask(), 0)
+            (x.is_odd_mask(), None)
         };
         let x_neg = x.negate();
         let negate_mask = x_odd ^ s.x_signs;
@@ -240,7 +245,7 @@ pub(crate) mod avx512ifma {
         a_bytes: &[[u8; POINT_ENCODING_LEN]; LANES],
         b_bytes: &[[u8; POINT_ENCODING_LEN]; LANES],
         minimize_b_for_dalek: bool,
-    ) -> ((WidePoint, u8), (WidePoint, u8, u8)) {
+    ) -> ((WidePoint, u8), (WidePoint, u8, Option<u8>)) {
         let sa = decompress_setup(a_bytes);
         let sb = decompress_setup(b_bytes);
         let (pa, pb) = WideFe::pow_p_minus_5_over_8_x2(&sa.exp, &sb.exp);
@@ -252,7 +257,8 @@ pub(crate) mod avx512ifma {
         };
         ((a, a_mask), b)
     }
-    fn mul_base_minus_public(
+    // Only ZIP-215's final torsion subtraction needs T.
+    fn mul_base_minus_public<const NEED_T: bool>(
         base_table: &BasepointTable,
         prepared: &PreparedBatch<'_>,
     ) -> WidePoint {
@@ -282,12 +288,15 @@ pub(crate) mod avx512ifma {
             add_public_digit_before_double(&mut acc, public_key_tables, k_digits, pair * 2);
         }
 
-        // The final public-key addition needs `T` for ZIP-215 subtraction.
         acc = acc.double4();
         add_public_digit_before_double(&mut acc, public_key_tables, k_digits, 1);
         acc = acc.double4();
         add_base_pair_digit(&mut acc, base_table, s_digits, 0);
-        add_public_digit(&mut acc, public_key_tables, k_digits, 0);
+        if NEED_T {
+            add_public_digit(&mut acc, public_key_tables, k_digits, 0);
+        } else {
+            add_public_digit_before_double(&mut acc, public_key_tables, k_digits, 0);
+        }
         acc
     }
 
@@ -447,6 +456,11 @@ pub(crate) mod avx512ifma {
         fn to_bytes_lanes(self) -> [[u8; POINT_ENCODING_LEN]; LANES] {
             unsafe {
                 let c = self.canonical();
+                // Packing overlaps unless canonical limb 0 is below 2^51.
+                debug_assert!(
+                    c.limb_below(0, 51),
+                    "to_bytes_lanes needs a canonical limb 0 below 2^51"
+                );
                 let packed = [
                     _mm512_or_si512(c.limbs[0], _mm512_slli_epi64(c.limbs[1], 51)),
                     _mm512_or_si512(
@@ -855,6 +869,12 @@ pub(crate) mod avx512ifma {
         fn is_odd_lanes(self) -> [bool; LANES] {
             mask_to_lanes(self.is_odd_mask() as __mmask8)
         }
+        fn limb_below(&self, index: usize, bits: u32) -> bool {
+            let mut lanes = [0u64; LANES];
+            storeu(self.limbs[index], &mut lanes);
+            lanes.iter().all(|&limb| limb < (1u64 << bits))
+        }
+
         fn is_odd_mask(self) -> u8 {
             unsafe {
                 let c = self.canonical();
@@ -1096,12 +1116,25 @@ pub(crate) mod avx512ifma {
             core::array::from_fn(|lane| x_equal[lane] && y_equal[lane])
         }
         // Table-building points are strict, so small-bias `subtract` is valid.
-        // The hot path uses `add_cached_assign` for loose intermediates.
         fn add(&self, rhs: &Self) -> Self {
+            self.add_impl::<false>(rhs)
+        }
+        fn add_affine_rhs(&self, rhs: &Self) -> Self {
+            debug_assert!(
+                rhs.z.equals_lanes(&WideFe::one()).iter().all(|&eq| eq),
+                "add_affine_rhs requires rhs.z == 1 in every lane"
+            );
+            self.add_impl::<true>(rhs)
+        }
+        fn add_impl<const AFFINE_RHS: bool>(&self, rhs: &Self) -> Self {
             let a = self.y.subtract(&self.x).multiply(&rhs.y.subtract(&rhs.x));
             let b = self.y.add_loose(&self.x).multiply(&rhs.y.add_loose(&rhs.x));
             let c = self.t.multiply(&rhs.t).multiply(&WideFe::two_d());
-            let d = self.z.multiply(&rhs.z).double_loose();
+            let d = if AFFINE_RHS {
+                self.z.double_loose()
+            } else {
+                self.z.multiply(&rhs.z).double_loose()
+            };
             let e = b.subtract(&a);
             let f = d.subtract(&c);
             let g = d.add_loose(&c);
@@ -1205,10 +1238,17 @@ pub(crate) mod avx512ifma {
             }
         }
         fn double(&self) -> Self {
-            self.double_impl::<true>()
+            self.double_impl::<true, false>()
+        }
+        fn double_affine(&self) -> Self {
+            debug_assert!(
+                self.z.equals_lanes(&WideFe::one()).iter().all(|&eq| eq),
+                "double_affine requires z == 1 in every lane"
+            );
+            self.double_impl::<true, true>()
         }
         fn double_without_t(&self) -> Self {
-            self.double_impl::<false>()
+            self.double_impl::<false, false>()
         }
 
         #[inline(never)]
@@ -1219,12 +1259,16 @@ pub(crate) mod avx512ifma {
                 .double_without_t();
             doubled.double()
         }
-        fn double_impl<const COMPUTE_T: bool>(&self) -> Self {
+        fn double_impl<const COMPUTE_T: bool, const AFFINE_Z: bool>(&self) -> Self {
             // Loose squares feed additive ops; use wide subtract/negate for
             // limb0 values up to ~2^60.
             let a = self.x.square_loose();
             let b = self.y.square_loose();
-            let z2 = self.z.square_loose();
+            let z2 = if AFFINE_Z {
+                WideFe::one()
+            } else {
+                self.z.square_loose()
+            };
             let e = self
                 .x
                 .add_loose(&self.y)
@@ -1567,7 +1611,7 @@ pub(crate) mod avx512ifma {
                 s_digits: &s_digits,
                 k_digits: &k_digits,
             };
-            let combined = mul_base_minus_public(&base_table, &prepared);
+            let combined = mul_base_minus_public::<true>(&base_table, &prepared);
             let pts = combined.to_points();
             assert_eq!(
                 pts[0].compress(),
