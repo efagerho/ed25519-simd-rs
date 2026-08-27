@@ -12,6 +12,22 @@ fn resident_count(cache: &HotKeyCache, keys: &[[u8; PUBLIC_KEY_LEN]]) -> usize {
 }
 
 #[test]
+fn verify_input_supports_struct_update_syntax_downstream() {
+    let base = VerifyInput {
+        public_key: [0; 32],
+        signature: [0; 64],
+        message: b"base",
+    };
+    let inputs: Vec<_> = [b"first".as_slice(), b"second".as_slice()]
+        .into_iter()
+        .map(|message| VerifyInput { message, ..base })
+        .collect();
+
+    assert_eq!(inputs[0].message, b"first");
+    assert_eq!(inputs[1].message, b"second");
+}
+
+#[test]
 fn hot_key_cache_handles_mixed_hit_and_miss_lanes_in_one_chunk() {
     let signing_keys: Vec<_> = (0..8u64).map(signing_key_from_index).collect();
     let public_keys: Vec<[u8; PUBLIC_KEY_LEN]> = signing_keys
