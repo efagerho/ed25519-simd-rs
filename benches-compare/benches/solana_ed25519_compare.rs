@@ -36,7 +36,7 @@ fn signing_key_from_index(index: u64) -> SigningKey {
     SigningKey::from(seed)
 }
 
-struct Owned {
+struct OwnedCase {
     pk: [u8; 32],
     sig: [u8; 64],
     msg: Vec<u8>,
@@ -54,7 +54,7 @@ enum InvalidKind {
     WellFormedWrongMessage,
 }
 
-fn generate_distinct_keys(n: usize, msg_len: MsgLen) -> Vec<Owned> {
+fn generate_distinct_key_cases(n: usize, msg_len: MsgLen) -> Vec<OwnedCase> {
     let mut rng = StdRng::seed_from_u64(0x5eed_1234);
     (0..n)
         .map(|i| {
@@ -67,13 +67,13 @@ fn generate_distinct_keys(n: usize, msg_len: MsgLen) -> Vec<Owned> {
             let mut msg = vec![0u8; len];
             rng.fill_bytes(&mut msg);
             let sig = key.sign(&msg).to_bytes();
-            Owned { pk, sig, msg }
+            OwnedCase { pk, sig, msg }
         })
         .collect()
 }
 
 /// Fill a batch by cycling through a small set of hot keys.
-fn generate_hot_keys(n: usize, hot_key_count: usize, msg_len: MsgLen) -> Vec<Owned> {
+fn generate_hot_key_cases(n: usize, hot_key_count: usize, msg_len: MsgLen) -> Vec<OwnedCase> {
     let mut rng = StdRng::seed_from_u64(0x5eed_1234);
     let hot_keys: Vec<SigningKey> = (0..hot_key_count)
         .map(|i| signing_key_from_index(i as u64))
@@ -89,12 +89,12 @@ fn generate_hot_keys(n: usize, hot_key_count: usize, msg_len: MsgLen) -> Vec<Own
             let mut msg = vec![0u8; len];
             rng.fill_bytes(&mut msg);
             let sig = key.sign(&msg).to_bytes();
-            Owned { pk, sig, msg }
+            OwnedCase { pk, sig, msg }
         })
         .collect()
 }
 
-fn invalidate_fraction(cases: &mut [Owned], invalid_pct: u64, kind: InvalidKind) {
+fn invalidate_fraction(cases: &mut [OwnedCase], invalid_pct: u64, kind: InvalidKind) {
     let mut rng = StdRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
     for case in cases.iter_mut() {
         if rng.next_u64() % 100 < invalid_pct {
@@ -112,7 +112,7 @@ fn invalidate_fraction(cases: &mut [Owned], invalid_pct: u64, kind: InvalidKind)
     }
 }
 
-fn inputs_of(cases: &[Owned]) -> Vec<VerifyInput<'_>> {
+fn inputs_of(cases: &[OwnedCase]) -> Vec<VerifyInput<'_>> {
     cases
         .iter()
         .map(|c| VerifyInput {
@@ -248,7 +248,7 @@ fn bench_ours_hot_key_cache(
 fn bench_hot_keys_scenario(c: &mut Criterion, group_name: &str, hot_key_count: usize) {
     let mut group = c.benchmark_group(group_name);
     for n in SIZES {
-        let cases = generate_hot_keys(n, hot_key_count, MsgLen::Fixed(1));
+        let cases = generate_hot_key_cases(n, hot_key_count, MsgLen::Fixed(1));
         let inputs = inputs_of(&cases);
         group.throughput(Throughput::Elements(n as u64));
 
@@ -274,7 +274,7 @@ fn bench_hot_keys_scenario(c: &mut Criterion, group_name: &str, hot_key_count: u
 fn bench_scenario(c: &mut Criterion, group_name: &str, msg_len: MsgLen) {
     let mut group = c.benchmark_group(group_name);
     for n in SIZES {
-        let cases = generate_distinct_keys(n, msg_len);
+        let cases = generate_distinct_key_cases(n, msg_len);
         let inputs = inputs_of(&cases);
         group.throughput(Throughput::Elements(n as u64));
 
@@ -334,7 +334,7 @@ fn bench_scenario(c: &mut Criterion, group_name: &str, msg_len: MsgLen) {
 fn bench_ragged_batches(c: &mut Criterion) {
     let mut group = c.benchmark_group("ragged_batches/msg_len_1");
     for n in RAGGED_SIZES {
-        let cases = generate_distinct_keys(n, MsgLen::Fixed(1));
+        let cases = generate_distinct_key_cases(n, MsgLen::Fixed(1));
         let inputs = inputs_of(&cases);
         group.throughput(Throughput::Elements(n as u64));
 
@@ -371,7 +371,7 @@ fn bench_invalid_scenario(
 ) {
     let mut group = c.benchmark_group(group_name);
     for n in SIZES {
-        let mut cases = generate_distinct_keys(n, MsgLen::Fixed(1));
+        let mut cases = generate_distinct_key_cases(n, MsgLen::Fixed(1));
         invalidate_fraction(&mut cases, invalid_pct, kind);
         let inputs = inputs_of(&cases);
         group.throughput(Throughput::Elements(n as u64));

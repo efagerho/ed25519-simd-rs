@@ -79,7 +79,7 @@ fn bucketed_batch_shapes_match_solana_ed25519() {
 }
 
 #[test]
-fn every_small_batch_tail_lane_can_fail_independently() {
+fn each_lane_failure_is_isolated_across_small_batches() {
     for policy in [VerifyPolicy::Zip215, VerifyPolicy::Dalek] {
         let mut verifier = Verifier::with_cache(policy, NullKeyCache::new());
         let empty: [VerifyInput<'_>; 0] = [];

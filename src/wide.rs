@@ -1316,7 +1316,7 @@ pub(crate) mod avx512ifma {
         core::array::from_fn(|lane| (mask & (1 << lane)) != 0)
     }
     #[cfg(test)]
-    mod simd_torsion_tests {
+    mod tests {
         use super::*;
         use rand::{RngCore, SeedableRng, rngs::StdRng};
 

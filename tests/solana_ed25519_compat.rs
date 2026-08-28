@@ -244,7 +244,7 @@ fn per_lane_masking_matches_solana_ed25519_under_heavy_garbage() {
 }
 
 #[test]
-fn enumerate_divergences_vs_solana_ed25519() {
+fn edge_case_grid_matches_solana_ed25519() {
     use ed25519_simd::VerifyPolicy::{Dalek, Zip215};
 
     let points: [(&str, [u8; 32]); 18] = [
