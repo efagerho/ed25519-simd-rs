@@ -276,13 +276,13 @@ pub(crate) mod avx512ifma {
         let mut acc = WidePoint::from_cached_refs_without_t(&selected);
 
         // Continue at digit 62; reduced scalars have no digit above 63.
-        acc = acc.double_four_times();
+        acc.double_four_times_assign();
         add_base_pair_digit(&mut acc, base_table, s_digits, 31);
         subtract_public_key_digit_before_double(&mut acc, public_key_tables, k_digits, 62);
 
         // These public-key additions feed doublings, which do not use `T`.
         for pair in (1..31).rev() {
-            acc = acc.double_four_times();
+            acc.double_four_times_assign();
             subtract_public_key_digit_before_double(
                 &mut acc,
                 public_key_tables,
@@ -290,7 +290,7 @@ pub(crate) mod avx512ifma {
                 pair * 2 + 1,
             );
 
-            acc = acc.double_four_times();
+            acc.double_four_times_assign();
             add_base_pair_digit(&mut acc, base_table, s_digits, pair);
             subtract_public_key_digit_before_double(
                 &mut acc,
@@ -300,9 +300,9 @@ pub(crate) mod avx512ifma {
             );
         }
 
-        acc = acc.double_four_times();
+        acc.double_four_times_assign();
         subtract_public_key_digit_before_double(&mut acc, public_key_tables, k_digits, 1);
-        acc = acc.double_four_times();
+        acc.double_four_times_assign();
         add_base_pair_digit(&mut acc, base_table, s_digits, 0);
         if NEED_T {
             subtract_public_key_digit(&mut acc, public_key_tables, k_digits, 0);
@@ -1214,14 +1214,25 @@ pub(crate) mod avx512ifma {
             self.double_impl::<false, false>()
         }
 
+        /// In place so `acc = acc.double_four_times()`'s 1280-byte return
+        /// copy never happens; the last double writes straight into `self`.
         #[inline(never)]
-        fn double_four_times(&self) -> Self {
-            let doubled = self
+        fn double_four_times_assign(&mut self) {
+            let tripled = self
                 .double_without_t()
                 .double_without_t()
                 .double_without_t();
-            doubled.double()
+            tripled.double_into(self);
         }
+        /// Inlined body stores its result directly through `out`, which a
+        /// returned `Self` assigned across a call boundary does not.
+        #[inline(always)]
+        fn double_into(&self, out: &mut Self) {
+            *out = self.double_impl::<true, false>();
+        }
+        // Always inline: callers embed it exactly once each, and the inlined
+        // body lets an `_into` destination receive direct stores.
+        #[inline(always)]
         fn double_impl<const COMPUTE_T: bool, const AFFINE_Z: bool>(&self) -> Self {
             // Loose squares feed additive ops; use loose-input subtract/negate for
             // limb0 values up to ~2^60.
