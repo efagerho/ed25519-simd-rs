@@ -220,7 +220,7 @@ impl BasepointTable {
     }
 }
 
-pub(crate) fn select_signed_affine_ref(
+pub(crate) fn select_signed_affine_cached_ref(
     entries: &BasepointTableEntries,
     digit: i16,
 ) -> &AffineCachedPoint {
@@ -402,7 +402,7 @@ mod tests {
             let x = point.x.multiply(&zinv);
             let y = point.y.multiply(&zinv);
             let expected = AffineCachedPoint::from_affine(&x, &y);
-            let actual = select_signed_affine_ref(table.entries(), digit);
+            let actual = select_signed_affine_cached_ref(table.entries(), digit);
 
             assert!(actual.y_plus_x.equals(&expected.y_plus_x));
             assert!(actual.y_minus_x.equals(&expected.y_minus_x));

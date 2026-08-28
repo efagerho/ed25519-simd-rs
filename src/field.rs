@@ -227,7 +227,7 @@ impl Fe51 {
     }
 
     /// Loosely reduced limbs for AVX-512 IFMA field arithmetic.
-    pub(crate) fn reduced_limbs(&self) -> [u64; LIMB_COUNT] {
+    pub(crate) fn loose_limb(&self) -> [u64; LIMB_COUNT] {
         debug_assert!(self.limbs.iter().all(|&limb| limb < (1u64 << 52)));
         self.limbs
     }
