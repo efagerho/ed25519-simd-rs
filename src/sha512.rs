@@ -133,7 +133,7 @@ mod avx512 {
     const LANES: usize = SIMD_LANES;
 
     #[derive(Clone, Copy)]
-    struct Padding {
+    struct MessageLayout {
         total_len: usize,
         bit_len: u64,
         length_start: usize,
@@ -192,7 +192,7 @@ mod avx512 {
                 } else {
                     let active = active_mask(&block_counts, block_index);
                     let old_state = state;
-                    let words = generic_block_words_mixed(
+                    let words = generic_mixed_block_words(
                         r_bytes,
                         public_keys,
                         messages,
@@ -225,7 +225,7 @@ mod avx512 {
         mask as __mmask8
     }
 
-    fn generic_block_words_mixed(
+    fn generic_mixed_block_words(
         r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
         public_keys: &[[u8; PUBLIC_KEY_LEN]; LANES],
         messages: [&[u8]; LANES],
@@ -239,13 +239,13 @@ mod avx512 {
             let mut lanes = [0u64; LANES];
             let word_offset = block_start + word * 8;
             for lane in 0..LANES {
-                let padding = Padding {
+                let layout = MessageLayout {
                     total_len: total_lens[lane],
                     bit_len: bit_lens[lane],
                     length_start: length_starts[lane],
                 };
                 lanes[lane] =
-                    mixed_block_word(r_bytes, public_keys, messages, lane, word_offset, padding);
+                    mixed_block_word(r_bytes, public_keys, messages, lane, word_offset, layout);
             }
             loadu(lanes)
         })
@@ -257,7 +257,7 @@ mod avx512 {
         messages: [&[u8]; LANES],
         lane: usize,
         word_offset: usize,
-        padding: Padding,
+        layout: MessageLayout,
     ) -> u64 {
         let word_end = word_offset + 8;
         if word_end <= 32 {
@@ -266,32 +266,32 @@ mod avx512 {
         if word_offset >= 32 && word_end <= 64 {
             return read_be_u64(&public_keys[lane], word_offset - 32);
         }
-        if word_offset >= 64 && word_end <= padding.total_len {
+        if word_offset >= 64 && word_end <= layout.total_len {
             return read_be_u64_slice(messages[lane], word_offset - 64);
         }
-        if word_offset == padding.length_start + 8 {
-            return padding.bit_len;
+        if word_offset == layout.length_start + 8 {
+            return layout.bit_len;
         }
         // This zero-padding range includes the high length word.
-        if word_offset > padding.total_len && word_end <= padding.length_start + 8 {
-            return if word_offset == padding.length_start {
-                (padding.total_len >> 61) as u64
+        if word_offset > layout.total_len && word_end <= layout.length_start + 8 {
+            return if word_offset == layout.length_start {
+                (layout.total_len >> 61) as u64
             } else {
                 0
             };
         }
 
-        mixed_message_tail_word(messages[lane], word_offset, padding)
+        mixed_message_tail_word(messages[lane], word_offset, layout)
     }
 
-    fn mixed_message_tail_word(message: &[u8], word_offset: usize, padding: Padding) -> u64 {
+    fn mixed_message_tail_word(message: &[u8], word_offset: usize, layout: MessageLayout) -> u64 {
         debug_assert!(word_offset >= 64);
         let mut bytes = [0u8; 8];
         for (j, byte) in bytes.iter_mut().enumerate() {
             let offset = word_offset + j;
-            *byte = if offset < padding.total_len {
+            *byte = if offset < layout.total_len {
                 message[offset - 64]
-            } else if offset == padding.total_len {
+            } else if offset == layout.total_len {
                 0x80
             } else {
                 0
@@ -494,7 +494,7 @@ mod avx512 {
         #[test]
         fn length_trailer_includes_the_high_word() {
             let total_len = 1usize << 61;
-            let padding = Padding {
+            let layout = MessageLayout {
                 total_len,
                 bit_len: (total_len as u64) << 3,
                 length_start: total_len + 112,
@@ -509,8 +509,8 @@ mod avx512 {
                     &public_keys,
                     messages,
                     0,
-                    padding.length_start + word * 8,
-                    padding,
+                    layout.length_start + word * 8,
+                    layout,
                 )
             });
             assert_eq!(trailer, [1, 0]);

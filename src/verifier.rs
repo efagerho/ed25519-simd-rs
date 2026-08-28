@@ -161,7 +161,7 @@ impl<C: KeyCache> Verifier<C> {
             core::array::from_fn(|lane| cached_keys[lane].is_none());
 
         // Decode missing keys and their R points together.
-        let mut decoded_r: Option<(avx512ifma::WideRPoints, [bool; SIMD_LANES])> = None;
+        let mut decoded_r: Option<(avx512ifma::WideRPoint, [bool; SIMD_LANES])> = None;
         let mut decoded_key_lanes = [false; SIMD_LANES];
         if any_lane(&missing_key_lanes) {
             let (key_valid_bits, r_points, r_valid_bits) = avx512ifma::decode_keys_and_decompress_r(
@@ -170,8 +170,8 @@ impl<C: KeyCache> Verifier<C> {
                 policy == VerifyPolicy::Dalek,
                 &mut self.scratch.key_tables,
             );
-            decoded_key_lanes = lane_flags_from_mask(key_valid_bits);
-            decoded_r = Some((r_points, lane_flags_from_mask(r_valid_bits)));
+            decoded_key_lanes = avx512ifma::mask_to_lanes(key_valid_bits);
+            decoded_r = Some((r_points, avx512ifma::mask_to_lanes(r_valid_bits)));
         }
 
         // Combine cached and freshly decoded key tables.
@@ -246,7 +246,7 @@ impl<C: KeyCache> Verifier<C> {
     fn verify_zip215_lanes(
         &self,
         prepared: &PreparedChunk<'_>,
-        decoded_r: Option<(avx512ifma::WideRPoints, [bool; SIMD_LANES])>,
+        decoded_r: Option<(avx512ifma::WideRPoint, [bool; SIMD_LANES])>,
         r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
         valid: &[bool; SIMD_LANES],
         out: &mut [bool; SIMD_LANES],
@@ -256,7 +256,7 @@ impl<C: KeyCache> Verifier<C> {
             Some(decoded) => decoded,
             None => {
                 let (r_points, r_mask) = avx512ifma::decompress_r_points(r_bytes);
-                (r_points, lane_flags_from_mask(r_mask))
+                (r_points, avx512ifma::mask_to_lanes(r_mask))
             }
         };
 
@@ -271,7 +271,7 @@ impl<C: KeyCache> Verifier<C> {
     fn verify_dalek_lanes(
         &self,
         prepared: &PreparedChunk<'_>,
-        decoded_r: Option<(avx512ifma::WideRPoints, [bool; SIMD_LANES])>,
+        decoded_r: Option<(avx512ifma::WideRPoint, [bool; SIMD_LANES])>,
         r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
         public_keys: &[[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
         valid: &[bool; SIMD_LANES],
@@ -352,11 +352,6 @@ fn dalek_legacy_excluded(
     r_bytes: &[u8; R_ENCODING_LEN],
 ) -> bool {
     *public_key == [0u8; batch::PUBLIC_KEY_LEN] || r_encoding_is_legacy_excluded(r_bytes)
-}
-
-fn lane_flags_from_mask(mask: u8) -> [bool; SIMD_LANES] {
-    // `SIMD_LANES == 8`, so every lane fits in this `u8` mask.
-    core::array::from_fn(|lane| mask & (1u8 << lane) != 0)
 }
 
 fn any_lane(lanes: &[bool; SIMD_LANES]) -> bool {

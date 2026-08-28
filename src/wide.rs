@@ -14,28 +14,26 @@ pub(crate) mod avx512ifma {
     // These intrinsics hard-code eight lanes; reject a changed `SIMD_LANES`.
     const _: () = assert!(LANES == 8, "avx512ifma assumes exactly 8 SIMD lanes");
     const LIMB_MASK: u64 = (1u64 << 51) - 1;
-    pub(crate) struct WideRPoints {
+    pub(crate) struct WideRPoint {
         point: WidePoint,
         x_zero_mask: Option<u8>,
     }
 
-    impl WideRPoints {
+    impl WideRPoint {
         /// Dalek-invalid negative-zero lanes.
         pub(crate) fn x_zero_lanes(&self) -> [bool; LANES] {
             let mask = self
                 .x_zero_mask
                 .expect("x-zero lanes were not tracked for this decode");
-            mask_to_lanes(mask as __mmask8)
+            mask_to_lanes(mask)
         }
     }
 
     /// Decompress one SIMD chunk of `R` points and return a per-lane validity mask.
-    pub(crate) fn decompress_r_points(
-        r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
-    ) -> (WideRPoints, u8) {
+    pub(crate) fn decompress_r_points(r_bytes: &[[u8; R_ENCODING_LEN]; LANES]) -> (WideRPoint, u8) {
         let (point, mask) = decompress_points_wide(r_bytes);
         (
-            WideRPoints {
+            WideRPoint {
                 point,
                 x_zero_mask: None,
             },
@@ -49,13 +47,13 @@ pub(crate) mod avx512ifma {
         r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
         dalek: bool,
         key_tables: &mut [Option<PointTable>; LANES],
-    ) -> (u8, WideRPoints, u8) {
+    ) -> (u8, WideRPoint, u8) {
         let ((kp, kmask), (rp, rmask, x_zero_mask)) =
-            decompress_point_batches_wide(keys, r_bytes, dalek);
+            decompress_two_point_chunks_wide(keys, r_bytes, dalek);
         build_tables_from_point(kp, key_tables);
         (
             kmask,
-            WideRPoints {
+            WideRPoint {
                 point: rp,
                 x_zero_mask,
             },
@@ -121,7 +119,7 @@ pub(crate) mod avx512ifma {
     // ZIP-215 cofactored verification: [8](sB - kA - R) == identity.
     pub(crate) fn verify_prepared_zip215(
         prepared: &PreparedChunk<'_>,
-        r: &WideRPoints,
+        r: &WideRPoint,
         base_table: &BasepointTableEntries,
     ) -> [bool; LANES] {
         let combined = mul_s_base_minus_k_public::<true>(base_table, prepared);
@@ -140,7 +138,7 @@ pub(crate) mod avx512ifma {
 
     pub(crate) fn verify_prepared_dalek_decompressed_r(
         prepared: &PreparedChunk<'_>,
-        r: &WideRPoints,
+        r: &WideRPoint,
         base_table: &BasepointTableEntries,
     ) -> [bool; LANES] {
         let combined = mul_s_base_minus_k_public::<false>(base_table, prepared);
@@ -245,7 +243,7 @@ pub(crate) mod avx512ifma {
 
     /// Decompress two independent SIMD chunks, interleaving the two
     /// inverse-square-root chains so each fills the other's IFMA latency gaps.
-    fn decompress_point_batches_wide(
+    fn decompress_two_point_chunks_wide(
         a_bytes: &[[u8; POINT_ENCODING_LEN]; LANES],
         b_bytes: &[[u8; POINT_ENCODING_LEN]; LANES],
         minimize_b_for_dalek: bool,
@@ -522,6 +520,10 @@ pub(crate) mod avx512ifma {
         }
         // The 4*p bias is only enough for strict subtrahends (`< 2^52` limbs);
         // loose limb0 can reach < 2^60, so those callers use `subtract_loose`.
+        //
+        // Note the suffix convention split: on `multiply`/`square`/`add`,
+        // `_loose` marks a looser *result*; on the subtraction family below it
+        // marks looser *operands* (the results are equally loose either way).
         fn subtract(&self, rhs: &Self) -> Self {
             unsafe {
                 let bias = [
@@ -844,13 +846,13 @@ pub(crate) mod avx512ifma {
             (fa.multiply(a), fb.multiply(b))
         }
         fn equals_lanes(self, rhs: &Self) -> [bool; LANES] {
-            mask_to_lanes(self.equals_mask(rhs) as __mmask8)
+            mask_to_lanes(self.equals_mask(rhs))
         }
         fn equals_mask(self, rhs: &Self) -> u8 {
             self.subtract(rhs).is_zero_mask()
         }
         fn is_zero_lanes(self) -> [bool; LANES] {
-            mask_to_lanes(self.is_zero_mask() as __mmask8)
+            mask_to_lanes(self.is_zero_mask())
         }
         fn is_zero_mask(self) -> u8 {
             self.canonical().canonical_zero_mask()
@@ -869,7 +871,7 @@ pub(crate) mod avx512ifma {
         }
         #[cfg(test)]
         fn is_odd_lanes(self) -> [bool; LANES] {
-            mask_to_lanes(self.is_odd_mask() as __mmask8)
+            mask_to_lanes(self.is_odd_mask())
         }
         fn limb_below(&self, index: usize, bits: u32) -> bool {
             let mut lanes = [0u64; LANES];
@@ -1322,7 +1324,8 @@ pub(crate) mod avx512ifma {
     fn storeu(value: __m512i, out: &mut [u64; LANES]) {
         unsafe { _mm512_storeu_si512(out.as_mut_ptr() as *mut __m512i, value) }
     }
-    fn mask_to_lanes(mask: __mmask8) -> [bool; LANES] {
+    /// Expand a per-lane bitmask into bools; shared with the scalar driver.
+    pub(crate) fn mask_to_lanes(mask: u8) -> [bool; LANES] {
         core::array::from_fn(|lane| (mask & (1 << lane)) != 0)
     }
     #[cfg(test)]
