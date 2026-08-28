@@ -1,4 +1,4 @@
-use crate::batch::{self, PreparedBatch};
+use crate::batch::{self, PreparedChunk};
 use crate::cache::{CachedPublicKey, KeyCache, NullKeyCache};
 use crate::edwards::{BasepointTable, BasepointTableEntries, EdwardsPoint, PointTable};
 use crate::policy::{VerifyPolicy, r_encoding_has_canonical_y, r_encoding_is_legacy_excluded};
@@ -32,7 +32,7 @@ static BASE_TABLE: LazyLock<BasepointTable> = LazyLock::new(BasepointTable::new)
 static IDENTITY_TABLE: LazyLock<PointTable> =
     LazyLock::new(|| PointTable::new(&EdwardsPoint::identity()));
 
-struct ChunkParts<'a> {
+struct ParsedChunk<'a> {
     valid: [bool; SIMD_LANES],
     r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
     public_keys: [[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
@@ -124,7 +124,7 @@ impl<C: KeyCache> Verifier<C> {
         let mut bucket_order = core::mem::take(&mut self.bucket_order);
         batch::for_each_simd_chunk(inputs, &mut bucket_order, |chunk, output_indices, lanes| {
             let mut tmp = [false; SIMD_LANES];
-            self.try_verify_chunk(chunk, &mut tmp);
+            self.verify_chunk(chunk, &mut tmp);
 
             for (&index, &value) in output_indices[..lanes].iter().zip(&tmp) {
                 out[index] = value;
@@ -133,14 +133,14 @@ impl<C: KeyCache> Verifier<C> {
         self.bucket_order = bucket_order;
     }
 
-    fn try_verify_chunk(
+    fn verify_chunk(
         &mut self,
         inputs: &[VerifyInput<'_>; SIMD_LANES],
         out: &mut [bool; SIMD_LANES],
     ) {
         let policy = self.policy;
 
-        let ChunkParts {
+        let ParsedChunk {
             mut valid,
             r_bytes,
             public_keys,
@@ -191,7 +191,7 @@ impl<C: KeyCache> Verifier<C> {
         if any_lane(&valid) {
             let k_digits = challenge_digits(&r_bytes, &public_keys, messages);
 
-            let prepared = PreparedBatch {
+            let prepared = PreparedChunk {
                 public_key_tables,
                 s_digits: &s_digits,
                 k_digits: &k_digits,
@@ -241,7 +241,7 @@ impl<C: KeyCache> Verifier<C> {
     #[inline(always)]
     fn verify_zip215_lanes(
         &self,
-        prepared: &PreparedBatch<'_>,
+        prepared: &PreparedChunk<'_>,
         decoded_r: Option<(avx512ifma::WideRPoints, [bool; SIMD_LANES])>,
         r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
         valid: &[bool; SIMD_LANES],
@@ -265,7 +265,7 @@ impl<C: KeyCache> Verifier<C> {
     #[inline(always)]
     fn verify_dalek_lanes(
         &self,
-        prepared: &PreparedBatch<'_>,
+        prepared: &PreparedChunk<'_>,
         decoded_r: Option<(avx512ifma::WideRPoints, [bool; SIMD_LANES])>,
         r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
         public_keys: &[[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
@@ -299,7 +299,7 @@ impl<C: KeyCache> Verifier<C> {
 }
 
 #[inline(always)]
-fn parse_chunk_inputs<'a>(inputs: &[VerifyInput<'a>; SIMD_LANES]) -> ChunkParts<'a> {
+fn parse_chunk_inputs<'a>(inputs: &[VerifyInput<'a>; SIMD_LANES]) -> ParsedChunk<'a> {
     let mut valid = [true; SIMD_LANES];
     let mut r_bytes = [[0u8; R_ENCODING_LEN]; SIMD_LANES];
     let mut public_keys = [[0u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES];
@@ -319,7 +319,7 @@ fn parse_chunk_inputs<'a>(inputs: &[VerifyInput<'a>; SIMD_LANES]) -> ChunkParts<
         messages[lane] = input.message;
     }
 
-    ChunkParts {
+    ParsedChunk {
         valid,
         r_bytes,
         public_keys,

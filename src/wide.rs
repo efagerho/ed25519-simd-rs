@@ -1,8 +1,8 @@
 pub(crate) mod avx512ifma {
-    use crate::batch::{PUBLIC_KEY_LEN, PreparedBatch, R_ENCODING_LEN};
+    use crate::batch::{PUBLIC_KEY_LEN, PreparedChunk, R_ENCODING_LEN};
     use crate::edwards::{
         AffineCachedPoint, BasepointTableEntries, CachedPoint, POINT_ENCODING_LEN, PointTable,
-        select_signed_affine_ref,
+        select_signed_affine_cached_ref,
     };
     #[cfg(test)]
     use crate::edwards::{BasepointTable, EdwardsPoint};
@@ -69,7 +69,7 @@ pub(crate) mod avx512ifma {
     /// discards those by mask.
     fn build_tables_from_point(p: WidePoint, tables: &mut [Option<PointTable>; LANES]) {
         // Build P..8P as a depth-4 tree; doublings cost 4S+4M instead of 8M.
-        let p2 = p.double_affine();
+        let p2 = p.double_from_affine();
         let p4 = p2.double();
         let p3 = p2.add_affine_rhs(&p);
         let mult = [
@@ -120,30 +120,30 @@ pub(crate) mod avx512ifma {
 
     // ZIP-215 cofactored verification: [8](sB - kA - R) == identity.
     pub(crate) fn verify_prepared_zip215(
-        prepared: &PreparedBatch<'_>,
+        prepared: &PreparedChunk<'_>,
         r: &WideRPoints,
         base_table: &BasepointTableEntries,
     ) -> [bool; LANES] {
-        let combined = mul_base_minus_public::<true>(base_table, prepared);
+        let combined = mul_s_base_minus_k_public::<true>(base_table, prepared);
         combined.subtract_affine_and_check_8_torsion(&r.point)
     }
 
     pub(crate) fn verify_prepared_dalek(
-        prepared: &PreparedBatch<'_>,
+        prepared: &PreparedChunk<'_>,
         r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
         base_table: &BasepointTableEntries,
     ) -> [bool; LANES] {
-        let combined = mul_base_minus_public::<false>(base_table, prepared);
+        let combined = mul_s_base_minus_k_public::<false>(base_table, prepared);
         let recomputed = combined.compress();
         core::array::from_fn(|lane| recomputed[lane] == r_bytes[lane])
     }
 
     pub(crate) fn verify_prepared_dalek_projective(
-        prepared: &PreparedBatch<'_>,
+        prepared: &PreparedChunk<'_>,
         r: &WideRPoints,
         base_table: &BasepointTableEntries,
     ) -> [bool; LANES] {
-        let combined = mul_base_minus_public::<false>(base_table, prepared);
+        let combined = mul_s_base_minus_k_public::<false>(base_table, prepared);
         combined.equals_affine_lanes(&r.point)
     }
 
@@ -262,9 +262,9 @@ pub(crate) mod avx512ifma {
         ((a, a_mask), b)
     }
     // Only ZIP-215's final torsion subtraction needs T.
-    fn mul_base_minus_public<const NEED_T: bool>(
+    fn mul_s_base_minus_k_public<const NEED_T: bool>(
         base_table: &BasepointTableEntries,
-        prepared: &PreparedBatch<'_>,
+        prepared: &PreparedChunk<'_>,
     ) -> WidePoint {
         let public_key_tables = &prepared.public_key_tables;
         let s_digits = prepared.s_digits;
@@ -280,26 +280,36 @@ pub(crate) mod avx512ifma {
         // Continue at digit 62; reduced scalars have no digit above 63.
         acc = acc.double4();
         add_base_pair_digit(&mut acc, base_table, s_digits, 31);
-        add_public_digit_before_double(&mut acc, public_key_tables, k_digits, 62);
+        subtract_public_key_digit_before_double(&mut acc, public_key_tables, k_digits, 62);
 
         // These public-key additions feed doublings, which do not use `T`.
         for pair in (1..31).rev() {
             acc = acc.double4();
-            add_public_digit_before_double(&mut acc, public_key_tables, k_digits, pair * 2 + 1);
+            subtract_public_key_digit_before_double(
+                &mut acc,
+                public_key_tables,
+                k_digits,
+                pair * 2 + 1,
+            );
 
             acc = acc.double4();
             add_base_pair_digit(&mut acc, base_table, s_digits, pair);
-            add_public_digit_before_double(&mut acc, public_key_tables, k_digits, pair * 2);
+            subtract_public_key_digit_before_double(
+                &mut acc,
+                public_key_tables,
+                k_digits,
+                pair * 2,
+            );
         }
 
         acc = acc.double4();
-        add_public_digit_before_double(&mut acc, public_key_tables, k_digits, 1);
+        subtract_public_key_digit_before_double(&mut acc, public_key_tables, k_digits, 1);
         acc = acc.double4();
         add_base_pair_digit(&mut acc, base_table, s_digits, 0);
         if NEED_T {
-            add_public_digit(&mut acc, public_key_tables, k_digits, 0);
+            subtract_public_key_digit(&mut acc, public_key_tables, k_digits, 0);
         } else {
-            add_public_digit_before_double(&mut acc, public_key_tables, k_digits, 0);
+            subtract_public_key_digit_before_double(&mut acc, public_key_tables, k_digits, 0);
         }
         acc
     }
@@ -312,13 +322,13 @@ pub(crate) mod avx512ifma {
         pair: usize,
     ) {
         let selected: [_; LANES] = core::array::from_fn(|lane| {
-            select_signed_affine_ref(base_table, base_pair_digit(&s_digits[lane], pair))
+            select_signed_affine_cached_ref(base_table, base_pair_digit(&s_digits[lane], pair))
         });
         acc.add_affine_cached_refs_assign(&selected);
     }
 
     #[inline]
-    fn add_public_digit(
+    fn subtract_public_key_digit(
         acc: &mut WidePoint,
         public_key_tables: &[&PointTable; LANES],
         k_digits: &[Radix16; LANES],
@@ -331,7 +341,7 @@ pub(crate) mod avx512ifma {
     }
 
     #[inline]
-    fn add_public_digit_before_double(
+    fn subtract_public_key_digit_before_double(
         acc: &mut WidePoint,
         public_key_tables: &[&PointTable; LANES],
         k_digits: &[Radix16; LANES],
@@ -398,10 +408,10 @@ pub(crate) mod avx512ifma {
             }
         }
         fn from_fields(fields: &[Fe51; LANES]) -> Self {
-            Self::from_limbs_per_lane(|lane| fields[lane].reduced_limbs())
+            Self::from_limbs_per_lane(|lane| fields[lane].loose_limb())
         }
         fn from_field_refs(fields: &[&Fe51; LANES]) -> Self {
-            Self::from_limbs_per_lane(|lane| fields[lane].reduced_limbs())
+            Self::from_limbs_per_lane(|lane| fields[lane].loose_limb())
         }
         #[cfg(test)]
         fn to_fields(self) -> [Fe51; LANES] {
@@ -889,7 +899,7 @@ pub(crate) mod avx512ifma {
         /// high-limb check and limb-0 threshold.
         fn canonical(&self) -> Self {
             unsafe {
-                let reduced = Self::reduce64(self.limbs);
+                let reduced = Self::carry_reduce_twice(self.limbs);
                 let mask = _mm512_set1_epi64(LIMB_MASK as i64);
                 let p0 = _mm512_set1_epi64((LIMB_MASK - 18) as i64);
 
@@ -963,7 +973,7 @@ pub(crate) mod avx512ifma {
             }
         }
         /// Two carry passes, used when `add`/`canonical` need near-strict limbs.
-        fn reduce64(h: [__m512i; LIMB_COUNT]) -> Self {
+        fn carry_reduce_twice(h: [__m512i; LIMB_COUNT]) -> Self {
             Self::reduce_loose(Self::reduce_loose(h).limbs)
         }
     }
@@ -1191,10 +1201,10 @@ pub(crate) mod avx512ifma {
         fn double(&self) -> Self {
             self.double_impl::<true, false>()
         }
-        fn double_affine(&self) -> Self {
+        fn double_from_affine(&self) -> Self {
             debug_assert!(
                 self.z.equals_lanes(&WideFe::one()).iter().all(|&eq| eq),
-                "double_affine requires z == 1 in every lane"
+                "double_from_affine requires z == 1 in every lane"
             );
             self.double_impl::<true, true>()
         }
@@ -1364,7 +1374,7 @@ pub(crate) mod avx512ifma {
             for lane in 0..LANES {
                 let input: [u64; LIMB_COUNT] = core::array::from_fn(|limb| rows[limb][lane]);
                 // Limb comparison pins the representation, not just the residue.
-                let expected = crate::field::Fe51::from_limbs(input).reduced_limbs();
+                let expected = crate::field::Fe51::from_limbs(input).loose_limb();
                 let actual: [u64; LIMB_COUNT] =
                     core::array::from_fn(|limb| canonical_rows[limb][lane]);
                 assert_eq!(
@@ -1729,12 +1739,12 @@ pub(crate) mod avx512ifma {
             one_bytes[0] = 1;
             let k = crate::scalar::Scalar::from_canonical_bytes(one_bytes);
             let k_digits = [k.to_radix16(); LANES];
-            let prepared = PreparedBatch {
+            let prepared = PreparedChunk {
                 public_key_tables: [&table; LANES],
                 s_digits: &s_digits,
                 k_digits: &k_digits,
             };
-            let combined = mul_base_minus_public::<true>(base_table.entries(), &prepared);
+            let combined = mul_s_base_minus_k_public::<true>(base_table.entries(), &prepared);
             let pts = combined.to_points();
             assert_eq!(
                 pts[0].compress(),

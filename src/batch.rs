@@ -11,7 +11,7 @@ pub(crate) const R_ENCODING_LEN: usize = crate::edwards::POINT_ENCODING_LEN;
 /// Number of verification lanes processed by one SIMD chunk.
 pub(crate) const SIMD_LANES: usize = 8;
 
-pub(crate) struct PreparedBatch<'a> {
+pub(crate) struct PreparedChunk<'a> {
     pub(crate) public_key_tables: [&'a PointTable; SIMD_LANES],
     pub(crate) s_digits: &'a [Radix16; SIMD_LANES],
     pub(crate) k_digits: &'a [Radix16; SIMD_LANES],
