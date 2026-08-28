@@ -53,7 +53,7 @@ fn assert_vector_paths(
 }
 
 #[test]
-fn wycheproof_fixed_length_vectors_match_dalek_policy() {
+fn wycheproof_fixed_length_vectors_match_both_policies() {
     let suite: Value =
         serde_json::from_str(include_str!("vectors/ed25519_wycheproof.json")).unwrap();
     let mut checked = 0usize;
