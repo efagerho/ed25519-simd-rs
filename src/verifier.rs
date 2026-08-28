@@ -122,14 +122,18 @@ impl<C: KeyCache> Verifier<C> {
     pub fn verify_batch(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
         assert_eq!(inputs.len(), out.len());
         let mut bucket_order = core::mem::take(&mut self.bucket_order);
-        batch::for_each_simd_chunk(inputs, &mut bucket_order, |chunk, output_indices, lanes| {
-            let mut tmp = [false; SIMD_LANES];
-            self.verify_chunk(chunk, &mut tmp);
+        batch::for_each_simd_chunk(
+            inputs,
+            &mut bucket_order,
+            |chunk, output_indices, active_lane_count| {
+                let mut tmp = [false; SIMD_LANES];
+                self.verify_chunk(chunk, &mut tmp);
 
-            for (&index, &value) in output_indices[..lanes].iter().zip(&tmp) {
-                out[index] = value;
-            }
-        });
+                for (&index, &value) in output_indices[..active_lane_count].iter().zip(&tmp) {
+                    out[index] = value;
+                }
+            },
+        );
         self.bucket_order = bucket_order;
     }
 
@@ -256,9 +260,10 @@ impl<C: KeyCache> Verifier<C> {
             }
         };
 
-        let simd = avx512ifma::verify_prepared_zip215(prepared, &r_points, self.base_table);
+        let equation_holds =
+            avx512ifma::verify_prepared_zip215(prepared, &r_points, self.base_table);
         for lane in 0..SIMD_LANES {
-            out[lane] = simd[lane] && valid[lane] && r_valid_lanes[lane];
+            out[lane] = equation_holds[lane] && valid[lane] && r_valid_lanes[lane];
         }
     }
 
@@ -274,12 +279,15 @@ impl<C: KeyCache> Verifier<C> {
     ) {
         if let Some((r_points, r_valid_lanes)) = decoded_r {
             // R already decompressed on a cache miss: compare points directly.
-            let simd =
-                avx512ifma::verify_prepared_dalek_projective(prepared, &r_points, self.base_table);
+            let equation_holds = avx512ifma::verify_prepared_dalek_decompressed_r(
+                prepared,
+                &r_points,
+                self.base_table,
+            );
             let r_x_zero = r_points.x_zero_lanes();
             for lane in 0..SIMD_LANES {
                 let signed_zero = r_x_zero[lane] && r_bytes[lane][31] & 0x80 != 0;
-                out[lane] = simd[lane]
+                out[lane] = equation_holds[lane]
                     && valid[lane]
                     && r_valid_lanes[lane]
                     && r_encoding_has_canonical_y(&r_bytes[lane])
@@ -288,9 +296,10 @@ impl<C: KeyCache> Verifier<C> {
             }
         } else {
             // All cache hits, nothing decompressed yet: recompute R and compare bytes.
-            let simd = avx512ifma::verify_prepared_dalek(prepared, r_bytes, self.base_table);
+            let equation_holds =
+                avx512ifma::verify_prepared_dalek_encoded_r(prepared, r_bytes, self.base_table);
             for lane in 0..SIMD_LANES {
-                out[lane] = simd[lane]
+                out[lane] = equation_holds[lane]
                     && valid[lane]
                     && !dalek_legacy_excluded(&public_keys[lane], &r_bytes[lane]);
             }
