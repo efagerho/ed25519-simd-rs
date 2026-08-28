@@ -42,6 +42,7 @@ pub(crate) mod avx512ifma {
     }
 
     /// Decode keys and `R` together, interleaving their inverse-square-root chains.
+    #[inline(never)]
     pub(crate) fn decode_keys_and_decompress_r(
         keys: &[[u8; PUBLIC_KEY_LEN]; LANES],
         r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
@@ -66,53 +67,59 @@ pub(crate) mod avx512ifma {
     /// Every slot is filled, including lanes whose decode failed; the caller
     /// discards those by mask.
     fn build_tables_from_point(p: WidePoint, tables: &mut [Option<PointTable>; LANES]) {
-        // Build P..8P as a depth-4 tree; doublings cost 4S+4M instead of 8M.
-        let p2 = p.double_from_affine();
-        let p4 = p2.double();
-        let p3 = p2.add_affine_rhs(&p);
-        let mult = [
-            p,
-            p2,
-            p3,
-            p4,
-            p4.add_affine_rhs(&p), // 5P
-            p3.double(),           // 6P
-            p4.add(&p3),           // 7P
-            p4.double(),           // 8P
-        ];
+        for table in tables.iter_mut() {
+            *table = Some(PointTable::identity());
+        }
 
+        write_cached_multiple(1, &p, tables);
+
+        // Build P..8P as a depth-4 tree, writing each point immediately.
+        let p2 = p.double_from_affine();
+        write_cached_multiple(2, &p2, tables);
+
+        let p3 = p2.add_affine_rhs(&p);
+        write_cached_multiple(3, &p3, tables);
+
+        let p4 = p2.double();
+        write_cached_multiple(4, &p4, tables);
+
+        write_cached_multiple(5, &p4.add_affine_rhs(&p), tables);
+        write_cached_multiple(6, &p3.double(), tables);
+        write_cached_multiple(7, &p4.add(&p3), tables);
+        write_cached_multiple(8, &p4.double(), tables);
+    }
+
+    #[inline(never)]
+    fn write_cached_multiple(
+        multiple: usize,
+        point: &WidePoint,
+        tables: &mut [Option<PointTable>; LANES],
+    ) {
         let two_d = WideFe::two_d();
         type LaneFields = [Fe51; LANES];
-        let fields: [(LaneFields, LaneFields, LaneFields, LaneFields, LaneFields); LANES] =
-            core::array::from_fn(|i| {
-                let m = &mult[i];
-                let ypx = m.y.add(&m.x);
-                let ymx = m.y.subtract(&m.x);
-                let z2 = m.z.double();
-                let t2d = m.t.multiply(&two_d);
-                let neg_t2d = t2d.negate();
-                // Table consumers accept these strict values as loose fields.
-                (
-                    ypx.to_fields_loose(),
-                    ymx.to_fields_loose(),
-                    z2.to_fields_loose(),
-                    t2d.to_fields_loose(),
-                    neg_t2d.to_fields_loose(),
-                )
-            });
+        let fields: (LaneFields, LaneFields, LaneFields, LaneFields, LaneFields) = {
+            let ypx = point.y.add(&point.x);
+            let ymx = point.y.subtract(&point.x);
+            let z2 = point.z.double();
+            let t2d = point.t.multiply(&two_d);
+            let neg_t2d = t2d.negate();
+            (
+                ypx.to_fields_loose(),
+                ymx.to_fields_loose(),
+                z2.to_fields_loose(),
+                t2d.to_fields_loose(),
+                neg_t2d.to_fields_loose(),
+            )
+        };
 
-        let identity = CachedPoint::identity();
+        let (ypx, ymx, z2, t2d, neg_t2d) = fields;
         for lane in 0..LANES {
-            let cached = core::array::from_fn(|i| {
-                let (ypx, ymx, z2, t2d, _) = &fields[i];
-                CachedPoint::from_fields(ypx[lane], ymx[lane], z2[lane], t2d[lane])
-            });
-            // -P's cached fields are P's with y±x swapped and t2d negated.
-            let negative = core::array::from_fn(|i| {
-                let (ypx, ymx, z2, _, neg_t2d) = &fields[i];
-                CachedPoint::from_fields(ymx[lane], ypx[lane], z2[lane], neg_t2d[lane])
-            });
-            tables[lane] = Some(PointTable::from_cached(cached, negative, identity.clone()));
+            let positive = CachedPoint::from_fields(ypx[lane], ymx[lane], z2[lane], t2d[lane]);
+            let negative = CachedPoint::from_fields(ymx[lane], ypx[lane], z2[lane], neg_t2d[lane]);
+            tables[lane]
+                .as_mut()
+                .expect("table destinations were initialized")
+                .set_multiple(multiple, positive, negative);
         }
     }
 

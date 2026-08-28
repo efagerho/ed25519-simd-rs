@@ -161,6 +161,23 @@ fn to_affine_cached_batch(points: &[EdwardsPoint]) -> Vec<AffineCachedPoint> {
 }
 
 impl PointTable {
+    pub(crate) fn identity() -> Self {
+        Self {
+            entries: core::array::from_fn(|_| CachedPoint::identity()),
+        }
+    }
+
+    pub(crate) fn set_multiple(
+        &mut self,
+        multiple: usize,
+        positive: CachedPoint,
+        negative: CachedPoint,
+    ) {
+        debug_assert!((1..=POINT_TABLE_SIZE).contains(&multiple));
+        self.entries[POINT_TABLE_SIZE + multiple] = positive;
+        self.entries[POINT_TABLE_SIZE - multiple] = negative;
+    }
+
     pub(crate) fn from_cached(
         cached_points: [CachedPoint; POINT_TABLE_SIZE],
         negative_cached_points: [CachedPoint; POINT_TABLE_SIZE],
