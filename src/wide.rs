@@ -156,8 +156,7 @@ pub(crate) mod avx512ifma {
     struct DecompressSetup {
         u: WideFe,
         v: WideFe,
-        uv3: WideFe,
-        uv7: WideFe, // raised to (p-5)/8
+        uv: WideFe, // raised to (p-5)/8
         y: WideFe,
         x_sign_mask: u8,
     }
@@ -178,17 +177,11 @@ pub(crate) mod avx512ifma {
         let yy = y.square();
         let u = yy.subtract(&WideFe::one());
         let v = WideFe::one().add(&WideFe::d().multiply(&yy));
-        // u*v^7 = (u*v^3)*v^4, saving one multiply.
-        let v2 = v.square();
-        let v4 = v2.square();
-        let v3 = v2.multiply(&v);
-        let uv3 = u.multiply(&v3);
-        let uv7 = uv3.multiply(&v4);
+        let uv = u.multiply(&v);
         DecompressSetup {
             u,
             v,
-            uv3,
-            uv7,
+            uv,
             y,
             x_sign_mask,
         }
@@ -198,7 +191,7 @@ pub(crate) mod avx512ifma {
         s: DecompressSetup,
         pow: WideFe,
     ) -> (WidePoint, u8, Option<u8>) {
-        let mut x = s.uv3.multiply(&pow);
+        let mut x = s.u.multiply(&pow);
 
         let vx2 = s.v.multiply(&x.square());
         let primary_root_mask = vx2.equals_mask(&s.u);
@@ -243,7 +236,7 @@ pub(crate) mod avx512ifma {
     /// Decompress one SIMD chunk of compressed Edwards points with per-lane validity.
     fn decompress_points_wide(bytes: &[[u8; POINT_ENCODING_LEN]; LANES]) -> (WidePoint, u8) {
         let s = decompress_setup(bytes);
-        let pow = s.uv7.pow_p_minus_5_over_8();
+        let pow = s.uv.pow_p_minus_5_over_8();
         let (point, mask, _) = decompress_finish::<true, false>(s, pow);
         (point, mask)
     }
@@ -257,7 +250,7 @@ pub(crate) mod avx512ifma {
     ) -> ((WidePoint, u8), (WidePoint, u8, Option<u8>)) {
         let sa = decompress_setup(a_bytes);
         let sb = decompress_setup(b_bytes);
-        let (pa, pb) = WideFe::pow_p_minus_5_over_8_x2(&sa.uv7, &sb.uv7);
+        let (pa, pb) = WideFe::pow_p_minus_5_over_8_x2(&sa.uv, &sb.uv);
         let (a, a_mask, _) = decompress_finish::<true, false>(sa, pa);
         let b = if minimize_b_for_dalek {
             decompress_finish::<false, true>(sb, pb)
