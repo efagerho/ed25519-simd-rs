@@ -226,28 +226,30 @@ impl Scalar52 {
     fn montgomery_reduce(limbs: &[u128; 2 * LIMB_COUNT - 1]) -> Self {
         // Fold one Montgomery quotient limb into the accumulator.
         #[inline(always)]
-        fn part1(sum: u128) -> (u128, u64) {
-            let p = (sum as u64).wrapping_mul(SCALAR_LFACTOR) & LIMB52_MASK;
-            ((sum + m(p, SCALAR_L.0[0])) >> 52, p)
+        fn eliminate_low_limb(sum: u128) -> (u128, u64) {
+            let quotient_limb = (sum as u64).wrapping_mul(SCALAR_LFACTOR) & LIMB52_MASK;
+            ((sum + m(quotient_limb, SCALAR_L.0[0])) >> 52, quotient_limb)
         }
 
         // Split a reduced accumulator column into carry and output limb.
         #[inline(always)]
-        fn part2(sum: u128) -> (u128, u64) {
+        fn split_output_limb(sum: u128) -> (u128, u64) {
             (sum >> 52, (sum as u64) & LIMB52_MASK)
         }
 
         let l = &SCALAR_L.0;
-        let (carry, n0) = part1(limbs[0]);
-        let (carry, n1) = part1(carry + limbs[1] + m(n0, l[1]));
-        let (carry, n2) = part1(carry + limbs[2] + m(n0, l[2]) + m(n1, l[1]));
-        let (carry, n3) = part1(carry + limbs[3] + m(n1, l[2]) + m(n2, l[1]));
-        let (carry, n4) = part1(carry + limbs[4] + m(n0, l[4]) + m(n2, l[2]) + m(n3, l[1]));
+        let (carry, n0) = eliminate_low_limb(limbs[0]);
+        let (carry, n1) = eliminate_low_limb(carry + limbs[1] + m(n0, l[1]));
+        let (carry, n2) = eliminate_low_limb(carry + limbs[2] + m(n0, l[2]) + m(n1, l[1]));
+        let (carry, n3) = eliminate_low_limb(carry + limbs[3] + m(n1, l[2]) + m(n2, l[1]));
+        let (carry, n4) =
+            eliminate_low_limb(carry + limbs[4] + m(n0, l[4]) + m(n2, l[2]) + m(n3, l[1]));
 
-        let (carry, r0) = part2(carry + limbs[5] + m(n1, l[4]) + m(n3, l[2]) + m(n4, l[1]));
-        let (carry, r1) = part2(carry + limbs[6] + m(n2, l[4]) + m(n4, l[2]));
-        let (carry, r2) = part2(carry + limbs[7] + m(n3, l[4]));
-        let (carry, r3) = part2(carry + limbs[8] + m(n4, l[4]));
+        let (carry, r0) =
+            split_output_limb(carry + limbs[5] + m(n1, l[4]) + m(n3, l[2]) + m(n4, l[1]));
+        let (carry, r1) = split_output_limb(carry + limbs[6] + m(n2, l[4]) + m(n4, l[2]));
+        let (carry, r2) = split_output_limb(carry + limbs[7] + m(n3, l[4]));
+        let (carry, r3) = split_output_limb(carry + limbs[8] + m(n4, l[4]));
         let r4 = carry as u64;
 
         Self([r0, r1, r2, r3, r4]).sub(&SCALAR_L)

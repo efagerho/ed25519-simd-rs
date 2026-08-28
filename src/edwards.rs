@@ -137,16 +137,16 @@ fn to_affine_cached_batch(points: &[EdwardsPoint]) -> Vec<AffineCachedPoint> {
     );
 
     let mut prefixes = Vec::with_capacity(points.len());
-    let mut product = Fe51::one();
+    let mut z_product = Fe51::one();
     for point in points {
-        prefixes.push(product);
-        product = product.multiply(&point.z);
+        prefixes.push(z_product);
+        z_product = z_product.multiply(&point.z);
     }
 
-    product = product.invert();
+    let mut inverse_accumulator = z_product.invert();
     for i in (0..points.len()).rev() {
-        prefixes[i] = prefixes[i].multiply(&product);
-        product = product.multiply(&points[i].z);
+        prefixes[i] = prefixes[i].multiply(&inverse_accumulator);
+        inverse_accumulator = inverse_accumulator.multiply(&points[i].z);
     }
 
     points

@@ -104,17 +104,17 @@ pub(crate) mod avx512ifma {
             });
 
         let identity = CachedPoint::identity();
-        for k in 0..LANES {
+        for lane in 0..LANES {
             let cached = core::array::from_fn(|i| {
                 let (ypx, ymx, z2, t2d, _) = &fields[i];
-                CachedPoint::from_fields(ypx[k], ymx[k], z2[k], t2d[k])
+                CachedPoint::from_fields(ypx[lane], ymx[lane], z2[lane], t2d[lane])
             });
             // -P's cached fields are P's with y±x swapped and t2d negated.
             let negative = core::array::from_fn(|i| {
                 let (ypx, ymx, z2, _, neg_t2d) = &fields[i];
-                CachedPoint::from_fields(ymx[k], ypx[k], z2[k], neg_t2d[k])
+                CachedPoint::from_fields(ymx[lane], ypx[lane], z2[lane], neg_t2d[lane])
             });
-            tables[k] = Some(PointTable::from_cached(cached, negative, identity.clone()));
+            tables[lane] = Some(PointTable::from_cached(cached, negative, identity.clone()));
         }
     }
 
@@ -128,7 +128,7 @@ pub(crate) mod avx512ifma {
         combined.subtract_affine_and_check_8_torsion(&r.point)
     }
 
-    pub(crate) fn verify_prepared_dalek(
+    pub(crate) fn verify_prepared_dalek_encoded_r(
         prepared: &PreparedChunk<'_>,
         r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
         base_table: &BasepointTableEntries,
@@ -138,7 +138,7 @@ pub(crate) mod avx512ifma {
         core::array::from_fn(|lane| recomputed[lane] == r_bytes[lane])
     }
 
-    pub(crate) fn verify_prepared_dalek_projective(
+    pub(crate) fn verify_prepared_dalek_decompressed_r(
         prepared: &PreparedChunk<'_>,
         r: &WideRPoints,
         base_table: &BasepointTableEntries,
@@ -151,18 +151,18 @@ pub(crate) mod avx512ifma {
     struct DecompressSetup {
         u: WideFe,
         v: WideFe,
-        base: WideFe, // u * v^3
-        exp: WideFe,  // u * v^7  (raised to (p-5)/8)
+        uv3: WideFe,
+        uv7: WideFe, // raised to (p-5)/8
         y: WideFe,
-        x_signs: u8,
+        x_sign_mask: u8,
     }
 
     fn decompress_setup(bytes: &[[u8; POINT_ENCODING_LEN]; LANES]) -> DecompressSetup {
         let mut y_fields = core::array::from_fn(|_| Fe51::zero());
-        let mut x_signs = 0u8;
+        let mut x_sign_mask = 0u8;
 
         for (lane, byte_arr) in bytes.iter().enumerate() {
-            x_signs |= (byte_arr[31] >> 7) << lane;
+            x_sign_mask |= (byte_arr[31] >> 7) << lane;
             let mut y_bytes = *byte_arr;
             y_bytes[31] &= 0x7f;
             // ZIP-215/Dalek decoding treats y modulo p.
@@ -177,15 +177,15 @@ pub(crate) mod avx512ifma {
         let v2 = v.square();
         let v4 = v2.square();
         let v3 = v2.multiply(&v);
-        let base = u.multiply(&v3);
-        let exp = base.multiply(&v4);
+        let uv3 = u.multiply(&v3);
+        let uv7 = uv3.multiply(&v4);
         DecompressSetup {
             u,
             v,
-            base,
-            exp,
+            uv3,
+            uv7,
             y,
-            x_signs,
+            x_sign_mask,
         }
     }
 
@@ -193,29 +193,29 @@ pub(crate) mod avx512ifma {
         s: DecompressSetup,
         pow: WideFe,
     ) -> (WidePoint, u8, Option<u8>) {
-        let mut x = s.base.multiply(&pow);
+        let mut x = s.uv3.multiply(&pow);
 
         let vx2 = s.v.multiply(&x.square());
-        let first_ok = vx2.equals_mask(&s.u);
+        let primary_root_mask = vx2.equals_mask(&s.u);
 
         let x_alt = x.multiply(&WideFe::sqrt_m1());
         // The alternate root is valid iff the existing `vx2` equals `-u`.
-        let second_ok = vx2.add_loose(&s.u).is_zero_mask();
+        let alternate_root_mask = vx2.add_loose(&s.u).is_zero_mask();
 
-        let alt_mask = !first_ok & second_ok;
-        let valid_mask = first_ok | second_ok;
+        let use_alternate_root_mask = !primary_root_mask & alternate_root_mask;
+        let valid_mask = primary_root_mask | alternate_root_mask;
 
-        x = x.blend(alt_mask, &x_alt);
+        x = x.blend(use_alternate_root_mask, &x_alt);
 
         // Points outside `valid_mask` are garbage.
-        let (x_odd, x_zero_mask) = if TRACK_X_ZERO {
+        let (x_odd_mask, x_zero_mask) = if TRACK_X_ZERO {
             let (odd, zero) = x.odd_and_zero_masks();
             (odd, Some(zero))
         } else {
             (x.is_odd_mask(), None)
         };
         let x_neg = x.negate();
-        let negate_mask = x_odd ^ s.x_signs;
+        let negate_mask = x_odd_mask ^ s.x_sign_mask;
         x = x.blend(negate_mask, &x_neg);
 
         let t = if COMPUTE_T {
@@ -238,7 +238,7 @@ pub(crate) mod avx512ifma {
     /// Decompress one SIMD chunk of compressed Edwards points with per-lane validity.
     fn decompress_points_wide(bytes: &[[u8; POINT_ENCODING_LEN]; LANES]) -> (WidePoint, u8) {
         let s = decompress_setup(bytes);
-        let pow = s.exp.pow_p_minus_5_over_8();
+        let pow = s.uv7.pow_p_minus_5_over_8();
         let (point, mask, _) = decompress_finish::<true, false>(s, pow);
         (point, mask)
     }
@@ -252,7 +252,7 @@ pub(crate) mod avx512ifma {
     ) -> ((WidePoint, u8), (WidePoint, u8, Option<u8>)) {
         let sa = decompress_setup(a_bytes);
         let sb = decompress_setup(b_bytes);
-        let (pa, pb) = WideFe::pow_p_minus_5_over_8_x2(&sa.exp, &sb.exp);
+        let (pa, pb) = WideFe::pow_p_minus_5_over_8_x2(&sa.uv7, &sb.uv7);
         let (a, a_mask, _) = decompress_finish::<true, false>(sa, pa);
         let b = if minimize_b_for_dalek {
             decompress_finish::<false, true>(sb, pb)
@@ -278,13 +278,13 @@ pub(crate) mod avx512ifma {
         let mut acc = WidePoint::from_cached_refs_without_t(&selected);
 
         // Continue at digit 62; reduced scalars have no digit above 63.
-        acc = acc.double4();
+        acc = acc.double_four_times();
         add_base_pair_digit(&mut acc, base_table, s_digits, 31);
         subtract_public_key_digit_before_double(&mut acc, public_key_tables, k_digits, 62);
 
         // These public-key additions feed doublings, which do not use `T`.
         for pair in (1..31).rev() {
-            acc = acc.double4();
+            acc = acc.double_four_times();
             subtract_public_key_digit_before_double(
                 &mut acc,
                 public_key_tables,
@@ -292,7 +292,7 @@ pub(crate) mod avx512ifma {
                 pair * 2 + 1,
             );
 
-            acc = acc.double4();
+            acc = acc.double_four_times();
             add_base_pair_digit(&mut acc, base_table, s_digits, pair);
             subtract_public_key_digit_before_double(
                 &mut acc,
@@ -302,9 +302,9 @@ pub(crate) mod avx512ifma {
             );
         }
 
-        acc = acc.double4();
+        acc = acc.double_four_times();
         subtract_public_key_digit_before_double(&mut acc, public_key_tables, k_digits, 1);
-        acc = acc.double4();
+        acc = acc.double_four_times();
         add_base_pair_digit(&mut acc, base_table, s_digits, 0);
         if NEED_T {
             subtract_public_key_digit(&mut acc, public_key_tables, k_digits, 0);
@@ -408,10 +408,10 @@ pub(crate) mod avx512ifma {
             }
         }
         fn from_fields(fields: &[Fe51; LANES]) -> Self {
-            Self::from_limbs_per_lane(|lane| fields[lane].loose_limb())
+            Self::from_limbs_per_lane(|lane| fields[lane].loose_limbs())
         }
         fn from_field_refs(fields: &[&Fe51; LANES]) -> Self {
-            Self::from_limbs_per_lane(|lane| fields[lane].loose_limb())
+            Self::from_limbs_per_lane(|lane| fields[lane].loose_limbs())
         }
         #[cfg(test)]
         fn to_fields(self) -> [Fe51; LANES] {
@@ -521,7 +521,7 @@ pub(crate) mod avx512ifma {
             }
         }
         // The 4*p bias is only enough for strict subtrahends (`< 2^52` limbs);
-        // loose limb0 can reach < 2^60, so those callers use `subtract_wide`.
+        // loose limb0 can reach < 2^60, so those callers use `subtract_loose`.
         fn subtract(&self, rhs: &Self) -> Self {
             unsafe {
                 let bias = [
@@ -678,9 +678,9 @@ pub(crate) mod avx512ifma {
             }
         }
 
-        // `self + 2048*p - rhs`. The wide forms below use a 2048*p bias, enough
-        // for two loose subtrahends (limb0 < 2^60); `subtract`'s 4*p is not.
-        fn subtract_wide(&self, rhs: &Self) -> Self {
+        // `self + 2048*p - rhs`. These loose-input forms use a 2048*p bias,
+        // enough for two loose subtrahends (limb0 < 2^60); `subtract`'s 4*p is not.
+        fn subtract_loose(&self, rhs: &Self) -> Self {
             unsafe {
                 let b0 = _mm512_set1_epi64((2048 * (LIMB_MASK - 18)) as i64);
                 let bn = _mm512_set1_epi64((2048 * LIMB_MASK) as i64);
@@ -696,7 +696,7 @@ pub(crate) mod avx512ifma {
         }
 
         // `self + 2048*p - lhs - rhs`, with all three possibly loose.
-        fn subtract_sum_wide(&self, lhs: &Self, rhs: &Self) -> Self {
+        fn subtract_loose_sum(&self, lhs: &Self, rhs: &Self) -> Self {
             unsafe {
                 let b0 = _mm512_set1_epi64((2048 * (LIMB_MASK - 18)) as i64);
                 let bn = _mm512_set1_epi64((2048 * LIMB_MASK) as i64);
@@ -711,8 +711,8 @@ pub(crate) mod avx512ifma {
             }
         }
 
-        // Fold `2*rhs` into the wide subtraction to avoid a separate carry pass.
-        fn subtract_sum_doubled_wide(&self, lhs: &Self, rhs: &Self) -> Self {
+        // Fold `2*rhs` into the loose-input subtraction to avoid a carry pass.
+        fn subtract_loose_sum_with_doubled_rhs(&self, lhs: &Self, rhs: &Self) -> Self {
             unsafe {
                 let b0 = _mm512_set1_epi64((2048 * (LIMB_MASK - 18)) as i64);
                 let bn = _mm512_set1_epi64((2048 * LIMB_MASK) as i64);
@@ -728,7 +728,7 @@ pub(crate) mod avx512ifma {
         }
 
         // `2048*p - lhs - rhs`, with `lhs`/`rhs` possibly loose.
-        fn negate_sum_wide(lhs: &Self, rhs: &Self) -> Self {
+        fn negate_loose_sum(lhs: &Self, rhs: &Self) -> Self {
             unsafe {
                 let b0 = _mm512_set1_epi64((2048 * (LIMB_MASK - 18)) as i64);
                 let bn = _mm512_set1_epi64((2048 * LIMB_MASK) as i64);
@@ -1062,10 +1062,10 @@ pub(crate) mod avx512ifma {
             let zinv = self.z.invert();
             let x = self.x.multiply(&zinv);
             let y = self.y.multiply(&zinv);
-            let x_odd = x.is_odd_mask();
+            let x_odd_mask = x.is_odd_mask();
             let mut bytes = y.to_bytes_lanes();
             for (lane, encoding) in bytes.iter_mut().enumerate() {
-                encoding[31] |= ((x_odd >> lane) & 1) << 7;
+                encoding[31] |= ((x_odd_mask >> lane) & 1) << 7;
             }
             bytes
         }
@@ -1133,18 +1133,18 @@ pub(crate) mod avx512ifma {
             points: SelectedCachedRefs<'_>,
             compute_t: bool,
         ) {
-            // Loose products feed additive ops; use wide subtracts for limb0
+            // Loose products feed additive ops; use loose-input subtracts for limb0
             // values up to ~2^60.
             let a = self.y.subtract(&self.x).multiply_loose(&points.y_minus_x());
             let b = self.y.add_loose(&self.x).multiply_loose(&points.y_plus_x());
-            let e = b.subtract_wide(&a);
+            let e = b.subtract_loose(&a);
             let h = b.add_loose(&a);
             let c = self.t.multiply_loose(&points.t2d());
             let d = match points.projective_z2() {
                 Some(z2) => self.z.multiply_loose(&z2),
                 None => self.z.double_loose(),
             };
-            let f = d.subtract_wide(&c);
+            let f = d.subtract_loose(&c);
             let g = d.add_loose(&c);
 
             self.x = e.multiply(&f);
@@ -1185,8 +1185,8 @@ pub(crate) mod avx512ifma {
             // T(2Q) = E*H, where E = 2XY and H = -(X^2+Y^2).
             let xx = x.square_loose();
             let yy = y.square_loose();
-            let double_e = x.add_loose(&y).square_loose().subtract_sum_wide(&xx, &yy);
-            let double_h = WideFe::negate_sum_wide(&xx, &yy);
+            let double_e = x.add_loose(&y).square_loose().subtract_loose_sum(&xx, &yy);
+            let double_h = WideFe::negate_loose_sum(&xx, &yy);
             double_e.multiply(&double_h).is_zero_lanes()
         }
         #[cfg(test)]
@@ -1213,7 +1213,7 @@ pub(crate) mod avx512ifma {
         }
 
         #[inline(never)]
-        fn double4(&self) -> Self {
+        fn double_four_times(&self) -> Self {
             let doubled = self
                 .double_without_t()
                 .double_without_t()
@@ -1221,7 +1221,7 @@ pub(crate) mod avx512ifma {
             doubled.double()
         }
         fn double_impl<const COMPUTE_T: bool, const AFFINE_Z: bool>(&self) -> Self {
-            // Loose squares feed additive ops; use wide subtract/negate for
+            // Loose squares feed additive ops; use loose-input subtract/negate for
             // limb0 values up to ~2^60.
             let a = self.x.square_loose();
             let b = self.y.square_loose();
@@ -1234,11 +1234,11 @@ pub(crate) mod avx512ifma {
                 .x
                 .add_loose(&self.y)
                 .square_loose()
-                .subtract_sum_wide(&a, &b);
-            let g = b.subtract_wide(&a);
+                .subtract_loose_sum(&a, &b);
+            let g = b.subtract_loose(&a);
             // `f = b - a - 2*z^2`; the factor of two rides along in the subtract.
-            let f = b.subtract_sum_doubled_wide(&a, &z2);
-            let h = WideFe::negate_sum_wide(&a, &b);
+            let f = b.subtract_loose_sum_with_doubled_rhs(&a, &z2);
+            let h = WideFe::negate_loose_sum(&a, &b);
             let t = if COMPUTE_T {
                 e.multiply(&h)
             } else {
@@ -1374,7 +1374,7 @@ pub(crate) mod avx512ifma {
             for lane in 0..LANES {
                 let input: [u64; LIMB_COUNT] = core::array::from_fn(|limb| rows[limb][lane]);
                 // Limb comparison pins the representation, not just the residue.
-                let expected = crate::field::Fe51::from_limbs(input).loose_limb();
+                let expected = crate::field::Fe51::from_limbs(input).loose_limbs();
                 let actual: [u64; LIMB_COUNT] =
                     core::array::from_fn(|limb| canonical_rows[limb][lane]);
                 assert_eq!(
@@ -1480,7 +1480,7 @@ pub(crate) mod avx512ifma {
                     core::array::from_fn(|lane| b_fields[lane].multiply(&c_fields[lane]));
                 let cc_fields: [crate::field::Fe51; LANES] =
                     core::array::from_fn(|lane| c_fields[lane].square());
-                let subtract_wide =
+                let subtract_loose =
                     core::array::from_fn(|lane| multiply[lane].subtract(&bc_fields[lane]));
                 let subtract_sum = core::array::from_fn(|lane| {
                     multiply[lane]
@@ -1498,27 +1498,27 @@ pub(crate) mod avx512ifma {
                         .subtract(&cc_fields[lane])
                 });
                 assert_wide_matches(
-                    ab.subtract_wide(&bc),
-                    &subtract_wide,
-                    "subtract_wide",
+                    ab.subtract_loose(&bc),
+                    &subtract_loose,
+                    "subtract_loose",
                     round,
                 );
                 assert_wide_matches(
-                    ab.subtract_sum_wide(&bc, &cc),
+                    ab.subtract_loose_sum(&bc, &cc),
                     &subtract_sum,
-                    "subtract_sum_wide",
+                    "subtract_loose_sum",
                     round,
                 );
                 assert_wide_matches(
-                    ab.subtract_sum_doubled_wide(&bc, &cc),
+                    ab.subtract_loose_sum_with_doubled_rhs(&bc, &cc),
                     &subtract_sum_doubled,
-                    "subtract_sum_doubled_wide",
+                    "subtract_loose_sum_with_doubled_rhs",
                     round,
                 );
                 assert_wide_matches(
-                    WideFe::negate_sum_wide(&bc, &cc),
+                    WideFe::negate_loose_sum(&bc, &cc),
                     &negate_sum,
-                    "negate_sum_wide",
+                    "negate_loose_sum",
                     round,
                 );
             }
@@ -1541,27 +1541,27 @@ pub(crate) mod avx512ifma {
                 core::array::from_fn(|lane| crate::field::Fe51::zero().subtract(&fields[lane]));
             let double_negated = core::array::from_fn(|lane| negated[lane].subtract(&fields[lane]));
             let square = core::array::from_fn(|lane| fields[lane].square());
-            assert_wide_matches(wide.subtract_wide(&wide), &zero, "wide-bound subtract", 0);
+            assert_wide_matches(wide.subtract_loose(&wide), &zero, "loose-bound subtract", 0);
             assert_wide_matches(
-                wide.subtract_sum_wide(&wide, &wide),
+                wide.subtract_loose_sum(&wide, &wide),
                 &negated,
-                "wide-bound subtract-sum",
+                "loose-bound subtract-sum",
                 0,
             );
             assert_wide_matches(
-                wide.subtract_sum_doubled_wide(&wide, &wide),
+                wide.subtract_loose_sum_with_doubled_rhs(&wide, &wide),
                 &double_negated,
-                "wide-bound subtract-sum-doubled",
+                "loose-bound subtract-sum-doubled",
                 0,
             );
             assert_wide_matches(
-                WideFe::negate_sum_wide(&wide, &wide),
+                WideFe::negate_loose_sum(&wide, &wide),
                 &double_negated,
-                "wide-bound negate-sum",
+                "loose-bound negate-sum",
                 0,
             );
-            assert_wide_matches(wide.square(), &square, "wide-bound square", 0);
-            assert_wide_matches(wide.square_loose(), &square, "wide-bound square-loose", 0);
+            assert_wide_matches(wide.square(), &square, "loose-bound square", 0);
+            assert_wide_matches(wide.square_loose(), &square, "loose-bound square-loose", 0);
         }
 
         #[test]
