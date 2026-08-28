@@ -200,12 +200,11 @@ impl Fe51 {
     }
 
     pub(crate) fn sqrt_ratio(u: &Self, v: &Self) -> Option<Self> {
-        let v2 = v.square();
-        let v3 = v2.multiply(v);
-        let v7 = v3.square().multiply(v);
-        let x = u
-            .multiply(&v3)
-            .multiply(&u.multiply(&v7).pow_p_minus_5_over_8());
+        // For a nonzero square u/v, x^2/(u/v) =
+        // (u*v)^((p-1)/4), which is either 1 or -1. The u=0 case also
+        // produces x=0 directly.
+        let uv = u.multiply(v);
+        let x = u.multiply(&uv.pow_p_minus_5_over_8());
 
         // Since `(sqrt(-1)*x)^2*v = -vx2`, the alternate root needs `vx2 == -u`.
         let vx2 = v.multiply(&x.square());
@@ -426,6 +425,21 @@ mod tests {
             let x = Fe51::from_limbs(limbs);
             assert!(x.square().equals(&x.multiply(&x)));
         }
+    }
+
+    #[test]
+    fn sqrt_ratio_handles_edge_cases() {
+        let zero_root =
+            Fe51::sqrt_ratio(&Fe51::zero(), &Fe51::one()).expect("zero has a square root");
+        assert!(zero_root.equals(&Fe51::zero()));
+
+        let four = Fe51::two().square();
+        let square_root = Fe51::sqrt_ratio(&four, &Fe51::one()).expect("four has a square root");
+        assert!(square_root.square().equals(&four));
+
+        // Since p = 5 mod 8, two is a quadratic nonresidue.
+        assert!(Fe51::sqrt_ratio(&Fe51::two(), &Fe51::one()).is_none());
+        assert!(Fe51::sqrt_ratio(&Fe51::one(), &Fe51::zero()).is_none());
     }
 
     #[test]
