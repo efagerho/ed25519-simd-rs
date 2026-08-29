@@ -1,6 +1,6 @@
 use crate::batch::{self, PreparedChunk};
 use crate::cache::{CachedPublicKey, KeyCache, NullKeyCache};
-use crate::edwards::{BasepointTable, BasepointTableEntries, EdwardsPoint, PointTable};
+use crate::edwards::{BasepointTable, BasepointTableEntries, PointTable};
 use crate::policy::{VerifyPolicy, r_encoding_has_canonical_y, r_encoding_is_legacy_excluded};
 use crate::scalar::{self, Radix16, Scalar};
 use crate::sha512;
@@ -29,8 +29,7 @@ const _: () = assert!(batch::SIGNATURE_LEN == 64);
 static BASE_TABLE: LazyLock<BasepointTable> = LazyLock::new(BasepointTable::new);
 
 // Placeholder table for invalid/missing lanes, also shared across verifiers.
-static IDENTITY_TABLE: LazyLock<PointTable> =
-    LazyLock::new(|| PointTable::new(&EdwardsPoint::identity()));
+static IDENTITY_TABLE: LazyLock<PointTable> = LazyLock::new(PointTable::cold_identity);
 
 struct ParsedChunk<'a> {
     valid: [bool; SIMD_LANES],
