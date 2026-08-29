@@ -214,8 +214,8 @@ Message length 1:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 4.40 | 4.40 | 4.39 | 4.40 |
-| ed25519-simd Dalek null-cache | 4.38 | 4.38 | 4.38 | 4.38 |
+| ed25519-simd Zip215 null-cache | 4.29 | 4.29 | 4.28 | 4.29 |
+| ed25519-simd Dalek null-cache | 4.28 | 4.28 | 4.28 | 4.28 |
 | solana-ed25519 Zip215 batch[^batch-api] | 13.86 | 12.85 | 12.40 | 12.17 |
 | solana-ed25519 Dalek loop | 22.45 | 22.39 | 22.38 | 22.45 |
 | ed25519-dalek batch[^batch-api] | 14.30 | 13.21 | 12.68 | 12.44 |
@@ -229,8 +229,8 @@ Message length 1024:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 4.67 | 4.66 | 4.68 | 4.68 |
-| ed25519-simd Dalek null-cache | 4.65 | 4.66 | 4.65 | 4.66 |
+| ed25519-simd Zip215 null-cache | 4.56 | 4.56 | 4.57 | 4.57 |
+| ed25519-simd Dalek null-cache | 4.55 | 4.55 | 4.55 | 4.55 |
 | solana-ed25519 Zip215 batch[^batch-api] | 14.84 | 13.84 | 13.38 | 13.17 |
 | solana-ed25519 Dalek loop | 23.47 | 23.48 | 23.46 | 23.48 |
 | ed25519-dalek batch[^batch-api] | 15.33 | 14.26 | 13.67 | 13.40 |
@@ -244,8 +244,8 @@ Mixed message lengths:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 4.53 | 4.48 | 4.50 | 4.47 |
-| ed25519-simd Dalek null-cache | 4.51 | 4.47 | 4.47 | 4.45 |
+| ed25519-simd Zip215 null-cache | 4.42 | 4.38 | 4.39 | 4.36 |
+| ed25519-simd Dalek null-cache | 4.41 | 4.37 | 4.37 | 4.35 |
 | solana-ed25519 Zip215 batch[^batch-api] | 14.03 | 12.99 | 12.56 | 12.32 |
 | solana-ed25519 Dalek loop | 22.57 | 22.55 | 22.59 | 22.63 |
 | ed25519-dalek batch[^batch-api] | 14.39 | 13.40 | 12.84 | 12.60 |
@@ -279,8 +279,8 @@ repeats a small key set:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 4.39 | 4.40 | 4.39 | 4.40 |
-| ed25519-simd Zip215 hot-key cache (warm) | 4.14 | 4.13 | 4.14 | 4.14 |
+| ed25519-simd Zip215 null-cache | 4.29 | 4.29 | 4.29 | 4.29 |
+| ed25519-simd Zip215 hot-key cache (warm) | 4.06 | 4.06 | 4.06 | 4.05 |
 
 ## Compatibility Target
 
