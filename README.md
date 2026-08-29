@@ -12,7 +12,7 @@ signatures.
 
 ## Requirements
 
-**This experimental branch requires `x86_64` with AVX-512 (F, BW, DQ, IFMA) and has no scalar
+**This crate requires `x86_64` with AVX-512 (F, BW, DQ, IFMA) and has no scalar
 fallback.** All verification — including single-signature checks and partial
 batches — runs through the AVX-512 IFMA SIMD path. The crate fails at compile
 time unless the required target features are enabled.
