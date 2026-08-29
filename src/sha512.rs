@@ -315,63 +315,83 @@ mod avx512 {
         messages: [&[u8]; LANES],
     ) -> [__m512i; 16] {
         let prefix = encoded_prefix_words(r_bytes, public_keys);
-        let message_ptrs = message_pointers(messages);
+        // Called only when each message has its first 64 bytes; convert once
+        // so bounds are checked once per lane.
+        let message_heads: [[u8; 64]; LANES] =
+            core::array::from_fn(|lane| messages[lane][..64].try_into().unwrap());
         core::array::from_fn(|word| {
             if word < 8 {
                 prefix[word]
             } else {
-                gather_be_u64(&message_ptrs, (word - 8) * 8)
+                let mut lanes = [0u64; LANES];
+                for lane in 0..LANES {
+                    lanes[lane] = read_be_u64(&message_heads[lane], (word - 8) * 8);
+                }
+                loadu(lanes)
             }
         })
     }
     fn message_data_block_words(messages: [&[u8]; LANES], message_offset: usize) -> [__m512i; 16] {
-        debug_assert!(
-            messages
-                .iter()
-                .all(|message| message_offset + 128 <= message.len())
-        );
-        let pointers = message_pointers(messages);
-        core::array::from_fn(|word| gather_be_u64(&pointers, message_offset + word * 8))
+        // Caller guarantees a full block; convert once to bound-check once per lane.
+        let blocks: [[u8; 128]; LANES] = core::array::from_fn(|lane| {
+            messages[lane][message_offset..message_offset + 128]
+                .try_into()
+                .unwrap()
+        });
+        core::array::from_fn(|word| {
+            let mut lanes = [0u64; LANES];
+            let offset = word * 8;
+            for (lane, block) in blocks.iter().enumerate() {
+                lanes[lane] = read_be_u64(block, offset);
+            }
+            loadu(lanes)
+        })
     }
 
     fn encoded_prefix_words(
         r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
         public_keys: &[[u8; PUBLIC_KEY_LEN]; LANES],
     ) -> [__m512i; 8] {
-        core::array::from_fn(|word| {
-            if word < 4 {
-                gather_contiguous_rows_be_u64(r_bytes, word * 8)
-            } else {
-                gather_contiguous_rows_be_u64(public_keys, (word - 4) * 8)
-            }
-        })
+        let r = transpose_8x4_be_u64(r_bytes);
+        let public_key = transpose_8x4_be_u64(public_keys);
+        [
+            r[0],
+            r[1],
+            r[2],
+            r[3],
+            public_key[0],
+            public_key[1],
+            public_key[2],
+            public_key[3],
+        ]
     }
 
-    fn message_pointers(messages: [&[u8]; LANES]) -> [*const u8; LANES] {
-        core::array::from_fn(|lane| messages[lane].as_ptr())
-    }
-
-    fn gather_contiguous_rows_be_u64<const N: usize>(
-        rows: &[[u8; N]; LANES],
-        offset: usize,
-    ) -> __m512i {
-        debug_assert!(offset + 8 <= N);
+    /// Transpose eight contiguous four-word encodings into the word-major
+    /// vectors consumed by SHA-512, swapping each word to big endian on the way.
+    fn transpose_8x4_be_u64(rows: &[[u8; 32]; LANES]) -> [__m512i; 4] {
         unsafe {
-            let indices = loadu(core::array::from_fn(|lane| (lane * N + offset) as u64));
-            byte_swap_lanes(_mm512_i64gather_epi64(indices, rows.as_ptr().cast(), 1))
-        }
-    }
+            let input = rows.as_ptr().cast::<__m512i>();
+            let row01 = _mm512_loadu_si512(input);
+            let row23 = _mm512_loadu_si512(input.add(1));
+            let row45 = _mm512_loadu_si512(input.add(2));
+            let row67 = _mm512_loadu_si512(input.add(3));
 
-    fn gather_be_u64(pointers: &[*const u8; LANES], offset: usize) -> __m512i {
-        unsafe {
-            let addresses = loadu(core::array::from_fn(|lane| {
-                pointers[lane].wrapping_add(offset) as u64
-            }));
-            byte_swap_lanes(_mm512_i64gather_epi64(
-                addresses,
-                core::ptr::null::<i64>(),
-                1,
-            ))
+            core::array::from_fn(|column| {
+                let column = column as i64;
+                let indices = _mm512_set_epi64(
+                    12 + column,
+                    8 + column,
+                    4 + column,
+                    column,
+                    12 + column,
+                    8 + column,
+                    4 + column,
+                    column,
+                );
+                let low = _mm512_permutex2var_epi64(row01, indices, row23);
+                let high = _mm512_permutex2var_epi64(row45, indices, row67);
+                byte_swap_lanes(_mm512_mask_blend_epi64(0xf0, low, high))
+            })
         }
     }
 
@@ -463,7 +483,10 @@ mod avx512 {
     fn digest_words_from_state(state: [__m512i; 8]) -> [[u64; LANES]; 8] {
         let mut words = [[0u64; LANES]; 8];
         for (word, &s) in state.iter().enumerate() {
-            storeu(byte_swap_lanes(s), &mut words[word]);
+            storeu(s, &mut words[word]);
+            for lane_word in &mut words[word] {
+                *lane_word = lane_word.swap_bytes();
+            }
         }
         words
     }
