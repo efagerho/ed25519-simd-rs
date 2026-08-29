@@ -39,16 +39,35 @@ struct ParsedChunk<'a> {
     messages: [&'a [u8]; SIMD_LANES],
 }
 
-/// Everything needed to score one deferred Dalek chunk once its recomputed
-/// `R` encoding is available. The candidate itself is queued separately so the
-/// batch inversion sees a contiguous slice.
+/// Everything needed to score one deferred chunk once its queued SIMD work
+/// completes. The candidates themselves are queued separately so the batched
+/// computation sees a contiguous slice.
 #[derive(Debug)]
-struct PendingDalekChunk {
+struct PendingChunk {
     valid: [bool; SIMD_LANES],
     r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
     public_keys: [[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
     output_indices: [usize; SIMD_LANES],
     active_lane_count: usize,
+}
+
+/// The deferral queues one batch shares across its chunks: the policy's
+/// candidate queue plus the pending scoring data, drained together on flush.
+#[derive(Debug, Default)]
+struct DeferralQueues {
+    dalek_candidates: Vec<avx512ifma::DalekCandidate>,
+    zip215_candidates: Vec<avx512ifma::Zip215Candidate>,
+    pending: Vec<PendingChunk>,
+}
+
+impl DeferralQueues {
+    fn new() -> Self {
+        Self {
+            dalek_candidates: Vec::new(),
+            zip215_candidates: Vec::new(),
+            pending: Vec::new(),
+        }
+    }
 }
 
 /// The per-lane chunk data both policies score their SIMD result against.
@@ -80,8 +99,7 @@ pub struct Verifier<C: KeyCache = NullKeyCache> {
     // Invalid lanes are masked out but still need a real ladder table.
     identity_table: &'static PointTable,
     bucket_order: Vec<usize>,
-    dalek_candidates: Vec<avx512ifma::DalekCandidate>,
-    dalek_pending: Vec<PendingDalekChunk>,
+    queues: DeferralQueues,
     scratch: Box<ChunkScratch>,
     cache: C,
 }
@@ -113,8 +131,7 @@ impl<C: KeyCache> Verifier<C> {
             base_table: BASE_TABLE.entries(),
             identity_table: &*IDENTITY_TABLE,
             bucket_order: Vec::new(),
-            dalek_candidates: Vec::new(),
-            dalek_pending: Vec::new(),
+            queues: DeferralQueues::new(),
             scratch: Box::new(ChunkScratch::new()),
             cache,
         }
@@ -144,8 +161,7 @@ impl<C: KeyCache> Verifier<C> {
     pub fn verify_batch(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
         assert_eq!(inputs.len(), out.len());
         let mut bucket_order = core::mem::take(&mut self.bucket_order);
-        let mut candidates = core::mem::take(&mut self.dalek_candidates);
-        let mut pending = core::mem::take(&mut self.dalek_pending);
+        let mut queues = core::mem::take(&mut self.queues);
         batch::for_each_simd_chunk(
             inputs,
             &mut bucket_order,
@@ -156,22 +172,23 @@ impl<C: KeyCache> Verifier<C> {
                     *output_indices,
                     active_lane_count,
                     &mut tmp,
-                    &mut candidates,
-                    &mut pending,
+                    &mut queues,
                 );
                 if !deferred {
                     for (&index, &value) in output_indices[..active_lane_count].iter().zip(&tmp) {
                         out[index] = value;
                     }
-                } else if candidates.len() == avx512ifma::DALEK_BATCH {
-                    flush_dalek_queue(&mut candidates, &mut pending, out);
+                } else if queues.dalek_candidates.len() == avx512ifma::DALEK_BATCH {
+                    flush_dalek_queue(&mut queues, out);
+                } else if queues.zip215_candidates.len() == avx512ifma::ZIP215_BATCH {
+                    flush_zip215_queue(&mut queues, out);
                 }
             },
         );
-        flush_dalek_queue(&mut candidates, &mut pending, out);
+        flush_dalek_queue(&mut queues, out);
+        flush_zip215_queue(&mut queues, out);
         self.bucket_order = bucket_order;
-        self.dalek_candidates = candidates;
-        self.dalek_pending = pending;
+        self.queues = queues;
     }
 
     /// Verify one chunk, returning whether its Dalek result was queued for a
@@ -185,8 +202,7 @@ impl<C: KeyCache> Verifier<C> {
         output_indices: [usize; SIMD_LANES],
         active_lane_count: usize,
         out: &mut [bool; SIMD_LANES],
-        candidates: &mut Vec<avx512ifma::DalekCandidate>,
-        pending: &mut Vec<PendingDalekChunk>,
+        queues: &mut DeferralQueues,
     ) -> bool {
         let policy = self.policy;
 
@@ -251,21 +267,30 @@ impl<C: KeyCache> Verifier<C> {
                 public_keys: &public_keys,
                 valid: &valid,
             };
-            match policy {
-                VerifyPolicy::Zip215 => self.verify_zip215_lanes(&prepared, decoded_r, &lanes, out),
-                VerifyPolicy::Dalek => {
-                    deferred =
-                        self.verify_dalek_lanes(&prepared, decoded_r, &lanes, out, candidates);
-                    if deferred {
-                        pending.push(PendingDalekChunk {
-                            valid,
-                            r_bytes,
-                            public_keys,
-                            output_indices,
-                            active_lane_count,
-                        });
-                    }
-                }
+            deferred = match policy {
+                VerifyPolicy::Zip215 => self.verify_zip215_lanes(
+                    &prepared,
+                    decoded_r,
+                    &lanes,
+                    out,
+                    &mut queues.zip215_candidates,
+                ),
+                VerifyPolicy::Dalek => self.verify_dalek_lanes(
+                    &prepared,
+                    decoded_r,
+                    &lanes,
+                    out,
+                    &mut queues.dalek_candidates,
+                ),
+            };
+            if deferred {
+                queues.pending.push(PendingChunk {
+                    valid,
+                    r_bytes,
+                    public_keys,
+                    output_indices,
+                    active_lane_count,
+                });
             }
         }
 
@@ -297,6 +322,9 @@ impl<C: KeyCache> Verifier<C> {
         }
     }
 
+    /// Score the lanes against an already-decompressed `R`, or queue the
+    /// ladder result when `R` is still encoded so its decompression can pair
+    /// with another chunk's. Returns whether the chunk was queued.
     #[inline(always)]
     fn verify_zip215_lanes(
         &self,
@@ -304,14 +332,17 @@ impl<C: KeyCache> Verifier<C> {
         decoded_r: Option<(avx512ifma::WideRPoint, [bool; SIMD_LANES])>,
         lanes: &ScoredLanes<'_>,
         out: &mut [bool; SIMD_LANES],
-    ) {
+        zip_candidates: &mut Vec<avx512ifma::Zip215Candidate>,
+    ) -> bool {
         // Cache misses already decompressed R alongside their keys.
-        let (r_points, r_valid_lanes) = match decoded_r {
-            Some(decoded) => decoded,
-            None => {
-                let (r_points, r_mask) = avx512ifma::decompress_r_points(lanes.r_bytes);
-                (r_points, avx512ifma::mask_to_lanes(r_mask))
-            }
+        let Some((r_points, r_valid_lanes)) = decoded_r else {
+            // Every lane hit the cache, so nothing decompressed `R`. Queue the
+            // ladder result to share an interleaved decompression pair.
+            zip_candidates.push(avx512ifma::prepare_zip215_candidate(
+                prepared,
+                self.base_table,
+            ));
+            return true;
         };
 
         let equation_holds =
@@ -319,6 +350,7 @@ impl<C: KeyCache> Verifier<C> {
         for lane in 0..SIMD_LANES {
             out[lane] = equation_holds[lane] && lanes.valid[lane] && r_valid_lanes[lane];
         }
+        false
     }
 
     /// Score the lanes against an already-decompressed `R`, or queue the point
@@ -363,15 +395,16 @@ impl<C: KeyCache> Verifier<C> {
 
 /// Compress every queued candidate through one shared inversion and score the
 /// chunks against their encoded `R`. Leaves both queues empty.
-fn flush_dalek_queue(
-    candidates: &mut Vec<avx512ifma::DalekCandidate>,
-    pending: &mut Vec<PendingDalekChunk>,
-    out: &mut [bool],
-) {
-    debug_assert_eq!(candidates.len(), pending.len());
+fn flush_dalek_queue(queues: &mut DeferralQueues, out: &mut [bool]) {
+    let DeferralQueues {
+        dalek_candidates: candidates,
+        pending,
+        ..
+    } = queues;
     if candidates.is_empty() {
         return;
     }
+    debug_assert_eq!(candidates.len(), pending.len());
 
     let mut encodings = [[[0u8; R_ENCODING_LEN]; SIMD_LANES]; avx512ifma::DALEK_BATCH];
     avx512ifma::compress_dalek_candidates(candidates, &mut encodings[..candidates.len()]);
@@ -383,6 +416,34 @@ fn flush_dalek_queue(
             out[chunk.output_indices[lane]] = encoding[lane] == chunk.r_bytes[lane]
                 && chunk.valid[lane]
                 && !dalek_legacy_excluded(&chunk.public_keys[lane], &chunk.r_bytes[lane]);
+        }
+    }
+    candidates.clear();
+}
+
+/// Check every queued ZIP-215 chunk, decompressing the pair of `R` chunks
+/// through interleaved chains. Leaves both queues empty.
+fn flush_zip215_queue(queues: &mut DeferralQueues, out: &mut [bool]) {
+    let DeferralQueues {
+        zip215_candidates: candidates,
+        pending,
+        ..
+    } = queues;
+    if candidates.is_empty() {
+        return;
+    }
+    debug_assert_eq!(candidates.len(), pending.len());
+
+    let mut r_bytes = [[[0u8; R_ENCODING_LEN]; SIMD_LANES]; avx512ifma::ZIP215_BATCH];
+    for (chunk, bytes) in pending.iter().zip(&mut r_bytes) {
+        *bytes = chunk.r_bytes;
+    }
+    let checks = avx512ifma::check_zip215_candidates(candidates, &r_bytes[..candidates.len()]);
+
+    for (chunk, (equation_holds, r_valid_lanes)) in pending.drain(..).zip(&checks) {
+        for lane in 0..chunk.active_lane_count {
+            out[chunk.output_indices[lane]] =
+                equation_holds[lane] && chunk.valid[lane] && r_valid_lanes[lane];
         }
     }
     candidates.clear();

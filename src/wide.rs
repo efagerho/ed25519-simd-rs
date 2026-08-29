@@ -19,14 +19,29 @@ pub(crate) mod avx512ifma {
         x_zero_mask: Option<u8>,
     }
 
-    /// An uncompressed Dalek verification result waiting to be compared with
-    /// the signature's encoded R point.
     /// Chunks whose final inversion is shared. Each doubling halves the
     /// inversion cost per chunk while adding three multiplies; past eight the
     /// remaining inversion is small next to the buffering it would need.
     pub(crate) const DALEK_BATCH: usize = 8;
 
+    /// An uncompressed Dalek verification result waiting to be compared with
+    /// the signature's encoded R point.
     pub(crate) struct DalekCandidate(WidePoint);
+
+    /// ZIP-215 chunks whose `R` decompressions are interleaved pairwise, so
+    /// each inverse-square-root chain fills the other's IFMA latency gaps.
+    pub(crate) const ZIP215_BATCH: usize = 2;
+
+    /// A ZIP-215 ladder result waiting for its `R` point to be decompressed.
+    pub(crate) struct Zip215Candidate(WidePoint);
+
+    impl core::fmt::Debug for Zip215Candidate {
+        fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            formatter
+                .debug_struct("Zip215Candidate")
+                .finish_non_exhaustive()
+        }
+    }
 
     impl core::fmt::Debug for DalekCandidate {
         fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -297,6 +312,50 @@ pub(crate) mod avx512ifma {
     ) -> [bool; LANES] {
         let combined = mul_s_base_minus_k_public::<true>(base_table, prepared);
         combined.subtract_affine_and_check_8_torsion(&r.point)
+    }
+
+    #[inline(never)]
+    pub(crate) fn prepare_zip215_candidate(
+        prepared: &PreparedChunk<'_>,
+        base_table: &BasepointTableEntries,
+    ) -> Zip215Candidate {
+        Zip215Candidate(mul_s_base_minus_k_public::<true>(base_table, prepared))
+    }
+
+    /// Score up to [`ZIP215_BATCH`] queued chunks, decompressing a pair of `R`
+    /// chunks through interleaved inverse-square-root chains. Returns
+    /// per-chunk `(equation_holds, r_valid)` lane flags.
+    pub(crate) fn check_zip215_candidates(
+        candidates: &[Zip215Candidate],
+        r_bytes: &[[[u8; R_ENCODING_LEN]; LANES]],
+    ) -> [([bool; LANES], [bool; LANES]); ZIP215_BATCH] {
+        debug_assert_eq!(candidates.len(), r_bytes.len());
+        let empty = ([false; LANES], [false; LANES]);
+        match candidates {
+            [single] => {
+                let (r, r_mask) = decompress_r_points(&r_bytes[0]);
+                let holds = single.0.subtract_affine_and_check_8_torsion(&r.point);
+                [(holds, mask_to_lanes(r_mask)), empty]
+            }
+            [first, second] => {
+                let setup_a = decompress_setup(&r_bytes[0]);
+                let setup_b = decompress_setup(&r_bytes[1]);
+                let (pow_a, pow_b) = WideFe::pow_p_minus_5_over_8_x2(&setup_a.uv, &setup_b.uv);
+                let (r_a, mask_a, _) = decompress_finish::<true, false>(setup_a, pow_a);
+                let (r_b, mask_b, _) = decompress_finish::<true, false>(setup_b, pow_b);
+                [
+                    (
+                        first.0.subtract_affine_and_check_8_torsion(&r_a),
+                        mask_to_lanes(mask_a),
+                    ),
+                    (
+                        second.0.subtract_affine_and_check_8_torsion(&r_b),
+                        mask_to_lanes(mask_b),
+                    ),
+                ]
+            }
+            _ => unreachable!("the queue flushes at ZIP215_BATCH chunks"),
+        }
     }
 
     #[inline(never)]
