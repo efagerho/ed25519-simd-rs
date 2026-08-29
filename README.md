@@ -12,7 +12,7 @@ signatures.
 
 ## Requirements
 
-**This crate requires `x86_64` with AVX-512 (F, DQ, IFMA) and has no scalar
+**This experimental branch requires `x86_64` with AVX-512 (F, BW, DQ, IFMA) and has no scalar
 fallback.** All verification — including single-signature checks and partial
 batches — runs through the AVX-512 IFMA SIMD path. The crate fails at compile
 time unless the required target features are enabled.
@@ -43,11 +43,11 @@ RUSTFLAGS="-C target-cpu=native" RUSTDOCFLAGS="-C target-cpu=native" cargo test 
 
 AVX-512 IFMA is available on Intel Ice Lake and later, and on AMD Zen 4 and later.
 
-Because the SIMD path is selected at compile time, **AVX-512 F, DQ, and IFMA
+Because the SIMD path is selected at compile time, **AVX-512 F, BW, DQ, and IFMA
 support, including OS support for AVX-512 register state, is a deployment
 prerequisite.** A binary built with `-C target-cpu=native` must run on the same
 CPU it was built for, or one that is at least as capable. Alternatively, use
-explicit `-C target-feature=+avx512f,+avx512dq,+avx512ifma` flags that match
+explicit `-C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma` flags that match
 every deployment host.
 
 The crate performs no runtime CPU-feature detection and has no fallback path.
@@ -204,7 +204,7 @@ for filter in \
   'hot_keys/distinct_4/ed25519_simd'
 do
   taskset -c 4 env \
-    RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f,+avx512dq,+avx512ifma" \
+    RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma" \
     cargo bench --bench solana_ed25519_compare -- \
       "$filter" --noplot --discard-baseline
 done
@@ -266,7 +266,7 @@ To rerun only this crate's hot-key cases:
 ```sh
 cd benches-compare
 taskset -c 4 env \
-  RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f,+avx512dq,+avx512ifma" \
+  RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma" \
   cargo bench --bench solana_ed25519_compare -- \
     'hot_keys/distinct_4/ed25519_simd' --noplot --discard-baseline
 ```
