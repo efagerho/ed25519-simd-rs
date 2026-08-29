@@ -19,6 +19,10 @@ pub(crate) mod avx512ifma {
         x_zero_mask: Option<u8>,
     }
 
+    /// An uncompressed Dalek verification result waiting to be compared with
+    /// the signature's encoded R point.
+    pub(crate) struct DalekCandidate(WidePoint);
+
     impl WideRPoint {
         /// Dalek-invalid negative-zero lanes.
         pub(crate) fn x_zero_lanes(&self) -> [bool; LANES] {
@@ -279,6 +283,13 @@ pub(crate) mod avx512ifma {
         combined.subtract_affine_and_check_8_torsion(&r.point)
     }
 
+    pub(crate) fn prepare_dalek_candidate(
+        prepared: &PreparedChunk<'_>,
+        base_table: &BasepointTableEntries,
+    ) -> DalekCandidate {
+        DalekCandidate(mul_s_base_minus_k_public::<false>(base_table, prepared))
+    }
+
     pub(crate) fn verify_prepared_dalek_encoded_r(
         prepared: &PreparedChunk<'_>,
         r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
@@ -287,6 +298,30 @@ pub(crate) mod avx512ifma {
         let combined = mul_s_base_minus_k_public::<false>(base_table, prepared);
         let recomputed = combined.compress();
         core::array::from_fn(|lane| recomputed[lane] == r_bytes[lane])
+    }
+
+    pub(crate) fn verify_dalek_candidate(
+        candidate: &DalekCandidate,
+        r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
+    ) -> [bool; LANES] {
+        let recomputed = candidate.0.compress();
+        core::array::from_fn(|lane| recomputed[lane] == r_bytes[lane])
+    }
+
+    /// Normalize two chunks with one field inversion. The extra three field
+    /// multiplications implement Montgomery's trick: invert `z0*z1`, then
+    /// recover each individual reciprocal from the shared result.
+    pub(crate) fn verify_dalek_candidate_pair(
+        first: &DalekCandidate,
+        first_r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
+        second: &DalekCandidate,
+        second_r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
+    ) -> ([bool; LANES], [bool; LANES]) {
+        let (first_encoding, second_encoding) = WidePoint::compress_pair(&first.0, &second.0);
+        (
+            core::array::from_fn(|lane| first_encoding[lane] == first_r_bytes[lane]),
+            core::array::from_fn(|lane| second_encoding[lane] == second_r_bytes[lane]),
+        )
     }
 
     pub(crate) fn verify_prepared_dalek_decompressed_r(
@@ -1255,8 +1290,26 @@ pub(crate) mod avx512ifma {
         }
         fn compress(&self) -> [[u8; POINT_ENCODING_LEN]; LANES] {
             let zinv = self.z.invert();
-            let x = self.x.multiply(&zinv);
-            let y = self.y.multiply(&zinv);
+            self.compress_with_z_inverse(&zinv)
+        }
+        fn compress_pair(
+            first: &Self,
+            second: &Self,
+        ) -> (
+            [[u8; POINT_ENCODING_LEN]; LANES],
+            [[u8; POINT_ENCODING_LEN]; LANES],
+        ) {
+            let product_inverse = first.z.multiply(&second.z).invert();
+            let first_z_inverse = product_inverse.multiply(&second.z);
+            let second_z_inverse = product_inverse.multiply(&first.z);
+            (
+                first.compress_with_z_inverse(&first_z_inverse),
+                second.compress_with_z_inverse(&second_z_inverse),
+            )
+        }
+        fn compress_with_z_inverse(&self, zinv: &WideFe) -> [[u8; POINT_ENCODING_LEN]; LANES] {
+            let x = self.x.multiply(zinv);
+            let y = self.y.multiply(zinv);
             let x_odd_mask = x.is_odd_mask();
             let mut bytes = y.to_bytes_lanes();
             for (lane, encoding) in bytes.iter_mut().enumerate() {
@@ -1828,6 +1881,31 @@ pub(crate) mod avx512ifma {
                     }
                 }
             }
+        }
+
+        #[test]
+        fn paired_compression_matches_independent_inversions() {
+            let vectors = vectors();
+            let cases: Vec<&Value> = vector_cases(&vectors, "decompression")
+                .iter()
+                .filter(|case| case["valid"].as_bool() == Some(true))
+                .take(LANES)
+                .collect();
+            assert_eq!(
+                cases.len(),
+                LANES,
+                "vectors include one valid point per lane"
+            );
+            let encodings = core::array::from_fn(|lane| hex_32(&cases[lane]["encoding"]));
+            let (point, mask) = decompress_points_wide(&encodings);
+            assert_eq!(mask, u8::MAX);
+
+            // Move away from affine Z=1 so this exercises both reciprocals in
+            // Montgomery's trick, not merely the encoding shared by the inputs.
+            let first = point.double();
+            let second = first.double();
+            let expected = (first.compress(), second.compress());
+            assert_eq!(WidePoint::compress_pair(&first, &second), expected);
         }
 
         #[test]

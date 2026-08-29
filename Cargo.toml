@@ -35,3 +35,7 @@ harness = false
 [[bench]]
 name = "init_profile"
 harness = false
+
+[[bench]]
+name = "hot_profile"
+harness = false
