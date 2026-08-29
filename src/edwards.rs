@@ -11,9 +11,10 @@ pub(crate) const BASEPOINT_COMPRESSED: [u8; POINT_ENCODING_LEN] = [
 
 // Signed-indexed layout: digit `d` maps to `entries[d + N]`, avoiding a hot
 // unpredictable branch on the digit sign.
-#[derive(Clone, Debug)]
 pub(crate) struct PointTable {
-    entries: [CachedPoint; SIGNED_POINT_TABLE_SIZE],
+    entries: [core::mem::MaybeUninit<CachedPoint>; SIGNED_POINT_TABLE_SIZE],
+    #[cfg(debug_assertions)]
+    initialized_entries: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -25,6 +26,8 @@ pub(crate) struct BasepointTable {
 // maximum magnitude `8 + 8*16 = 136`.
 const POINT_TABLE_SIZE: usize = 8;
 const SIGNED_POINT_TABLE_SIZE: usize = 2 * POINT_TABLE_SIZE + 1;
+#[cfg(debug_assertions)]
+const ALL_POINT_TABLE_ENTRIES: u32 = (1 << SIGNED_POINT_TABLE_SIZE) - 1;
 pub(crate) const BASEPOINT_TABLE_SIZE: usize = 136;
 const SIGNED_BASEPOINT_TABLE_SIZE: usize = 2 * BASEPOINT_TABLE_SIZE + 1;
 pub(crate) type BasepointTableEntries = [AffineCachedPoint; SIGNED_BASEPOINT_TABLE_SIZE];
@@ -97,9 +100,28 @@ impl AffineCachedPoint {
 }
 
 impl PointTable {
+    #[cfg(test)]
     pub(crate) fn identity() -> Self {
         Self {
-            entries: core::array::from_fn(|_| CachedPoint::identity()),
+            entries: core::array::from_fn(|_| core::mem::MaybeUninit::new(CachedPoint::identity())),
+            #[cfg(debug_assertions)]
+            initialized_entries: ALL_POINT_TABLE_ENTRIES,
+        }
+    }
+
+    /// Create a decode-time destination with only its identity slot filled.
+    ///
+    /// # Safety
+    /// The caller must fill both signs of every multiple in `1..=8` with
+    /// [`set_multiple`](Self::set_multiple) before the table is selected,
+    /// cloned, retained, or otherwise exposed as a completed table.
+    pub(crate) unsafe fn decode_destination() -> Self {
+        let mut entries = [const { core::mem::MaybeUninit::uninit() }; SIGNED_POINT_TABLE_SIZE];
+        entries[POINT_TABLE_SIZE].write(CachedPoint::identity());
+        Self {
+            entries,
+            #[cfg(debug_assertions)]
+            initialized_entries: 1 << POINT_TABLE_SIZE,
         }
     }
 
@@ -108,7 +130,9 @@ impl PointTable {
     #[inline(never)]
     pub(crate) fn cold_identity() -> Self {
         Self {
-            entries: core::array::from_fn(|_| CachedPoint::identity()),
+            entries: core::array::from_fn(|_| core::mem::MaybeUninit::new(CachedPoint::identity())),
+            #[cfg(debug_assertions)]
+            initialized_entries: ALL_POINT_TABLE_ENTRIES,
         }
     }
 
@@ -119,16 +143,55 @@ impl PointTable {
         negative: CachedPoint,
     ) {
         debug_assert!((1..=POINT_TABLE_SIZE).contains(&multiple));
-        self.entries[POINT_TABLE_SIZE + multiple] = positive;
-        self.entries[POINT_TABLE_SIZE - multiple] = negative;
+        self.entries[POINT_TABLE_SIZE + multiple].write(positive);
+        self.entries[POINT_TABLE_SIZE - multiple].write(negative);
+        #[cfg(debug_assertions)]
+        {
+            self.initialized_entries |=
+                (1 << (POINT_TABLE_SIZE + multiple)) | (1 << (POINT_TABLE_SIZE - multiple));
+        }
     }
 
     /// Select the cached point for a signed digit in `-8..=8`.
     pub(crate) fn select_signed_cached_ref(&self, digit: i8) -> &CachedPoint {
         debug_assert!((-8..=8).contains(&digit));
+        self.debug_assert_fully_initialized();
         // SAFETY: `digit` is a radix-16 digit in `-8..=8`, so `digit + 8` is
         // in bounds for this 17-entry table.
-        unsafe { self.entries.get_unchecked((digit + 8) as usize) }
+        unsafe {
+            self.entries
+                .get_unchecked((digit + 8) as usize)
+                .assume_init_ref()
+        }
+    }
+
+    #[inline(always)]
+    fn debug_assert_fully_initialized(&self) {
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(self.initialized_entries, ALL_POINT_TABLE_ENTRIES);
+    }
+}
+
+impl Clone for PointTable {
+    fn clone(&self) -> Self {
+        self.debug_assert_fully_initialized();
+        Self {
+            entries: core::array::from_fn(|index| {
+                // SAFETY: tables are cloned only after decode construction or
+                // by an all-identity constructor, both of which fill every slot.
+                core::mem::MaybeUninit::new(unsafe {
+                    self.entries[index].assume_init_ref().clone()
+                })
+            }),
+            #[cfg(debug_assertions)]
+            initialized_entries: ALL_POINT_TABLE_ENTRIES,
+        }
+    }
+}
+
+impl core::fmt::Debug for PointTable {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter.debug_struct("PointTable").finish_non_exhaustive()
     }
 }
 
