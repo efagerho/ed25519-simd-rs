@@ -21,7 +21,20 @@ pub(crate) mod avx512ifma {
 
     /// An uncompressed Dalek verification result waiting to be compared with
     /// the signature's encoded R point.
+    /// Chunks whose final inversion is shared. Each doubling halves the
+    /// inversion cost per chunk while adding three multiplies; past eight the
+    /// remaining inversion is small next to the buffering it would need.
+    pub(crate) const DALEK_BATCH: usize = 8;
+
     pub(crate) struct DalekCandidate(WidePoint);
+
+    impl core::fmt::Debug for DalekCandidate {
+        fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            formatter
+                .debug_struct("DalekCandidate")
+                .finish_non_exhaustive()
+        }
+    }
 
     impl WideRPoint {
         /// Dalek-invalid negative-zero lanes.
@@ -302,28 +315,35 @@ pub(crate) mod avx512ifma {
         core::array::from_fn(|lane| recomputed[lane] == r_bytes[lane])
     }
 
-    pub(crate) fn verify_dalek_candidate(
-        candidate: &DalekCandidate,
-        r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
-    ) -> [bool; LANES] {
-        let recomputed = candidate.0.compress();
-        core::array::from_fn(|lane| recomputed[lane] == r_bytes[lane])
-    }
+    /// Compress up to [`DALEK_BATCH`] chunks sharing a single field inversion.
+    ///
+    /// Montgomery's trick: invert the running product of every `Z`, then walk
+    /// back down recovering each reciprocal with one multiply. That trades
+    /// `n - 1` inversions for `3(n - 1)` multiplies, and an inversion costs
+    /// roughly 265 field operations against a multiply's one.
+    pub(crate) fn compress_dalek_candidates(
+        candidates: &[DalekCandidate],
+        encodings: &mut [[[u8; POINT_ENCODING_LEN]; LANES]],
+    ) {
+        debug_assert_eq!(candidates.len(), encodings.len());
+        debug_assert!(candidates.len() <= DALEK_BATCH);
 
-    /// Normalize two chunks with one field inversion. The extra three field
-    /// multiplications implement Montgomery's trick: invert `z0*z1`, then
-    /// recover each individual reciprocal from the shared result.
-    pub(crate) fn verify_dalek_candidate_pair(
-        first: &DalekCandidate,
-        first_r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
-        second: &DalekCandidate,
-        second_r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
-    ) -> ([bool; LANES], [bool; LANES]) {
-        let (first_encoding, second_encoding) = WidePoint::compress_pair(&first.0, &second.0);
-        (
-            core::array::from_fn(|lane| first_encoding[lane] == first_r_bytes[lane]),
-            core::array::from_fn(|lane| second_encoding[lane] == second_r_bytes[lane]),
-        )
+        let mut prefix = [WideFe::one(); DALEK_BATCH];
+        let mut product = WideFe::one();
+        for (index, candidate) in candidates.iter().enumerate() {
+            prefix[index] = product;
+            product = product.multiply(&candidate.0.z);
+        }
+
+        // Walking back down lets each reciprocal be consumed as it is formed,
+        // so no array of inverses is ever materialized.
+        let mut accumulator = product.invert();
+        for index in (0..candidates.len()).rev() {
+            let z = &candidates[index].0.z;
+            let inverse = prefix[index].multiply(&accumulator);
+            accumulator = accumulator.multiply(z);
+            encodings[index] = candidates[index].0.compress_with_z_inverse(&inverse);
+        }
     }
 
     pub(crate) fn verify_prepared_dalek_decompressed_r(
@@ -1294,21 +1314,6 @@ pub(crate) mod avx512ifma {
             let zinv = self.z.invert();
             self.compress_with_z_inverse(&zinv)
         }
-        fn compress_pair(
-            first: &Self,
-            second: &Self,
-        ) -> (
-            [[u8; POINT_ENCODING_LEN]; LANES],
-            [[u8; POINT_ENCODING_LEN]; LANES],
-        ) {
-            let product_inverse = first.z.multiply(&second.z).invert();
-            let first_z_inverse = product_inverse.multiply(&second.z);
-            let second_z_inverse = product_inverse.multiply(&first.z);
-            (
-                first.compress_with_z_inverse(&first_z_inverse),
-                second.compress_with_z_inverse(&second_z_inverse),
-            )
-        }
         fn compress_with_z_inverse(&self, zinv: &WideFe) -> [[u8; POINT_ENCODING_LEN]; LANES] {
             let x = self.x.multiply(zinv);
             let y = self.y.multiply(zinv);
@@ -1886,7 +1891,7 @@ pub(crate) mod avx512ifma {
         }
 
         #[test]
-        fn paired_compression_matches_independent_inversions() {
+        fn batched_compression_matches_independent_inversions() {
             let vectors = vectors();
             let cases: Vec<&Value> = vector_cases(&vectors, "decompression")
                 .iter()
@@ -1902,12 +1907,25 @@ pub(crate) mod avx512ifma {
             let (point, mask) = decompress_points_wide(&encodings);
             assert_eq!(mask, u8::MAX);
 
-            // Move away from affine Z=1 so this exercises both reciprocals in
-            // Montgomery's trick, not merely the encoding shared by the inputs.
-            let first = point.double();
-            let second = first.double();
-            let expected = (first.compress(), second.compress());
-            assert_eq!(WidePoint::compress_pair(&first, &second), expected);
+            // Repeated doubling moves every candidate off affine `Z = 1` and to
+            // a distinct `Z`, so the shared inversion has to be undone
+            // differently for each one.
+            let mut candidates = Vec::new();
+            let mut current = point;
+            for _ in 0..DALEK_BATCH {
+                current = current.double();
+                candidates.push(DalekCandidate(current));
+            }
+
+            for depth in 1..=DALEK_BATCH {
+                let expected: Vec<_> = candidates[..depth]
+                    .iter()
+                    .map(|candidate| candidate.0.compress())
+                    .collect();
+                let mut actual = vec![[[0u8; POINT_ENCODING_LEN]; LANES]; depth];
+                compress_dalek_candidates(&candidates[..depth], &mut actual);
+                assert_eq!(actual, expected, "batch of {depth} diverged");
+            }
         }
 
         #[test]
