@@ -189,7 +189,9 @@ pub(crate) mod avx512ifma {
     /// discards those by mask.
     fn build_tables_from_point(p: WidePoint, tables: &mut [Option<PointTable>; LANES]) {
         for table in tables.iter_mut() {
-            *table = Some(PointTable::identity());
+            // SAFETY: the calls below fill positive and negative 1..=8 before
+            // this function returns or any table can be selected.
+            *table = Some(unsafe { PointTable::decode_destination() });
         }
 
         write_cached_multiple(1, &p, tables);
