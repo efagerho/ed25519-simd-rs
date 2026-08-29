@@ -289,6 +289,7 @@ pub(crate) mod avx512ifma {
     }
 
     // ZIP-215 cofactored verification: [8](sB - kA - R) == identity.
+    #[inline(never)]
     pub(crate) fn verify_prepared_zip215(
         prepared: &PreparedChunk<'_>,
         r: &WideRPoint,
@@ -298,21 +299,12 @@ pub(crate) mod avx512ifma {
         combined.subtract_affine_and_check_8_torsion(&r.point)
     }
 
+    #[inline(never)]
     pub(crate) fn prepare_dalek_candidate(
         prepared: &PreparedChunk<'_>,
         base_table: &BasepointTableEntries,
     ) -> DalekCandidate {
         DalekCandidate(mul_s_base_minus_k_public::<false>(base_table, prepared))
-    }
-
-    pub(crate) fn verify_prepared_dalek_encoded_r(
-        prepared: &PreparedChunk<'_>,
-        r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
-        base_table: &BasepointTableEntries,
-    ) -> [bool; LANES] {
-        let combined = mul_s_base_minus_k_public::<false>(base_table, prepared);
-        let recomputed = combined.compress();
-        core::array::from_fn(|lane| recomputed[lane] == r_bytes[lane])
     }
 
     /// Compress up to [`DALEK_BATCH`] chunks sharing a single field inversion.
@@ -346,6 +338,7 @@ pub(crate) mod avx512ifma {
         }
     }
 
+    #[inline(never)]
     pub(crate) fn verify_prepared_dalek_decompressed_r(
         prepared: &PreparedChunk<'_>,
         r: &WideRPoint,
@@ -1310,6 +1303,7 @@ pub(crate) mod avx512ifma {
                 t: WideFe::zero(),
             }
         }
+        #[cfg(test)]
         fn compress(&self) -> [[u8; POINT_ENCODING_LEN]; LANES] {
             let zinv = self.z.invert();
             self.compress_with_z_inverse(&zinv)

@@ -166,9 +166,7 @@ impl HotKeyCache {
     }
 }
 
-impl crate::cache::private::Sealed for HotKeyCache {
-    const RETAINS_KEYS: bool = true;
-}
+impl crate::cache::private::Sealed for HotKeyCache {}
 
 impl KeyCache for HotKeyCache {
     #[inline]
