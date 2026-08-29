@@ -1,11 +1,11 @@
 pub(crate) mod avx512ifma {
     use crate::batch::{PUBLIC_KEY_LEN, PreparedChunk, R_ENCODING_LEN};
-    use crate::edwards::{
-        AffineCachedPoint, BasepointTableEntries, CachedPoint, POINT_ENCODING_LEN, PointTable,
-        select_signed_affine_cached_ref,
-    };
     #[cfg(test)]
-    use crate::edwards::{BasepointTable, EdwardsPoint};
+    use crate::edwards::BasepointTable;
+    use crate::edwards::{
+        AffineCachedPoint, BASEPOINT_COMPRESSED, BASEPOINT_TABLE_SIZE, BasepointTableEntries,
+        CachedPoint, POINT_ENCODING_LEN, PointTable, select_signed_affine_cached_ref,
+    };
     use crate::field::{Fe51, LIMB_COUNT};
     use crate::scalar::Radix16;
     use std::arch::x86_64::*;
@@ -62,6 +62,123 @@ pub(crate) mod avx512ifma {
         )
     }
 
+    /// Decode one public key and build its cached table with the SIMD field
+    /// implementation. All lanes contain the same public input; only lane zero
+    /// is materialized into the returned table.
+    pub(crate) fn decode_public_key_table(encoded: &[u8; PUBLIC_KEY_LEN]) -> Option<PointTable> {
+        let (point, mask) = cold_decompress_points_wide(&[*encoded; LANES]);
+        if mask & 1 == 0 {
+            return None;
+        }
+        Some(build_lane0_table_from_point(point))
+    }
+
+    /// Construct the affine fixed-base table as 17 vectors whose lanes hold
+    /// consecutive multiples. Montgomery batch inversion across those vectors
+    /// normalizes all 136 points with one eight-lane inversion.
+    pub(crate) fn build_basepoint_table_entries() -> Box<BasepointTableEntries> {
+        let points = build_projective_basepoint_blocks();
+        let inverse_z = batch_invert_basepoint_zs(&points);
+        affine_basepoint_entries(&points, &inverse_z)
+    }
+
+    #[inline(never)]
+    fn build_projective_basepoint_blocks() -> Vec<WidePoint> {
+        const BLOCKS: usize = BASEPOINT_TABLE_SIZE / LANES;
+        const {
+            assert!(BASEPOINT_TABLE_SIZE.is_multiple_of(LANES));
+        }
+
+        let (basepoint, mask) = cold_decompress_points_wide(&[BASEPOINT_COMPRESSED; LANES]);
+        assert_eq!(mask, u8::MAX, "the standard basepoint must decompress");
+
+        let (mut block, p8) = first_basepoint_block(basepoint);
+        let mut points = Vec::with_capacity(BLOCKS);
+        for i in 0..BLOCKS {
+            points.push(block);
+            if i + 1 < BLOCKS {
+                block = block.cold_add(&p8);
+            }
+        }
+        points
+    }
+
+    /// Build duplicated vectors B..8B, then transpose lane zero from each
+    /// into one vector `[B, 2B, ..., 8B]`. Keeping this stage out of the caller
+    /// bounds debug-build stack use despite the large SIMD point type.
+    #[inline(never)]
+    fn first_basepoint_block(basepoint: WidePoint) -> (WidePoint, WidePoint) {
+        let p2 = basepoint.cold_double_from_affine();
+        let p3 = p2.add_affine_rhs(&basepoint);
+        let p4 = p2.double();
+        let p5 = p4.add_affine_rhs(&basepoint);
+        let p6 = p3.double();
+        let p7 = p4.cold_add(&p3);
+        let p8 = p4.double();
+        (
+            WidePoint::from_lane0_points(&[basepoint, p2, p3, p4, p5, p6, p7, p8]),
+            p8,
+        )
+    }
+
+    #[inline(never)]
+    fn batch_invert_basepoint_zs(points: &[WidePoint]) -> Vec<WideFe> {
+        let mut inverse_z = Vec::with_capacity(points.len());
+        let mut product = WideFe::one();
+        for point in points {
+            inverse_z.push(product);
+            product = product.multiply(&point.z);
+        }
+        let mut inverse_accumulator = product.cold_invert();
+        for i in (0..points.len()).rev() {
+            inverse_z[i] = inverse_z[i].multiply(&inverse_accumulator);
+            inverse_accumulator = inverse_accumulator.multiply(&points[i].z);
+        }
+        inverse_z
+    }
+
+    #[inline(never)]
+    fn affine_basepoint_entries(
+        points: &[WidePoint],
+        inverse_z: &[WideFe],
+    ) -> Box<BasepointTableEntries> {
+        let two_d = WideFe::two_d();
+        let mut positive = Vec::with_capacity(BASEPOINT_TABLE_SIZE);
+        let mut negative = Vec::with_capacity(BASEPOINT_TABLE_SIZE);
+        for (point, zinv) in points.iter().zip(inverse_z.iter()) {
+            let x = point.x.multiply(zinv);
+            let y = point.y.multiply(zinv);
+            let y_plus_x = y.add(&x).to_fields_loose();
+            let y_minus_x = y.subtract(&x).to_fields_loose();
+            let t2d = x.multiply(&y).multiply(&two_d);
+            let positive_t2d = t2d.to_fields_loose();
+            let negative_t2d = t2d.negate().to_fields_loose();
+
+            for lane in 0..LANES {
+                positive.push(AffineCachedPoint::from_fields(
+                    y_plus_x[lane],
+                    y_minus_x[lane],
+                    positive_t2d[lane],
+                ));
+                negative.push(AffineCachedPoint::from_fields(
+                    y_minus_x[lane],
+                    y_plus_x[lane],
+                    negative_t2d[lane],
+                ));
+            }
+        }
+
+        // Signed layout: -136B..-B, identity, B..136B.
+        let mut entries = Vec::with_capacity(2 * BASEPOINT_TABLE_SIZE + 1);
+        entries.extend(negative.into_iter().rev());
+        entries.push(AffineCachedPoint::identity());
+        entries.extend(positive);
+        entries
+            .into_boxed_slice()
+            .try_into()
+            .unwrap_or_else(|_| unreachable!("basepoint table length is fixed"))
+    }
+
     /// Build the per-lane radix-16 cached tables from an already-decompressed
     /// SIMD point.
     /// Every slot is filled, including lanes whose decode failed; the caller
@@ -87,6 +204,35 @@ pub(crate) mod avx512ifma {
         write_cached_multiple(6, &p3.double(), tables);
         write_cached_multiple(7, &p4.add(&p3), tables);
         write_cached_multiple(8, &p4.double(), tables);
+    }
+
+    fn build_lane0_table_from_point(p: WidePoint) -> PointTable {
+        let mut table = PointTable::cold_identity();
+        write_cached_multiple_lane0(1, &p, &mut table);
+
+        let p2 = p.cold_double_from_affine();
+        write_cached_multiple_lane0(2, &p2, &mut table);
+
+        let p3 = p2.add_affine_rhs(&p);
+        write_cached_multiple_lane0(3, &p3, &mut table);
+
+        let p4 = p2.double();
+        write_cached_multiple_lane0(4, &p4, &mut table);
+        write_cached_multiple_lane0(5, &p4.add_affine_rhs(&p), &mut table);
+        write_cached_multiple_lane0(6, &p3.double(), &mut table);
+        write_cached_multiple_lane0(7, &p4.cold_add(&p3), &mut table);
+        write_cached_multiple_lane0(8, &p4.double(), &mut table);
+        table
+    }
+
+    fn write_cached_multiple_lane0(multiple: usize, point: &WidePoint, table: &mut PointTable) {
+        let y_plus_x = point.y.add(&point.x).lane0();
+        let y_minus_x = point.y.subtract(&point.x).lane0();
+        let z2 = point.z.double().lane0();
+        let t2d = point.t.multiply(&WideFe::two_d());
+        let positive = CachedPoint::from_fields(y_plus_x, y_minus_x, z2, t2d.lane0());
+        let negative = CachedPoint::from_fields(y_minus_x, y_plus_x, z2, t2d.negate().lane0());
+        table.set_multiple(multiple, positive, negative);
     }
 
     #[inline(never)]
@@ -237,6 +383,16 @@ pub(crate) mod avx512ifma {
     fn decompress_points_wide(bytes: &[[u8; POINT_ENCODING_LEN]; LANES]) -> (WidePoint, u8) {
         let s = decompress_setup(bytes);
         let pow = s.uv.pow_p_minus_5_over_8();
+        let (point, mask, _) = decompress_finish::<true, false>(s, pow);
+        (point, mask)
+    }
+
+    /// Initialization-only decompression, kept distinct so setup work cannot
+    /// change inlining in verification's single-chunk decompression path.
+    #[inline(never)]
+    fn cold_decompress_points_wide(bytes: &[[u8; POINT_ENCODING_LEN]; LANES]) -> (WidePoint, u8) {
+        let s = decompress_setup(bytes);
+        let pow = s.uv.cold_pow_p_minus_5_over_8();
         let (point, mask, _) = decompress_finish::<true, false>(s, pow);
         (point, mask)
     }
@@ -411,26 +567,13 @@ pub(crate) mod avx512ifma {
         fn from_field_refs(fields: &[&Fe51; LANES]) -> Self {
             Self::from_limbs_per_lane(|lane| fields[lane].loose_limbs())
         }
-        #[cfg(test)]
-        fn to_fields(self) -> [Fe51; LANES] {
-            let mut by_limb = [[0u64; LANES]; LIMB_COUNT];
-            storeu(self.limbs[0], &mut by_limb[0]);
-            storeu(self.limbs[1], &mut by_limb[1]);
-            storeu(self.limbs[2], &mut by_limb[2]);
-            storeu(self.limbs[3], &mut by_limb[3]);
-            storeu(self.limbs[4], &mut by_limb[4]);
-
-            core::array::from_fn(|lane| {
-                Fe51::from_limbs([
-                    by_limb[0][lane],
-                    by_limb[1][lane],
-                    by_limb[2][lane],
-                    by_limb[3][lane],
-                    by_limb[4][lane],
-                ])
-            })
+        fn lane0(self) -> Fe51 {
+            unsafe {
+                Fe51::from_limbs_unchecked(core::array::from_fn(|i| {
+                    _mm_cvtsi128_si64(_mm512_castsi512_si128(self.limbs[i])) as u64
+                }))
+            }
         }
-
         /// Like `to_fields` but stores loosely-reduced limbs (no canonicalize);
         /// valid because a reduce leaves each limb `< 2^52`.
         fn to_fields_loose(self) -> [Fe51; LANES] {
@@ -778,7 +921,44 @@ pub(crate) mod avx512ifma {
             t0.square_repeat::<2>().multiply(self)
         }
 
+        #[inline(never)]
+        fn cold_pow_p_minus_5_over_8(&self) -> Self {
+            let t0 = self.square();
+            let t1 = t0.square_repeat::<2>().multiply(self);
+            let t0 = t0.multiply(&t1);
+            let t0 = t0.square().multiply(&t1);
+            let t1 = t0.square_repeat::<5>();
+            let t0 = t1.multiply(&t0);
+            let t1 = t0.square_repeat::<10>().multiply(&t0);
+            let t2 = t1.square_repeat::<20>();
+            let t1 = t2.multiply(&t1);
+            let t1 = t1.square_repeat::<10>();
+            let t0 = t1.multiply(&t0);
+            let t1 = t0.square_repeat::<50>().multiply(&t0);
+            let t2 = t1.square_repeat::<100>();
+            let t1 = t2.multiply(&t1);
+            let t1 = t1.square_repeat::<50>();
+            let t0 = t1.multiply(&t0);
+            t0.square_repeat::<2>().multiply(self)
+        }
+
         fn invert(&self) -> Self {
+            let z = self;
+            let t0 = z.square();
+            let t1 = t0.square_repeat::<2>().multiply(z);
+            let z11 = t0.multiply(&t1);
+            let a = z11.square().multiply(&t1);
+            let b = a.square_repeat::<5>().multiply(&a);
+            let c = b.square_repeat::<10>().multiply(&b);
+            let d = c.square_repeat::<20>().multiply(&c);
+            let e = d.square_repeat::<10>().multiply(&b);
+            let f = e.square_repeat::<50>().multiply(&e);
+            let g = f.square_repeat::<100>().multiply(&f);
+            let h = g.square_repeat::<50>().multiply(&e);
+            h.square_repeat::<5>().multiply(&z11)
+        }
+        #[inline(never)]
+        fn cold_invert(&self) -> Self {
             let z = self;
             let t0 = z.square();
             let t1 = t0.square_repeat::<2>().multiply(z);
@@ -1043,6 +1223,19 @@ pub(crate) mod avx512ifma {
     }
 
     impl WidePoint {
+        /// Pack lane zero from eight duplicated points into independent lanes.
+        fn from_lane0_points(points: &[Self; LANES]) -> Self {
+            let field = |pick: fn(&Self) -> WideFe| {
+                WideFe::from_fields(&core::array::from_fn(|lane| pick(&points[lane]).lane0()))
+            };
+            Self {
+                x: field(|point| point.x),
+                y: field(|point| point.y),
+                z: field(|point| point.z),
+                t: field(|point| point.t),
+            }
+        }
+
         /// Recover `(X:Y:Z)` without `T`; callers must double before an
         /// extended-coordinate operation.
         #[inline(never)]
@@ -1103,6 +1296,27 @@ pub(crate) mod avx512ifma {
             } else {
                 self.z.multiply(&rhs.z).double_loose()
             };
+            let e = b.subtract(&a);
+            let f = d.subtract(&c);
+            let g = d.add_loose(&c);
+            let h = b.add_loose(&a);
+
+            Self {
+                x: e.multiply(&f),
+                y: g.multiply(&h),
+                t: e.multiply(&h),
+                z: f.multiply(&g),
+            }
+        }
+
+        /// Initialization-only copy of projective addition. Keeping its call
+        /// sites separate preserves the hot table builder's inlining choices.
+        #[inline(never)]
+        fn cold_add(&self, rhs: &Self) -> Self {
+            let a = self.y.subtract(&self.x).multiply(&rhs.y.subtract(&rhs.x));
+            let b = self.y.add_loose(&self.x).multiply(&rhs.y.add_loose(&rhs.x));
+            let c = self.t.multiply(&rhs.t).multiply(&WideFe::two_d());
+            let d = self.z.multiply(&rhs.z).double_loose();
             let e = b.subtract(&a);
             let f = d.subtract(&c);
             let g = d.add_loose(&c);
@@ -1210,6 +1424,32 @@ pub(crate) mod avx512ifma {
             );
             self.double_impl::<true, true>()
         }
+        /// Initialization-only affine doubling, isolated so using SIMD during
+        /// setup does not outline this operation in the verification hot path.
+        #[inline(never)]
+        fn cold_double_from_affine(&self) -> Self {
+            debug_assert!(
+                self.z.equals_lanes(&WideFe::one()).iter().all(|&eq| eq),
+                "cold_double_from_affine requires z == 1 in every lane"
+            );
+            let a = self.x.square_loose();
+            let b = self.y.square_loose();
+            let e = self
+                .x
+                .add_loose(&self.y)
+                .square_loose()
+                .subtract_loose_sum(&a, &b);
+            let g = b.subtract_loose(&a);
+            let f = b.subtract_loose_sum_with_doubled_rhs(&a, &WideFe::one());
+            let h = WideFe::negate_loose_sum(&a, &b);
+
+            Self {
+                x: e.multiply(&f),
+                y: g.multiply(&h),
+                t: e.multiply(&h),
+                z: f.multiply(&g),
+            }
+        }
         fn double_without_t(&self) -> Self {
             self.double_impl::<false, false>()
         }
@@ -1265,30 +1505,6 @@ pub(crate) mod avx512ifma {
                 z: f.multiply(&g),
             }
         }
-        #[cfg(test)]
-        fn from_points(points: &[EdwardsPoint; LANES]) -> Self {
-            let xs = core::array::from_fn(|lane| *points[lane].coords().0);
-            let ys = core::array::from_fn(|lane| *points[lane].coords().1);
-            let zs = core::array::from_fn(|lane| *points[lane].coords().2);
-            let ts = core::array::from_fn(|lane| *points[lane].coords().3);
-            Self {
-                x: WideFe::from_fields(&xs),
-                y: WideFe::from_fields(&ys),
-                z: WideFe::from_fields(&zs),
-                t: WideFe::from_fields(&ts),
-            }
-        }
-
-        #[cfg(test)]
-        fn to_points(self) -> [EdwardsPoint; LANES] {
-            let xs = self.x.to_fields();
-            let ys = self.y.to_fields();
-            let zs = self.z.to_fields();
-            let ts = self.t.to_fields();
-            core::array::from_fn(|lane| {
-                EdwardsPoint::from_coords_unchecked(xs[lane], ys[lane], zs[lane], ts[lane])
-            })
-        }
     }
 
     impl WideFe {
@@ -1342,7 +1558,95 @@ pub(crate) mod avx512ifma {
     #[cfg(test)]
     mod tests {
         use super::*;
-        use rand::{RngCore, SeedableRng, rngs::StdRng};
+        use serde_json::Value;
+
+        const VECTOR_JSON: &str = include_str!("../tests/vectors/avx512ifma.json");
+
+        fn vectors() -> Value {
+            serde_json::from_str(VECTOR_JSON).expect("valid AVX-512 IFMA vectors")
+        }
+
+        fn vector_cases<'a>(vectors: &'a Value, name: &str) -> &'a [Value] {
+            vectors[name]
+                .as_array()
+                .unwrap_or_else(|| panic!("{name} must be an array"))
+        }
+
+        fn hex_32(value: &Value) -> [u8; POINT_ENCODING_LEN] {
+            let mut out = [0u8; POINT_ENCODING_LEN];
+            hex::decode_to_slice(
+                value.as_str().expect("hex vector must be a string"),
+                &mut out,
+            )
+            .expect("valid 32-byte vector");
+            out
+        }
+
+        fn limbs(value: &Value) -> [u64; LIMB_COUNT] {
+            let values = value.as_array().expect("limbs must be an array");
+            assert_eq!(values.len(), LIMB_COUNT);
+            core::array::from_fn(|i| values[i].as_u64().expect("limb must be a u64"))
+        }
+
+        fn wide_from_rows(rows: [[u64; LANES]; LIMB_COUNT]) -> WideFe {
+            WideFe {
+                limbs: core::array::from_fn(|i| loadu(rows[i])),
+            }
+        }
+
+        fn wide_rows(value: WideFe) -> [[u64; LANES]; LIMB_COUNT] {
+            let mut rows = [[0u64; LANES]; LIMB_COUNT];
+            for (limb, row) in rows.iter_mut().enumerate() {
+                storeu(value.limbs[limb], row);
+            }
+            rows
+        }
+
+        fn wide_from_case_inputs(cases: &[Value], name: &str, offset: usize) -> WideFe {
+            assert_eq!(cases.len(), LANES);
+            let by_lane: [[u64; LIMB_COUNT]; LANES] =
+                core::array::from_fn(|lane| limbs(&cases[(lane + offset) % LANES][name]));
+            wide_from_rows(core::array::from_fn(|limb| {
+                core::array::from_fn(|lane| by_lane[lane][limb])
+            }))
+        }
+
+        fn assert_wide_bytes(actual: WideFe, cases: &[Value], expected_name: &str, offset: usize) {
+            let actual = actual.to_bytes_lanes();
+            for lane in 0..LANES {
+                assert_eq!(
+                    actual[lane],
+                    hex_32(&cases[(lane + offset) % LANES][expected_name]),
+                    "{expected_name} lane {lane}"
+                );
+            }
+        }
+
+        fn cached_encoding(point: &CachedPoint) -> [u8; POINT_ENCODING_LEN] {
+            let (y_plus_x, y_minus_x, z2, _) = point.coords();
+            let y_plus_x = WideFe::from_field_refs(&[y_plus_x; LANES]);
+            let y_minus_x = WideFe::from_field_refs(&[y_minus_x; LANES]);
+            let point = WidePoint {
+                x: y_plus_x.subtract(&y_minus_x),
+                y: y_plus_x.add_loose(&y_minus_x),
+                z: WideFe::from_field_refs(&[z2; LANES]),
+                t: WideFe::zero(),
+            };
+            point.compress()[0]
+        }
+
+        fn affine_cached_encoding(point: &AffineCachedPoint) -> [u8; POINT_ENCODING_LEN] {
+            let (y_plus_x, y_minus_x, _) = point.coords();
+            let y_plus_x = WideFe::from_field_refs(&[y_plus_x; LANES]);
+            let y_minus_x = WideFe::from_field_refs(&[y_minus_x; LANES]);
+            let point = WidePoint {
+                x: y_plus_x.subtract(&y_minus_x),
+                y: y_plus_x.add_loose(&y_minus_x),
+                z: WideFe::one().double(),
+                t: WideFe::zero(),
+            };
+            point.compress()[0]
+        }
 
         fn strict_square_n(x: &WideFe, n: usize) -> WideFe {
             let mut out = *x;
@@ -1352,235 +1656,90 @@ pub(crate) mod avx512ifma {
             out
         }
 
-        fn wide_from_rows(rows: [[u64; LANES]; LIMB_COUNT]) -> WideFe {
-            WideFe {
-                limbs: core::array::from_fn(|i| loadu(rows[i])),
-            }
-        }
+        #[test]
+        fn canonical_matches_vectors() {
+            let vectors = vectors();
+            let cases = vector_cases(&vectors, "canonical");
+            assert_eq!(cases.len(), LANES);
 
-        fn assert_wide_matches(
-            actual: WideFe,
-            expected: &[crate::field::Fe51; LANES],
-            operation: &str,
-            round: usize,
-        ) {
-            for (lane, (actual, expected)) in
-                actual.to_fields().iter().zip(expected.iter()).enumerate()
-            {
-                assert!(
-                    actual.equals(expected),
-                    "{operation} lane {lane} diverged at round {round}"
-                );
-            }
-        }
-
-        /// Cross-check vectorized canonical predicates against scalar references.
-        fn check_canonical(rows: [[u64; LANES]; LIMB_COUNT]) {
-            let wide = wide_from_rows(rows);
-            let canonical = wide.canonical();
-            let mut canonical_rows = [[0u64; LANES]; LIMB_COUNT];
-            for (limb, row) in canonical_rows.iter_mut().enumerate() {
-                storeu(canonical.limbs[limb], row);
-            }
+            let by_lane: [[u64; LIMB_COUNT]; LANES] =
+                core::array::from_fn(|lane| limbs(&cases[lane]["input_limbs"]));
+            let wide = wide_from_rows(core::array::from_fn(|limb| {
+                core::array::from_fn(|lane| by_lane[lane][limb])
+            }));
+            let actual = wide_rows(wide.canonical());
             let is_zero = wide.is_zero_lanes();
             let is_odd = wide.is_odd_lanes();
 
             for lane in 0..LANES {
-                let input: [u64; LIMB_COUNT] = core::array::from_fn(|limb| rows[limb][lane]);
-                // Limb comparison pins the representation, not just the residue.
-                let expected = crate::field::Fe51::from_limbs(input).loose_limbs();
-                let actual: [u64; LIMB_COUNT] =
-                    core::array::from_fn(|limb| canonical_rows[limb][lane]);
-                assert_eq!(
-                    actual, expected,
-                    "lane {lane} diverged from the field.rs Fe51 reference"
-                );
+                let expected = limbs(&cases[lane]["expected_limbs"]);
+                let actual_lane = core::array::from_fn(|limb| actual[limb][lane]);
+                assert_eq!(actual_lane, expected, "canonical lane {lane}");
                 assert_eq!(
                     is_zero[lane],
-                    expected == [0u64; LIMB_COUNT],
-                    "is_zero_lanes lane {lane}"
+                    expected == [0; LIMB_COUNT],
+                    "zero lane {lane}"
                 );
-                assert_eq!(
-                    is_odd[lane],
-                    (expected[0] & 1) != 0,
-                    "is_odd_lanes lane {lane}"
-                );
+                assert_eq!(is_odd[lane], expected[0] & 1 != 0, "odd lane {lane}");
             }
         }
 
         #[test]
-        fn canonical_matches_scalar_reference() {
-            let zero = [0u64; LIMB_COUNT];
-            let p = crate::field::P_LIMBS;
-            let p_minus_1 = {
-                let mut l = p;
-                l[0] -= 1;
-                l
-            };
-            let p_plus_1 = {
-                let mut l = p;
-                l[0] += 1;
-                l
-            };
-            // Every limb at its documented max input bound (2^52 - 1).
-            let max_limbs = [(1u64 << 52) - 1; LIMB_COUNT];
-            let hand_picked = [zero, p, p_minus_1, p_plus_1, max_limbs];
+        fn wide_field_operations_match_vectors() {
+            let vectors = vectors();
+            let cases = vector_cases(&vectors, "field");
+            let a = wide_from_case_inputs(cases, "a_limbs", 0);
+            let b = wide_from_case_inputs(cases, "b_limbs", 0);
+            let c = wide_from_case_inputs(cases, "c_limbs", 0);
 
-            let mut rng = StdRng::seed_from_u64(0xbb67_ae85_84ca_a73b);
+            assert_wide_bytes(a.add(&b), cases, "add", 0);
+            assert_wide_bytes(a.add_loose(&b), cases, "add", 0);
+            assert_wide_bytes(a.subtract(&b), cases, "subtract", 0);
+            assert_wide_bytes(a.multiply(&b), cases, "multiply", 0);
+            assert_wide_bytes(a.multiply_loose(&b), cases, "multiply", 0);
+            assert_wide_bytes(a.square(), cases, "square", 0);
+            assert_wide_bytes(a.square_loose(), cases, "square", 0);
 
-            let mut rows = [[0u64; LANES]; LIMB_COUNT];
-            for lane in 0..LANES {
-                let limbs = if lane < hand_picked.len() {
-                    hand_picked[lane]
-                } else {
-                    core::array::from_fn(|_| rng.next_u64() & ((1u64 << 52) - 1))
-                };
-                for limb in 0..5 {
-                    rows[limb][lane] = limbs[limb];
-                }
-            }
-            check_canonical(rows);
-
-            let mut rng = StdRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
-            for _ in 0..512 {
-                let mut rows = [[0u64; LANES]; LIMB_COUNT];
-                for row in &mut rows {
-                    for value in row {
-                        *value = rng.next_u64() & ((1u64 << 52) - 1);
-                    }
-                }
-                check_canonical(rows);
-            }
-        }
-
-        #[test]
-        fn wide_field_operations_match_scalar_reference() {
-            const LOOSE_MASK: u64 = (1u64 << 52) - 1;
-
-            let mut rng = StdRng::seed_from_u64(0x510e_527f_ade6_82d1);
-            for round in 0..512 {
-                let mut random_fields = || {
-                    core::array::from_fn(|_| {
-                        crate::field::Fe51::from_limbs(core::array::from_fn(|_| {
-                            rng.next_u64() & LOOSE_MASK
-                        }))
-                    })
-                };
-                let a_fields: [crate::field::Fe51; LANES] = random_fields();
-                let b_fields: [crate::field::Fe51; LANES] = random_fields();
-                let c_fields: [crate::field::Fe51; LANES] = random_fields();
-                let a = WideFe::from_fields(&a_fields);
-                let b = WideFe::from_fields(&b_fields);
-                let c = WideFe::from_fields(&c_fields);
-
-                let add = core::array::from_fn(|lane| a_fields[lane].add(&b_fields[lane]));
-                let subtract =
-                    core::array::from_fn(|lane| a_fields[lane].subtract(&b_fields[lane]));
-                let multiply =
-                    core::array::from_fn(|lane| a_fields[lane].multiply(&b_fields[lane]));
-                let square = core::array::from_fn(|lane| a_fields[lane].square());
-                assert_wide_matches(a.add(&b), &add, "add", round);
-                assert_wide_matches(a.add_loose(&b), &add, "add_loose", round);
-                assert_wide_matches(a.subtract(&b), &subtract, "subtract", round);
-                assert_wide_matches(a.multiply(&b), &multiply, "multiply", round);
-                assert_wide_matches(a.multiply_loose(&b), &multiply, "multiply_loose", round);
-                assert_wide_matches(a.square(), &square, "square", round);
-                assert_wide_matches(a.square_loose(), &square, "square_loose", round);
-
-                let ab = a.multiply_loose(&b);
-                let bc = b.multiply_loose(&c);
-                let cc = c.square_loose();
-                let bc_fields: [crate::field::Fe51; LANES] =
-                    core::array::from_fn(|lane| b_fields[lane].multiply(&c_fields[lane]));
-                let cc_fields: [crate::field::Fe51; LANES] =
-                    core::array::from_fn(|lane| c_fields[lane].square());
-                let subtract_loose =
-                    core::array::from_fn(|lane| multiply[lane].subtract(&bc_fields[lane]));
-                let subtract_sum = core::array::from_fn(|lane| {
-                    multiply[lane]
-                        .subtract(&bc_fields[lane])
-                        .subtract(&cc_fields[lane])
-                });
-                let subtract_sum_doubled = core::array::from_fn(|lane| {
-                    multiply[lane]
-                        .subtract(&bc_fields[lane])
-                        .subtract(&cc_fields[lane].add(&cc_fields[lane]))
-                });
-                let negate_sum = core::array::from_fn(|lane| {
-                    crate::field::Fe51::zero()
-                        .subtract(&bc_fields[lane])
-                        .subtract(&cc_fields[lane])
-                });
-                assert_wide_matches(
-                    ab.subtract_loose(&bc),
-                    &subtract_loose,
-                    "subtract_loose",
-                    round,
-                );
-                assert_wide_matches(
-                    ab.subtract_loose_sum(&bc, &cc),
-                    &subtract_sum,
-                    "subtract_loose_sum",
-                    round,
-                );
-                assert_wide_matches(
-                    ab.subtract_loose_sum_with_doubled_rhs(&bc, &cc),
-                    &subtract_sum_doubled,
-                    "subtract_loose_sum_with_doubled_rhs",
-                    round,
-                );
-                assert_wide_matches(
-                    WideFe::negate_loose_sum(&bc, &cc),
-                    &negate_sum,
-                    "negate_loose_sum",
-                    round,
-                );
-            }
-
-            let near_max = core::array::from_fn(|limb| {
-                core::array::from_fn(|lane| {
-                    if limb == 0 {
-                        (1u64 << 60) - 1 - lane as u64
-                    } else {
-                        LIMB_MASK - lane as u64
-                    }
-                })
-            });
-            let fields: [crate::field::Fe51; LANES] = core::array::from_fn(|lane| {
-                crate::field::Fe51::from_limbs(core::array::from_fn(|limb| near_max[limb][lane]))
-            });
-            let wide = wide_from_rows(near_max);
-            let zero = core::array::from_fn(|lane| fields[lane].subtract(&fields[lane]));
-            let negated =
-                core::array::from_fn(|lane| crate::field::Fe51::zero().subtract(&fields[lane]));
-            let double_negated = core::array::from_fn(|lane| negated[lane].subtract(&fields[lane]));
-            let square = core::array::from_fn(|lane| fields[lane].square());
-            assert_wide_matches(wide.subtract_loose(&wide), &zero, "loose-bound subtract", 0);
-            assert_wide_matches(
-                wide.subtract_loose_sum(&wide, &wide),
-                &negated,
-                "loose-bound subtract-sum",
+            let ab = a.multiply_loose(&b);
+            let bc = b.multiply_loose(&c);
+            let cc = c.square_loose();
+            assert_wide_bytes(ab.subtract_loose(&bc), cases, "subtract_loose", 0);
+            assert_wide_bytes(ab.subtract_loose_sum(&bc, &cc), cases, "subtract_sum", 0);
+            assert_wide_bytes(
+                ab.subtract_loose_sum_with_doubled_rhs(&bc, &cc),
+                cases,
+                "subtract_sum_doubled",
                 0,
             );
-            assert_wide_matches(
+            assert_wide_bytes(WideFe::negate_loose_sum(&bc, &cc), cases, "negate_sum", 0);
+        }
+
+        #[test]
+        fn loose_limb0_bound_matches_vectors() {
+            let vectors = vectors();
+            let cases = vector_cases(&vectors, "loose_bound");
+            let wide = wide_from_case_inputs(cases, "input_limbs", 0);
+
+            assert_wide_bytes(wide.subtract_loose(&wide), cases, "zero", 0);
+            assert_wide_bytes(wide.subtract_loose_sum(&wide, &wide), cases, "negate", 0);
+            assert_wide_bytes(
                 wide.subtract_loose_sum_with_doubled_rhs(&wide, &wide),
-                &double_negated,
-                "loose-bound subtract-sum-doubled",
+                cases,
+                "double_negate",
                 0,
             );
-            assert_wide_matches(
+            assert_wide_bytes(
                 WideFe::negate_loose_sum(&wide, &wide),
-                &double_negated,
-                "loose-bound negate-sum",
+                cases,
+                "double_negate",
                 0,
             );
-            assert_wide_matches(wide.square(), &square, "loose-bound square", 0);
-            assert_wide_matches(wide.square_loose(), &square, "loose-bound square-loose", 0);
+            assert_wide_bytes(wide.square(), cases, "square", 0);
+            assert_wide_bytes(wide.square_loose(), cases, "square", 0);
         }
 
         #[test]
-        fn square_repeat_variants_match_strict_reference() {
-            // Check every exponent-chain count plus the N=0/1 boundaries.
+        fn square_repeat_variants_match_strict_simd_result() {
             let a = WideFe::constant(crate::field::D_LIMBS);
             let b = WideFe::constant(crate::field::SQRT_M1_LIMBS);
             macro_rules! check {
@@ -1604,12 +1763,12 @@ pub(crate) mod avx512ifma {
                     let (xa, xb) = WideFe::square_repeat_x2::<$n>(&a, &b);
                     assert!(
                         xa.equals_lanes(&strict_square_n(&a, $n)).iter().all(|&v| v),
-                        "square_repeat_x2::<{}> diverged from strict reference (lane a)",
+                        "square_repeat_x2::<{}> diverged for a",
                         $n
                     );
                     assert!(
                         xb.equals_lanes(&strict_square_n(&b, $n)).iter().all(|&v| v),
-                        "square_repeat_x2::<{}> diverged from strict reference (lane b)",
+                        "square_repeat_x2::<{}> diverged for b",
                         $n
                     );
                 };
@@ -1625,128 +1784,114 @@ pub(crate) mod avx512ifma {
         }
 
         #[test]
-        fn pow_variants_match_scalar_reference() {
-            let mut rng = StdRng::seed_from_u64(0x3c6e_f372_fe94_f82b);
+        fn pow_variants_match_vectors() {
+            let vectors = vectors();
+            let cases = vector_cases(&vectors, "field");
+            let a = wide_from_case_inputs(cases, "a_limbs", 0);
+            let b = wide_from_case_inputs(cases, "a_limbs", 3);
 
-            for round in 0..200 {
-                let mut random_fields = || {
-                    core::array::from_fn(|_| {
-                        let limbs: [u64; LIMB_COUNT] =
-                            core::array::from_fn(|_| rng.next_u64() & LIMB_MASK);
-                        crate::field::Fe51::from_limbs(limbs)
-                    })
-                };
-                let fields_a: [crate::field::Fe51; LANES] = random_fields();
-                let fields_b: [crate::field::Fe51; LANES] = random_fields();
-                let a = WideFe::from_fields(&fields_a);
-                let b = WideFe::from_fields(&fields_b);
-                let sequential_a = a.pow_p_minus_5_over_8().to_fields();
-                let sequential_b = b.pow_p_minus_5_over_8().to_fields();
-                let (paired_a, paired_b) = WideFe::pow_p_minus_5_over_8_x2(&a, &b);
-                let paired_a = paired_a.to_fields();
-                let paired_b = paired_b.to_fields();
+            assert_wide_bytes(a.pow_p_minus_5_over_8(), cases, "pow_a", 0);
+            assert_wide_bytes(b.pow_p_minus_5_over_8(), cases, "pow_a", 3);
 
-                for lane in 0..LANES {
-                    let expected_a = fields_a[lane].pow_p_minus_5_over_8();
-                    let expected_b = fields_b[lane].pow_p_minus_5_over_8();
-                    assert!(
-                        expected_a.equals(&sequential_a[lane])
-                            && expected_a.equals(&paired_a[lane]),
-                        "a lane {lane} diverged at round {round}"
-                    );
-                    assert!(
-                        expected_b.equals(&sequential_b[lane])
-                            && expected_b.equals(&paired_b[lane]),
-                        "b lane {lane} diverged at round {round}"
-                    );
-                }
-            }
+            let (paired_a, paired_b) = WideFe::pow_p_minus_5_over_8_x2(&a, &b);
+            assert_wide_bytes(paired_a, cases, "pow_a", 0);
+            assert_wide_bytes(paired_b, cases, "pow_a", 3);
         }
 
         #[test]
-        fn wide_decompression_matches_scalar_reference() {
-            let mut rng = StdRng::seed_from_u64(0x1f83_d9ab_fb41_bd6b);
+        fn wide_decompression_matches_vectors() {
+            let vectors = vectors();
+            let cases = vector_cases(&vectors, "decompression");
 
-            for round in 0..512 {
-                let encodings: [[u8; POINT_ENCODING_LEN]; LANES] = core::array::from_fn(|_| {
-                    let mut encoding = [0u8; POINT_ENCODING_LEN];
-                    rng.fill_bytes(&mut encoding);
-                    encoding
+            for chunk in cases.chunks(LANES) {
+                let encodings = core::array::from_fn(|lane| {
+                    hex_32(&chunk.get(lane).unwrap_or(&chunk[0])["encoding"])
                 });
-                let (wide, mask) = decompress_points_wide(&encodings);
-                let points = wide.to_points();
+                let (point, mask) = decompress_points_wide(&encodings);
+                let normalized = point.compress();
 
-                for lane in 0..LANES {
-                    let expected = EdwardsPoint::decompress(&encodings[lane]);
+                for lane in 0..chunk.len() {
+                    let expected_valid = chunk[lane]["valid"].as_bool().expect("valid is a bool");
                     assert_eq!(
-                        (mask & (1 << lane)) != 0,
-                        expected.is_some(),
-                        "validity mask lane {lane} diverged at round {round}"
+                        mask & (1 << lane) != 0,
+                        expected_valid,
+                        "{} validity",
+                        chunk[lane]["name"].as_str().unwrap()
                     );
-                    if let Some(expected) = expected {
+                    if expected_valid {
                         assert_eq!(
-                            points[lane].compress(),
-                            expected.compress(),
-                            "decoded point lane {lane} diverged at round {round}"
+                            normalized[lane],
+                            hex_32(&chunk[lane]["normalized"]),
+                            "{} normalization",
+                            chunk[lane]["name"].as_str().unwrap()
                         );
                     }
                 }
             }
         }
 
-        fn ord8a() -> EdwardsPoint {
-            let bytes = [
-                0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef,
-                0x98, 0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88,
-                0x6d, 0x53, 0xfc, 0x05,
-            ];
-            EdwardsPoint::decompress(&bytes).expect("ord8a decodes")
+        #[test]
+        fn cached_tables_match_basepoint_vectors() {
+            let vectors = vectors();
+            let cases = vector_cases(&vectors, "basepoint_multiples");
+            let public_table =
+                decode_public_key_table(&BASEPOINT_COMPRESSED).expect("basepoint decodes");
+            let base_table = BasepointTable::new();
+
+            for case in cases {
+                let scalar = case["scalar"].as_i64().expect("scalar is an integer") as i16;
+                let expected = hex_32(&case["encoding"]);
+                assert_eq!(
+                    affine_cached_encoding(select_signed_affine_cached_ref(
+                        base_table.entries(),
+                        scalar,
+                    )),
+                    expected,
+                    "fixed-base table digit {scalar}"
+                );
+                if (-8..=8).contains(&scalar) {
+                    assert_eq!(
+                        cached_encoding(public_table.select_signed_cached_ref(scalar as i8)),
+                        expected,
+                        "public-key table digit {scalar}"
+                    );
+                }
+            }
         }
 
         #[test]
-        fn wide_torsion_operations_match_scalar() {
-            let p = ord8a();
-            let scalar_doubled = p.double();
-            let wide = WidePoint::from_points(&core::array::from_fn(|_| p.clone()));
-            let wide_doubled = wide.double().to_points();
-            assert_eq!(
-                wide_doubled[0].compress(),
-                scalar_doubled.compress(),
-                "wide double diverges from scalar on an order-8 point"
-            );
+        fn wide_torsion_operations_match_vectors() {
+            let vectors = vectors();
+            let cases = vector_cases(&vectors, "torsion_multiples");
+            let encoding = |multiple: u64| {
+                hex_32(
+                    &cases
+                        .iter()
+                        .find(|case| case["multiple"].as_u64() == Some(multiple))
+                        .expect("torsion multiple is present")["encoding"],
+                )
+            };
 
-            let id = EdwardsPoint::identity();
-            let scalar = id.subtract(&p).double().double().double();
-            let wide_id = WidePoint::from_points(&core::array::from_fn(|_| id.clone()));
-            let wide_p = WidePoint::from_points(&core::array::from_fn(|_| p.clone()));
-            let wide_chain = wide_id
-                .subtract(&wide_p)
-                .double()
-                .double()
-                .double()
-                .to_points();
-            assert_eq!(scalar.compress(), id.compress(), "sanity: scalar -8p = id");
-            assert_eq!(
-                wide_chain[0].compress(),
-                scalar.compress(),
-                "wide subtract+cofactor diverges on order-8 point"
-            );
+            let (point, mask) = decompress_points_wide(&[encoding(1); LANES]);
+            assert_eq!(mask, u8::MAX);
+            assert_eq!(point.compress()[0], encoding(1));
 
-            let bytes = p.compress();
-            let (wide, mask) = decompress_points_wide(&[bytes; LANES]);
-            assert_eq!(mask, 0xff, "wide decode must succeed");
-            let wide_pts = wide.to_points();
-            assert_eq!(
-                wide_pts[0].compress(),
-                bytes,
-                "wide decompress diverges from scalar on an order-8 point"
-            );
+            let doubled = point.double();
+            assert_eq!(doubled.compress()[0], encoding(2));
+            let quadrupled = doubled.double();
+            assert_eq!(quadrupled.compress()[0], encoding(4));
+            let multiplied_by_eight = quadrupled.double();
+            assert_eq!(multiplied_by_eight.compress()[0], encoding(8));
+
+            let (identity, identity_mask) = decompress_points_wide(&[encoding(8); LANES]);
+            assert_eq!(identity_mask, u8::MAX);
+            let subtract_chain = identity.subtract(&point).double().double().double();
+            assert_eq!(subtract_chain.compress()[0], encoding(8));
         }
 
         #[test]
         fn wide_multiscalar_identity_key_is_identity() {
-            let id = EdwardsPoint::identity();
-            let table = PointTable::new(&id);
+            let table = PointTable::identity();
             let base_table = BasepointTable::new();
             let s_digits = [[0i8; 64]; LANES];
             let mut one_bytes = [0u8; 32];
@@ -1759,12 +1904,9 @@ pub(crate) mod avx512ifma {
                 k_digits: &k_digits,
             };
             let combined = mul_s_base_minus_k_public::<true>(base_table.entries(), &prepared);
-            let pts = combined.to_points();
-            assert_eq!(
-                pts[0].compress(),
-                id.compress(),
-                "sB - kA for s=0, A=identity must be identity"
-            );
+            let mut identity = [0u8; POINT_ENCODING_LEN];
+            identity[0] = 1;
+            assert_eq!(combined.compress()[0], identity);
         }
     }
 }

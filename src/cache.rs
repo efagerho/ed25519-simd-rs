@@ -1,5 +1,6 @@
 use crate::batch::PUBLIC_KEY_LEN;
-use crate::edwards::{EdwardsPoint, PointTable};
+use crate::edwards::PointTable;
+use crate::wide::avx512ifma;
 
 pub(crate) mod private {
     pub trait Sealed {}
@@ -15,10 +16,7 @@ pub struct CachedPublicKey {
 impl CachedPublicKey {
     /// Build a cached public key from its encoded bytes.
     pub fn from_encoded(encoded: [u8; PUBLIC_KEY_LEN]) -> Option<Self> {
-        EdwardsPoint::decompress(&encoded).map(|point| Self {
-            encoded,
-            table: PointTable::new(&point),
-        })
+        avx512ifma::decode_public_key_table(&encoded).map(|table| Self { encoded, table })
     }
 }
 

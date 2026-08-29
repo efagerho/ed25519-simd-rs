@@ -213,7 +213,7 @@ impl KeyCache for HotKeyCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::edwards::{EdwardsPoint, PointTable};
+    use crate::edwards::PointTable;
     use rand::{RngCore, SeedableRng, rngs::StdRng};
 
     /// Give each index a distinct encoding over the shared identity table.
@@ -222,7 +222,7 @@ mod tests {
         encoded[..8].copy_from_slice(&index.to_le_bytes());
         CachedPublicKey {
             encoded,
-            table: PointTable::new(&EdwardsPoint::identity()),
+            table: PointTable::identity(),
         }
     }
 
