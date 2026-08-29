@@ -235,7 +235,17 @@ mod avx512 {
         block_index: usize,
     ) -> [__m512i; 16] {
         let block_start = block_index * 128;
+        let encoded_prefix = if block_index == 0 {
+            Some(encoded_prefix_words(r_bytes, public_keys))
+        } else {
+            None
+        };
         core::array::from_fn(|word| {
+            if let Some(prefix) = &encoded_prefix
+                && word < 8
+            {
+                return prefix[word];
+            }
             let mut lanes = [0u64; LANES];
             let word_offset = block_start + word * 8;
             for lane in 0..LANES {
@@ -304,39 +314,82 @@ mod avx512 {
         public_keys: &[[u8; PUBLIC_KEY_LEN]; LANES],
         messages: [&[u8]; LANES],
     ) -> [__m512i; 16] {
-        // Called only when each message has its first 64 bytes; convert once
-        // so bounds are checked once per lane.
-        let message_heads: [[u8; 64]; LANES] =
-            core::array::from_fn(|lane| messages[lane][..64].try_into().unwrap());
+        let prefix = encoded_prefix_words(r_bytes, public_keys);
+        let message_ptrs = message_pointers(messages);
         core::array::from_fn(|word| {
-            let mut lanes = [0u64; LANES];
-            for lane in 0..LANES {
-                lanes[lane] = if word < 4 {
-                    read_be_u64(&r_bytes[lane], word * 8)
-                } else if word < 8 {
-                    read_be_u64(&public_keys[lane], (word - 4) * 8)
-                } else {
-                    read_be_u64(&message_heads[lane], (word - 8) * 8)
-                };
+            if word < 8 {
+                prefix[word]
+            } else {
+                gather_be_u64(&message_ptrs, (word - 8) * 8)
             }
-            loadu(lanes)
         })
     }
     fn message_data_block_words(messages: [&[u8]; LANES], message_offset: usize) -> [__m512i; 16] {
-        // Caller guarantees a full block; convert once to bound-check once per lane.
-        let blocks: [[u8; 128]; LANES] = core::array::from_fn(|lane| {
-            messages[lane][message_offset..message_offset + 128]
-                .try_into()
-                .unwrap()
-        });
+        debug_assert!(
+            messages
+                .iter()
+                .all(|message| message_offset + 128 <= message.len())
+        );
+        let pointers = message_pointers(messages);
+        core::array::from_fn(|word| gather_be_u64(&pointers, message_offset + word * 8))
+    }
+
+    fn encoded_prefix_words(
+        r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
+        public_keys: &[[u8; PUBLIC_KEY_LEN]; LANES],
+    ) -> [__m512i; 8] {
         core::array::from_fn(|word| {
-            let mut lanes = [0u64; LANES];
-            let offset = word * 8;
-            for (lane, block) in blocks.iter().enumerate() {
-                lanes[lane] = read_be_u64(block, offset);
+            if word < 4 {
+                gather_contiguous_rows_be_u64(r_bytes, word * 8)
+            } else {
+                gather_contiguous_rows_be_u64(public_keys, (word - 4) * 8)
             }
-            loadu(lanes)
         })
+    }
+
+    fn message_pointers(messages: [&[u8]; LANES]) -> [*const u8; LANES] {
+        core::array::from_fn(|lane| messages[lane].as_ptr())
+    }
+
+    fn gather_contiguous_rows_be_u64<const N: usize>(
+        rows: &[[u8; N]; LANES],
+        offset: usize,
+    ) -> __m512i {
+        debug_assert!(offset + 8 <= N);
+        unsafe {
+            let indices = loadu(core::array::from_fn(|lane| (lane * N + offset) as u64));
+            byte_swap_lanes(_mm512_i64gather_epi64(indices, rows.as_ptr().cast(), 1))
+        }
+    }
+
+    fn gather_be_u64(pointers: &[*const u8; LANES], offset: usize) -> __m512i {
+        unsafe {
+            let addresses = loadu(core::array::from_fn(|lane| {
+                pointers[lane].wrapping_add(offset) as u64
+            }));
+            byte_swap_lanes(_mm512_i64gather_epi64(
+                addresses,
+                core::ptr::null::<i64>(),
+                1,
+            ))
+        }
+    }
+
+    #[inline(always)]
+    fn byte_swap_lanes(value: __m512i) -> __m512i {
+        unsafe {
+            let shuffle = _mm512_set_epi64(
+                0x38393a3b3c3d3e3f,
+                0x3031323334353637,
+                0x28292a2b2c2d2e2f,
+                0x2021222324252627,
+                0x18191a1b1c1d1e1f,
+                0x1011121314151617,
+                0x08090a0b0c0d0e0f,
+                0x0001020304050607,
+            );
+            _mm512_shuffle_epi8(value, shuffle)
+        }
     }
 
     // Array references let fixed-size windows use a monomorphized bounds check.
@@ -410,10 +463,7 @@ mod avx512 {
     fn digest_words_from_state(state: [__m512i; 8]) -> [[u64; LANES]; 8] {
         let mut words = [[0u64; LANES]; 8];
         for (word, &s) in state.iter().enumerate() {
-            storeu(s, &mut words[word]);
-            for lane_word in &mut words[word] {
-                *lane_word = lane_word.swap_bytes();
-            }
+            storeu(byte_swap_lanes(s), &mut words[word]);
         }
         words
     }
