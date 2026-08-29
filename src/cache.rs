@@ -3,7 +3,9 @@ use crate::edwards::PointTable;
 use crate::wide::avx512ifma;
 
 pub(crate) mod private {
-    pub trait Sealed {}
+    pub trait Sealed {
+        const RETAINS_KEYS: bool;
+    }
 }
 
 /// A decoded public key and its precomputed multiplication table.
@@ -46,7 +48,9 @@ impl NullKeyCache {
     }
 }
 
-impl private::Sealed for NullKeyCache {}
+impl private::Sealed for NullKeyCache {
+    const RETAINS_KEYS: bool = false;
+}
 
 impl KeyCache for NullKeyCache {
     #[inline]

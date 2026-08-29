@@ -267,6 +267,21 @@ fn bench_hot_keys_scenario(c: &mut Criterion, group_name: &str, hot_key_count: u
             hot_key_count,
             &inputs,
         );
+        bench_ours_nocache(
+            &mut group,
+            "ed25519_simd_nullcache/dalek",
+            VerifyPolicy::Dalek,
+            n,
+            &inputs,
+        );
+        bench_ours_hot_key_cache(
+            &mut group,
+            "ed25519_simd_hotcache/dalek",
+            VerifyPolicy::Dalek,
+            n,
+            hot_key_count,
+            &inputs,
+        );
     }
     group.finish();
 }

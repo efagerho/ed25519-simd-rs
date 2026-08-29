@@ -39,6 +39,19 @@ struct ParsedChunk<'a> {
     messages: [&'a [u8]; SIMD_LANES],
 }
 
+struct PendingDalekChunk {
+    candidate: avx512ifma::DalekCandidate,
+    valid: [bool; SIMD_LANES],
+    r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
+    public_keys: [[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
+}
+
+struct QueuedDalekChunk {
+    chunk: PendingDalekChunk,
+    output_indices: [usize; SIMD_LANES],
+    active_lane_count: usize,
+}
+
 #[derive(Debug)]
 struct ChunkScratch {
     key_tables: [Option<PointTable>; SIMD_LANES],
@@ -120,6 +133,10 @@ impl<C: KeyCache> Verifier<C> {
     /// Panics if `inputs.len() != out.len()`.
     pub fn verify_batch(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
         assert_eq!(inputs.len(), out.len());
+        if C::RETAINS_KEYS && self.policy == VerifyPolicy::Dalek && inputs.len() >= 2 * SIMD_LANES {
+            self.verify_batch_paired_dalek(inputs, out);
+            return;
+        }
         let mut bucket_order = core::mem::take(&mut self.bucket_order);
         batch::for_each_simd_chunk(
             inputs,
@@ -133,6 +150,51 @@ impl<C: KeyCache> Verifier<C> {
                 }
             },
         );
+        self.bucket_order = bucket_order;
+    }
+
+    #[inline(never)]
+    fn verify_batch_paired_dalek(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
+        let mut bucket_order = core::mem::take(&mut self.bucket_order);
+        let mut pending_dalek: Option<QueuedDalekChunk> = None;
+        batch::for_each_simd_chunk(
+            inputs,
+            &mut bucket_order,
+            |chunk, output_indices, active_lane_count| {
+                let mut tmp = [false; SIMD_LANES];
+                if let Some(current) = self.verify_chunk_paired(chunk, &mut tmp) {
+                    let current = QueuedDalekChunk {
+                        chunk: current,
+                        output_indices: *output_indices,
+                        active_lane_count,
+                    };
+                    if let Some(previous) = pending_dalek.take() {
+                        let (previous_holds, current_holds) =
+                            avx512ifma::verify_dalek_candidate_pair(
+                                &previous.chunk.candidate,
+                                &previous.chunk.r_bytes,
+                                &current.chunk.candidate,
+                                &current.chunk.r_bytes,
+                            );
+                        write_pending_dalek_results(previous, previous_holds, out);
+                        write_pending_dalek_results(current, current_holds, out);
+                    } else {
+                        pending_dalek = Some(current);
+                    }
+                } else {
+                    for (&index, &value) in output_indices[..active_lane_count].iter().zip(&tmp) {
+                        out[index] = value;
+                    }
+                }
+            },
+        );
+        if let Some(pending) = pending_dalek {
+            let equation_holds = avx512ifma::verify_dalek_candidate(
+                &pending.chunk.candidate,
+                &pending.chunk.r_bytes,
+            );
+            write_pending_dalek_results(pending, equation_holds, out);
+        }
         self.bucket_order = bucket_order;
     }
 
@@ -177,23 +239,18 @@ impl<C: KeyCache> Verifier<C> {
         let public_key_tables: [&PointTable; SIMD_LANES] = core::array::from_fn(|lane| {
             if let Some(key) = cached_keys[lane] {
                 &key.table
+            } else if decoded_key_lanes[lane] {
+                self.scratch.key_tables[lane]
+                    .as_ref()
+                    .expect("a valid decoded lane has a table")
             } else {
-                // Cache misses populate `self.scratch.key_tables` above.
-                if decoded_key_lanes[lane] {
-                    self.scratch.key_tables[lane]
-                        .as_ref()
-                        .expect("a valid decoded lane has a table")
-                } else {
-                    valid[lane] = false;
-                    self.identity_table
-                }
+                valid[lane] = false;
+                self.identity_table
             }
         });
 
-        // Skip the ladder, but still retain the keys that did decode.
         if any_lane(&valid) {
             let k_digits = challenge_digits(&r_bytes, &public_keys, messages);
-
             let prepared = PreparedChunk {
                 public_key_tables,
                 s_digits: &s_digits,
@@ -215,6 +272,97 @@ impl<C: KeyCache> Verifier<C> {
         }
 
         self.retain_decoded_keys(&missing_key_lanes, &decoded_key_lanes, &public_keys);
+    }
+
+    fn verify_chunk_paired(
+        &mut self,
+        inputs: &[VerifyInput<'_>; SIMD_LANES],
+        out: &mut [bool; SIMD_LANES],
+    ) -> Option<PendingDalekChunk> {
+        let policy = self.policy;
+
+        let ParsedChunk {
+            mut valid,
+            r_bytes,
+            public_keys,
+            s_digits,
+            messages,
+        } = parse_chunk_inputs(inputs);
+        if !any_lane(&valid) {
+            return None;
+        }
+
+        let cached_keys: [Option<&CachedPublicKey>; SIMD_LANES] =
+            core::array::from_fn(|lane| self.cache.get(&public_keys[lane]));
+        let missing_key_lanes: [bool; SIMD_LANES] =
+            core::array::from_fn(|lane| cached_keys[lane].is_none());
+
+        // Decode missing keys and their R points together.
+        let mut decoded_r: Option<(avx512ifma::WideRPoint, [bool; SIMD_LANES])> = None;
+        let mut decoded_key_lanes = [false; SIMD_LANES];
+        if any_lane(&missing_key_lanes) {
+            let (key_valid_bits, r_points, r_valid_bits) = avx512ifma::decode_keys_and_decompress_r(
+                &public_keys,
+                &r_bytes,
+                policy == VerifyPolicy::Dalek,
+                &mut self.scratch.key_tables,
+            );
+            decoded_key_lanes = avx512ifma::mask_to_lanes(key_valid_bits);
+            decoded_r = Some((r_points, avx512ifma::mask_to_lanes(r_valid_bits)));
+        }
+
+        let public_key_tables: [&PointTable; SIMD_LANES] = core::array::from_fn(|lane| {
+            if let Some(key) = cached_keys[lane] {
+                &key.table
+            } else {
+                // Cache misses populate `self.scratch.key_tables` above.
+                if decoded_key_lanes[lane] {
+                    self.scratch.key_tables[lane]
+                        .as_ref()
+                        .expect("a valid decoded lane has a table")
+                } else {
+                    valid[lane] = false;
+                    self.identity_table
+                }
+            }
+        });
+
+        // Skip the ladder, but still retain the keys that did decode.
+        let mut pending_dalek = None;
+        if any_lane(&valid) {
+            let k_digits = challenge_digits(&r_bytes, &public_keys, messages);
+
+            let prepared = PreparedChunk {
+                public_key_tables,
+                s_digits: &s_digits,
+                k_digits: &k_digits,
+            };
+            match policy {
+                VerifyPolicy::Zip215 => {
+                    self.verify_zip215_lanes(&prepared, decoded_r, &r_bytes, &valid, out)
+                }
+                VerifyPolicy::Dalek => {
+                    if let Some(candidate) = self.verify_dalek_lanes_paired(
+                        &prepared,
+                        decoded_r,
+                        &r_bytes,
+                        &public_keys,
+                        &valid,
+                        out,
+                    ) {
+                        pending_dalek = Some(PendingDalekChunk {
+                            candidate,
+                            valid,
+                            r_bytes,
+                            public_keys,
+                        });
+                    }
+                }
+            }
+        }
+
+        self.retain_decoded_keys(&missing_key_lanes, &decoded_key_lanes, &public_keys);
+        pending_dalek
     }
 
     /// Offer freshly decoded tables to the cache, emptying the scratch slots.
@@ -303,6 +451,59 @@ impl<C: KeyCache> Verifier<C> {
                     && !dalek_legacy_excluded(&public_keys[lane], &r_bytes[lane]);
             }
         }
+    }
+
+    #[inline(always)]
+    fn verify_dalek_lanes_paired(
+        &self,
+        prepared: &PreparedChunk<'_>,
+        decoded_r: Option<(avx512ifma::WideRPoint, [bool; SIMD_LANES])>,
+        r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
+        public_keys: &[[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
+        valid: &[bool; SIMD_LANES],
+        out: &mut [bool; SIMD_LANES],
+    ) -> Option<avx512ifma::DalekCandidate> {
+        if let Some((r_points, r_valid_lanes)) = decoded_r {
+            // R already decompressed on a cache miss: compare points directly.
+            let equation_holds = avx512ifma::verify_prepared_dalek_decompressed_r(
+                prepared,
+                &r_points,
+                self.base_table,
+            );
+            let r_x_zero = r_points.x_zero_lanes();
+            for lane in 0..SIMD_LANES {
+                let signed_zero = r_x_zero[lane] && r_bytes[lane][31] & 0x80 != 0;
+                out[lane] = equation_holds[lane]
+                    && valid[lane]
+                    && r_valid_lanes[lane]
+                    && r_encoding_has_canonical_y(&r_bytes[lane])
+                    && !signed_zero
+                    && !dalek_legacy_excluded(&public_keys[lane], &r_bytes[lane]);
+            }
+            None
+        } else {
+            // Leave the projective result pending so two chunks can share
+            // their final inversion.
+            Some(avx512ifma::prepare_dalek_candidate(
+                prepared,
+                self.base_table,
+            ))
+        }
+    }
+}
+
+fn write_pending_dalek_results(
+    pending: QueuedDalekChunk,
+    equation_holds: [bool; SIMD_LANES],
+    out: &mut [bool],
+) {
+    for lane in 0..pending.active_lane_count {
+        out[pending.output_indices[lane]] = equation_holds[lane]
+            && pending.chunk.valid[lane]
+            && !dalek_legacy_excluded(
+                &pending.chunk.public_keys[lane],
+                &pending.chunk.r_bytes[lane],
+            );
     }
 }
 
