@@ -39,15 +39,14 @@ struct ParsedChunk<'a> {
     messages: [&'a [u8]; SIMD_LANES],
 }
 
+/// Everything needed to score one deferred Dalek chunk once its recomputed
+/// `R` encoding is available. The candidate itself is queued separately so the
+/// batch inversion sees a contiguous slice.
+#[derive(Debug)]
 struct PendingDalekChunk {
-    candidate: avx512ifma::DalekCandidate,
     valid: [bool; SIMD_LANES],
     r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
     public_keys: [[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
-}
-
-struct QueuedDalekChunk {
-    chunk: PendingDalekChunk,
     output_indices: [usize; SIMD_LANES],
     active_lane_count: usize,
 }
@@ -74,6 +73,8 @@ pub struct Verifier<C: KeyCache = NullKeyCache> {
     // Invalid lanes are masked out but still need a real ladder table.
     identity_table: &'static PointTable,
     bucket_order: Vec<usize>,
+    dalek_candidates: Vec<avx512ifma::DalekCandidate>,
+    dalek_pending: Vec<PendingDalekChunk>,
     scratch: Box<ChunkScratch>,
     cache: C,
 }
@@ -105,6 +106,8 @@ impl<C: KeyCache> Verifier<C> {
             base_table: BASE_TABLE.entries(),
             identity_table: &*IDENTITY_TABLE,
             bucket_order: Vec::new(),
+            dalek_candidates: Vec::new(),
+            dalek_pending: Vec::new(),
             scratch: Box::new(ChunkScratch::new()),
             cache,
         }
@@ -156,46 +159,32 @@ impl<C: KeyCache> Verifier<C> {
     #[inline(never)]
     fn verify_batch_paired_dalek(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
         let mut bucket_order = core::mem::take(&mut self.bucket_order);
-        let mut pending_dalek: Option<QueuedDalekChunk> = None;
+        let mut candidates = core::mem::take(&mut self.dalek_candidates);
+        let mut pending = core::mem::take(&mut self.dalek_pending);
         batch::for_each_simd_chunk(
             inputs,
             &mut bucket_order,
             |chunk, output_indices, active_lane_count| {
                 let mut tmp = [false; SIMD_LANES];
-                if let Some(current) = self.verify_chunk_paired(chunk, &mut tmp) {
-                    let current = QueuedDalekChunk {
-                        chunk: current,
-                        output_indices: *output_indices,
-                        active_lane_count,
-                    };
-                    if let Some(previous) = pending_dalek.take() {
-                        let (previous_holds, current_holds) =
-                            avx512ifma::verify_dalek_candidate_pair(
-                                &previous.chunk.candidate,
-                                &previous.chunk.r_bytes,
-                                &current.chunk.candidate,
-                                &current.chunk.r_bytes,
-                            );
-                        write_pending_dalek_results(previous, previous_holds, out);
-                        write_pending_dalek_results(current, current_holds, out);
-                    } else {
-                        pending_dalek = Some(current);
-                    }
-                } else {
+                let Some((candidate, chunk)) =
+                    self.verify_chunk_paired(chunk, *output_indices, active_lane_count, &mut tmp)
+                else {
                     for (&index, &value) in output_indices[..active_lane_count].iter().zip(&tmp) {
                         out[index] = value;
                     }
+                    return;
+                };
+                candidates.push(candidate);
+                pending.push(chunk);
+                if candidates.len() == avx512ifma::DALEK_BATCH {
+                    flush_dalek_queue(&mut candidates, &mut pending, out);
                 }
             },
         );
-        if let Some(pending) = pending_dalek {
-            let equation_holds = avx512ifma::verify_dalek_candidate(
-                &pending.chunk.candidate,
-                &pending.chunk.r_bytes,
-            );
-            write_pending_dalek_results(pending, equation_holds, out);
-        }
+        flush_dalek_queue(&mut candidates, &mut pending, out);
         self.bucket_order = bucket_order;
+        self.dalek_candidates = candidates;
+        self.dalek_pending = pending;
     }
 
     fn verify_chunk(
@@ -277,8 +266,10 @@ impl<C: KeyCache> Verifier<C> {
     fn verify_chunk_paired(
         &mut self,
         inputs: &[VerifyInput<'_>; SIMD_LANES],
+        output_indices: [usize; SIMD_LANES],
+        active_lane_count: usize,
         out: &mut [bool; SIMD_LANES],
-    ) -> Option<PendingDalekChunk> {
+    ) -> Option<(avx512ifma::DalekCandidate, PendingDalekChunk)> {
         let policy = self.policy;
 
         let ParsedChunk {
@@ -350,12 +341,16 @@ impl<C: KeyCache> Verifier<C> {
                         &valid,
                         out,
                     ) {
-                        pending_dalek = Some(PendingDalekChunk {
+                        pending_dalek = Some((
                             candidate,
-                            valid,
-                            r_bytes,
-                            public_keys,
-                        });
+                            PendingDalekChunk {
+                                valid,
+                                r_bytes,
+                                public_keys,
+                                output_indices,
+                                active_lane_count,
+                            },
+                        ));
                     }
                 }
             }
@@ -492,19 +487,31 @@ impl<C: KeyCache> Verifier<C> {
     }
 }
 
-fn write_pending_dalek_results(
-    pending: QueuedDalekChunk,
-    equation_holds: [bool; SIMD_LANES],
+/// Compress every queued candidate through one shared inversion and score the
+/// chunks against their encoded `R`. Leaves both queues empty.
+fn flush_dalek_queue(
+    candidates: &mut Vec<avx512ifma::DalekCandidate>,
+    pending: &mut Vec<PendingDalekChunk>,
     out: &mut [bool],
 ) {
-    for lane in 0..pending.active_lane_count {
-        out[pending.output_indices[lane]] = equation_holds[lane]
-            && pending.chunk.valid[lane]
-            && !dalek_legacy_excluded(
-                &pending.chunk.public_keys[lane],
-                &pending.chunk.r_bytes[lane],
-            );
+    debug_assert_eq!(candidates.len(), pending.len());
+    if candidates.is_empty() {
+        return;
     }
+
+    let mut encodings = [[[0u8; R_ENCODING_LEN]; SIMD_LANES]; avx512ifma::DALEK_BATCH];
+    avx512ifma::compress_dalek_candidates(candidates, &mut encodings[..candidates.len()]);
+
+    for (chunk, encoding) in pending.drain(..).zip(&encodings) {
+        for lane in 0..chunk.active_lane_count {
+            // Recompression is canonical, so a non-canonical or wrong-sign `R`
+            // encoding simply fails to match; only the legacy filter is extra.
+            out[chunk.output_indices[lane]] = encoding[lane] == chunk.r_bytes[lane]
+                && chunk.valid[lane]
+                && !dalek_legacy_excluded(&chunk.public_keys[lane], &chunk.r_bytes[lane]);
+        }
+    }
+    candidates.clear();
 }
 
 #[inline(always)]
