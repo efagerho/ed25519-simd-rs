@@ -115,14 +115,14 @@ pub(crate) fn hash_ed25519_challenges(
     let words = hash_ed25519_challenge_words(r_bytes, public_keys, messages);
     core::array::from_fn(|lane| {
         let mut digest = [0u8; 64];
-        for (word, w) in words[lane].iter().enumerate() {
-            digest[word * 8..word * 8 + 8].copy_from_slice(&w.to_le_bytes());
+        for word in 0..8 {
+            digest[word * 8..word * 8 + 8].copy_from_slice(&words[word][lane].to_le_bytes());
         }
         digest
     })
 }
 
-/// Challenge hashes as pre-swapped words for `Scalar::from_wide_words`.
+/// Challenge hashes in the word-major layout consumed by the wide scalar reducer.
 pub(crate) use avx512::hash_ed25519_challenge_words;
 
 mod avx512 {
@@ -146,7 +146,7 @@ mod avx512 {
         r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
         public_keys: &[[u8; PUBLIC_KEY_LEN]; LANES],
         messages: [&[u8]; LANES],
-    ) -> [[u64; 8]; LANES] {
+    ) -> [[u64; LANES]; 8] {
         unsafe {
             let mut total_lens = [0usize; LANES];
             let mut bit_lens = [0u64; LANES];
@@ -407,13 +407,15 @@ mod avx512 {
         state[7] = add(state[7], h);
     }
     /// Digest words pre-swapped to the little-endian integer reduced by RFC 8032.
-    fn digest_words_from_state(state: [__m512i; 8]) -> [[u64; 8]; LANES] {
+    fn digest_words_from_state(state: [__m512i; 8]) -> [[u64; LANES]; 8] {
         let mut words = [[0u64; LANES]; 8];
         for (word, &s) in state.iter().enumerate() {
             storeu(s, &mut words[word]);
+            for lane_word in &mut words[word] {
+                *lane_word = lane_word.swap_bytes();
+            }
         }
-
-        core::array::from_fn(|lane| core::array::from_fn(|word| words[word][lane].swap_bytes()))
+        words
     }
 
     #[inline]

@@ -343,7 +343,7 @@ fn challenge_digits(
     messages: [&[u8]; SIMD_LANES],
 ) -> [Radix16; SIMD_LANES] {
     let digests = sha512::hash_ed25519_challenge_words(r_bytes, public_keys, messages);
-    core::array::from_fn(|lane| Scalar::from_wide_words(digests[lane]).to_radix16())
+    scalar::wide_words_to_radix16(&digests)
 }
 
 fn dalek_legacy_excluded(

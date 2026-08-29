@@ -10,3 +10,7 @@ generated independently with integer arithmetic modulo `2^255 - 19`; its point
 encodings were generated from the RFC 8032 Edwards formulas. Keeping the
 expected values checked in lets the SIMD unit tests avoid a second field and
 point implementation in the crate.
+
+`scalar_reduction.json` similarly fixes the expected group-order reduction and
+signed radix-16 recoding for one full eight-lane chunk. It was generated with
+integer arithmetic modulo the RFC 8032 group order `L`.
