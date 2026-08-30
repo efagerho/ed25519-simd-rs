@@ -810,8 +810,14 @@ fn score_zip215_lanes(
     out: &mut [bool; SIMD_LANES],
 ) {
     for lane in 0..SIMD_LANES {
-        out[lane] = equation_holds[lane] && lanes.valid[lane] && r_valid_lanes[lane];
+        out[lane] =
+            zip215_lane_accepts(equation_holds[lane], lanes.valid[lane], r_valid_lanes[lane]);
     }
+}
+
+#[inline(always)]
+fn zip215_lane_accepts(equation_holds: bool, input_valid: bool, r_valid: bool) -> bool {
+    equation_holds && input_valid && r_valid
 }
 
 /// Score one chunk's lanes against an already-decompressed `R` under the Dalek
@@ -885,7 +891,7 @@ fn flush_zip215_queue(queues: &mut Zip215Queues, out: &mut [bool]) {
     for (chunk, (equation_holds, r_valid_lanes)) in pending.drain(..).zip(&checks) {
         for lane in 0..chunk.active_lane_count {
             out[chunk.output_indices[lane]] =
-                equation_holds[lane] && chunk.valid[lane] && r_valid_lanes[lane];
+                zip215_lane_accepts(equation_holds[lane], chunk.valid[lane], r_valid_lanes[lane]);
         }
     }
     candidates.clear();
