@@ -4,6 +4,8 @@
 #[path = "support/profile.rs"]
 pub mod profile;
 
+use ed25519_simd::Zip215Policy;
+
 fn main() {
-    profile::run_hot::<false>();
+    profile::run_hot::<Zip215Policy>();
 }

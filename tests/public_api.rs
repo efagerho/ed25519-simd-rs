@@ -2,8 +2,8 @@ mod support;
 
 use curve25519::ed_sigs::VerificationKeyBytes;
 use ed25519_simd::{
-    CachedPublicKey, HotKeyCache, KeyCache, NullKeyCache, PUBLIC_KEY_LEN, Verifier, VerifyInput,
-    VerifyPolicy,
+    CachedPublicKey, DalekVerifier, HotKeyCache, KeyCache, NullKeyCache, PUBLIC_KEY_LEN,
+    RuntimeVerifier, VerifyInput, VerifyPolicy, Zip215Verifier,
 };
 use support::{Case, hex_array, signing_key_from_index};
 
@@ -45,8 +45,7 @@ fn hot_key_cache_handles_mixed_hit_and_miss_lanes_in_one_chunk() {
         })
         .collect();
 
-    let mut verifier =
-        Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::with_capacity(1024));
+    let mut verifier = Zip215Verifier::with_cache(HotKeyCache::with_capacity(1024));
     let warm_inputs: Vec<VerifyInput<'_>> = inputs.iter().step_by(2).copied().collect();
     let mut warm_out = vec![false; warm_inputs.len()];
     verifier.verify_batch(&warm_inputs, &mut warm_out);
@@ -108,8 +107,7 @@ fn keys_decoded_in_an_all_rejected_chunk_are_still_retained() {
         message: message.as_slice(),
     }));
 
-    let mut verifier =
-        Verifier::with_cache(VerifyPolicy::default(), HotKeyCache::with_capacity(16));
+    let mut verifier = Zip215Verifier::with_cache(HotKeyCache::with_capacity(16));
     let mut out = vec![false; inputs.len()];
     verifier.verify_batch(&inputs, &mut out);
 
@@ -154,11 +152,11 @@ fn preseeded_cache_tables_match_cold_simd_decoding() {
             cache.insert(CachedPublicKey::from_encoded(case.public_key).expect("key decodes"));
         }
         // Every lane is a hit, so no lane falls back to the SIMD builder.
-        let mut preseeded = Verifier::with_cache(policy, cache);
+        let mut preseeded = RuntimeVerifier::with_cache(policy, cache);
         let mut preseeded_out = vec![false; inputs.len()];
         preseeded.verify_batch(&inputs, &mut preseeded_out);
 
-        let mut cold = Verifier::with_cache(policy, NullKeyCache::new());
+        let mut cold = RuntimeVerifier::with_cache(policy, NullKeyCache::new());
         let mut cold_out = vec![false; inputs.len()];
         cold.verify_batch(&inputs, &mut cold_out);
 
@@ -181,7 +179,7 @@ fn verifier_exposes_cache_mut_and_policy() {
     let keys: Vec<[u8; PUBLIC_KEY_LEN]> = (0..4u64)
         .map(|i| <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key_from_index(i))))
         .collect();
-    let mut verifier = Verifier::with_cache(VerifyPolicy::Dalek, HotKeyCache::with_capacity(4));
+    let mut verifier = DalekVerifier::with_cache(HotKeyCache::with_capacity(4));
     assert_eq!(verifier.policy(), VerifyPolicy::Dalek);
 
     for key in &keys {
@@ -196,8 +194,7 @@ fn verifier_exposes_cache_mut_and_policy() {
     verifier.cache_mut().set_capacity(0);
     assert_eq!(resident_count(verifier.cache(), &keys), 1);
 
-    let zip215_verifier =
-        Verifier::with_cache(VerifyPolicy::Zip215, HotKeyCache::with_capacity(1024));
+    let zip215_verifier = Zip215Verifier::with_cache(HotKeyCache::with_capacity(1024));
     assert_eq!(zip215_verifier.policy(), VerifyPolicy::Zip215);
 }
 
@@ -206,7 +203,7 @@ fn default_verifier_does_not_retain_keys() {
     let message = b"default null cache";
     let signing_key = signing_key_from_index(0x0d3f_a017);
     let public_key = <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key));
-    let mut verifier = Verifier::with_policy(VerifyPolicy::Zip215);
+    let mut verifier = Zip215Verifier::new();
     let input = VerifyInput {
         public_key,
         signature: signing_key.sign(message).to_bytes(),

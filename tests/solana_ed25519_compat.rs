@@ -4,8 +4,8 @@ mod support;
 
 use curve25519::ed_sigs::VerificationKeyBytes;
 use ed25519_simd::{
-    HotKeyCache, KeyCache, NullKeyCache, PUBLIC_KEY_LEN, SIGNATURE_LEN, Verifier, VerifyInput,
-    VerifyPolicy,
+    DalekVerifier, HotKeyCache, KeyCache, NullKeyCache, PUBLIC_KEY_LEN, RuntimeVerifier,
+    SIGNATURE_LEN, VerifyInput, VerifyPolicy, Zip215Verifier,
 };
 use rand::{RngCore, SeedableRng, rngs::StdRng};
 use support::{
@@ -17,8 +17,8 @@ use support::{
 #[test]
 fn null_cache_decode_build_stress() {
     let mut rng = StdRng::seed_from_u64(0x5151_5151_5151_5151);
-    let mut zip = Verifier::with_cache(VerifyPolicy::Zip215, NullKeyCache::new());
-    let mut dalek = Verifier::with_cache(VerifyPolicy::Dalek, NullKeyCache::new());
+    let mut zip = Zip215Verifier::with_cache(NullKeyCache::new());
+    let mut dalek = DalekVerifier::with_cache(NullKeyCache::new());
 
     for _ in 0..400 {
         let len = (rng.next_u64() % 257) as usize;
@@ -126,7 +126,8 @@ fn cached_batches_match_solana_ed25519() {
                     })
                     .collect();
 
-                let mut verifier = Verifier::with_cache(policy, HotKeyCache::with_capacity(1024));
+                let mut verifier =
+                    RuntimeVerifier::with_cache(policy, HotKeyCache::with_capacity(1024));
                 for path in ["cold", "warm"] {
                     let mut out = vec![false; inputs.len()];
                     verifier.verify_batch(&inputs, &mut out);
@@ -156,7 +157,7 @@ fn hot_key_capacity_does_not_evict_current_simd_chunk() {
     }
 
     let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|case| case.input()).collect();
-    let mut verifier = Verifier::with_cache(VerifyPolicy::Zip215, HotKeyCache::with_capacity(1));
+    let mut verifier = Zip215Verifier::with_cache(HotKeyCache::with_capacity(1));
     let mut out = vec![false; inputs.len()];
     verifier.verify_batch(&inputs, &mut out);
 
@@ -219,7 +220,8 @@ fn per_lane_masking_matches_solana_ed25519_under_heavy_garbage() {
                     })
                     .collect();
 
-                let mut verifier = Verifier::with_cache(policy, HotKeyCache::with_capacity(1024));
+                let mut verifier =
+                    RuntimeVerifier::with_cache(policy, HotKeyCache::with_capacity(1024));
                 let mut out = vec![false; inputs.len()];
                 verifier.verify_batch(&inputs, &mut out);
                 for idx in 0..inputs.len() {
@@ -229,7 +231,7 @@ fn per_lane_masking_matches_solana_ed25519_under_heavy_garbage() {
                     );
                 }
 
-                let mut cold = Verifier::with_cache(policy, NullKeyCache::new());
+                let mut cold = RuntimeVerifier::with_cache(policy, NullKeyCache::new());
                 let mut out_cold = vec![false; inputs.len()];
                 cold.verify_batch(&inputs, &mut out_cold);
                 for idx in 0..inputs.len() {

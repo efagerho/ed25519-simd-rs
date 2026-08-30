@@ -3,16 +3,8 @@
 use std::time::Instant;
 
 use curve25519::ed_sigs::{SigningKey, VerificationKeyBytes};
-use ed25519_simd::{HotKeyCache, NullKeyCache, Verifier, VerifyInput, VerifyPolicy};
+use ed25519_simd::{HotKeyCache, NullKeyCache, VerificationPolicy, Verifier, VerifyInput};
 use rand::{RngCore, SeedableRng, rngs::StdRng};
-
-fn policy<const DALEK: bool>() -> VerifyPolicy {
-    if DALEK {
-        VerifyPolicy::Dalek
-    } else {
-        VerifyPolicy::Zip215
-    }
-}
 
 fn signing_key_from_index(index: u64) -> SigningKey {
     let mut seed = [0u8; 32];
@@ -54,7 +46,7 @@ impl InvalidMode {
     }
 }
 
-pub fn run_cold<const DALEK: bool>() {
+pub fn run_cold<P: VerificationPolicy>() {
     let args: Vec<String> = std::env::args().collect();
     let usage = format!(
         "usage: {} [keys] [iters] [msglen|mixed] [invalid_pct] \
@@ -132,8 +124,8 @@ pub fn run_cold<const DALEK: bool>() {
         })
         .collect();
 
-    let selected_policy = policy::<DALEK>();
-    let mut verifier = Verifier::with_cache(selected_policy, NullKeyCache::new());
+    let selected_policy = P::POLICY;
+    let mut verifier = Verifier::<P, _>::with_cache(NullKeyCache::new());
     let mut out = vec![false; inputs.len()];
     let mut accepted = 0u64;
     verifier.verify_batch(&inputs, &mut out);
@@ -162,7 +154,7 @@ pub fn run_cold<const DALEK: bool>() {
     );
 }
 
-pub fn run_hot<const DALEK: bool>() {
+pub fn run_hot<P: VerificationPolicy>() {
     let args: Vec<String> = std::env::args().collect();
     let usage = format!("usage: {} [keys] [iters] [hot_keys] [msglen]", args[0]);
     if args.len() == 1 {
@@ -199,8 +191,8 @@ pub fn run_hot<const DALEK: bool>() {
         })
         .collect();
 
-    let selected_policy = policy::<DALEK>();
-    let mut verifier = Verifier::with_cache(selected_policy, HotKeyCache::with_capacity(hot_keys));
+    let selected_policy = P::POLICY;
+    let mut verifier = Verifier::<P, _>::with_cache(HotKeyCache::with_capacity(hot_keys));
     let mut out = vec![false; keys];
     verifier.verify_batch(&inputs, &mut out);
 

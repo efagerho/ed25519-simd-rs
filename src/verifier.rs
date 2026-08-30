@@ -1,7 +1,10 @@
 use crate::batch::{self, PreparedChunk};
 use crate::cache::{CachedPublicKey, KeyCache, NullKeyCache};
 use crate::edwards::{BasepointTable, BasepointTableEntries, PointTable};
-use crate::policy::{VerifyPolicy, r_encoding_has_canonical_y, r_encoding_is_legacy_excluded};
+use crate::policy::{
+    DalekPolicy, VerifyPolicy, Zip215Policy, r_encoding_has_canonical_y,
+    r_encoding_is_legacy_excluded,
+};
 use crate::scalar::{self, Radix16, Scalar};
 use crate::sha512;
 use crate::wide::avx512ifma;
@@ -55,16 +58,21 @@ struct PendingDalekChunk {
     public_keys: [[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
 }
 
-/// Reusable buffers for the policy selected by the verifier. The inactive
-/// vectors remain allocation-free; keeping one monomorphic driver is measurably
-/// faster than specializing the already-large loop by policy.
+/// Reusable ZIP-215-only buffers.
+#[doc(hidden)]
 #[derive(Debug, Default)]
-struct DeferralQueues {
-    dalek_candidates: Vec<avx512ifma::DalekCandidate>,
+pub struct Zip215Queues {
     zip215_candidates: Vec<avx512ifma::Zip215Candidate>,
-    dalek_pending: Vec<PendingDalekChunk>,
     zip215_r_bytes: Vec<[[u8; R_ENCODING_LEN]; SIMD_LANES]>,
     zip215_pending: Vec<PendingLanes>,
+}
+
+/// Reusable Dalek-only buffers.
+#[doc(hidden)]
+#[derive(Debug, Default)]
+pub struct DalekQueues {
+    dalek_candidates: Vec<avx512ifma::DalekCandidate>,
+    dalek_pending: Vec<PendingDalekChunk>,
 }
 
 /// The per-lane chunk data both policies score their SIMD result against.
@@ -87,48 +95,116 @@ impl ChunkScratch {
     }
 }
 
-/// Batch Ed25519 verifier for a fixed [`VerifyPolicy`] and [`KeyCache`].
+mod sealed {
+    pub trait Sealed {}
+
+    impl Sealed for super::Zip215Policy {}
+    impl Sealed for super::DalekPolicy {}
+}
+
+/// A compile-time verification policy.
+///
+/// This trait is sealed; use [`Zip215Policy`] or [`DalekPolicy`]. Keeping the
+/// policy in the verifier's type lets the linker discard the other policy's
+/// decoding, scoring, and deferral code.
+pub trait VerificationPolicy: sealed::Sealed + Copy + core::fmt::Debug + Default + 'static {
+    /// Policy-specific reusable queue storage.
+    #[doc(hidden)]
+    type Queues: core::fmt::Debug + Default;
+
+    /// The corresponding runtime policy value.
+    const POLICY: VerifyPolicy;
+
+    /// Dispatch into the monomorphized policy implementation.
+    #[doc(hidden)]
+    fn dispatch_verify_batch<C: KeyCache>(
+        verifier: &mut Verifier<Self, C>,
+        inputs: &[VerifyInput<'_>],
+        out: &mut [bool],
+    );
+}
+
+trait PolicyOps: VerificationPolicy {
+    fn decode_keys_and_r(
+        keys: &[[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
+        r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
+        key_tables: &mut [Option<PointTable>; SIMD_LANES],
+    ) -> (u8, avx512ifma::WideRPoint, u8);
+
+    fn verify_lanes<C: KeyCache>(
+        verifier: &Verifier<Self, C>,
+        prepared: &PreparedChunk<'_>,
+        decoded_r: Option<(avx512ifma::WideRPoint, [bool; SIMD_LANES])>,
+        lanes: &ScoredLanes<'_>,
+        out: &mut [bool; SIMD_LANES],
+        queues: &mut Self::Queues,
+    ) -> bool;
+
+    fn push_pending(
+        queues: &mut Self::Queues,
+        lanes: PendingLanes,
+        r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
+        public_keys: [[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
+    );
+
+    fn queue_is_full(queues: &Self::Queues) -> bool;
+    fn flush_queue(queues: &mut Self::Queues, out: &mut [bool]);
+}
+
+/// Batch Ed25519 verifier for a compile-time [`VerificationPolicy`] and [`KeyCache`].
 /// Reuse one across [`verify_batch`](Verifier::verify_batch) calls.
 #[derive(Debug)]
-pub struct Verifier<C: KeyCache = NullKeyCache> {
-    policy: VerifyPolicy,
+pub struct Verifier<P: VerificationPolicy = Zip215Policy, C: KeyCache = NullKeyCache> {
+    policy: core::marker::PhantomData<P>,
     base_table: &'static BasepointTableEntries,
     // Invalid lanes are masked out but still need a real ladder table.
     identity_table: &'static PointTable,
     bucket_order: Vec<usize>,
-    queues: DeferralQueues,
+    queues: P::Queues,
     scratch: Box<ChunkScratch>,
     cache: C,
 }
 
-impl Default for Verifier<NullKeyCache> {
+/// A verifier fixed to ZIP-215 at compile time.
+pub type Zip215Verifier<C = NullKeyCache> = Verifier<Zip215Policy, C>;
+
+/// A verifier fixed to Dalek-compatible rules at compile time.
+pub type DalekVerifier<C = NullKeyCache> = Verifier<DalekPolicy, C>;
+
+/// Explicit runtime choice between the two monomorphized verifier types.
+///
+/// Prefer [`Zip215Verifier`] or [`DalekVerifier`] when the policy is known at
+/// compile time. This wrapper intentionally includes both code paths.
+#[derive(Debug)]
+pub enum RuntimeVerifier<C: KeyCache = NullKeyCache> {
+    /// ZIP-215 verifier.
+    Zip215(Zip215Verifier<C>),
+    /// Dalek-compatible verifier.
+    Dalek(DalekVerifier<C>),
+}
+
+impl<P: VerificationPolicy> Default for Verifier<P, NullKeyCache> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Verifier<NullKeyCache> {
-    /// Create a verifier with the default policy and no retained-key cache.
+impl<P: VerificationPolicy> Verifier<P, NullKeyCache> {
+    /// Create a verifier with its type-selected policy and no retained-key cache.
     pub fn new() -> Self {
-        Self::with_policy(VerifyPolicy::default())
-    }
-
-    /// Create a verifier with a specific policy and no retained-key cache.
-    pub fn with_policy(policy: VerifyPolicy) -> Self {
-        Self::with_cache(policy, NullKeyCache::new())
+        Self::with_cache(NullKeyCache::new())
     }
 }
 
-impl<C: KeyCache> Verifier<C> {
-    /// Create a verifier backed by a caller-provided cache. For a bounded cache:
-    /// `Verifier::with_cache(policy, HotKeyCache::with_capacity(n))`.
-    pub fn with_cache(policy: VerifyPolicy, cache: C) -> Self {
+impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
+    /// Create a verifier backed by a caller-provided cache.
+    pub fn with_cache(cache: C) -> Self {
         Self {
-            policy,
+            policy: core::marker::PhantomData,
             base_table: BASE_TABLE.entries(),
             identity_table: &*IDENTITY_TABLE,
             bucket_order: Vec::new(),
-            queues: DeferralQueues::default(),
+            queues: P::Queues::default(),
             scratch: Box::new(ChunkScratch::new()),
             cache,
         }
@@ -146,7 +222,7 @@ impl<C: KeyCache> Verifier<C> {
 
     /// Return the verifier policy.
     pub fn policy(&self) -> VerifyPolicy {
-        self.policy
+        P::POLICY
     }
 
     /// Verify a batch and write one boolean result per input. `out[i]` is
@@ -156,40 +232,11 @@ impl<C: KeyCache> Verifier<C> {
     ///
     /// Panics if `inputs.len() != out.len()`.
     pub fn verify_batch(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
-        assert_eq!(inputs.len(), out.len());
-        let mut bucket_order = core::mem::take(&mut self.bucket_order);
-        let mut queues = core::mem::take(&mut self.queues);
-        batch::for_each_simd_chunk(
-            inputs,
-            &mut bucket_order,
-            |chunk, output_indices, active_lane_count| {
-                let mut tmp = [false; SIMD_LANES];
-                let deferred = self.verify_chunk(
-                    chunk,
-                    *output_indices,
-                    active_lane_count,
-                    &mut tmp,
-                    &mut queues,
-                );
-                if !deferred {
-                    for (&index, &value) in output_indices[..active_lane_count].iter().zip(&tmp) {
-                        out[index] = value;
-                    }
-                } else if queues.dalek_candidates.len() == avx512ifma::DALEK_BATCH {
-                    flush_dalek_queue(&mut queues, out);
-                } else if queues.zip215_candidates.len() == avx512ifma::ZIP215_BATCH {
-                    flush_zip215_queue(&mut queues, out);
-                }
-            },
-        );
-        flush_dalek_queue(&mut queues, out);
-        flush_zip215_queue(&mut queues, out);
-        self.bucket_order = bucket_order;
-        self.queues = queues;
+        P::dispatch_verify_batch(self, inputs, out);
     }
 
-    /// Verify one chunk, returning whether its Dalek result was queued for a
-    /// shared inversion instead of scored here. Queuing writes straight into
+    /// Verify one chunk, returning whether its policy-specific result was
+    /// queued for shared inversion work instead of scored here. Queuing writes straight into
     /// the caller's buffers: returning the candidate by value would put a
     /// kilobyte of `sret` traffic on every chunk, including the paths that
     /// never defer.
@@ -199,10 +246,11 @@ impl<C: KeyCache> Verifier<C> {
         output_indices: [usize; SIMD_LANES],
         active_lane_count: usize,
         out: &mut [bool; SIMD_LANES],
-        queues: &mut DeferralQueues,
-    ) -> bool {
-        let policy = self.policy;
-
+        queues: &mut P::Queues,
+    ) -> bool
+    where
+        P: PolicyOps,
+    {
         let ParsedChunk {
             mut valid,
             r_bytes,
@@ -223,12 +271,8 @@ impl<C: KeyCache> Verifier<C> {
         let mut decoded_r: Option<(avx512ifma::WideRPoint, [bool; SIMD_LANES])> = None;
         let mut decoded_key_lanes = [false; SIMD_LANES];
         if any_lane(&missing_key_lanes) {
-            let (key_valid_bits, r_points, r_valid_bits) = avx512ifma::decode_keys_and_decompress_r(
-                &public_keys,
-                &r_bytes,
-                policy == VerifyPolicy::Dalek,
-                &mut self.scratch.key_tables,
-            );
+            let (key_valid_bits, r_points, r_valid_bits) =
+                P::decode_keys_and_r(&public_keys, &r_bytes, &mut self.scratch.key_tables);
             decoded_key_lanes = avx512ifma::mask_to_lanes(key_valid_bits);
             decoded_r = Some((r_points, avx512ifma::mask_to_lanes(r_valid_bits)));
         }
@@ -264,47 +308,19 @@ impl<C: KeyCache> Verifier<C> {
                 public_keys: &public_keys,
                 valid: &valid,
             };
-            deferred = match policy {
-                VerifyPolicy::Zip215 => {
-                    let deferred = self.verify_zip215_lanes(
-                        &prepared,
-                        decoded_r,
-                        &lanes,
-                        out,
-                        &mut queues.zip215_candidates,
-                    );
-                    if deferred {
-                        queues.zip215_r_bytes.push(r_bytes);
-                        queues.zip215_pending.push(PendingLanes {
-                            valid,
-                            output_indices,
-                            active_lane_count,
-                        });
-                    }
-                    deferred
-                }
-                VerifyPolicy::Dalek => {
-                    let deferred = self.verify_dalek_lanes(
-                        &prepared,
-                        decoded_r,
-                        &lanes,
-                        out,
-                        &mut queues.dalek_candidates,
-                    );
-                    if deferred {
-                        queues.dalek_pending.push(PendingDalekChunk {
-                            lanes: PendingLanes {
-                                valid,
-                                output_indices,
-                                active_lane_count,
-                            },
-                            r_bytes,
-                            public_keys,
-                        });
-                    }
-                    deferred
-                }
-            };
+            deferred = P::verify_lanes(self, &prepared, decoded_r, &lanes, out, queues);
+            if deferred {
+                P::push_pending(
+                    queues,
+                    PendingLanes {
+                        valid,
+                        output_indices,
+                        active_lane_count,
+                    },
+                    r_bytes,
+                    public_keys,
+                );
+            }
         }
 
         self.retain_decoded_keys(&missing_key_lanes, &decoded_key_lanes, &public_keys);
@@ -406,13 +422,239 @@ impl<C: KeyCache> Verifier<C> {
     }
 }
 
+impl VerificationPolicy for Zip215Policy {
+    type Queues = Zip215Queues;
+
+    const POLICY: VerifyPolicy = VerifyPolicy::Zip215;
+
+    #[inline]
+    fn dispatch_verify_batch<C: KeyCache>(
+        verifier: &mut Verifier<Self, C>,
+        inputs: &[VerifyInput<'_>],
+        out: &mut [bool],
+    ) {
+        verify_batch_for(verifier, inputs, out);
+    }
+}
+
+impl PolicyOps for Zip215Policy {
+    #[inline(always)]
+    fn decode_keys_and_r(
+        keys: &[[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
+        r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
+        key_tables: &mut [Option<PointTable>; SIMD_LANES],
+    ) -> (u8, avx512ifma::WideRPoint, u8) {
+        avx512ifma::decode_keys_and_decompress_r::<false>(keys, r_bytes, key_tables)
+    }
+
+    #[inline(always)]
+    fn verify_lanes<C: KeyCache>(
+        verifier: &Verifier<Self, C>,
+        prepared: &PreparedChunk<'_>,
+        decoded_r: Option<(avx512ifma::WideRPoint, [bool; SIMD_LANES])>,
+        lanes: &ScoredLanes<'_>,
+        out: &mut [bool; SIMD_LANES],
+        queues: &mut Self::Queues,
+    ) -> bool {
+        verifier.verify_zip215_lanes(
+            prepared,
+            decoded_r,
+            lanes,
+            out,
+            &mut queues.zip215_candidates,
+        )
+    }
+
+    #[inline(always)]
+    fn push_pending(
+        queues: &mut Self::Queues,
+        lanes: PendingLanes,
+        r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
+        _public_keys: [[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
+    ) {
+        queues.zip215_r_bytes.push(r_bytes);
+        queues.zip215_pending.push(lanes);
+    }
+
+    #[inline(always)]
+    fn queue_is_full(queues: &Self::Queues) -> bool {
+        queues.zip215_candidates.len() == avx512ifma::ZIP215_BATCH
+    }
+
+    #[inline(always)]
+    fn flush_queue(queues: &mut Self::Queues, out: &mut [bool]) {
+        flush_zip215_queue(queues, out);
+    }
+}
+
+impl VerificationPolicy for DalekPolicy {
+    type Queues = DalekQueues;
+
+    const POLICY: VerifyPolicy = VerifyPolicy::Dalek;
+
+    #[inline]
+    fn dispatch_verify_batch<C: KeyCache>(
+        verifier: &mut Verifier<Self, C>,
+        inputs: &[VerifyInput<'_>],
+        out: &mut [bool],
+    ) {
+        verify_batch_for(verifier, inputs, out);
+    }
+}
+
+impl PolicyOps for DalekPolicy {
+    #[inline(always)]
+    fn decode_keys_and_r(
+        keys: &[[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
+        r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
+        key_tables: &mut [Option<PointTable>; SIMD_LANES],
+    ) -> (u8, avx512ifma::WideRPoint, u8) {
+        avx512ifma::decode_keys_and_decompress_r::<true>(keys, r_bytes, key_tables)
+    }
+
+    #[inline(always)]
+    fn verify_lanes<C: KeyCache>(
+        verifier: &Verifier<Self, C>,
+        prepared: &PreparedChunk<'_>,
+        decoded_r: Option<(avx512ifma::WideRPoint, [bool; SIMD_LANES])>,
+        lanes: &ScoredLanes<'_>,
+        out: &mut [bool; SIMD_LANES],
+        queues: &mut Self::Queues,
+    ) -> bool {
+        verifier.verify_dalek_lanes(
+            prepared,
+            decoded_r,
+            lanes,
+            out,
+            &mut queues.dalek_candidates,
+        )
+    }
+
+    #[inline(always)]
+    fn push_pending(
+        queues: &mut Self::Queues,
+        lanes: PendingLanes,
+        r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
+        public_keys: [[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
+    ) {
+        queues.dalek_pending.push(PendingDalekChunk {
+            lanes,
+            r_bytes,
+            public_keys,
+        });
+    }
+
+    #[inline(always)]
+    fn queue_is_full(queues: &Self::Queues) -> bool {
+        queues.dalek_candidates.len() == avx512ifma::DALEK_BATCH
+    }
+
+    #[inline(always)]
+    fn flush_queue(queues: &mut Self::Queues, out: &mut [bool]) {
+        flush_dalek_queue(queues, out);
+    }
+}
+
+fn verify_batch_for<P: PolicyOps, C: KeyCache>(
+    verifier: &mut Verifier<P, C>,
+    inputs: &[VerifyInput<'_>],
+    out: &mut [bool],
+) {
+    assert_eq!(inputs.len(), out.len());
+    let mut bucket_order = core::mem::take(&mut verifier.bucket_order);
+    let mut queues = core::mem::take(&mut verifier.queues);
+    batch::for_each_simd_chunk(
+        inputs,
+        &mut bucket_order,
+        |chunk, output_indices, active_lane_count| {
+            let mut tmp = [false; SIMD_LANES];
+            let deferred = verifier.verify_chunk(
+                chunk,
+                *output_indices,
+                active_lane_count,
+                &mut tmp,
+                &mut queues,
+            );
+            if !deferred {
+                for (&index, &value) in output_indices[..active_lane_count].iter().zip(&tmp) {
+                    out[index] = value;
+                }
+            } else if P::queue_is_full(&queues) {
+                P::flush_queue(&mut queues, out);
+            }
+        },
+    );
+    P::flush_queue(&mut queues, out);
+    verifier.bucket_order = bucket_order;
+    verifier.queues = queues;
+}
+
+impl Default for RuntimeVerifier<NullKeyCache> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RuntimeVerifier<NullKeyCache> {
+    /// Create a ZIP-215 runtime verifier with no retained-key cache.
+    pub fn new() -> Self {
+        Self::with_policy(VerifyPolicy::default())
+    }
+
+    /// Create a runtime-selected verifier with no retained-key cache.
+    pub fn with_policy(policy: VerifyPolicy) -> Self {
+        Self::with_cache(policy, NullKeyCache::new())
+    }
+}
+
+impl<C: KeyCache> RuntimeVerifier<C> {
+    /// Create an explicitly runtime-selected verifier backed by `cache`.
+    pub fn with_cache(policy: VerifyPolicy, cache: C) -> Self {
+        match policy {
+            VerifyPolicy::Zip215 => Self::Zip215(Zip215Verifier::with_cache(cache)),
+            VerifyPolicy::Dalek => Self::Dalek(DalekVerifier::with_cache(cache)),
+        }
+    }
+
+    /// Borrow the configured cache.
+    pub fn cache(&self) -> &C {
+        match self {
+            Self::Zip215(verifier) => verifier.cache(),
+            Self::Dalek(verifier) => verifier.cache(),
+        }
+    }
+
+    /// Mutably borrow the configured cache.
+    pub fn cache_mut(&mut self) -> &mut C {
+        match self {
+            Self::Zip215(verifier) => verifier.cache_mut(),
+            Self::Dalek(verifier) => verifier.cache_mut(),
+        }
+    }
+
+    /// Return the selected policy.
+    pub fn policy(&self) -> VerifyPolicy {
+        match self {
+            Self::Zip215(_) => VerifyPolicy::Zip215,
+            Self::Dalek(_) => VerifyPolicy::Dalek,
+        }
+    }
+
+    /// Verify a batch with the selected policy.
+    pub fn verify_batch(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
+        match self {
+            Self::Zip215(verifier) => verifier.verify_batch(inputs, out),
+            Self::Dalek(verifier) => verifier.verify_batch(inputs, out),
+        }
+    }
+}
+
 /// Compress every queued candidate through one shared inversion and score the
 /// chunks against their encoded `R`. Leaves both queues empty.
-fn flush_dalek_queue(queues: &mut DeferralQueues, out: &mut [bool]) {
-    let DeferralQueues {
+fn flush_dalek_queue(queues: &mut DalekQueues, out: &mut [bool]) {
+    let DalekQueues {
         dalek_candidates: candidates,
         dalek_pending: pending,
-        ..
     } = queues;
     if candidates.is_empty() {
         return;
@@ -436,12 +678,11 @@ fn flush_dalek_queue(queues: &mut DeferralQueues, out: &mut [bool]) {
 
 /// Check every queued ZIP-215 chunk, decompressing the pair of `R` chunks
 /// through interleaved chains. Leaves both queues empty.
-fn flush_zip215_queue(queues: &mut DeferralQueues, out: &mut [bool]) {
-    let DeferralQueues {
+fn flush_zip215_queue(queues: &mut Zip215Queues, out: &mut [bool]) {
+    let Zip215Queues {
         zip215_candidates: candidates,
         zip215_r_bytes: r_bytes,
         zip215_pending: pending,
-        ..
     } = queues;
     if candidates.is_empty() {
         return;

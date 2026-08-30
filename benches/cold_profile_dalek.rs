@@ -4,6 +4,8 @@
 #[path = "support/profile.rs"]
 pub mod profile;
 
+use ed25519_simd::DalekPolicy;
+
 fn main() {
-    profile::run_cold::<true>();
+    profile::run_cold::<DalekPolicy>();
 }

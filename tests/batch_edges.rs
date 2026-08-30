@@ -1,7 +1,7 @@
 mod support;
 
 use curve25519::ed_sigs::VerificationKeyBytes;
-use ed25519_simd::{HotKeyCache, NullKeyCache, Verifier, VerifyInput, VerifyPolicy};
+use ed25519_simd::{HotKeyCache, NullKeyCache, RuntimeVerifier, VerifyInput, VerifyPolicy};
 use rand::{RngCore, SeedableRng, rngs::StdRng};
 use support::{
     Case, signing_key_from_index, solana_ed25519_verify_dalek, solana_ed25519_verify_zebra,
@@ -70,7 +70,8 @@ fn bucketed_batch_shapes_match_solana_ed25519() {
                 "{name}, null-cache {policy:?}"
             );
 
-            let mut verifier = Verifier::with_cache(policy, HotKeyCache::with_capacity(1024));
+            let mut verifier =
+                RuntimeVerifier::with_cache(policy, HotKeyCache::with_capacity(1024));
             let mut out = vec![false; inputs.len()];
             verifier.verify_batch(&inputs, &mut out);
             assert_eq!(out, expected, "{name}, hot-key cache {policy:?}");
@@ -81,7 +82,7 @@ fn bucketed_batch_shapes_match_solana_ed25519() {
 #[test]
 fn each_lane_failure_is_isolated_across_small_batches() {
     for policy in [VerifyPolicy::Zip215, VerifyPolicy::Dalek] {
-        let mut verifier = Verifier::with_cache(policy, NullKeyCache::new());
+        let mut verifier = RuntimeVerifier::with_cache(policy, NullKeyCache::new());
         let empty: [VerifyInput<'_>; 0] = [];
         let mut empty_out: [bool; 0] = [];
         verifier.verify_batch(&empty, &mut empty_out);
@@ -93,7 +94,7 @@ fn each_lane_failure_is_isolated_across_small_batches() {
                 cases[bad_lane].signature[40] ^= 1;
                 let inputs: Vec<VerifyInput<'_>> = cases.iter().map(Case::input).collect();
                 let mut out = vec![false; size];
-                let mut verifier = Verifier::with_cache(policy, NullKeyCache::new());
+                let mut verifier = RuntimeVerifier::with_cache(policy, NullKeyCache::new());
 
                 verifier.verify_batch(&inputs, &mut out);
 

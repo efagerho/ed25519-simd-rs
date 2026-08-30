@@ -10,6 +10,20 @@ pub enum VerifyPolicy {
     Dalek,
 }
 
+/// ZIP-215 cofactored verification policy.
+///
+/// Use this as the policy parameter of [`Verifier`](crate::Verifier), or use
+/// the [`Zip215Verifier`](crate::Zip215Verifier) alias.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Zip215Policy;
+
+/// Dalek-compatible verification policy.
+///
+/// Use this as the policy parameter of [`Verifier`](crate::Verifier), or use
+/// the [`DalekVerifier`](crate::DalekVerifier) alias.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct DalekPolicy;
+
 /// solana-ed25519's legacy `R` blacklist, kept byte-for-byte for Dalek policy
 /// compatibility.
 const LEGACY_EXCLUDED_R_ENCODINGS: [[u8; R_ENCODING_LEN]; 11] = [
