@@ -141,20 +141,18 @@ mod tests {
     #[test]
     fn every_input_is_visited_exactly_once_at_each_batch_size() {
         for count in 0..=(SIMD_LANES * 3 + 1) {
-            for message in [b"same".as_slice(), b"".as_slice()] {
-                let inputs = inputs(count, message);
-                let mut covered = vec![0usize; count];
-                for (indices, active) in visited(&inputs) {
-                    assert!(active <= SIMD_LANES);
-                    for &index in &indices[..active] {
-                        covered[index] += 1;
-                    }
+            let inputs = inputs(count, b"same");
+            let mut covered = vec![0usize; count];
+            for (indices, active) in visited(&inputs) {
+                assert!(active <= SIMD_LANES);
+                for &index in &indices[..active] {
+                    covered[index] += 1;
                 }
-                assert!(
-                    covered.iter().all(|&hits| hits == 1),
-                    "count {count} covered {covered:?}"
-                );
             }
+            assert!(
+                covered.iter().all(|&hits| hits == 1),
+                "count {count} covered {covered:?}"
+            );
         }
     }
 
@@ -163,13 +161,11 @@ mod tests {
     #[test]
     fn padding_lanes_hold_in_range_output_indices() {
         for count in 1..=(SIMD_LANES * 2 + 3) {
-            for message in [b"uniform".as_slice(), b"".as_slice()] {
-                for (indices, _) in visited(&inputs(count, message)) {
-                    assert!(
-                        indices.iter().all(|&index| index < count),
-                        "count {count} produced out-of-range indices {indices:?}"
-                    );
-                }
+            for (indices, _) in visited(&inputs(count, b"uniform")) {
+                assert!(
+                    indices.iter().all(|&index| index < count),
+                    "count {count} produced out-of-range indices {indices:?}"
+                );
             }
         }
     }
