@@ -483,10 +483,7 @@ mod avx512 {
     fn digest_words_from_state(state: [__m512i; 8]) -> [[u64; LANES]; 8] {
         let mut words = [[0u64; LANES]; 8];
         for (word, &s) in state.iter().enumerate() {
-            storeu(s, &mut words[word]);
-            for lane_word in &mut words[word] {
-                *lane_word = lane_word.swap_bytes();
-            }
+            storeu(byte_swap_lanes(s), &mut words[word]);
         }
         words
     }
