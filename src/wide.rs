@@ -35,21 +35,17 @@ pub(crate) mod avx512ifma {
     /// A ZIP-215 ladder result waiting for its `R` point to be decompressed.
     pub(crate) struct Zip215Candidate(WidePoint);
 
-    impl core::fmt::Debug for Zip215Candidate {
-        fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            formatter
-                .debug_struct("Zip215Candidate")
-                .finish_non_exhaustive()
-        }
+    // A queued candidate is an opaque curve point; name it and stop.
+    macro_rules! opaque_debug {
+        ($($type:ident),+) => {$(
+            impl core::fmt::Debug for $type {
+                fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                    formatter.debug_struct(stringify!($type)).finish_non_exhaustive()
+                }
+            }
+        )+};
     }
-
-    impl core::fmt::Debug for DalekCandidate {
-        fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            formatter
-                .debug_struct("DalekCandidate")
-                .finish_non_exhaustive()
-        }
-    }
+    opaque_debug!(Zip215Candidate, DalekCandidate);
 
     impl WideRPoint {
         /// Dalek-invalid negative-zero lanes.
@@ -220,47 +216,53 @@ pub(crate) mod avx512ifma {
     /// SIMD point.
     /// Every slot is filled, including lanes whose decode failed; the caller
     /// discards those by mask.
-    fn build_tables_from_point(p: WidePoint, tables: &mut [Option<PointTable>; LANES]) {
-        for table in tables.iter_mut() {
-            // SAFETY: the calls below fill positive and negative 1..=8 before
-            // this function returns or any table can be selected.
-            *table = Some(unsafe { PointTable::decode_destination() });
-        }
+    /// Walk `P..8P` as a depth-4 tree, handing each multiple to `write` as soon
+    /// as it exists so no array of eight points is ever live.
+    ///
+    /// `COLD` selects the initialization-only arithmetic, whose out-of-line
+    /// copies keep setup call sites from perturbing the hot builder's inlining.
+    #[inline(always)]
+    fn for_each_table_multiple<const COLD: bool>(
+        p: WidePoint,
+        mut write: impl FnMut(usize, &WidePoint),
+    ) {
+        write(1, &p);
 
-        write_cached_multiple(1, &p, tables);
-
-        // Build P..8P as a depth-4 tree, writing each point immediately.
-        let p2 = p.double_from_affine();
-        write_cached_multiple(2, &p2, tables);
+        let p2 = if COLD {
+            p.cold_double_from_affine()
+        } else {
+            p.double_from_affine()
+        };
+        write(2, &p2);
 
         let p3 = p2.add_affine_rhs(&p);
-        write_cached_multiple(3, &p3, tables);
+        write(3, &p3);
 
         let p4 = p2.double();
-        write_cached_multiple(4, &p4, tables);
+        write(4, &p4);
 
-        write_cached_multiple(5, &p4.add_affine_rhs(&p), tables);
-        write_cached_multiple(6, &p3.double(), tables);
-        write_cached_multiple(7, &p4.add(&p3), tables);
-        write_cached_multiple(8, &p4.double(), tables);
+        write(5, &p4.add_affine_rhs(&p));
+        write(6, &p3.double());
+        write(7, &if COLD { p4.cold_add(&p3) } else { p4.add(&p3) });
+        write(8, &p4.double());
+    }
+
+    fn build_tables_from_point(p: WidePoint, tables: &mut [Option<PointTable>; LANES]) {
+        for table in tables.iter_mut() {
+            // SAFETY: `for_each_table_multiple` fills positive and negative
+            // 1..=8 before this function returns or any table can be selected.
+            *table = Some(unsafe { PointTable::decode_destination() });
+        }
+        for_each_table_multiple::<false>(p, |multiple, point| {
+            write_cached_multiple(multiple, point, tables)
+        });
     }
 
     fn build_lane0_table_from_point(p: WidePoint) -> PointTable {
         let mut table = PointTable::cold_identity();
-        write_cached_multiple_lane0(1, &p, &mut table);
-
-        let p2 = p.cold_double_from_affine();
-        write_cached_multiple_lane0(2, &p2, &mut table);
-
-        let p3 = p2.add_affine_rhs(&p);
-        write_cached_multiple_lane0(3, &p3, &mut table);
-
-        let p4 = p2.double();
-        write_cached_multiple_lane0(4, &p4, &mut table);
-        write_cached_multiple_lane0(5, &p4.add_affine_rhs(&p), &mut table);
-        write_cached_multiple_lane0(6, &p3.double(), &mut table);
-        write_cached_multiple_lane0(7, &p4.cold_add(&p3), &mut table);
-        write_cached_multiple_lane0(8, &p4.double(), &mut table);
+        for_each_table_multiple::<true>(p, |multiple, point| {
+            write_cached_multiple_lane0(multiple, point, &mut table)
+        });
         table
     }
 
@@ -1020,7 +1022,10 @@ pub(crate) mod avx512ifma {
             let (lo, hi) = self.multiply_accum(rhs);
             Self::reduce_ifma(lo, hi)
         }
-        fn pow_p_minus_5_over_8(&self) -> Self {
+        /// The `(p-5)/8` addition chain, held in one place so the hot and
+        /// initialization-only entry points cannot drift apart.
+        #[inline(always)]
+        fn pow_p_minus_5_over_8_chain(&self) -> Self {
             let t0 = self.square();
             let t1 = t0.square_repeat::<2>().multiply(self);
             let t0 = t0.multiply(&t1);
@@ -1039,29 +1044,20 @@ pub(crate) mod avx512ifma {
             let t0 = t1.multiply(&t0);
             t0.square_repeat::<2>().multiply(self)
         }
+        fn pow_p_minus_5_over_8(&self) -> Self {
+            self.pow_p_minus_5_over_8_chain()
+        }
 
+        /// Initialization-only copy. The out-of-line wrapper keeps setup call
+        /// sites from perturbing the hot path's inlining.
         #[inline(never)]
         fn cold_pow_p_minus_5_over_8(&self) -> Self {
-            let t0 = self.square();
-            let t1 = t0.square_repeat::<2>().multiply(self);
-            let t0 = t0.multiply(&t1);
-            let t0 = t0.square().multiply(&t1);
-            let t1 = t0.square_repeat::<5>();
-            let t0 = t1.multiply(&t0);
-            let t1 = t0.square_repeat::<10>().multiply(&t0);
-            let t2 = t1.square_repeat::<20>();
-            let t1 = t2.multiply(&t1);
-            let t1 = t1.square_repeat::<10>();
-            let t0 = t1.multiply(&t0);
-            let t1 = t0.square_repeat::<50>().multiply(&t0);
-            let t2 = t1.square_repeat::<100>();
-            let t1 = t2.multiply(&t1);
-            let t1 = t1.square_repeat::<50>();
-            let t0 = t1.multiply(&t0);
-            t0.square_repeat::<2>().multiply(self)
+            self.pow_p_minus_5_over_8_chain()
         }
 
-        fn invert(&self) -> Self {
+        /// The inversion addition chain, shared by both entry points.
+        #[inline(always)]
+        fn invert_chain(&self) -> Self {
             let z = self;
             let t0 = z.square();
             let t1 = t0.square_repeat::<2>().multiply(z);
@@ -1076,21 +1072,14 @@ pub(crate) mod avx512ifma {
             let h = g.square_repeat::<50>().multiply(&e);
             h.square_repeat::<5>().multiply(&z11)
         }
+        fn invert(&self) -> Self {
+            self.invert_chain()
+        }
+
+        /// Initialization-only copy; see [`cold_pow_p_minus_5_over_8`](Self::cold_pow_p_minus_5_over_8).
         #[inline(never)]
         fn cold_invert(&self) -> Self {
-            let z = self;
-            let t0 = z.square();
-            let t1 = t0.square_repeat::<2>().multiply(z);
-            let z11 = t0.multiply(&t1);
-            let a = z11.square().multiply(&t1);
-            let b = a.square_repeat::<5>().multiply(&a);
-            let c = b.square_repeat::<10>().multiply(&b);
-            let d = c.square_repeat::<20>().multiply(&c);
-            let e = d.square_repeat::<10>().multiply(&b);
-            let f = e.square_repeat::<50>().multiply(&e);
-            let g = f.square_repeat::<100>().multiply(&f);
-            let h = g.square_repeat::<50>().multiply(&e);
-            h.square_repeat::<5>().multiply(&z11)
+            self.invert_chain()
         }
         // Keep intermediates loose; reduce only the final result for multiplication.
         fn square_repeat<const N: usize>(&self) -> Self {
@@ -1410,6 +1399,9 @@ pub(crate) mod avx512ifma {
             );
             self.add_impl::<true>(rhs)
         }
+        // Always inline: `cold_add` shares this body, and letting that third
+        // caller outline it puts a call in the hot table builder's `add`.
+        #[inline(always)]
         fn add_impl<const AFFINE_RHS: bool>(&self, rhs: &Self) -> Self {
             let a = self.y.subtract(&self.x).multiply(&rhs.y.subtract(&rhs.x));
             let b = self.y.add_loose(&self.x).multiply(&rhs.y.add_loose(&rhs.x));
@@ -1436,21 +1428,7 @@ pub(crate) mod avx512ifma {
         /// sites separate preserves the hot table builder's inlining choices.
         #[inline(never)]
         fn cold_add(&self, rhs: &Self) -> Self {
-            let a = self.y.subtract(&self.x).multiply(&rhs.y.subtract(&rhs.x));
-            let b = self.y.add_loose(&self.x).multiply(&rhs.y.add_loose(&rhs.x));
-            let c = self.t.multiply(&rhs.t).multiply(&WideFe::two_d());
-            let d = self.z.multiply(&rhs.z).double_loose();
-            let e = b.subtract(&a);
-            let f = d.subtract(&c);
-            let g = d.add_loose(&c);
-            let h = b.add_loose(&a);
-
-            Self {
-                x: e.multiply(&f),
-                y: g.multiply(&h),
-                t: e.multiply(&h),
-                z: f.multiply(&g),
-            }
+            self.add_impl::<false>(rhs)
         }
         /// Add the per-lane cached points selected for one digit.
         ///
@@ -1555,23 +1533,7 @@ pub(crate) mod avx512ifma {
                 self.z.equals_lanes(&WideFe::one()).iter().all(|&eq| eq),
                 "cold_double_from_affine requires z == 1 in every lane"
             );
-            let a = self.x.square_loose();
-            let b = self.y.square_loose();
-            let e = self
-                .x
-                .add_loose(&self.y)
-                .square_loose()
-                .subtract_loose_sum(&a, &b);
-            let g = b.subtract_loose(&a);
-            let f = b.subtract_loose_sum_with_doubled_rhs(&a, &WideFe::one());
-            let h = WideFe::negate_loose_sum(&a, &b);
-
-            Self {
-                x: e.multiply(&f),
-                y: g.multiply(&h),
-                t: e.multiply(&h),
-                z: f.multiply(&g),
-            }
+            self.double_impl::<true, true>()
         }
         fn double_without_t(&self) -> Self {
             self.double_impl::<false, false>()
