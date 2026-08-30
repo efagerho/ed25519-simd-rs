@@ -810,51 +810,52 @@ pub(crate) mod avx512ifma {
                 let mut lo = [z; LIMB_COUNT];
                 let mut hi = [z; LIMB_COUNT];
 
-                // Normalize loose limb0 to keep doubled IFMA inputs under 52 bits.
+                // Carry only loose limb0. The remaining limbs may be just over
+                // 51 bits, but are still valid IFMA52 inputs. Cross-products
+                // are doubled in their accumulators instead of doubling an
+                // input and forcing a full carry chain.
                 let limbs = {
                     let mask = _mm512_set1_epi64(LIMB_MASK as i64);
                     let mut l = self.limbs;
-                    let mut i = 0;
-                    while i < 4 {
-                        let carry = _mm512_srli_epi64(l[i], 51);
-                        l[i] = _mm512_and_si512(l[i], mask);
-                        l[i + 1] = _mm512_add_epi64(l[i + 1], carry);
-                        i += 1;
-                    }
+                    let carry = _mm512_srli_epi64(l[0], 51);
+                    l[0] = _mm512_and_si512(l[0], mask);
+                    l[1] = _mm512_add_epi64(l[1], carry);
                     l
                 };
 
-                let f0_2 = _mm512_add_epi64(limbs[0], limbs[0]);
-                let f1_2 = _mm512_add_epi64(limbs[1], limbs[1]);
-                let f2_2 = _mm512_add_epi64(limbs[2], limbs[2]);
-                let f3_2 = _mm512_add_epi64(limbs[3], limbs[3]);
-
                 madd_one(&mut lo[0], &mut hi[0], limbs[0], limbs[0]);
                 let (mut wlo, mut whi) = (z, z);
-                madd_one(&mut wlo, &mut whi, f1_2, limbs[4]);
-                madd_one(&mut wlo, &mut whi, f2_2, limbs[3]);
+                madd_one(&mut wlo, &mut whi, limbs[1], limbs[4]);
+                madd_one(&mut wlo, &mut whi, limbs[2], limbs[3]);
+                double_accum(&mut wlo, &mut whi);
                 add_wrap19(&mut lo[0], &mut hi[0], wlo, whi);
 
-                madd_one(&mut lo[1], &mut hi[1], f0_2, limbs[1]);
+                madd_one(&mut lo[1], &mut hi[1], limbs[0], limbs[1]);
+                double_accum(&mut lo[1], &mut hi[1]);
                 let (mut wlo, mut whi) = (z, z);
-                madd_one(&mut wlo, &mut whi, f2_2, limbs[4]);
+                madd_one(&mut wlo, &mut whi, limbs[2], limbs[4]);
+                double_accum(&mut wlo, &mut whi);
                 madd_one(&mut wlo, &mut whi, limbs[3], limbs[3]);
                 add_wrap19(&mut lo[1], &mut hi[1], wlo, whi);
 
-                madd_one(&mut lo[2], &mut hi[2], f0_2, limbs[2]);
+                madd_one(&mut lo[2], &mut hi[2], limbs[0], limbs[2]);
+                double_accum(&mut lo[2], &mut hi[2]);
                 madd_one(&mut lo[2], &mut hi[2], limbs[1], limbs[1]);
                 let (mut wlo, mut whi) = (z, z);
-                madd_one(&mut wlo, &mut whi, f3_2, limbs[4]);
+                madd_one(&mut wlo, &mut whi, limbs[3], limbs[4]);
+                double_accum(&mut wlo, &mut whi);
                 add_wrap19(&mut lo[2], &mut hi[2], wlo, whi);
 
-                madd_one(&mut lo[3], &mut hi[3], f0_2, limbs[3]);
-                madd_one(&mut lo[3], &mut hi[3], f1_2, limbs[2]);
+                madd_one(&mut lo[3], &mut hi[3], limbs[0], limbs[3]);
+                madd_one(&mut lo[3], &mut hi[3], limbs[1], limbs[2]);
+                double_accum(&mut lo[3], &mut hi[3]);
                 let (mut wlo, mut whi) = (z, z);
                 madd_one(&mut wlo, &mut whi, limbs[4], limbs[4]);
                 add_wrap19(&mut lo[3], &mut hi[3], wlo, whi);
 
-                madd_one(&mut lo[4], &mut hi[4], f0_2, limbs[4]);
-                madd_one(&mut lo[4], &mut hi[4], f1_2, limbs[3]);
+                madd_one(&mut lo[4], &mut hi[4], limbs[0], limbs[4]);
+                madd_one(&mut lo[4], &mut hi[4], limbs[1], limbs[3]);
+                double_accum(&mut lo[4], &mut hi[4]);
                 madd_one(&mut lo[4], &mut hi[4], limbs[2], limbs[2]);
 
                 (lo, hi)
@@ -1658,6 +1659,13 @@ pub(crate) mod avx512ifma {
         unsafe {
             *lo = _mm512_madd52lo_epu64(*lo, a, b);
             *hi = _mm512_madd52hi_epu64(*hi, a, b);
+        }
+    }
+    #[inline(always)]
+    fn double_accum(lo: &mut __m512i, hi: &mut __m512i) {
+        unsafe {
+            *lo = _mm512_add_epi64(*lo, *lo);
+            *hi = _mm512_add_epi64(*hi, *hi);
         }
     }
     fn add_wrap19(lo: &mut __m512i, hi: &mut __m512i, wrap_lo: __m512i, wrap_hi: __m512i) {
