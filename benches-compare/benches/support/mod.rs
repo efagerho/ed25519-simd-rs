@@ -293,7 +293,7 @@ fn bench_hot_keys_scenario<P: VerificationPolicy>(
     group.finish();
 }
 
-fn bench_cold_scenario<P: VerificationPolicy>(
+fn bench_cold_scenario<P: VerificationPolicy, const COMPARISONS: bool>(
     c: &mut Criterion,
     group_name: &str,
     msg_len: MsgLen,
@@ -310,7 +310,7 @@ fn bench_cold_scenario<P: VerificationPolicy>(
             n,
             &inputs,
         );
-        if P::POLICY == VerifyPolicy::Dalek {
+        if COMPARISONS && P::POLICY == VerifyPolicy::Dalek {
             group.bench_with_input(
                 BenchmarkId::new("solana_ed25519/dalek_loop", n),
                 &n,
@@ -335,7 +335,7 @@ fn bench_cold_scenario<P: VerificationPolicy>(
             group.bench_with_input(BenchmarkId::new("openssl/loop", n), &n, |b, _| {
                 b.iter(|| openssl_loop(black_box(&inputs)))
             });
-        } else {
+        } else if COMPARISONS {
             group.bench_with_input(
                 BenchmarkId::new("solana_ed25519/zip215_batch", n),
                 &n,
@@ -381,7 +381,7 @@ fn bench_hot_ragged_batches<P: VerificationPolicy>(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_cold_invalid_scenario<P: VerificationPolicy>(
+fn bench_cold_invalid_scenario<P: VerificationPolicy, const COMPARISONS: bool>(
     c: &mut Criterion,
     group_name: &str,
     invalid_pct: u64,
@@ -400,7 +400,7 @@ fn bench_cold_invalid_scenario<P: VerificationPolicy>(
             n,
             &inputs,
         );
-        if P::POLICY == VerifyPolicy::Dalek {
+        if COMPARISONS && P::POLICY == VerifyPolicy::Dalek {
             group.bench_with_input(BenchmarkId::new("ed25519_dalek/batch", n), &n, |b, _| {
                 b.iter(|| dalek_batch(black_box(&inputs)))
             });
@@ -412,7 +412,7 @@ fn bench_cold_invalid_scenario<P: VerificationPolicy>(
                 &n,
                 |b, _| b.iter(|| solana_ed25519_dalek_loop(black_box(&inputs))),
             );
-        } else {
+        } else if COMPARISONS {
             group.bench_with_input(
                 BenchmarkId::new("solana_ed25519/zip215_batch", n),
                 &n,
@@ -424,11 +424,11 @@ fn bench_cold_invalid_scenario<P: VerificationPolicy>(
 }
 
 pub fn cold_distinct_keys_len1<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_cold_scenario::<P>(c, "distinct_keys/msg_len_1", MsgLen::Fixed(1));
+    bench_cold_scenario::<P, true>(c, "distinct_keys/msg_len_1", MsgLen::Fixed(1));
 }
 
 pub fn cold_malformed_25<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_cold_invalid_scenario::<P>(
+    bench_cold_invalid_scenario::<P, true>(
         c,
         "malformed_sigs/invalid_25pct",
         25,
@@ -437,7 +437,7 @@ pub fn cold_malformed_25<P: VerificationPolicy>(c: &mut Criterion) {
 }
 
 pub fn cold_malformed_50<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_cold_invalid_scenario::<P>(
+    bench_cold_invalid_scenario::<P, true>(
         c,
         "malformed_sigs/invalid_50pct",
         50,
@@ -446,7 +446,7 @@ pub fn cold_malformed_50<P: VerificationPolicy>(c: &mut Criterion) {
 }
 
 pub fn cold_well_formed_invalid_25<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_cold_invalid_scenario::<P>(
+    bench_cold_invalid_scenario::<P, true>(
         c,
         "well_formed_invalid/wrong_message_25pct",
         25,
@@ -455,7 +455,7 @@ pub fn cold_well_formed_invalid_25<P: VerificationPolicy>(c: &mut Criterion) {
 }
 
 pub fn cold_well_formed_invalid_50<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_cold_invalid_scenario::<P>(
+    bench_cold_invalid_scenario::<P, true>(
         c,
         "well_formed_invalid/wrong_message_50pct",
         50,
@@ -464,11 +464,59 @@ pub fn cold_well_formed_invalid_50<P: VerificationPolicy>(c: &mut Criterion) {
 }
 
 pub fn cold_distinct_keys_len1024<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_cold_scenario::<P>(c, "distinct_keys/msg_len_1024", MsgLen::Fixed(1024));
+    bench_cold_scenario::<P, true>(c, "distinct_keys/msg_len_1024", MsgLen::Fixed(1024));
 }
 
 pub fn cold_distinct_keys_mixed_len<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_cold_scenario::<P>(c, "distinct_keys/msg_len_mixed", MsgLen::Mixed);
+    bench_cold_scenario::<P, true>(c, "distinct_keys/msg_len_mixed", MsgLen::Mixed);
+}
+
+pub fn simd_cold_distinct_keys_len1<P: VerificationPolicy>(c: &mut Criterion) {
+    bench_cold_scenario::<P, false>(c, "distinct_keys/msg_len_1", MsgLen::Fixed(1));
+}
+
+pub fn simd_cold_distinct_keys_len1024<P: VerificationPolicy>(c: &mut Criterion) {
+    bench_cold_scenario::<P, false>(c, "distinct_keys/msg_len_1024", MsgLen::Fixed(1024));
+}
+
+pub fn simd_cold_distinct_keys_mixed_len<P: VerificationPolicy>(c: &mut Criterion) {
+    bench_cold_scenario::<P, false>(c, "distinct_keys/msg_len_mixed", MsgLen::Mixed);
+}
+
+pub fn simd_cold_malformed_25<P: VerificationPolicy>(c: &mut Criterion) {
+    bench_cold_invalid_scenario::<P, false>(
+        c,
+        "malformed_sigs/invalid_25pct",
+        25,
+        InvalidKind::MalformedSignature,
+    );
+}
+
+pub fn simd_cold_malformed_50<P: VerificationPolicy>(c: &mut Criterion) {
+    bench_cold_invalid_scenario::<P, false>(
+        c,
+        "malformed_sigs/invalid_50pct",
+        50,
+        InvalidKind::MalformedSignature,
+    );
+}
+
+pub fn simd_cold_well_formed_invalid_25<P: VerificationPolicy>(c: &mut Criterion) {
+    bench_cold_invalid_scenario::<P, false>(
+        c,
+        "well_formed_invalid/wrong_message_25pct",
+        25,
+        InvalidKind::WellFormedWrongMessage,
+    );
+}
+
+pub fn simd_cold_well_formed_invalid_50<P: VerificationPolicy>(c: &mut Criterion) {
+    bench_cold_invalid_scenario::<P, false>(
+        c,
+        "well_formed_invalid/wrong_message_50pct",
+        50,
+        InvalidKind::WellFormedWrongMessage,
+    );
 }
 
 pub fn cold_ragged_batches<P: VerificationPolicy>(c: &mut Criterion) {

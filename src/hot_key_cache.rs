@@ -169,11 +169,22 @@ impl HotKeyCache {
 impl crate::cache::private::Sealed for HotKeyCache {}
 
 impl KeyCache for HotKeyCache {
+    type Queues<P: crate::VerificationPolicy> = P::Queues;
+
     #[inline]
     fn get(&self, encoded: &[u8; PUBLIC_KEY_LEN]) -> Option<&CachedPublicKey> {
         let slot = *self.index.get(encoded)?;
         self.touch(slot);
         Some(&self.entries[slot].key)
+    }
+
+    #[inline]
+    fn dispatch_verify_batch<P: crate::VerificationPolicy>(
+        verifier: &mut crate::Verifier<P, Self>,
+        inputs: &[crate::VerifyInput<'_>],
+        out: &mut [bool],
+    ) {
+        P::dispatch_cached_verify_batch(verifier, inputs, out);
     }
 
     fn insert(&mut self, key: CachedPublicKey) {

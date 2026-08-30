@@ -1,6 +1,7 @@
 use crate::batch::{self, PreparedChunk};
 use crate::cache::{CachedPublicKey, KeyCache, NullKeyCache};
 use crate::edwards::{BasepointTable, BasepointTableEntries, PointTable};
+use crate::hot_key_cache::HotKeyCache;
 use crate::policy::{
     DalekPolicy, VerifyPolicy, Zip215Policy, r_encoding_has_canonical_y,
     r_encoding_is_legacy_excluded,
@@ -115,10 +116,18 @@ pub trait VerificationPolicy: sealed::Sealed + Copy + core::fmt::Debug + Default
     /// The corresponding runtime policy value.
     const POLICY: VerifyPolicy;
 
-    /// Dispatch into the monomorphized policy implementation.
+    /// Dispatch into the monomorphized cached implementation.
     #[doc(hidden)]
-    fn dispatch_verify_batch<C: KeyCache>(
-        verifier: &mut Verifier<Self, C>,
+    fn dispatch_cached_verify_batch(
+        verifier: &mut Verifier<Self, HotKeyCache>,
+        inputs: &[VerifyInput<'_>],
+        out: &mut [bool],
+    );
+
+    /// Dispatch into the monomorphized cache-free implementation.
+    #[doc(hidden)]
+    fn dispatch_uncached_verify_batch(
+        verifier: &mut Verifier<Self, NullKeyCache>,
         inputs: &[VerifyInput<'_>],
         out: &mut [bool],
     );
@@ -151,6 +160,23 @@ trait PolicyOps: VerificationPolicy {
     fn flush_queue(queues: &mut Self::Queues, out: &mut [bool]);
 }
 
+trait UncachedPolicyOps: VerificationPolicy {
+    fn decode_keys_and_r(
+        keys: &[[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
+        r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
+        key_tables: &mut [Option<PointTable>; SIMD_LANES],
+    ) -> (u8, avx512ifma::WideRPoint, u8);
+
+    fn verify_decoded_lanes(
+        verifier: &Verifier<Self, NullKeyCache>,
+        prepared: &PreparedChunk<'_>,
+        r_points: &avx512ifma::WideRPoint,
+        r_valid_lanes: &[bool; SIMD_LANES],
+        lanes: &ScoredLanes<'_>,
+        out: &mut [bool; SIMD_LANES],
+    );
+}
+
 /// Batch Ed25519 verifier for a compile-time [`VerificationPolicy`] and [`KeyCache`].
 /// Reuse one across [`verify_batch`](Verifier::verify_batch) calls.
 #[derive(Debug)]
@@ -160,7 +186,7 @@ pub struct Verifier<P: VerificationPolicy = Zip215Policy, C: KeyCache = NullKeyC
     // Invalid lanes are masked out but still need a real ladder table.
     identity_table: &'static PointTable,
     bucket_order: Vec<usize>,
-    queues: P::Queues,
+    queues: C::Queues<P>,
     scratch: Box<ChunkScratch>,
     cache: C,
 }
@@ -204,7 +230,7 @@ impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
             base_table: BASE_TABLE.entries(),
             identity_table: &*IDENTITY_TABLE,
             bucket_order: Vec::new(),
-            queues: P::Queues::default(),
+            queues: C::Queues::<P>::default(),
             scratch: Box::new(ChunkScratch::new()),
             cache,
         }
@@ -232,7 +258,7 @@ impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
     ///
     /// Panics if `inputs.len() != out.len()`.
     pub fn verify_batch(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
-        P::dispatch_verify_batch(self, inputs, out);
+        C::dispatch_verify_batch(self, inputs, out);
     }
 
     /// Verify one chunk, returning whether its policy-specific result was
@@ -422,18 +448,86 @@ impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
     }
 }
 
+impl<P: VerificationPolicy> Verifier<P, NullKeyCache> {
+    /// Verify one chunk on the configuration where every cache lookup is
+    /// statically known to miss.
+    fn verify_uncached_chunk(
+        &mut self,
+        inputs: &[VerifyInput<'_>; SIMD_LANES],
+        out: &mut [bool; SIMD_LANES],
+    ) where
+        P: UncachedPolicyOps,
+    {
+        let ParsedChunk {
+            mut valid,
+            r_bytes,
+            public_keys,
+            s_digits,
+            messages,
+        } = parse_chunk_inputs(inputs);
+        if !any_lane(&valid) {
+            return;
+        }
+
+        let (key_valid_bits, r_points, r_valid_bits) =
+            P::decode_keys_and_r(&public_keys, &r_bytes, &mut self.scratch.key_tables);
+        let decoded_key_lanes = avx512ifma::mask_to_lanes(key_valid_bits);
+        let r_valid_lanes = avx512ifma::mask_to_lanes(r_valid_bits);
+
+        let public_key_tables: [&PointTable; SIMD_LANES] = core::array::from_fn(|lane| {
+            if decoded_key_lanes[lane] {
+                self.scratch.key_tables[lane]
+                    .as_ref()
+                    .expect("a valid decoded lane has a table")
+            } else {
+                valid[lane] = false;
+                self.identity_table
+            }
+        });
+
+        if any_lane(&valid) {
+            let k_digits = challenge_digits(&r_bytes, &public_keys, messages);
+            let prepared = PreparedChunk {
+                public_key_tables,
+                s_digits: &s_digits,
+                k_digits: &k_digits,
+            };
+            let lanes = ScoredLanes {
+                r_bytes: &r_bytes,
+                public_keys: &public_keys,
+                valid: &valid,
+            };
+            P::verify_decoded_lanes(self, &prepared, &r_points, &r_valid_lanes, &lanes, out);
+        }
+
+        // Decoding fills every scratch slot. NullKeyCache retains none of them.
+        for table in &mut self.scratch.key_tables {
+            let _ = table.take().expect("a decode fills every lane's slot");
+        }
+    }
+}
+
 impl VerificationPolicy for Zip215Policy {
     type Queues = Zip215Queues;
 
     const POLICY: VerifyPolicy = VerifyPolicy::Zip215;
 
     #[inline]
-    fn dispatch_verify_batch<C: KeyCache>(
-        verifier: &mut Verifier<Self, C>,
+    fn dispatch_cached_verify_batch(
+        verifier: &mut Verifier<Self, HotKeyCache>,
         inputs: &[VerifyInput<'_>],
         out: &mut [bool],
     ) {
-        verify_batch_for(verifier, inputs, out);
+        verify_cached_batch_for(verifier, inputs, out);
+    }
+
+    #[inline]
+    fn dispatch_uncached_verify_batch(
+        verifier: &mut Verifier<Self, NullKeyCache>,
+        inputs: &[VerifyInput<'_>],
+        out: &mut [bool],
+    ) {
+        verify_uncached_batch_for(verifier, inputs, out);
     }
 }
 
@@ -487,18 +581,54 @@ impl PolicyOps for Zip215Policy {
     }
 }
 
+impl UncachedPolicyOps for Zip215Policy {
+    #[inline(always)]
+    fn decode_keys_and_r(
+        keys: &[[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
+        r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
+        key_tables: &mut [Option<PointTable>; SIMD_LANES],
+    ) -> (u8, avx512ifma::WideRPoint, u8) {
+        avx512ifma::decode_keys_and_decompress_r::<false>(keys, r_bytes, key_tables)
+    }
+
+    #[inline(always)]
+    fn verify_decoded_lanes(
+        verifier: &Verifier<Self, NullKeyCache>,
+        prepared: &PreparedChunk<'_>,
+        r_points: &avx512ifma::WideRPoint,
+        r_valid_lanes: &[bool; SIMD_LANES],
+        lanes: &ScoredLanes<'_>,
+        out: &mut [bool; SIMD_LANES],
+    ) {
+        let equation_holds =
+            avx512ifma::verify_prepared_zip215(prepared, r_points, verifier.base_table);
+        for lane in 0..SIMD_LANES {
+            out[lane] = equation_holds[lane] && lanes.valid[lane] && r_valid_lanes[lane];
+        }
+    }
+}
+
 impl VerificationPolicy for DalekPolicy {
     type Queues = DalekQueues;
 
     const POLICY: VerifyPolicy = VerifyPolicy::Dalek;
 
     #[inline]
-    fn dispatch_verify_batch<C: KeyCache>(
-        verifier: &mut Verifier<Self, C>,
+    fn dispatch_cached_verify_batch(
+        verifier: &mut Verifier<Self, HotKeyCache>,
         inputs: &[VerifyInput<'_>],
         out: &mut [bool],
     ) {
-        verify_batch_for(verifier, inputs, out);
+        verify_cached_batch_for(verifier, inputs, out);
+    }
+
+    #[inline]
+    fn dispatch_uncached_verify_batch(
+        verifier: &mut Verifier<Self, NullKeyCache>,
+        inputs: &[VerifyInput<'_>],
+        out: &mut [bool],
+    ) {
+        verify_uncached_batch_for(verifier, inputs, out);
     }
 }
 
@@ -555,8 +685,46 @@ impl PolicyOps for DalekPolicy {
     }
 }
 
-fn verify_batch_for<P: PolicyOps, C: KeyCache>(
-    verifier: &mut Verifier<P, C>,
+impl UncachedPolicyOps for DalekPolicy {
+    #[inline(always)]
+    fn decode_keys_and_r(
+        keys: &[[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
+        r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
+        key_tables: &mut [Option<PointTable>; SIMD_LANES],
+    ) -> (u8, avx512ifma::WideRPoint, u8) {
+        avx512ifma::decode_keys_and_decompress_r::<true>(keys, r_bytes, key_tables)
+    }
+
+    #[inline(always)]
+    fn verify_decoded_lanes(
+        verifier: &Verifier<Self, NullKeyCache>,
+        prepared: &PreparedChunk<'_>,
+        r_points: &avx512ifma::WideRPoint,
+        r_valid_lanes: &[bool; SIMD_LANES],
+        lanes: &ScoredLanes<'_>,
+        out: &mut [bool; SIMD_LANES],
+    ) {
+        let equation_holds = avx512ifma::verify_prepared_dalek_decompressed_r(
+            prepared,
+            r_points,
+            verifier.base_table,
+        );
+        let r_x_zero = r_points.x_zero_lanes();
+        for lane in 0..SIMD_LANES {
+            let r_bytes = &lanes.r_bytes[lane];
+            let signed_zero = r_x_zero[lane] && r_bytes[31] & 0x80 != 0;
+            out[lane] = equation_holds[lane]
+                && lanes.valid[lane]
+                && r_valid_lanes[lane]
+                && r_encoding_has_canonical_y(r_bytes)
+                && !signed_zero
+                && !dalek_legacy_excluded(&lanes.public_keys[lane], r_bytes);
+        }
+    }
+}
+
+fn verify_cached_batch_for<P: PolicyOps>(
+    verifier: &mut Verifier<P, HotKeyCache>,
     inputs: &[VerifyInput<'_>],
     out: &mut [bool],
 ) {
@@ -587,6 +755,27 @@ fn verify_batch_for<P: PolicyOps, C: KeyCache>(
     P::flush_queue(&mut queues, out);
     verifier.bucket_order = bucket_order;
     verifier.queues = queues;
+}
+
+fn verify_uncached_batch_for<P: UncachedPolicyOps>(
+    verifier: &mut Verifier<P, NullKeyCache>,
+    inputs: &[VerifyInput<'_>],
+    out: &mut [bool],
+) {
+    assert_eq!(inputs.len(), out.len());
+    let mut bucket_order = core::mem::take(&mut verifier.bucket_order);
+    batch::for_each_simd_chunk(
+        inputs,
+        &mut bucket_order,
+        |chunk, output_indices, active_lane_count| {
+            let mut tmp = [false; SIMD_LANES];
+            verifier.verify_uncached_chunk(chunk, &mut tmp);
+            for (&index, &value) in output_indices[..active_lane_count].iter().zip(&tmp) {
+                out[index] = value;
+            }
+        },
+    );
+    verifier.bucket_order = bucket_order;
 }
 
 impl Default for RuntimeVerifier<NullKeyCache> {
