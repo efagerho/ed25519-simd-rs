@@ -27,6 +27,14 @@ name = "dalek_cold"
 harness = false
 
 [[bench]]
+name = "zip215_cold_self"
+harness = false
+
+[[bench]]
+name = "dalek_cold_self"
+harness = false
+
+[[bench]]
 name = "zip215_hot"
 harness = false
 

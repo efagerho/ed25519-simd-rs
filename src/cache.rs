@@ -1,5 +1,6 @@
 use crate::batch::PUBLIC_KEY_LEN;
 use crate::edwards::PointTable;
+use crate::verifier::{VerificationPolicy, Verifier, VerifyInput};
 use crate::wide::avx512ifma;
 
 pub(crate) mod private {
@@ -26,6 +27,10 @@ impl CachedPublicKey {
 /// retains repeated keys across batches. This trait is sealed; downstream
 /// crates can select a provided policy but cannot implement their own.
 pub trait KeyCache: private::Sealed {
+    /// Policy/cache-specific reusable verification state.
+    #[doc(hidden)]
+    type Queues<P: VerificationPolicy>: core::fmt::Debug + Default;
+
     /// Borrow a cached key, or `None` if it is absent. Implementations may
     /// update recency state through interior mutability.
     fn get(&self, encoded: &[u8; PUBLIC_KEY_LEN]) -> Option<&CachedPublicKey>;
@@ -33,7 +38,21 @@ pub trait KeyCache: private::Sealed {
     /// Optionally retain an already-decoded key for later chunks or batches.
     /// The default implementation leaves the cache unchanged.
     fn insert(&mut self, _key: CachedPublicKey) {}
+
+    /// Dispatch into a cache-capability-specific batch driver.
+    #[doc(hidden)]
+    fn dispatch_verify_batch<P: VerificationPolicy>(
+        verifier: &mut Verifier<P, Self>,
+        inputs: &[VerifyInput<'_>],
+        out: &mut [bool],
+    ) where
+        Self: Sized;
 }
+
+/// Zero-sized verification state for a cache that cannot hit.
+#[doc(hidden)]
+#[derive(Debug, Default)]
+pub struct NoQueues;
 
 /// A [`KeyCache`] that retains no decoded keys.
 #[derive(Clone, Copy, Debug, Default)]
@@ -49,8 +68,19 @@ impl NullKeyCache {
 impl private::Sealed for NullKeyCache {}
 
 impl KeyCache for NullKeyCache {
+    type Queues<P: VerificationPolicy> = NoQueues;
+
     #[inline]
     fn get(&self, _encoded: &[u8; PUBLIC_KEY_LEN]) -> Option<&CachedPublicKey> {
         None
+    }
+
+    #[inline]
+    fn dispatch_verify_batch<P: VerificationPolicy>(
+        verifier: &mut Verifier<P, Self>,
+        inputs: &[VerifyInput<'_>],
+        out: &mut [bool],
+    ) {
+        P::dispatch_uncached_verify_batch(verifier, inputs, out);
     }
 }
