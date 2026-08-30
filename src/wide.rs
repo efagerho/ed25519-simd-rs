@@ -2048,23 +2048,25 @@ pub(crate) mod avx512ifma {
         }
 
         #[test]
-        fn wide_multiscalar_identity_key_is_identity() {
-            let table = PointTable::identity();
+        fn wide_multiscalar_matches_nontrivial_basepoint_relation() {
+            let table = decode_public_key_table(&BASEPOINT_COMPRESSED).expect("basepoint decodes");
             let base_table = BasepointTable::new();
-            let s_digits = [[0i8; 64]; LANES];
+            let mut two_bytes = [0u8; 32];
+            two_bytes[0] = 2;
+            let two = crate::scalar::Scalar::from_canonical_bytes(two_bytes);
+            let s_digits = [two.to_radix16(); LANES];
             let mut one_bytes = [0u8; 32];
             one_bytes[0] = 1;
-            let k = crate::scalar::Scalar::from_canonical_bytes(one_bytes);
-            let k_digits = [k.to_radix16(); LANES];
+            let one = crate::scalar::Scalar::from_canonical_bytes(one_bytes);
+            let k_digits = [one.to_radix16(); LANES];
             let prepared = PreparedChunk {
                 public_key_tables: [&table; LANES],
                 s_digits: &s_digits,
                 k_digits: &k_digits,
             };
             let combined = mul_s_base_minus_k_public::<true>(base_table.entries(), &prepared);
-            let mut identity = [0u8; POINT_ENCODING_LEN];
-            identity[0] = 1;
-            assert_eq!(combined.compress()[0], identity);
+            // 2B - 1B = B exercises both signed-digit inputs and both tables.
+            assert_eq!(combined.compress(), [BASEPOINT_COMPRESSED; LANES]);
         }
     }
 }

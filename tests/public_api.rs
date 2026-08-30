@@ -11,6 +11,11 @@ fn resident_count(cache: &HotKeyCache, keys: &[[u8; PUBLIC_KEY_LEN]]) -> usize {
     keys.iter().filter(|key| cache.get(key).is_some()).count()
 }
 
+fn off_curve_key() -> [u8; PUBLIC_KEY_LEN] {
+    // y=p-20 with the sign bit set is not on the curve.
+    hex_array("d9ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+}
+
 #[test]
 fn verify_input_supports_struct_update_syntax_downstream() {
     let base = VerifyInput {
@@ -96,10 +101,7 @@ fn keys_decoded_in_an_all_rejected_chunk_are_still_retained() {
 
     // Lanes 4..8: a canonical `S` so the chunk reaches the decode, paired with a
     // public key that does not decompress.
-    let off_curve = hex_array::<PUBLIC_KEY_LEN>(
-        "d9ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-    );
-    assert!(CachedPublicKey::from_encoded(off_curve).is_none());
+    let off_curve = off_curve_key();
     let good_s = signing_keys[0].sign(message.as_slice()).to_bytes();
     inputs.extend((0..4).map(|_| VerifyInput {
         public_key: off_curve,
@@ -167,11 +169,7 @@ fn preseeded_cache_tables_match_cold_simd_decoding() {
 
 #[test]
 fn from_encoded_rejects_a_key_that_does_not_decompress() {
-    // y=p-20 with the sign bit set is not on the curve.
-    let off_curve = hex_array::<PUBLIC_KEY_LEN>(
-        "d9ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-    );
-    assert!(CachedPublicKey::from_encoded(off_curve).is_none());
+    assert!(CachedPublicKey::from_encoded(off_curve_key()).is_none());
 }
 
 #[test]
