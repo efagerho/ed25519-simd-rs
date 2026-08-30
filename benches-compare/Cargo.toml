@@ -3,6 +3,7 @@ name = "ed25519-simd-compare-bench"
 version = "0.1.0"
 edition = "2024"
 publish = false
+autobenches = false
 
 [dependencies]
 ed25519-simd = { path = ".." }
@@ -18,5 +19,17 @@ ring = "0.17"
 sodiumoxide = "0.2"
 
 [[bench]]
-name = "solana_ed25519_compare"
+name = "zip215_cold"
+harness = false
+
+[[bench]]
+name = "dalek_cold"
+harness = false
+
+[[bench]]
+name = "zip215_hot"
+harness = false
+
+[[bench]]
+name = "dalek_hot"
 harness = false

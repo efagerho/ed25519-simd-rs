@@ -192,21 +192,26 @@ therefore not from the same execution. Criterion used its default 3-second
 warm-up, 5-second measurement, and 100 samples. The widest displayed 95%
 confidence interval among the refreshed rows was about 0.03% of the estimate.
 
-The comparison bench lives in the `benches-compare` workspace member. These
-commands refresh only this crate's rows used below:
+The comparison benches live in the `benches-compare` workspace member. Each
+policy/cache combination has its own executable (`zip215_cold`, `dalek_cold`,
+`zip215_hot`, and `dalek_hot`) so each executable registers and instantiates
+only one benchmark configuration. These commands refresh only this crate's
+null-cache rows used below:
 
 ```sh
 cd benches-compare
-for filter in \
-  'distinct_keys/msg_len_1/ed25519_simd' \
-  'distinct_keys/msg_len_1024/ed25519_simd' \
-  'distinct_keys/msg_len_mixed/ed25519_simd' \
-  'hot_keys/distinct_4/ed25519_simd'
+for bench in zip215_cold dalek_cold
 do
-  taskset -c 4 env \
-    RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma" \
-    cargo bench --bench solana_ed25519_compare -- \
-      "$filter" --noplot --discard-baseline
+  for filter in \
+    'distinct_keys/msg_len_1/ed25519_simd' \
+    'distinct_keys/msg_len_1024/ed25519_simd' \
+    'distinct_keys/msg_len_mixed/ed25519_simd'
+  do
+    taskset -c 4 env \
+      RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma" \
+      cargo bench --bench "$bench" -- \
+        "$filter" --noplot --discard-baseline
+  done
 done
 ```
 
@@ -265,17 +270,21 @@ To rerun only this crate's hot-key cases:
 
 ```sh
 cd benches-compare
-taskset -c 4 env \
-  RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma" \
-  cargo bench --bench solana_ed25519_compare -- \
-    'hot_keys/distinct_4/ed25519_simd' --noplot --discard-baseline
+for bench in zip215_cold zip215_hot
+do
+  taskset -c 4 env \
+    RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma" \
+    cargo bench --bench "$bench" -- \
+      'hot_keys/distinct_4/ed25519_simd' --noplot --discard-baseline
+done
 ```
 
 This scenario cycles through 4 distinct keys to fill each batch and reuses
-the same `Verifier` across benchmark iterations, so `HotKeyCache` is warm
-(all hits) after the first iteration. It quantifies the `HotKeyCache` win
-referenced in [Key Caching](#key-caching) for a workload that actually
-repeats a small key set:
+the same `Verifier` across benchmark iterations. The cold binary supplies the
+`NullKeyCache` row; in the hot binary, `HotKeyCache` is warm (all hits) after
+the first iteration. Together they quantify the `HotKeyCache` win referenced
+in [Key Caching](#key-caching) for a workload that actually repeats a small key
+set:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|

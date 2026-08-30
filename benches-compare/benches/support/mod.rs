@@ -2,10 +2,7 @@ use core::convert::TryFrom;
 use std::hint::black_box;
 use std::sync::Once;
 
-use criterion::{
-    BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,
-    measurement::WallTime,
-};
+use criterion::{BenchmarkGroup, BenchmarkId, Criterion, Throughput, measurement::WallTime};
 use curve25519::ed_sigs::{Signature, SigningKey, VerificationKey, VerificationKeyBytes, batch};
 use ed25519_dalek::{
     Signature as DalekSignature, Verifier as DalekVerifier, VerifyingKey as DalekVerifyingKey,
@@ -208,15 +205,26 @@ fn openssl_loop(inputs: &[VerifyInput<'_>]) -> bool {
     })
 }
 
-fn bench_ours_nocache(
+fn policy<const DALEK: bool>() -> VerifyPolicy {
+    if DALEK {
+        VerifyPolicy::Dalek
+    } else {
+        VerifyPolicy::Zip215
+    }
+}
+
+fn policy_name<const DALEK: bool>() -> &'static str {
+    if DALEK { "dalek" } else { "zip215" }
+}
+
+fn bench_ours_nocache<const DALEK: bool>(
     group: &mut BenchmarkGroup<'_, WallTime>,
     name: &str,
-    policy: VerifyPolicy,
     n: usize,
     inputs: &[VerifyInput<'_>],
 ) {
     group.bench_with_input(BenchmarkId::new(name, n), &n, |b, _| {
-        let mut verifier = Verifier::with_cache(policy, NullKeyCache::new());
+        let mut verifier = Verifier::with_cache(policy::<DALEK>(), NullKeyCache::new());
         let mut out = vec![false; inputs.len()];
         b.iter(|| {
             verifier.verify_batch(black_box(inputs), &mut out);
@@ -226,16 +234,16 @@ fn bench_ours_nocache(
 }
 
 /// Reuse one verifier/cache so iterations measure steady-state hot-key hits.
-fn bench_ours_hot_key_cache(
+fn bench_ours_hot_key_cache<const DALEK: bool>(
     group: &mut BenchmarkGroup<'_, WallTime>,
     name: &str,
-    policy: VerifyPolicy,
     n: usize,
     hot_key_count: usize,
     inputs: &[VerifyInput<'_>],
 ) {
     group.bench_with_input(BenchmarkId::new(name, n), &n, |b, _| {
-        let mut verifier = Verifier::with_cache(policy, HotKeyCache::with_capacity(hot_key_count));
+        let mut verifier =
+            Verifier::with_cache(policy::<DALEK>(), HotKeyCache::with_capacity(hot_key_count));
         let mut out = vec![false; inputs.len()];
         b.iter(|| {
             verifier.verify_batch(black_box(inputs), &mut out);
@@ -244,40 +252,43 @@ fn bench_ours_hot_key_cache(
     });
 }
 
-/// Compare null and hot caches on `hot_key_count` repeating keys.
-fn bench_hot_keys_scenario(c: &mut Criterion, group_name: &str, hot_key_count: usize) {
+/// Measure the null-cache configuration on `hot_key_count` repeating keys.
+fn bench_cold_hot_keys_scenario<const DALEK: bool>(
+    c: &mut Criterion,
+    group_name: &str,
+    hot_key_count: usize,
+) {
     let mut group = c.benchmark_group(group_name);
     for n in SIZES {
         let cases = generate_hot_key_cases(n, hot_key_count, MsgLen::Fixed(1));
         let inputs = inputs_of(&cases);
         group.throughput(Throughput::Elements(n as u64));
 
-        bench_ours_nocache(
+        bench_ours_nocache::<DALEK>(
             &mut group,
-            "ed25519_simd_nullcache/zip215",
-            VerifyPolicy::Zip215,
+            &format!("ed25519_simd_nullcache/{}", policy_name::<DALEK>()),
             n,
             &inputs,
         );
-        bench_ours_hot_key_cache(
+    }
+    group.finish();
+}
+
+/// Measure steady-state hot-cache hits on `hot_key_count` repeating keys.
+fn bench_hot_keys_scenario<const DALEK: bool>(
+    c: &mut Criterion,
+    group_name: &str,
+    hot_key_count: usize,
+) {
+    let mut group = c.benchmark_group(group_name);
+    for n in SIZES {
+        let cases = generate_hot_key_cases(n, hot_key_count, MsgLen::Fixed(1));
+        let inputs = inputs_of(&cases);
+        group.throughput(Throughput::Elements(n as u64));
+
+        bench_ours_hot_key_cache::<DALEK>(
             &mut group,
-            "ed25519_simd_hotcache/zip215",
-            VerifyPolicy::Zip215,
-            n,
-            hot_key_count,
-            &inputs,
-        );
-        bench_ours_nocache(
-            &mut group,
-            "ed25519_simd_nullcache/dalek",
-            VerifyPolicy::Dalek,
-            n,
-            &inputs,
-        );
-        bench_ours_hot_key_cache(
-            &mut group,
-            "ed25519_simd_hotcache/dalek",
-            VerifyPolicy::Dalek,
+            &format!("ed25519_simd_hotcache/{}", policy_name::<DALEK>()),
             n,
             hot_key_count,
             &inputs,
@@ -286,99 +297,91 @@ fn bench_hot_keys_scenario(c: &mut Criterion, group_name: &str, hot_key_count: u
     group.finish();
 }
 
-fn bench_scenario(c: &mut Criterion, group_name: &str, msg_len: MsgLen) {
+fn bench_cold_scenario<const DALEK: bool>(c: &mut Criterion, group_name: &str, msg_len: MsgLen) {
     let mut group = c.benchmark_group(group_name);
     for n in SIZES {
         let cases = generate_distinct_key_cases(n, msg_len);
         let inputs = inputs_of(&cases);
         group.throughput(Throughput::Elements(n as u64));
 
-        bench_ours_nocache(
+        bench_ours_nocache::<DALEK>(
             &mut group,
-            "ed25519_simd_nocache/zip215",
-            VerifyPolicy::Zip215,
+            &format!("ed25519_simd_nocache/{}", policy_name::<DALEK>()),
             n,
             &inputs,
         );
-        group.bench_with_input(
-            BenchmarkId::new("solana_ed25519/zip215_batch", n),
-            &n,
-            |b, _| b.iter(|| solana_ed25519_batch_zip215(black_box(&inputs))),
-        );
-
-        bench_ours_nocache(
-            &mut group,
-            "ed25519_simd_nocache/dalek",
-            VerifyPolicy::Dalek,
-            n,
-            &inputs,
-        );
-        group.bench_with_input(
-            BenchmarkId::new("solana_ed25519/dalek_loop", n),
-            &n,
-            |b, _| b.iter(|| solana_ed25519_dalek_loop(black_box(&inputs))),
-        );
-
-        group.bench_with_input(BenchmarkId::new("ed25519_dalek/batch", n), &n, |b, _| {
-            b.iter(|| dalek_batch(black_box(&inputs)))
-        });
-        group.bench_with_input(BenchmarkId::new("ed25519_dalek/loop", n), &n, |b, _| {
-            b.iter(|| dalek_loop(black_box(&inputs)))
-        });
-
-        group.bench_with_input(BenchmarkId::new("aws_lc_rs/loop", n), &n, |b, _| {
-            b.iter(|| aws_lc_loop(black_box(&inputs)))
-        });
-
-        group.bench_with_input(BenchmarkId::new("ring/loop", n), &n, |b, _| {
-            b.iter(|| ring_loop(black_box(&inputs)))
-        });
-
-        init_sodiumoxide();
-        group.bench_with_input(BenchmarkId::new("sodiumoxide/loop", n), &n, |b, _| {
-            b.iter(|| sodium_loop(black_box(&inputs)))
-        });
-
-        group.bench_with_input(BenchmarkId::new("openssl/loop", n), &n, |b, _| {
-            b.iter(|| openssl_loop(black_box(&inputs)))
-        });
-    }
-    group.finish();
-}
-
-fn bench_ragged_batches(c: &mut Criterion) {
-    let mut group = c.benchmark_group("ragged_batches/msg_len_1");
-    for n in RAGGED_SIZES {
-        let cases = generate_distinct_key_cases(n, MsgLen::Fixed(1));
-        let inputs = inputs_of(&cases);
-        group.throughput(Throughput::Elements(n as u64));
-
-        for policy in [VerifyPolicy::Zip215, VerifyPolicy::Dalek] {
-            let policy_name = match policy {
-                VerifyPolicy::Zip215 => "zip215",
-                VerifyPolicy::Dalek => "dalek",
-            };
-            bench_ours_nocache(
-                &mut group,
-                &format!("ed25519_simd_nullcache/{policy_name}"),
-                policy,
-                n,
-                &inputs,
+        if DALEK {
+            group.bench_with_input(
+                BenchmarkId::new("solana_ed25519/dalek_loop", n),
+                &n,
+                |b, _| b.iter(|| solana_ed25519_dalek_loop(black_box(&inputs))),
             );
-            bench_ours_hot_key_cache(
-                &mut group,
-                &format!("ed25519_simd_hotcache/{policy_name}"),
-                policy,
-                n,
-                n,
-                &inputs,
+            group.bench_with_input(BenchmarkId::new("ed25519_dalek/batch", n), &n, |b, _| {
+                b.iter(|| dalek_batch(black_box(&inputs)))
+            });
+            group.bench_with_input(BenchmarkId::new("ed25519_dalek/loop", n), &n, |b, _| {
+                b.iter(|| dalek_loop(black_box(&inputs)))
+            });
+            group.bench_with_input(BenchmarkId::new("aws_lc_rs/loop", n), &n, |b, _| {
+                b.iter(|| aws_lc_loop(black_box(&inputs)))
+            });
+            group.bench_with_input(BenchmarkId::new("ring/loop", n), &n, |b, _| {
+                b.iter(|| ring_loop(black_box(&inputs)))
+            });
+            init_sodiumoxide();
+            group.bench_with_input(BenchmarkId::new("sodiumoxide/loop", n), &n, |b, _| {
+                b.iter(|| sodium_loop(black_box(&inputs)))
+            });
+            group.bench_with_input(BenchmarkId::new("openssl/loop", n), &n, |b, _| {
+                b.iter(|| openssl_loop(black_box(&inputs)))
+            });
+        } else {
+            group.bench_with_input(
+                BenchmarkId::new("solana_ed25519/zip215_batch", n),
+                &n,
+                |b, _| b.iter(|| solana_ed25519_batch_zip215(black_box(&inputs))),
             );
         }
     }
     group.finish();
 }
 
-fn bench_invalid_scenario(
+fn bench_cold_ragged_batches<const DALEK: bool>(c: &mut Criterion) {
+    let mut group = c.benchmark_group("ragged_batches/msg_len_1");
+    for n in RAGGED_SIZES {
+        let cases = generate_distinct_key_cases(n, MsgLen::Fixed(1));
+        let inputs = inputs_of(&cases);
+        group.throughput(Throughput::Elements(n as u64));
+
+        bench_ours_nocache::<DALEK>(
+            &mut group,
+            &format!("ed25519_simd_nullcache/{}", policy_name::<DALEK>()),
+            n,
+            &inputs,
+        );
+    }
+    group.finish();
+}
+
+fn bench_hot_ragged_batches<const DALEK: bool>(c: &mut Criterion) {
+    let mut group = c.benchmark_group("ragged_batches/msg_len_1");
+    for n in RAGGED_SIZES {
+        let cases = generate_distinct_key_cases(n, MsgLen::Fixed(1));
+        let inputs = inputs_of(&cases);
+        group.throughput(Throughput::Elements(n as u64));
+
+        bench_ours_hot_key_cache::<DALEK>(
+            &mut group,
+            &format!("ed25519_simd_hotcache/{}", policy_name::<DALEK>()),
+            n,
+            n,
+            &inputs,
+        );
+    }
+    group.finish();
+}
+
+fn bench_cold_invalid_scenario<const DALEK: bool>(
     c: &mut Criterion,
     group_name: &str,
     invalid_pct: u64,
@@ -391,46 +394,41 @@ fn bench_invalid_scenario(
         let inputs = inputs_of(&cases);
         group.throughput(Throughput::Elements(n as u64));
 
-        bench_ours_nocache(
+        bench_ours_nocache::<DALEK>(
             &mut group,
-            "ed25519_simd_nocache/zip215",
-            VerifyPolicy::Zip215,
+            &format!("ed25519_simd_nocache/{}", policy_name::<DALEK>()),
             n,
             &inputs,
         );
-        bench_ours_nocache(
-            &mut group,
-            "ed25519_simd_nocache/dalek",
-            VerifyPolicy::Dalek,
-            n,
-            &inputs,
-        );
-        group.bench_with_input(
-            BenchmarkId::new("solana_ed25519/zip215_batch", n),
-            &n,
-            |b, _| b.iter(|| solana_ed25519_batch_zip215(black_box(&inputs))),
-        );
-        group.bench_with_input(BenchmarkId::new("ed25519_dalek/batch", n), &n, |b, _| {
-            b.iter(|| dalek_batch(black_box(&inputs)))
-        });
-        group.bench_with_input(BenchmarkId::new("ed25519_dalek/loop", n), &n, |b, _| {
-            b.iter(|| dalek_loop(black_box(&inputs)))
-        });
-        group.bench_with_input(
-            BenchmarkId::new("solana_ed25519/dalek_loop", n),
-            &n,
-            |b, _| b.iter(|| solana_ed25519_dalek_loop(black_box(&inputs))),
-        );
+        if DALEK {
+            group.bench_with_input(BenchmarkId::new("ed25519_dalek/batch", n), &n, |b, _| {
+                b.iter(|| dalek_batch(black_box(&inputs)))
+            });
+            group.bench_with_input(BenchmarkId::new("ed25519_dalek/loop", n), &n, |b, _| {
+                b.iter(|| dalek_loop(black_box(&inputs)))
+            });
+            group.bench_with_input(
+                BenchmarkId::new("solana_ed25519/dalek_loop", n),
+                &n,
+                |b, _| b.iter(|| solana_ed25519_dalek_loop(black_box(&inputs))),
+            );
+        } else {
+            group.bench_with_input(
+                BenchmarkId::new("solana_ed25519/zip215_batch", n),
+                &n,
+                |b, _| b.iter(|| solana_ed25519_batch_zip215(black_box(&inputs))),
+            );
+        }
     }
     group.finish();
 }
 
-fn bench_distinct_keys_len1(c: &mut Criterion) {
-    bench_scenario(c, "distinct_keys/msg_len_1", MsgLen::Fixed(1));
+pub fn cold_distinct_keys_len1<const DALEK: bool>(c: &mut Criterion) {
+    bench_cold_scenario::<DALEK>(c, "distinct_keys/msg_len_1", MsgLen::Fixed(1));
 }
 
-fn bench_malformed_25(c: &mut Criterion) {
-    bench_invalid_scenario(
+pub fn cold_malformed_25<const DALEK: bool>(c: &mut Criterion) {
+    bench_cold_invalid_scenario::<DALEK>(
         c,
         "malformed_sigs/invalid_25pct",
         25,
@@ -438,8 +436,8 @@ fn bench_malformed_25(c: &mut Criterion) {
     );
 }
 
-fn bench_malformed_50(c: &mut Criterion) {
-    bench_invalid_scenario(
+pub fn cold_malformed_50<const DALEK: bool>(c: &mut Criterion) {
+    bench_cold_invalid_scenario::<DALEK>(
         c,
         "malformed_sigs/invalid_50pct",
         50,
@@ -447,8 +445,8 @@ fn bench_malformed_50(c: &mut Criterion) {
     );
 }
 
-fn bench_well_formed_invalid_25(c: &mut Criterion) {
-    bench_invalid_scenario(
+pub fn cold_well_formed_invalid_25<const DALEK: bool>(c: &mut Criterion) {
+    bench_cold_invalid_scenario::<DALEK>(
         c,
         "well_formed_invalid/wrong_message_25pct",
         25,
@@ -456,8 +454,8 @@ fn bench_well_formed_invalid_25(c: &mut Criterion) {
     );
 }
 
-fn bench_well_formed_invalid_50(c: &mut Criterion) {
-    bench_invalid_scenario(
+pub fn cold_well_formed_invalid_50<const DALEK: bool>(c: &mut Criterion) {
+    bench_cold_invalid_scenario::<DALEK>(
         c,
         "well_formed_invalid/wrong_message_50pct",
         50,
@@ -465,28 +463,26 @@ fn bench_well_formed_invalid_50(c: &mut Criterion) {
     );
 }
 
-fn bench_distinct_keys_len1024(c: &mut Criterion) {
-    bench_scenario(c, "distinct_keys/msg_len_1024", MsgLen::Fixed(1024));
+pub fn cold_distinct_keys_len1024<const DALEK: bool>(c: &mut Criterion) {
+    bench_cold_scenario::<DALEK>(c, "distinct_keys/msg_len_1024", MsgLen::Fixed(1024));
 }
 
-fn bench_distinct_keys_mixed_len(c: &mut Criterion) {
-    bench_scenario(c, "distinct_keys/msg_len_mixed", MsgLen::Mixed);
+pub fn cold_distinct_keys_mixed_len<const DALEK: bool>(c: &mut Criterion) {
+    bench_cold_scenario::<DALEK>(c, "distinct_keys/msg_len_mixed", MsgLen::Mixed);
 }
 
-fn bench_hot_keys_4(c: &mut Criterion) {
-    bench_hot_keys_scenario(c, "hot_keys/distinct_4", 4);
+pub fn cold_ragged_batches<const DALEK: bool>(c: &mut Criterion) {
+    bench_cold_ragged_batches::<DALEK>(c);
 }
 
-criterion_group!(
-    benches,
-    bench_distinct_keys_len1,
-    bench_distinct_keys_len1024,
-    bench_distinct_keys_mixed_len,
-    bench_ragged_batches,
-    bench_malformed_25,
-    bench_malformed_50,
-    bench_well_formed_invalid_25,
-    bench_well_formed_invalid_50,
-    bench_hot_keys_4
-);
-criterion_main!(benches);
+pub fn cold_hot_keys_4<const DALEK: bool>(c: &mut Criterion) {
+    bench_cold_hot_keys_scenario::<DALEK>(c, "hot_keys/distinct_4", 4);
+}
+
+pub fn hot_ragged_batches<const DALEK: bool>(c: &mut Criterion) {
+    bench_hot_ragged_batches::<DALEK>(c);
+}
+
+pub fn hot_keys_4<const DALEK: bool>(c: &mut Criterion) {
+    bench_hot_keys_scenario::<DALEK>(c, "hot_keys/distinct_4", 4);
+}
