@@ -423,12 +423,12 @@ fn bench_cold_invalid_scenario<P: VerificationPolicy, const COMPARISONS: bool>(
     group.finish();
 }
 
-pub fn cold_distinct_keys_len1<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_cold_scenario::<P, true>(c, "distinct_keys/msg_len_1", MsgLen::Fixed(1));
+pub fn cold_distinct_keys_len1<P: VerificationPolicy, const COMPARISONS: bool>(c: &mut Criterion) {
+    bench_cold_scenario::<P, COMPARISONS>(c, "distinct_keys/msg_len_1", MsgLen::Fixed(1));
 }
 
-pub fn cold_malformed_25<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_cold_invalid_scenario::<P, true>(
+pub fn cold_malformed_25<P: VerificationPolicy, const COMPARISONS: bool>(c: &mut Criterion) {
+    bench_cold_invalid_scenario::<P, COMPARISONS>(
         c,
         "malformed_sigs/invalid_25pct",
         25,
@@ -436,8 +436,8 @@ pub fn cold_malformed_25<P: VerificationPolicy>(c: &mut Criterion) {
     );
 }
 
-pub fn cold_malformed_50<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_cold_invalid_scenario::<P, true>(
+pub fn cold_malformed_50<P: VerificationPolicy, const COMPARISONS: bool>(c: &mut Criterion) {
+    bench_cold_invalid_scenario::<P, COMPARISONS>(
         c,
         "malformed_sigs/invalid_50pct",
         50,
@@ -445,8 +445,10 @@ pub fn cold_malformed_50<P: VerificationPolicy>(c: &mut Criterion) {
     );
 }
 
-pub fn cold_well_formed_invalid_25<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_cold_invalid_scenario::<P, true>(
+pub fn cold_well_formed_invalid_25<P: VerificationPolicy, const COMPARISONS: bool>(
+    c: &mut Criterion,
+) {
+    bench_cold_invalid_scenario::<P, COMPARISONS>(
         c,
         "well_formed_invalid/wrong_message_25pct",
         25,
@@ -454,8 +456,10 @@ pub fn cold_well_formed_invalid_25<P: VerificationPolicy>(c: &mut Criterion) {
     );
 }
 
-pub fn cold_well_formed_invalid_50<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_cold_invalid_scenario::<P, true>(
+pub fn cold_well_formed_invalid_50<P: VerificationPolicy, const COMPARISONS: bool>(
+    c: &mut Criterion,
+) {
+    bench_cold_invalid_scenario::<P, COMPARISONS>(
         c,
         "well_formed_invalid/wrong_message_50pct",
         50,
@@ -463,60 +467,16 @@ pub fn cold_well_formed_invalid_50<P: VerificationPolicy>(c: &mut Criterion) {
     );
 }
 
-pub fn cold_distinct_keys_len1024<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_cold_scenario::<P, true>(c, "distinct_keys/msg_len_1024", MsgLen::Fixed(1024));
+pub fn cold_distinct_keys_len1024<P: VerificationPolicy, const COMPARISONS: bool>(
+    c: &mut Criterion,
+) {
+    bench_cold_scenario::<P, COMPARISONS>(c, "distinct_keys/msg_len_1024", MsgLen::Fixed(1024));
 }
 
-pub fn cold_distinct_keys_mixed_len<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_cold_scenario::<P, true>(c, "distinct_keys/msg_len_mixed", MsgLen::Mixed);
-}
-
-pub fn simd_cold_distinct_keys_len1<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_cold_scenario::<P, false>(c, "distinct_keys/msg_len_1", MsgLen::Fixed(1));
-}
-
-pub fn simd_cold_distinct_keys_len1024<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_cold_scenario::<P, false>(c, "distinct_keys/msg_len_1024", MsgLen::Fixed(1024));
-}
-
-pub fn simd_cold_distinct_keys_mixed_len<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_cold_scenario::<P, false>(c, "distinct_keys/msg_len_mixed", MsgLen::Mixed);
-}
-
-pub fn simd_cold_malformed_25<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_cold_invalid_scenario::<P, false>(
-        c,
-        "malformed_sigs/invalid_25pct",
-        25,
-        InvalidKind::MalformedSignature,
-    );
-}
-
-pub fn simd_cold_malformed_50<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_cold_invalid_scenario::<P, false>(
-        c,
-        "malformed_sigs/invalid_50pct",
-        50,
-        InvalidKind::MalformedSignature,
-    );
-}
-
-pub fn simd_cold_well_formed_invalid_25<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_cold_invalid_scenario::<P, false>(
-        c,
-        "well_formed_invalid/wrong_message_25pct",
-        25,
-        InvalidKind::WellFormedWrongMessage,
-    );
-}
-
-pub fn simd_cold_well_formed_invalid_50<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_cold_invalid_scenario::<P, false>(
-        c,
-        "well_formed_invalid/wrong_message_50pct",
-        50,
-        InvalidKind::WellFormedWrongMessage,
-    );
+pub fn cold_distinct_keys_mixed_len<P: VerificationPolicy, const COMPARISONS: bool>(
+    c: &mut Criterion,
+) {
+    bench_cold_scenario::<P, COMPARISONS>(c, "distinct_keys/msg_len_mixed", MsgLen::Mixed);
 }
 
 pub fn cold_ragged_batches<P: VerificationPolicy>(c: &mut Criterion) {
@@ -534,3 +494,61 @@ pub fn hot_ragged_batches<P: VerificationPolicy>(c: &mut Criterion) {
 pub fn hot_keys_4<P: VerificationPolicy>(c: &mut Criterion) {
     bench_hot_keys_scenario::<P>(c, "hot_keys/distinct_4", 4);
 }
+
+macro_rules! benchmark_main {
+    (cold, $policy:ty, $comparisons:literal) => {
+        fn distinct_keys_len1(c: &mut criterion::Criterion) {
+            $crate::support::cold_distinct_keys_len1::<$policy, $comparisons>(c);
+        }
+        fn distinct_keys_len1024(c: &mut criterion::Criterion) {
+            $crate::support::cold_distinct_keys_len1024::<$policy, $comparisons>(c);
+        }
+        fn distinct_keys_mixed_len(c: &mut criterion::Criterion) {
+            $crate::support::cold_distinct_keys_mixed_len::<$policy, $comparisons>(c);
+        }
+        fn ragged_batches(c: &mut criterion::Criterion) {
+            $crate::support::cold_ragged_batches::<$policy>(c);
+        }
+        fn malformed_25(c: &mut criterion::Criterion) {
+            $crate::support::cold_malformed_25::<$policy, $comparisons>(c);
+        }
+        fn malformed_50(c: &mut criterion::Criterion) {
+            $crate::support::cold_malformed_50::<$policy, $comparisons>(c);
+        }
+        fn well_formed_invalid_25(c: &mut criterion::Criterion) {
+            $crate::support::cold_well_formed_invalid_25::<$policy, $comparisons>(c);
+        }
+        fn well_formed_invalid_50(c: &mut criterion::Criterion) {
+            $crate::support::cold_well_formed_invalid_50::<$policy, $comparisons>(c);
+        }
+        fn hot_keys_4(c: &mut criterion::Criterion) {
+            $crate::support::cold_hot_keys_4::<$policy>(c);
+        }
+
+        criterion::criterion_group!(
+            benches,
+            distinct_keys_len1,
+            distinct_keys_len1024,
+            distinct_keys_mixed_len,
+            ragged_batches,
+            malformed_25,
+            malformed_50,
+            well_formed_invalid_25,
+            well_formed_invalid_50,
+            hot_keys_4,
+        );
+        criterion::criterion_main!(benches);
+    };
+    (hot, $policy:ty) => {
+        fn ragged_batches(c: &mut criterion::Criterion) {
+            $crate::support::hot_ragged_batches::<$policy>(c);
+        }
+        fn hot_keys_4(c: &mut criterion::Criterion) {
+            $crate::support::hot_keys_4::<$policy>(c);
+        }
+
+        criterion::criterion_group!(benches, ragged_batches, hot_keys_4);
+        criterion::criterion_main!(benches);
+    };
+}
+pub(crate) use benchmark_main;
