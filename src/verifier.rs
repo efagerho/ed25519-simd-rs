@@ -108,6 +108,14 @@ mod sealed {
 /// This trait is sealed; use [`Zip215Policy`] or [`DalekPolicy`]. Keeping the
 /// policy in the verifier's type lets the linker discard the other policy's
 /// decoding, scoring, and deferral code.
+///
+/// The `dispatch_*` methods below look like removable forwarding, but they are
+/// what keeps the crate-private `PolicyOps` out of this public trait's
+/// bounds. Making `PolicyOps` a supertrait instead fails: its `Queues`
+/// associated type is projected by the public `KeyCache::Queues<P>`, so a
+/// `pub(crate)` `PolicyOps` is rejected outright (`E0446`, crate-private
+/// associated type in public interface) and a `pub` one leaks `PointTable`,
+/// `WideRPoint`, and `PreparedChunk` into the public API.
 pub trait VerificationPolicy: sealed::Sealed + Copy + core::fmt::Debug + Default + 'static {
     /// Policy-specific reusable queue storage.
     #[doc(hidden)]
@@ -160,13 +168,7 @@ trait PolicyOps: VerificationPolicy {
     fn flush_queue(queues: &mut Self::Queues, out: &mut [bool]);
 }
 
-trait UncachedPolicyOps: VerificationPolicy {
-    fn decode_keys_and_r(
-        keys: &[[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
-        r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
-        key_tables: &mut [Option<PointTable>; SIMD_LANES],
-    ) -> (u8, avx512ifma::WideRPoint, u8);
-
+trait UncachedPolicyOps: PolicyOps {
     fn verify_decoded_lanes(
         verifier: &Verifier<Self, NullKeyCache>,
         prepared: &PreparedChunk<'_>,
@@ -402,9 +404,7 @@ impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
 
         let equation_holds =
             avx512ifma::verify_prepared_zip215(prepared, &r_points, self.base_table);
-        for lane in 0..SIMD_LANES {
-            out[lane] = equation_holds[lane] && lanes.valid[lane] && r_valid_lanes[lane];
-        }
+        score_zip215_lanes(&equation_holds, &r_valid_lanes, lanes, out);
         false
     }
 
@@ -433,17 +433,7 @@ impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
         // R already decompressed on a cache miss: compare points directly.
         let equation_holds =
             avx512ifma::verify_prepared_dalek_decompressed_r(prepared, &r_points, self.base_table);
-        let r_x_zero = r_points.x_zero_lanes();
-        for lane in 0..SIMD_LANES {
-            let r_bytes = &lanes.r_bytes[lane];
-            let signed_zero = r_x_zero[lane] && r_bytes[31] & 0x80 != 0;
-            out[lane] = equation_holds[lane]
-                && lanes.valid[lane]
-                && r_valid_lanes[lane]
-                && r_encoding_has_canonical_y(r_bytes)
-                && !signed_zero
-                && !dalek_legacy_excluded(&lanes.public_keys[lane], r_bytes);
-        }
+        score_dalek_lanes(&equation_holds, &r_points, &r_valid_lanes, lanes, out);
         false
     }
 }
@@ -583,15 +573,6 @@ impl PolicyOps for Zip215Policy {
 
 impl UncachedPolicyOps for Zip215Policy {
     #[inline(always)]
-    fn decode_keys_and_r(
-        keys: &[[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
-        r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
-        key_tables: &mut [Option<PointTable>; SIMD_LANES],
-    ) -> (u8, avx512ifma::WideRPoint, u8) {
-        avx512ifma::decode_keys_and_decompress_r::<false>(keys, r_bytes, key_tables)
-    }
-
-    #[inline(always)]
     fn verify_decoded_lanes(
         verifier: &Verifier<Self, NullKeyCache>,
         prepared: &PreparedChunk<'_>,
@@ -602,9 +583,7 @@ impl UncachedPolicyOps for Zip215Policy {
     ) {
         let equation_holds =
             avx512ifma::verify_prepared_zip215(prepared, r_points, verifier.base_table);
-        for lane in 0..SIMD_LANES {
-            out[lane] = equation_holds[lane] && lanes.valid[lane] && r_valid_lanes[lane];
-        }
+        score_zip215_lanes(&equation_holds, r_valid_lanes, lanes, out);
     }
 }
 
@@ -687,15 +666,6 @@ impl PolicyOps for DalekPolicy {
 
 impl UncachedPolicyOps for DalekPolicy {
     #[inline(always)]
-    fn decode_keys_and_r(
-        keys: &[[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
-        r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
-        key_tables: &mut [Option<PointTable>; SIMD_LANES],
-    ) -> (u8, avx512ifma::WideRPoint, u8) {
-        avx512ifma::decode_keys_and_decompress_r::<true>(keys, r_bytes, key_tables)
-    }
-
-    #[inline(always)]
     fn verify_decoded_lanes(
         verifier: &Verifier<Self, NullKeyCache>,
         prepared: &PreparedChunk<'_>,
@@ -709,17 +679,7 @@ impl UncachedPolicyOps for DalekPolicy {
             r_points,
             verifier.base_table,
         );
-        let r_x_zero = r_points.x_zero_lanes();
-        for lane in 0..SIMD_LANES {
-            let r_bytes = &lanes.r_bytes[lane];
-            let signed_zero = r_x_zero[lane] && r_bytes[31] & 0x80 != 0;
-            out[lane] = equation_holds[lane]
-                && lanes.valid[lane]
-                && r_valid_lanes[lane]
-                && r_encoding_has_canonical_y(r_bytes)
-                && !signed_zero
-                && !dalek_legacy_excluded(&lanes.public_keys[lane], r_bytes);
-        }
+        score_dalek_lanes(&equation_holds, r_points, r_valid_lanes, lanes, out);
     }
 }
 
@@ -835,6 +795,47 @@ impl<C: KeyCache> RuntimeVerifier<C> {
             Self::Zip215(verifier) => verifier.verify_batch(inputs, out),
             Self::Dalek(verifier) => verifier.verify_batch(inputs, out),
         }
+    }
+}
+
+/// Score one chunk's lanes against an already-decompressed `R` under ZIP-215.
+///
+/// The sole home of the ZIP-215 accept predicate: both the cached and the
+/// cache-free driver route here so the two cannot drift apart.
+#[inline(always)]
+fn score_zip215_lanes(
+    equation_holds: &[bool; SIMD_LANES],
+    r_valid_lanes: &[bool; SIMD_LANES],
+    lanes: &ScoredLanes<'_>,
+    out: &mut [bool; SIMD_LANES],
+) {
+    for lane in 0..SIMD_LANES {
+        out[lane] = equation_holds[lane] && lanes.valid[lane] && r_valid_lanes[lane];
+    }
+}
+
+/// Score one chunk's lanes against an already-decompressed `R` under the Dalek
+/// rules: canonical `y`, no negative zero, and the legacy `R` blacklist.
+///
+/// The sole home of the Dalek accept predicate; see [`score_zip215_lanes`].
+#[inline(always)]
+fn score_dalek_lanes(
+    equation_holds: &[bool; SIMD_LANES],
+    r_points: &avx512ifma::WideRPoint,
+    r_valid_lanes: &[bool; SIMD_LANES],
+    lanes: &ScoredLanes<'_>,
+    out: &mut [bool; SIMD_LANES],
+) {
+    let r_x_zero = r_points.x_zero_lanes();
+    for lane in 0..SIMD_LANES {
+        let r_bytes = &lanes.r_bytes[lane];
+        let signed_zero = r_x_zero[lane] && r_bytes[31] & 0x80 != 0;
+        out[lane] = equation_holds[lane]
+            && lanes.valid[lane]
+            && r_valid_lanes[lane]
+            && r_encoding_has_canonical_y(r_bytes)
+            && !signed_zero
+            && !dalek_legacy_excluded(&lanes.public_keys[lane], r_bytes);
     }
 }
 
