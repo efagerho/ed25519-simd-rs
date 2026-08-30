@@ -227,18 +227,18 @@ mod tests {
     use crate::edwards::PointTable;
     use rand::{RngCore, SeedableRng, rngs::StdRng};
 
-    /// Give each index a distinct encoding over the shared identity table.
-    fn key(index: u64) -> CachedPublicKey {
+    fn encoded(index: u64) -> [u8; PUBLIC_KEY_LEN] {
         let mut encoded = [0u8; PUBLIC_KEY_LEN];
         encoded[..8].copy_from_slice(&index.to_le_bytes());
-        CachedPublicKey {
-            encoded,
-            table: PointTable::identity(),
-        }
+        encoded
     }
 
-    fn encoded(index: u64) -> [u8; PUBLIC_KEY_LEN] {
-        key(index).encoded
+    /// Give each index a distinct encoding over the shared identity table.
+    fn key(index: u64) -> CachedPublicKey {
+        CachedPublicKey {
+            encoded: encoded(index),
+            table: PointTable::identity(),
+        }
     }
 
     #[test]
