@@ -638,6 +638,38 @@ pub(crate) mod avx512ifma {
         limbs: [__m512i; LIMB_COUNT],
     }
 
+    #[derive(Clone, Copy)]
+    struct WideFePair(WideFe, WideFe);
+
+    trait PowChainValue: Copy {
+        fn chain_square(self) -> Self;
+        fn chain_square_repeat<const N: usize>(self) -> Self;
+        fn chain_multiply(self, rhs: Self) -> Self;
+    }
+
+    /// The `(p-5)/8` addition chain, shared by both the single-value and
+    /// latency-interleaved pair implementations.
+    #[inline(always)]
+    fn pow_p_minus_5_over_8_chain<T: PowChainValue>(z: T) -> T {
+        let t0 = z.chain_square();
+        let t1 = t0.chain_square_repeat::<2>().chain_multiply(z);
+        let t0 = t0.chain_multiply(t1);
+        let t0 = t0.chain_square().chain_multiply(t1);
+        let t1 = t0.chain_square_repeat::<5>();
+        let t0 = t1.chain_multiply(t0);
+        let t1 = t0.chain_square_repeat::<10>().chain_multiply(t0);
+        let t2 = t1.chain_square_repeat::<20>();
+        let t1 = t2.chain_multiply(t1);
+        let t1 = t1.chain_square_repeat::<10>();
+        let t0 = t1.chain_multiply(t0);
+        let t1 = t0.chain_square_repeat::<50>().chain_multiply(t0);
+        let t2 = t1.chain_square_repeat::<100>();
+        let t1 = t2.chain_multiply(t1);
+        let t1 = t1.chain_square_repeat::<50>();
+        let t0 = t1.chain_multiply(t0);
+        t0.chain_square_repeat::<2>().chain_multiply(z)
+    }
+
     impl WideFe {
         fn zero() -> Self {
             unsafe {
@@ -1022,37 +1054,15 @@ pub(crate) mod avx512ifma {
             let (lo, hi) = self.multiply_accum(rhs);
             Self::reduce_ifma(lo, hi)
         }
-        /// The `(p-5)/8` addition chain, held in one place so the hot and
-        /// initialization-only entry points cannot drift apart.
-        #[inline(always)]
-        fn pow_p_minus_5_over_8_chain(&self) -> Self {
-            let t0 = self.square();
-            let t1 = t0.square_repeat::<2>().multiply(self);
-            let t0 = t0.multiply(&t1);
-            let t0 = t0.square().multiply(&t1);
-            let t1 = t0.square_repeat::<5>();
-            let t0 = t1.multiply(&t0);
-            let t1 = t0.square_repeat::<10>().multiply(&t0);
-            let t2 = t1.square_repeat::<20>();
-            let t1 = t2.multiply(&t1);
-            let t1 = t1.square_repeat::<10>();
-            let t0 = t1.multiply(&t0);
-            let t1 = t0.square_repeat::<50>().multiply(&t0);
-            let t2 = t1.square_repeat::<100>();
-            let t1 = t2.multiply(&t1);
-            let t1 = t1.square_repeat::<50>();
-            let t0 = t1.multiply(&t0);
-            t0.square_repeat::<2>().multiply(self)
-        }
         fn pow_p_minus_5_over_8(&self) -> Self {
-            self.pow_p_minus_5_over_8_chain()
+            pow_p_minus_5_over_8_chain(*self)
         }
 
         /// Initialization-only copy. The out-of-line wrapper keeps setup call
         /// sites from perturbing the hot path's inlining.
         #[inline(never)]
         fn cold_pow_p_minus_5_over_8(&self) -> Self {
-            self.pow_p_minus_5_over_8_chain()
+            pow_p_minus_5_over_8_chain(*self)
         }
 
         /// The inversion addition chain, shared by both entry points.
@@ -1110,28 +1120,8 @@ pub(crate) mod avx512ifma {
         }
 
         fn pow_p_minus_5_over_8_x2(a: &Self, b: &Self) -> (Self, Self) {
-            let (t0a, t0b) = (a.square(), b.square());
-            let (sa, sb) = Self::square_repeat_x2::<2>(&t0a, &t0b);
-            let (t1a, t1b) = (sa.multiply(a), sb.multiply(b));
-            let (t0a, t0b) = (t0a.multiply(&t1a), t0b.multiply(&t1b));
-            let (qa, qb) = (t0a.square(), t0b.square());
-            let (t0a, t0b) = (qa.multiply(&t1a), qb.multiply(&t1b));
-            let (t1a, t1b) = Self::square_repeat_x2::<5>(&t0a, &t0b);
-            let (t0a, t0b) = (t1a.multiply(&t0a), t1b.multiply(&t0b));
-            let (ra, rb) = Self::square_repeat_x2::<10>(&t0a, &t0b);
-            let (t1a, t1b) = (ra.multiply(&t0a), rb.multiply(&t0b));
-            let (t2a, t2b) = Self::square_repeat_x2::<20>(&t1a, &t1b);
-            let (t1a, t1b) = (t2a.multiply(&t1a), t2b.multiply(&t1b));
-            let (t1a, t1b) = Self::square_repeat_x2::<10>(&t1a, &t1b);
-            let (t0a, t0b) = (t1a.multiply(&t0a), t1b.multiply(&t0b));
-            let (ra, rb) = Self::square_repeat_x2::<50>(&t0a, &t0b);
-            let (t1a, t1b) = (ra.multiply(&t0a), rb.multiply(&t0b));
-            let (t2a, t2b) = Self::square_repeat_x2::<100>(&t1a, &t1b);
-            let (t1a, t1b) = (t2a.multiply(&t1a), t2b.multiply(&t1b));
-            let (t1a, t1b) = Self::square_repeat_x2::<50>(&t1a, &t1b);
-            let (t0a, t0b) = (t1a.multiply(&t0a), t1b.multiply(&t0b));
-            let (fa, fb) = Self::square_repeat_x2::<2>(&t0a, &t0b);
-            (fa.multiply(a), fb.multiply(b))
+            let pair = pow_p_minus_5_over_8_chain(WideFePair(*a, *b));
+            (pair.0, pair.1)
         }
         fn equals_lanes(self, rhs: &Self) -> [bool; LANES] {
             mask_to_lanes(self.equals_mask(rhs))
@@ -1617,6 +1607,42 @@ pub(crate) mod avx512ifma {
             Self::constant(crate::field::TWO_D_LIMBS)
         }
     }
+
+    impl PowChainValue for WideFe {
+        #[inline(always)]
+        fn chain_square(self) -> Self {
+            self.square()
+        }
+
+        #[inline(always)]
+        fn chain_square_repeat<const N: usize>(self) -> Self {
+            self.square_repeat::<N>()
+        }
+
+        #[inline(always)]
+        fn chain_multiply(self, rhs: Self) -> Self {
+            self.multiply(&rhs)
+        }
+    }
+
+    impl PowChainValue for WideFePair {
+        #[inline(always)]
+        fn chain_square(self) -> Self {
+            Self(self.0.square(), self.1.square())
+        }
+
+        #[inline(always)]
+        fn chain_square_repeat<const N: usize>(self) -> Self {
+            let (a, b) = WideFe::square_repeat_x2::<N>(&self.0, &self.1);
+            Self(a, b)
+        }
+
+        #[inline(always)]
+        fn chain_multiply(self, rhs: Self) -> Self {
+            Self(self.0.multiply(&rhs.0), self.1.multiply(&rhs.1))
+        }
+    }
+
     fn madd_one(lo: &mut __m512i, hi: &mut __m512i, a: __m512i, b: __m512i) {
         unsafe {
             *lo = _mm512_madd52lo_epu64(*lo, a, b);
