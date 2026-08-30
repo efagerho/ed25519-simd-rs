@@ -39,35 +39,32 @@ struct ParsedChunk<'a> {
     messages: [&'a [u8]; SIMD_LANES],
 }
 
-/// Everything needed to score one deferred chunk once its queued SIMD work
-/// completes. The candidates themselves are queued separately so the batched
-/// computation sees a contiguous slice.
+/// Per-lane output bookkeeping shared by the policy-specific pending records.
 #[derive(Debug)]
-struct PendingChunk {
+struct PendingLanes {
     valid: [bool; SIMD_LANES],
-    r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
-    public_keys: [[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
     output_indices: [usize; SIMD_LANES],
     active_lane_count: usize,
 }
 
-/// The deferral queues one batch shares across its chunks: the policy's
-/// candidate queue plus the pending scoring data, drained together on flush.
+/// Dalek additionally needs both original encodings after recompression.
+#[derive(Debug)]
+struct PendingDalekChunk {
+    lanes: PendingLanes,
+    r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
+    public_keys: [[u8; batch::PUBLIC_KEY_LEN]; SIMD_LANES],
+}
+
+/// Reusable buffers for the policy selected by the verifier. The inactive
+/// vectors remain allocation-free; keeping one monomorphic driver is measurably
+/// faster than specializing the already-large loop by policy.
 #[derive(Debug, Default)]
 struct DeferralQueues {
     dalek_candidates: Vec<avx512ifma::DalekCandidate>,
     zip215_candidates: Vec<avx512ifma::Zip215Candidate>,
-    pending: Vec<PendingChunk>,
-}
-
-impl DeferralQueues {
-    fn new() -> Self {
-        Self {
-            dalek_candidates: Vec::new(),
-            zip215_candidates: Vec::new(),
-            pending: Vec::new(),
-        }
-    }
+    dalek_pending: Vec<PendingDalekChunk>,
+    zip215_r_bytes: Vec<[[u8; R_ENCODING_LEN]; SIMD_LANES]>,
+    zip215_pending: Vec<PendingLanes>,
 }
 
 /// The per-lane chunk data both policies score their SIMD result against.
@@ -131,7 +128,7 @@ impl<C: KeyCache> Verifier<C> {
             base_table: BASE_TABLE.entries(),
             identity_table: &*IDENTITY_TABLE,
             bucket_order: Vec::new(),
-            queues: DeferralQueues::new(),
+            queues: DeferralQueues::default(),
             scratch: Box::new(ChunkScratch::new()),
             cache,
         }
@@ -268,30 +265,46 @@ impl<C: KeyCache> Verifier<C> {
                 valid: &valid,
             };
             deferred = match policy {
-                VerifyPolicy::Zip215 => self.verify_zip215_lanes(
-                    &prepared,
-                    decoded_r,
-                    &lanes,
-                    out,
-                    &mut queues.zip215_candidates,
-                ),
-                VerifyPolicy::Dalek => self.verify_dalek_lanes(
-                    &prepared,
-                    decoded_r,
-                    &lanes,
-                    out,
-                    &mut queues.dalek_candidates,
-                ),
+                VerifyPolicy::Zip215 => {
+                    let deferred = self.verify_zip215_lanes(
+                        &prepared,
+                        decoded_r,
+                        &lanes,
+                        out,
+                        &mut queues.zip215_candidates,
+                    );
+                    if deferred {
+                        queues.zip215_r_bytes.push(r_bytes);
+                        queues.zip215_pending.push(PendingLanes {
+                            valid,
+                            output_indices,
+                            active_lane_count,
+                        });
+                    }
+                    deferred
+                }
+                VerifyPolicy::Dalek => {
+                    let deferred = self.verify_dalek_lanes(
+                        &prepared,
+                        decoded_r,
+                        &lanes,
+                        out,
+                        &mut queues.dalek_candidates,
+                    );
+                    if deferred {
+                        queues.dalek_pending.push(PendingDalekChunk {
+                            lanes: PendingLanes {
+                                valid,
+                                output_indices,
+                                active_lane_count,
+                            },
+                            r_bytes,
+                            public_keys,
+                        });
+                    }
+                    deferred
+                }
             };
-            if deferred {
-                queues.pending.push(PendingChunk {
-                    valid,
-                    r_bytes,
-                    public_keys,
-                    output_indices,
-                    active_lane_count,
-                });
-            }
         }
 
         self.retain_decoded_keys(&missing_key_lanes, &decoded_key_lanes, &public_keys);
@@ -398,7 +411,7 @@ impl<C: KeyCache> Verifier<C> {
 fn flush_dalek_queue(queues: &mut DeferralQueues, out: &mut [bool]) {
     let DeferralQueues {
         dalek_candidates: candidates,
-        pending,
+        dalek_pending: pending,
         ..
     } = queues;
     if candidates.is_empty() {
@@ -410,11 +423,11 @@ fn flush_dalek_queue(queues: &mut DeferralQueues, out: &mut [bool]) {
     avx512ifma::compress_dalek_candidates(candidates, &mut encodings[..candidates.len()]);
 
     for (chunk, encoding) in pending.drain(..).zip(&encodings) {
-        for lane in 0..chunk.active_lane_count {
+        for lane in 0..chunk.lanes.active_lane_count {
             // Recompression is canonical, so a non-canonical or wrong-sign `R`
             // encoding simply fails to match; only the legacy filter is extra.
-            out[chunk.output_indices[lane]] = encoding[lane] == chunk.r_bytes[lane]
-                && chunk.valid[lane]
+            out[chunk.lanes.output_indices[lane]] = encoding[lane] == chunk.r_bytes[lane]
+                && chunk.lanes.valid[lane]
                 && !dalek_legacy_excluded(&chunk.public_keys[lane], &chunk.r_bytes[lane]);
         }
     }
@@ -426,19 +439,17 @@ fn flush_dalek_queue(queues: &mut DeferralQueues, out: &mut [bool]) {
 fn flush_zip215_queue(queues: &mut DeferralQueues, out: &mut [bool]) {
     let DeferralQueues {
         zip215_candidates: candidates,
-        pending,
+        zip215_r_bytes: r_bytes,
+        zip215_pending: pending,
         ..
     } = queues;
     if candidates.is_empty() {
         return;
     }
+    debug_assert_eq!(candidates.len(), r_bytes.len());
     debug_assert_eq!(candidates.len(), pending.len());
 
-    let mut r_bytes = [[[0u8; R_ENCODING_LEN]; SIMD_LANES]; avx512ifma::ZIP215_BATCH];
-    for (chunk, bytes) in pending.iter().zip(&mut r_bytes) {
-        *bytes = chunk.r_bytes;
-    }
-    let checks = avx512ifma::check_zip215_candidates(candidates, &r_bytes[..candidates.len()]);
+    let checks = avx512ifma::check_zip215_candidates(candidates, r_bytes);
 
     for (chunk, (equation_holds, r_valid_lanes)) in pending.drain(..).zip(&checks) {
         for lane in 0..chunk.active_lane_count {
@@ -447,6 +458,7 @@ fn flush_zip215_queue(queues: &mut DeferralQueues, out: &mut [bool]) {
         }
     }
     candidates.clear();
+    r_bytes.clear();
 }
 
 #[inline(always)]
