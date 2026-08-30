@@ -192,17 +192,18 @@ rustc 1.95.0, pinned to CPU 4. Only benchmark IDs containing `ed25519_simd` ran;
 the comparison rows are retained from the previous full comparison run and are
 therefore not from the same execution. Criterion used its default 3-second
 warm-up, 5-second measurement, and 100 samples. The widest displayed 95%
-confidence interval among the refreshed rows was about 0.03% of the estimate.
+confidence interval among the refreshed rows was about 0.26% of the estimate.
 
 The comparison benches live in the `benches-compare` workspace member. Each
-policy/cache combination has its own executable (`zip215_cold`, `dalek_cold`,
-`zip215_hot`, and `dalek_hot`) so each executable registers and instantiates
-only one benchmark configuration. These commands refresh only this crate's
-null-cache rows used below:
+policy/cache combination used below has its own self-only executable
+(`zip215_cold_self`, `dalek_cold_self`, `zip215_hot`, and `dalek_hot`) so each
+executable registers and instantiates only one benchmark configuration. The
+`zip215_cold` and `dalek_cold` executables retain the full comparison matrix.
+These commands refresh only this crate's null-cache rows used below:
 
 ```sh
 cd benches-compare
-for bench in zip215_cold dalek_cold
+for bench in zip215_cold_self dalek_cold_self
 do
   for filter in \
     'distinct_keys/msg_len_1/ed25519_simd' \
@@ -221,8 +222,8 @@ Message length 1:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 4.29 | 4.29 | 4.28 | 4.29 |
-| ed25519-simd Dalek null-cache | 4.28 | 4.28 | 4.28 | 4.28 |
+| ed25519-simd Zip215 null-cache | 3.86 | 3.86 | 3.86 | 3.86 |
+| ed25519-simd Dalek null-cache | 3.84 | 3.84 | 3.84 | 3.84 |
 | solana-ed25519 Zip215 batch[^batch-api] | 13.86 | 12.85 | 12.40 | 12.17 |
 | solana-ed25519 Dalek loop | 22.45 | 22.39 | 22.38 | 22.45 |
 | ed25519-dalek batch[^batch-api] | 14.30 | 13.21 | 12.68 | 12.44 |
@@ -236,8 +237,8 @@ Message length 1024:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 4.56 | 4.56 | 4.57 | 4.57 |
-| ed25519-simd Dalek null-cache | 4.55 | 4.55 | 4.55 | 4.55 |
+| ed25519-simd Zip215 null-cache | 4.14 | 4.14 | 4.14 | 4.14 |
+| ed25519-simd Dalek null-cache | 4.14 | 4.14 | 4.14 | 4.14 |
 | solana-ed25519 Zip215 batch[^batch-api] | 14.84 | 13.84 | 13.38 | 13.17 |
 | solana-ed25519 Dalek loop | 23.47 | 23.48 | 23.46 | 23.48 |
 | ed25519-dalek batch[^batch-api] | 15.33 | 14.26 | 13.67 | 13.40 |
@@ -251,8 +252,8 @@ Mixed message lengths:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 4.42 | 4.38 | 4.39 | 4.36 |
-| ed25519-simd Dalek null-cache | 4.41 | 4.37 | 4.37 | 4.35 |
+| ed25519-simd Zip215 null-cache | 4.00 | 3.95 | 3.96 | 3.93 |
+| ed25519-simd Dalek null-cache | 3.99 | 3.94 | 3.95 | 3.92 |
 | solana-ed25519 Zip215 batch[^batch-api] | 14.03 | 12.99 | 12.56 | 12.32 |
 | solana-ed25519 Dalek loop | 22.57 | 22.55 | 22.59 | 22.63 |
 | ed25519-dalek batch[^batch-api] | 14.39 | 13.40 | 12.84 | 12.60 |
@@ -272,7 +273,7 @@ To rerun only this crate's hot-key cases:
 
 ```sh
 cd benches-compare
-for bench in zip215_cold zip215_hot
+for bench in zip215_cold_self zip215_hot
 do
   taskset -c 4 env \
     RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma" \
@@ -290,8 +291,8 @@ set:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 4.29 | 4.29 | 4.29 | 4.29 |
-| ed25519-simd Zip215 hot-key cache (warm) | 4.06 | 4.06 | 4.06 | 4.05 |
+| ed25519-simd Zip215 null-cache | 3.88 | 3.88 | 3.88 | 3.88 |
+| ed25519-simd Zip215 hot-key cache (warm) | 3.67 | 3.50 | 3.50 | 3.50 |
 
 ## Compatibility Target
 
