@@ -67,12 +67,12 @@ which makes the crate a narrower and more auditable component.
 
 ## Verification Policies
 
-The verifier supports two policy modes:
+The verifier supports two compile-time policy types:
 
-- `VerifyPolicy::Zip215` is the default. It performs the ZIP-215 cofactored
+- `Zip215Policy` (or the `Zip215Verifier` alias) is the default. It performs the ZIP-215 cofactored
   check and accepts non-canonical point encodings according to the
   `verify_zebra` / batch verifier behavior.
-- `VerifyPolicy::Dalek` performs a stricter Dalek-style canonical-`R` check and
+- `DalekPolicy` (or the `DalekVerifier` alias) performs a stricter Dalek-style canonical-`R` check and
   applies `solana-ed25519`'s legacy excluded-encoding filters.
 
 Both policies reject non-canonical `S` scalars (`S >= L`).
@@ -84,8 +84,13 @@ accepts some small-order and non-canonical edge cases. `solana-ed25519`'s
 `verify_dalek` behavior is stricter for this crate's compatibility target: it
 requires canonical `R` and applies legacy excluded-encoding filters. The
 speccheck fixtures in this repository therefore use speccheck's fixed
-expectations for `Zip215`, but use `solana-ed25519` itself as the oracle for
-`VerifyPolicy::Dalek`.
+expectations for ZIP-215, but use `solana-ed25519` itself as the oracle for the
+Dalek policy.
+
+Selecting the policy in the verifier's type lets a normal application contain
+only the chosen decoding, scoring, and deferral path. If an application truly
+needs to select the policy at runtime, `RuntimeVerifier` is an explicit wrapper
+that includes both monomorphized implementations.
 
 ## Batch Verification
 
@@ -95,12 +100,12 @@ key cache, so construction is not free — build it once and call `verify_batch`
 repeatedly:
 
 ```rust,no_run
-use ed25519_simd::{Verifier, VerifyInput};
+use ed25519_simd::{VerifyInput, Zip215Verifier};
 # let public_key = [0u8; 32];
 # let signature = [0u8; 64];
 # let message: &[u8] = b"hello";
 
-let mut verifier = Verifier::new();
+let mut verifier = Zip215Verifier::new();
 
 let inputs = [VerifyInput {
     public_key,
@@ -115,16 +120,16 @@ verifier.verify_batch(&inputs, &mut out);
 
 Each output entry corresponds to the input at the same index, so callers can see
 which signatures passed or failed. `out` must be the same length as `inputs`;
-`verify_batch` panics otherwise. `Verifier::new()` uses the default
-`VerifyPolicy::Zip215` policy and no retained-key cache; see
+`verify_batch` panics otherwise. `Zip215Verifier::new()` uses no retained-key
+cache; `DalekVerifier::new()` selects the other policy at compile time. See
 [Verification Policies](#verification-policies) and [Key
-Caching](#key-caching) for the other constructors.
+Caching](#key-caching) for the cache-selecting constructor.
 
 ## Key Caching
 
 Verification repeatedly needs a decoded public key and a precomputed
-variable-base multiplication table. `Verifier::new()` and
-`Verifier::with_policy(...)` use `NullKeyCache`, so decoded keys are not retained
+variable-base multiplication table. `Zip215Verifier::new()` and
+`DalekVerifier::new()` use `NullKeyCache`, so decoded keys are not retained
 across batches. **`NullKeyCache` is the recommended default** for most
 workloads: it keeps cold or mostly-distinct-key workloads from paying for
 cache bookkeeping they do not use, and it needs no assumptions about the
@@ -164,12 +169,9 @@ The verifier keeps any per-chunk decoded tables in local scratch while a chunk
 is being verified, even with `NullKeyCache`:
 
 ```rust,no_run
-use ed25519_simd::{HotKeyCache, Verifier, VerifyPolicy};
+use ed25519_simd::{HotKeyCache, Zip215Verifier};
 
-let mut verifier = Verifier::with_cache(
-    VerifyPolicy::Zip215,
-    HotKeyCache::with_capacity(256),
-);
+let mut verifier = Zip215Verifier::with_cache(HotKeyCache::with_capacity(256));
 ```
 
 ## SIMD Path

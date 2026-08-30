@@ -1,11 +1,12 @@
 use criterion::{Criterion, criterion_group, criterion_main};
+use ed25519_simd::Zip215Policy;
 
 pub mod support;
 
 macro_rules! zip215_bench {
     ($name:ident, $target:ident) => {
         fn $name(c: &mut Criterion) {
-            support::$target::<false>(c);
+            support::$target::<Zip215Policy>(c);
         }
     };
 }

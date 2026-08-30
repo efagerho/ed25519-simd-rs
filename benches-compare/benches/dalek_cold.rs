@@ -1,11 +1,12 @@
 use criterion::{Criterion, criterion_group, criterion_main};
+use ed25519_simd::DalekPolicy;
 
 pub mod support;
 
 macro_rules! dalek_bench {
     ($name:ident, $target:ident) => {
         fn $name(c: &mut Criterion) {
-            support::$target::<true>(c);
+            support::$target::<DalekPolicy>(c);
         }
     };
 }

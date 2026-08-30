@@ -75,14 +75,13 @@ pub(crate) mod avx512ifma {
 
     /// Decode keys and `R` together, interleaving their inverse-square-root chains.
     #[inline(never)]
-    pub(crate) fn decode_keys_and_decompress_r(
+    pub(crate) fn decode_keys_and_decompress_r<const DALEK: bool>(
         keys: &[[u8; PUBLIC_KEY_LEN]; LANES],
         r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
-        dalek: bool,
         key_tables: &mut [Option<PointTable>; LANES],
     ) -> (u8, WideRPoint, u8) {
         let ((kp, kmask), (rp, rmask, x_zero_mask)) =
-            decompress_two_point_chunks_wide(keys, r_bytes, dalek);
+            decompress_two_point_chunks_wide::<DALEK>(keys, r_bytes);
         build_tables_from_point(kp, key_tables);
         (
             kmask,
@@ -519,16 +518,15 @@ pub(crate) mod avx512ifma {
 
     /// Decompress two independent SIMD chunks, interleaving the two
     /// inverse-square-root chains so each fills the other's IFMA latency gaps.
-    fn decompress_two_point_chunks_wide(
+    fn decompress_two_point_chunks_wide<const MINIMIZE_B_FOR_DALEK: bool>(
         a_bytes: &[[u8; POINT_ENCODING_LEN]; LANES],
         b_bytes: &[[u8; POINT_ENCODING_LEN]; LANES],
-        minimize_b_for_dalek: bool,
     ) -> ((WidePoint, u8), (WidePoint, u8, Option<u8>)) {
         let sa = decompress_setup(a_bytes);
         let sb = decompress_setup(b_bytes);
         let (pa, pb) = WideFe::pow_p_minus_5_over_8_x2(&sa.uv, &sb.uv);
         let (a, a_mask, _) = decompress_finish::<true, false>(sa, pa);
-        let b = if minimize_b_for_dalek {
+        let b = if MINIMIZE_B_FOR_DALEK {
             decompress_finish::<false, true>(sb, pb)
         } else {
             decompress_finish::<true, false>(sb, pb)

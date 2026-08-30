@@ -5,7 +5,7 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use ed25519_simd::Verifier;
+use ed25519_simd::Zip215Verifier;
 
 fn main() {
     if std::env::args().nth(1).as_deref() != Some("measure") {
@@ -14,7 +14,7 @@ fn main() {
     }
 
     let start = Instant::now();
-    let verifier = black_box(Verifier::new());
+    let verifier = black_box(Zip215Verifier::new());
     let elapsed = start.elapsed();
     black_box(verifier);
 

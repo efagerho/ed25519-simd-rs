@@ -27,5 +27,7 @@ mod wide;
 pub use batch::{PUBLIC_KEY_LEN, SIGNATURE_LEN};
 pub use cache::{CachedPublicKey, KeyCache, NullKeyCache};
 pub use hot_key_cache::HotKeyCache;
-pub use policy::VerifyPolicy;
-pub use verifier::{Verifier, VerifyInput};
+pub use policy::{DalekPolicy, VerifyPolicy, Zip215Policy};
+pub use verifier::{
+    DalekVerifier, RuntimeVerifier, VerificationPolicy, Verifier, VerifyInput, Zip215Verifier,
+};
