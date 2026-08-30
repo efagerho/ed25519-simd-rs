@@ -259,7 +259,9 @@ pub(crate) mod avx512ifma {
     }
 
     fn build_lane0_table_from_point(p: WidePoint) -> PointTable {
-        let mut table = PointTable::cold_identity();
+        // SAFETY: `for_each_table_multiple` writes both signs of every
+        // multiple in 1..=8 before the completed table is returned.
+        let mut table = unsafe { PointTable::decode_destination() };
         for_each_table_multiple::<true>(p, |multiple, point| {
             write_cached_multiple_lane0(multiple, point, &mut table)
         });
