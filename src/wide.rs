@@ -155,17 +155,23 @@ pub(crate) mod avx512ifma {
 
     #[inline(never)]
     fn batch_invert_basepoint_zs(points: &[WidePoint]) -> Vec<WideFe> {
+        if points.is_empty() {
+            return Vec::new();
+        }
+
         let mut inverse_z = Vec::with_capacity(points.len());
-        let mut product = WideFe::one();
-        for point in points {
-            inverse_z.push(product);
+        let mut product = points[0].z;
+        inverse_z.push(product);
+        for point in &points[1..] {
             product = product.multiply(&point.z);
+            inverse_z.push(product);
         }
         let mut inverse_accumulator = product.cold_invert();
-        for i in (0..points.len()).rev() {
-            inverse_z[i] = inverse_z[i].multiply(&inverse_accumulator);
+        for i in (1..points.len()).rev() {
+            inverse_z[i] = inverse_z[i - 1].multiply(&inverse_accumulator);
             inverse_accumulator = inverse_accumulator.multiply(&points[i].z);
         }
+        inverse_z[0] = inverse_accumulator;
         inverse_z
     }
 
@@ -378,23 +384,28 @@ pub(crate) mod avx512ifma {
     ) {
         debug_assert_eq!(candidates.len(), encodings.len());
         debug_assert!(candidates.len() <= DALEK_BATCH);
+        if candidates.is_empty() {
+            return;
+        }
 
+        let mut product = candidates[0].0.z;
         let mut prefix = [WideFe::one(); DALEK_BATCH];
-        let mut product = WideFe::one();
-        for (index, candidate) in candidates.iter().enumerate() {
-            prefix[index] = product;
+        prefix[0] = product;
+        for (index, candidate) in candidates.iter().enumerate().skip(1) {
             product = product.multiply(&candidate.0.z);
+            prefix[index] = product;
         }
 
         // Walking back down lets each reciprocal be consumed as it is formed,
         // so no array of inverses is ever materialized.
         let mut accumulator = product.invert();
-        for index in (0..candidates.len()).rev() {
+        for index in (1..candidates.len()).rev() {
             let z = &candidates[index].0.z;
-            let inverse = prefix[index].multiply(&accumulator);
+            let inverse = prefix[index - 1].multiply(&accumulator);
             accumulator = accumulator.multiply(z);
             encodings[index] = candidates[index].0.compress_with_z_inverse(&inverse);
         }
+        encodings[0] = candidates[0].0.compress_with_z_inverse(&accumulator);
     }
 
     #[inline(never)]
