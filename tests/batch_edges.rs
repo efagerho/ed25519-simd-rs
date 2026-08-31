@@ -9,7 +9,7 @@ use support::{
 };
 
 #[test]
-fn bucketed_batch_shapes_match_solana_ed25519() {
+fn block_sorted_batch_shapes_match_solana_ed25519() {
     let regular = [
         1usize, 2048, 64, 1024, 2, 1536, 128, 4096, 3, 512, 65, 2047, 4, 256, 112, 3072, 5, 1025,
         63, 2048, 6, 768, 127, 4095, 7, 1537, 48, 1024, 8, 511, 113, 2048, 9, 4096, 64, 1023, 10,

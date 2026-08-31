@@ -5,17 +5,18 @@ pub(crate) const R_ENCODING_LEN: usize = crate::edwards::POINT_ENCODING_LEN;
 /// Number of verification lanes processed by one SIMD chunk.
 pub(crate) const SIMD_LANES: usize = 8;
 
-/// Visit padded SIMD chunks, bucketed by SHA-512 block count when useful.
+/// Visit padded SIMD chunks, taken in SHA-512 block-count order when that
+/// lets a chunk's lanes agree on how much to compress.
 pub(crate) fn for_each_simd_chunk<'a>(
     inputs: &[VerifyInput<'a>],
-    order: &mut Vec<usize>,
+    visit_order: &mut Vec<usize>,
     visit: impl FnMut(&[VerifyInput<'a>; SIMD_LANES], &[usize; SIMD_LANES], usize),
 ) {
     // Reordering costs a sort, so only pay it when a batch is big enough to
     // hold several chunks and its lanes would otherwise disagree on how many
     // SHA-512 blocks to compress.
     if inputs.len() >= SIMD_LANES * 2 && has_mixed_block_counts(inputs) {
-        for_each_bucketed_simd_chunk(inputs, order, visit);
+        for_each_block_sorted_simd_chunk(inputs, visit_order, visit);
     } else {
         for_each_in_order_simd_chunk(inputs, visit);
     }
@@ -46,28 +47,36 @@ fn for_each_in_order_simd_chunk<'a>(
     }
 }
 
-/// Visit chunks in block-count bucket order while reporting original indices.
-fn for_each_bucketed_simd_chunk<'a>(
+/// Visit chunks in block-count-sorted order while reporting each lane's
+/// original input index. A chunk may still straddle two block counts; sorting
+/// only makes that the exception rather than the rule.
+fn for_each_block_sorted_simd_chunk<'a>(
     inputs: &[VerifyInput<'a>],
-    order: &mut Vec<usize>,
+    visit_order: &mut Vec<usize>,
     mut visit: impl FnMut(&[VerifyInput<'a>; SIMD_LANES], &[usize; SIMD_LANES], usize),
 ) {
-    sort_indices_by_block_count(inputs, order);
+    sort_indices_by_block_count(inputs, visit_order);
 
     let mut i = 0;
-    while i + SIMD_LANES <= order.len() {
-        let output_indices: [usize; SIMD_LANES] = core::array::from_fn(|lane| order[i + lane]);
+    while i + SIMD_LANES <= visit_order.len() {
+        let output_indices: [usize; SIMD_LANES] =
+            core::array::from_fn(|lane| visit_order[i + lane]);
         let chunk: [VerifyInput<'a>; SIMD_LANES] =
             core::array::from_fn(|lane| inputs[output_indices[lane]]);
         visit(&chunk, &output_indices, SIMD_LANES);
         i += SIMD_LANES;
     }
 
-    let rem = order.len() - i;
+    let rem = visit_order.len() - i;
     if rem > 0 {
-        let last = order[order.len() - 1];
-        let output_indices: [usize; SIMD_LANES] =
-            core::array::from_fn(|lane| if lane < rem { order[i + lane] } else { last });
+        let last = visit_order[visit_order.len() - 1];
+        let output_indices: [usize; SIMD_LANES] = core::array::from_fn(|lane| {
+            if lane < rem {
+                visit_order[i + lane]
+            } else {
+                last
+            }
+        });
         let chunk: [VerifyInput<'a>; SIMD_LANES] =
             core::array::from_fn(|lane| inputs[output_indices[lane]]);
         visit(&chunk, &output_indices, rem);
@@ -95,10 +104,10 @@ fn has_mixed_block_counts(inputs: &[VerifyInput<'_>]) -> bool {
 }
 
 /// Group original input indices by challenge block count.
-fn sort_indices_by_block_count(inputs: &[VerifyInput<'_>], order: &mut Vec<usize>) {
-    order.clear();
-    order.extend(0..inputs.len());
-    order.sort_unstable_by_key(|&i| challenge_block_count(inputs[i].message.len()));
+fn sort_indices_by_block_count(inputs: &[VerifyInput<'_>], visit_order: &mut Vec<usize>) {
+    visit_order.clear();
+    visit_order.extend(0..inputs.len());
+    visit_order.sort_unstable_by_key(|&i| challenge_block_count(inputs[i].message.len()));
 }
 
 /// SHA-512 block count for `R || A || M`, including padding and length trailer.
@@ -124,9 +133,9 @@ mod tests {
 
     /// Collect `(output_indices, active_lane_count)` for every visited chunk.
     fn visited(inputs: &[VerifyInput<'_>]) -> Vec<([usize; SIMD_LANES], usize)> {
-        let mut order = Vec::new();
+        let mut visit_order = Vec::new();
         let mut seen = Vec::new();
-        for_each_simd_chunk(inputs, &mut order, |_, indices, active| {
+        for_each_simd_chunk(inputs, &mut visit_order, |_, indices, active| {
             seen.push((*indices, active));
         });
         seen
@@ -216,11 +225,11 @@ mod tests {
         );
     }
 
-    /// Bucketing sorts by block count, so the counts a batch visits never
-    /// decrease; chunks are pure only where a bucket boundary happens to fall
+    /// Sorting by block count means the counts a batch visits never decrease;
+    /// a chunk holds a single count only where a group boundary happens to fall
     /// on a chunk boundary.
     #[test]
-    fn bucketing_visits_block_counts_in_nondecreasing_order() {
+    fn sorting_visits_block_counts_in_nondecreasing_order() {
         let long = vec![0u8; 200];
         let mut mixed = inputs(SIMD_LANES * 2, b"short");
         for index in [1, 4, 9, 14] {
@@ -241,11 +250,12 @@ mod tests {
         );
     }
 
-    /// A bucket split that lands on a chunk boundary yields pure chunks, which
+    /// A group boundary that lands on a chunk boundary yields chunks of one
+    /// block count, which
     /// is the whole point: every lane then runs the same number of SHA-512
     /// compressions instead of masking the short lanes through the long tail.
     #[test]
-    fn aligned_buckets_produce_single_block_count_chunks() {
+    fn aligned_block_count_groups_produce_single_count_chunks() {
         let long = vec![0u8; 200];
         let mut mixed = inputs(SIMD_LANES * 2, b"short");
         for index in 0..SIMD_LANES {

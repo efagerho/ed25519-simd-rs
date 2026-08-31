@@ -273,11 +273,11 @@ pub(super) fn verify_cached_batch_for<P: PolicyOps>(
     out: &mut [bool],
 ) {
     assert_eq!(inputs.len(), out.len());
-    let mut bucket_order = core::mem::take(&mut verifier.bucket_order);
+    let mut visit_order = core::mem::take(&mut verifier.visit_order);
     let mut queues = core::mem::take(&mut verifier.queues);
     batch::for_each_simd_chunk(
         inputs,
-        &mut bucket_order,
+        &mut visit_order,
         |chunk, output_indices, active_lane_count| {
             let mut tmp = [false; SIMD_LANES];
             let deferred = verifier.verify_chunk(
@@ -297,7 +297,7 @@ pub(super) fn verify_cached_batch_for<P: PolicyOps>(
         },
     );
     P::flush_queue(&mut queues, out);
-    verifier.bucket_order = bucket_order;
+    verifier.visit_order = visit_order;
     verifier.queues = queues;
 }
 
@@ -307,10 +307,10 @@ pub(super) fn verify_uncached_batch_for<P: UncachedPolicyOps>(
     out: &mut [bool],
 ) {
     assert_eq!(inputs.len(), out.len());
-    let mut bucket_order = core::mem::take(&mut verifier.bucket_order);
+    let mut visit_order = core::mem::take(&mut verifier.visit_order);
     batch::for_each_simd_chunk(
         inputs,
-        &mut bucket_order,
+        &mut visit_order,
         |chunk, output_indices, active_lane_count| {
             let mut tmp = [false; SIMD_LANES];
             verifier.verify_uncached_chunk(chunk, &mut tmp);
@@ -319,7 +319,7 @@ pub(super) fn verify_uncached_batch_for<P: UncachedPolicyOps>(
             }
         },
     );
-    verifier.bucket_order = bucket_order;
+    verifier.visit_order = visit_order;
 }
 
 #[inline(always)]
