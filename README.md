@@ -72,8 +72,9 @@ The verifier supports two compile-time policy types:
 - `Zip215Policy` (or the `Zip215Verifier` alias) is the default. It performs the ZIP-215 cofactored
   check and accepts non-canonical point encodings according to the
   `verify_zebra` / batch verifier behavior.
-- `DalekPolicy` (or the `DalekVerifier` alias) performs a stricter Dalek-style canonical-`R` check and
-  applies `solana-ed25519`'s legacy excluded-encoding filters.
+- `DalekPolicy` (or the `DalekVerifier` alias) performs the strict Dalek-style
+  check: `R` must be canonical, and neither the public key nor `R` may be a
+  small-order point.
 
 Both policies reject non-canonical `S` scalars (`S >= L`).
 
@@ -82,7 +83,7 @@ point", not "match the `Dalek` row in ed25519-speccheck". Speccheck's Dalek row
 describes the acceptance set of the Dalek implementation it tested, which
 accepts some small-order and non-canonical edge cases. `solana-ed25519`'s
 `verify_dalek` behavior is stricter for this crate's compatibility target: it
-requires canonical `R` and applies legacy excluded-encoding filters. The
+requires canonical `R` and rejects small-order public keys and `R` points. The
 speccheck fixtures in this repository therefore use speccheck's fixed
 expectations for ZIP-215, but use `solana-ed25519` itself as the oracle for the
 Dalek policy.
@@ -198,12 +199,11 @@ The following numbers are Criterion estimates in microseconds per signature for
 distinct-key batches. The `ed25519-simd` rows use `NullKeyCache`, so decoded keys
 are not retained across batches.
 
-The `ed25519-simd` rows were refreshed independently on an AMD EPYC 9555P with
-rustc 1.95.0, pinned to CPU 4. Only benchmark IDs containing `ed25519_simd` ran;
-the comparison rows are retained from the previous full comparison run and are
-therefore not from the same execution. Criterion used its default 3-second
-warm-up, 5-second measurement, and 100 samples. The widest displayed 95%
-confidence interval among the refreshed rows was about 0.26% of the estimate.
+The `ed25519-simd` and `solana-ed25519` 0.2.4 rows were refreshed independently
+on an AMD EPYC 9555P with rustc 1.95.0, pinned to CPU 4. The other comparison
+rows are retained from the previous full comparison run and are therefore not
+from the same execution. Criterion used its default 3-second warm-up, 5-second
+measurement, and 100 samples.
 
 The comparison benches live in the `benches-compare` workspace member. Each
 policy/cache combination used below has its own self-only executable
@@ -233,10 +233,10 @@ Message length 1:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 3.86 | 3.86 | 3.86 | 3.86 |
-| ed25519-simd Dalek null-cache | 3.84 | 3.84 | 3.84 | 3.84 |
-| solana-ed25519 Zip215 batch[^batch-api] | 13.86 | 12.85 | 12.40 | 12.17 |
-| solana-ed25519 Dalek loop | 22.45 | 22.39 | 22.38 | 22.45 |
+| ed25519-simd Zip215 null-cache | 3.95 | 3.95 | 3.95 | 3.95 |
+| ed25519-simd Dalek null-cache | 3.88 | 3.88 | 3.88 | 3.88 |
+| solana-ed25519 Zip215 batch[^batch-api] | 13.22 | 12.21 | 11.74 | 11.52 |
+| solana-ed25519 Dalek loop | 23.63 | 23.58 | 23.60 | 23.59 |
 | ed25519-dalek batch[^batch-api] | 14.30 | 13.21 | 12.68 | 12.44 |
 | ed25519-dalek loop | 20.24 | 20.21 | 20.20 | 20.22 |
 | aws-lc-rs parsed loop | 22.59 | 22.61 | 22.62 | 22.59 |
@@ -248,10 +248,10 @@ Message length 1024:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 4.14 | 4.14 | 4.14 | 4.14 |
-| ed25519-simd Dalek null-cache | 4.14 | 4.14 | 4.14 | 4.14 |
-| solana-ed25519 Zip215 batch[^batch-api] | 14.84 | 13.84 | 13.38 | 13.17 |
-| solana-ed25519 Dalek loop | 23.47 | 23.48 | 23.46 | 23.48 |
+| ed25519-simd Zip215 null-cache | 4.21 | 4.21 | 4.21 | 4.21 |
+| ed25519-simd Dalek null-cache | 4.15 | 4.16 | 4.16 | 4.16 |
+| solana-ed25519 Zip215 batch[^batch-api] | 14.28 | 13.23 | 12.73 | 12.53 |
+| solana-ed25519 Dalek loop | 24.57 | 24.63 | 24.64 | 24.66 |
 | ed25519-dalek batch[^batch-api] | 15.33 | 14.26 | 13.67 | 13.40 |
 | ed25519-dalek loop | 21.25 | 21.23 | 21.21 | 21.22 |
 | aws-lc-rs parsed loop | 23.73 | 23.72 | 23.73 | 23.72 |
@@ -263,10 +263,10 @@ Mixed message lengths:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 4.00 | 3.95 | 3.96 | 3.93 |
-| ed25519-simd Dalek null-cache | 3.99 | 3.94 | 3.95 | 3.92 |
-| solana-ed25519 Zip215 batch[^batch-api] | 14.03 | 12.99 | 12.56 | 12.32 |
-| solana-ed25519 Dalek loop | 22.57 | 22.55 | 22.59 | 22.63 |
+| ed25519-simd Zip215 null-cache | 4.08 | 4.03 | 4.04 | 4.01 |
+| ed25519-simd Dalek null-cache | 4.01 | 3.97 | 3.97 | 3.95 |
+| solana-ed25519 Zip215 batch[^batch-api] | 13.42 | 12.38 | 11.93 | 11.71 |
+| solana-ed25519 Dalek loop | 23.69 | 23.76 | 23.77 | 23.76 |
 | ed25519-dalek batch[^batch-api] | 14.39 | 13.40 | 12.84 | 12.60 |
 | ed25519-dalek loop | 20.36 | 20.35 | 20.37 | 20.38 |
 | aws-lc-rs parsed loop | 22.79 | 22.80 | 22.77 | 22.78 |
@@ -284,7 +284,7 @@ To rerun only this crate's hot-key cases:
 
 ```sh
 cd benches-compare
-for bench in zip215_cold_self zip215_hot
+for bench in zip215_cold_self zip215_hot dalek_cold_self dalek_hot
 do
   taskset -c 4 env \
     RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma" \
@@ -302,8 +302,10 @@ set:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 3.88 | 3.88 | 3.88 | 3.88 |
-| ed25519-simd Zip215 hot-key cache (warm) | 3.67 | 3.50 | 3.50 | 3.50 |
+| ed25519-simd Zip215 null-cache | 3.94 | 3.94 | 3.94 | 3.94 |
+| ed25519-simd Zip215 hot-key cache (warm) | 3.69 | 3.53 | 3.53 | 3.53 |
+| ed25519-simd Dalek null-cache | 3.90 | 3.90 | 3.90 | 3.90 |
+| ed25519-simd Dalek hot-key cache (warm) | 3.68 | 3.49 | 3.39 | 3.34 |
 
 ## Compatibility Target
 

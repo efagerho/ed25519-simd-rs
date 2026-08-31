@@ -10,7 +10,7 @@ pub(crate) use decode::{WideRPoint, decode_keys_and_decompress_r, decode_public_
 pub(crate) use multiscalar::{
     DALEK_BATCH, DalekCandidate, ZIP215_BATCH, Zip215Candidate, check_zip215_candidates,
     compress_dalek_candidates, prepare_dalek_candidate, prepare_zip215_candidate,
-    verify_prepared_dalek_decompressed_r, verify_prepared_zip215,
+    public_key_small_order_lanes, verify_prepared_dalek_decompressed_r, verify_prepared_zip215,
 };
 pub(crate) use tables::build_basepoint_table_entries;
 

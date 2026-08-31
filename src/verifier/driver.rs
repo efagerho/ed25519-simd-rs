@@ -98,6 +98,7 @@ impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
                 }
             }
         });
+        P::reject_small_order_keys(&public_key_tables, &mut valid);
 
         // Skip the ladder, but still retain the keys that did decode.
         let mut deferred = false;
@@ -111,7 +112,6 @@ impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
             };
             let lanes = ScoredLanes {
                 r_bytes: &r_bytes,
-                public_keys: &public_keys,
                 valid: &valid,
             };
             deferred = P::verify_lanes(self, &prepared, decoded_r, &lanes, out, queues);
@@ -124,7 +124,6 @@ impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
                         active_lane_count,
                     },
                     r_bytes,
-                    public_keys,
                 );
             }
         }
@@ -252,6 +251,7 @@ impl<P: VerificationPolicy> Verifier<P, NullKeyCache> {
                 self.identity_table
             }
         });
+        P::reject_small_order_keys(&public_key_tables, &mut valid);
 
         if any_lane(&valid) {
             let k_digits = challenge_digits(&r_bytes, &public_keys, messages);
@@ -262,7 +262,6 @@ impl<P: VerificationPolicy> Verifier<P, NullKeyCache> {
             };
             let lanes = ScoredLanes {
                 r_bytes: &r_bytes,
-                public_keys: &public_keys,
                 valid: &valid,
             };
             P::verify_decoded_lanes(self, &prepared, &r_points, &r_valid_lanes, &lanes, out);

@@ -133,6 +133,16 @@ impl WidePoint {
         let y_equal = self.y.equals_lanes(&y);
         core::array::from_fn(|lane| x_equal[lane] && y_equal[lane])
     }
+    /// Return whether each point is killed by the Ed25519 cofactor.
+    pub(super) fn is_small_order_lanes(&self) -> [bool; LANES] {
+        let p8 = self
+            .double_without_t()
+            .double_without_t()
+            .double_without_t();
+        let x_zero = p8.x.is_zero_lanes();
+        let y_equals_z = p8.y.equals_lanes(&p8.z);
+        core::array::from_fn(|lane| x_zero[lane] && y_equals_z[lane])
+    }
     // Table-building points are strict, so small-bias `subtract` is valid.
     pub(super) fn add(&self, rhs: &Self) -> Self {
         self.add_impl::<false>(rhs)

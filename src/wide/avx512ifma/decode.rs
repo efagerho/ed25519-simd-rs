@@ -23,6 +23,11 @@ impl WideRPoint {
             .expect("x-zero lanes were not tracked for this decode");
         mask_to_lanes(mask)
     }
+
+    /// Lanes whose decoded points have order dividing the cofactor.
+    pub(crate) fn small_order_lanes(&self) -> [bool; LANES] {
+        self.point.is_small_order_lanes()
+    }
 }
 
 /// Decompress one SIMD chunk of `R` points and return a per-lane validity mask.
