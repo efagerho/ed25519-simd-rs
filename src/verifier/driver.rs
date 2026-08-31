@@ -14,7 +14,7 @@ use crate::wide::{PreparedChunk, avx512ifma};
 struct ParsedChunk<'a> {
     valid: [bool; SIMD_LANES],
     r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
-    public_keys: [[u8; crate::input::PUBLIC_KEY_LEN]; SIMD_LANES],
+    public_keys: [[u8; PUBLIC_KEY_LEN]; SIMD_LANES],
     s_digits: [Radix16; SIMD_LANES],
     messages: [&'a [u8]; SIMD_LANES],
 }

@@ -208,6 +208,12 @@ impl WideFe {
             Self::reduce_loose(h)
         }
     }
+    /// Accumulate `self^2` as unreduced `(lo, hi)` column pairs.
+    ///
+    /// Unlike [`multiply_accum`](Self::multiply_accum), this accepts a loose
+    /// limb 0 (`< 2^60`) because it carries limb 0 itself. The two are not
+    /// interchangeable in that respect: handing a `*_loose` result straight to
+    /// `multiply_accum` truncates its limb 0 to 52 bits.
     pub(super) fn square_accum(&self) -> ([__m512i; LIMB_COUNT], [__m512i; LIMB_COUNT]) {
         unsafe {
             let z = _mm512_setzero_si512();
@@ -226,6 +232,13 @@ impl WideFe {
                 l[1] = _mm512_add_epi64(l[1], carry);
                 l
             };
+            // The carry lands in limb 1, so this covers both the incoming
+            // limbs 1..4 and the widened limb 1.
+            #[cfg(debug_assertions)]
+            debug_assert!(
+                limbs_are_ifma_operands(&limbs),
+                "square_accum operand exceeds 52 bits after carrying limb 0"
+            );
 
             madd_one(&mut lo[0], &mut hi[0], limbs[0], limbs[0]);
             let (mut wlo, mut whi) = (z, z);
@@ -269,11 +282,24 @@ impl WideFe {
         let (lo, hi) = self.square_accum();
         Self::reduce_ifma_loose(lo, hi)
     }
-    // Strict and loose multiplication differ only in final reduction.
+    /// Accumulate `self * rhs` as unreduced `(lo, hi)` column pairs.
+    ///
+    /// Strict and loose multiplication differ only in final reduction.
+    ///
+    /// Both operands feed `vpmadd52` directly, so every limb must already be
+    /// `< 2^52`. A loose limb 0 (`< 2^60`, what `*_loose` and `reduce_ifma_loose`
+    /// produce) must pass through [`carry_limb0`](Self::carry_limb0) or an
+    /// additive op first. This is what makes `square_repeat`'s last iteration a
+    /// strict `square()`: it restores the bound before the next multiply.
     pub(super) fn multiply_accum(
         &self,
         rhs: &Self,
     ) -> ([__m512i; LIMB_COUNT], [__m512i; LIMB_COUNT]) {
+        #[cfg(debug_assertions)]
+        debug_assert!(
+            limbs_are_ifma_operands(&self.limbs) && limbs_are_ifma_operands(&rhs.limbs),
+            "multiply_accum operand exceeds 52 bits; a loose limb 0 needs carry_limb0 first"
+        );
         unsafe {
             let z = _mm512_setzero_si512();
             let mut lo = [z; LIMB_COUNT];
@@ -690,6 +716,21 @@ impl PowChainValue for WideFePair {
     fn chain_multiply(self, rhs: Self) -> Self {
         Self(self.0.multiply(&rhs.0), self.1.multiply(&rhs.1))
     }
+}
+
+/// Whether every limb in every lane is a valid `vpmadd52` operand.
+///
+/// `vpmadd52lo/hi` read only the low 52 bits of each source, so a limb at or
+/// above `2^52` is silently truncated and the product is wrong with no trap.
+/// Debug-only: the callers below assert their operands rather than trusting a
+/// prose invariant.
+#[cfg(debug_assertions)]
+fn limbs_are_ifma_operands(limbs: &[__m512i; LIMB_COUNT]) -> bool {
+    limbs.iter().all(|&limb| {
+        let mut lanes = [0u64; LANES];
+        storeu(limb, &mut lanes);
+        lanes.iter().all(|&lane| lane < (1u64 << 52))
+    })
 }
 
 fn madd_one(lo: &mut __m512i, hi: &mut __m512i, a: __m512i, b: __m512i) {

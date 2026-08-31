@@ -135,8 +135,8 @@ pub(super) struct PendingLanes {
 #[derive(Debug)]
 struct PendingDalekChunk {
     lanes: PendingLanes,
-    pub(super) r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
-    pub(super) public_keys: [[u8; crate::input::PUBLIC_KEY_LEN]; SIMD_LANES],
+    r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
+    public_keys: [[u8; PUBLIC_KEY_LEN]; SIMD_LANES],
 }
 
 /// Reusable ZIP-215-only buffers.
@@ -159,7 +159,7 @@ pub struct DalekQueues {
 /// The per-lane chunk data both policies score their SIMD result against.
 pub(super) struct ScoredLanes<'a> {
     pub(super) r_bytes: &'a [[u8; R_ENCODING_LEN]; SIMD_LANES],
-    pub(super) public_keys: &'a [[u8; crate::input::PUBLIC_KEY_LEN]; SIMD_LANES],
+    pub(super) public_keys: &'a [[u8; PUBLIC_KEY_LEN]; SIMD_LANES],
     pub(super) valid: &'a [bool; SIMD_LANES],
 }
 
