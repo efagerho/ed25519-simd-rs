@@ -290,7 +290,8 @@ fn edge_case_grid_matches_solana_ed25519() {
             "ord8d",
             hex_array::<32>("c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa"),
         ),
-        // Exact legacy blacklist entries not covered by the near-miss decoys above.
+        // Historical solana-ed25519 0.1.x blacklist entries, retained to catch
+        // acceptance changes in valid non-small-order and malformed points.
         (
             "legacy_excl_valid_pt1",
             hex_array::<32>("13e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85"),

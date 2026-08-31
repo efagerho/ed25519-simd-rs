@@ -10,7 +10,7 @@ rust-version = "1.89"
 [dependencies]
 
 [dev-dependencies]
-curve25519 = { package = "solana-ed25519", version = "0.1.0" }
+curve25519 = { package = "solana-ed25519", version = "0.2.4" }
 hex = "0.4"
 rand = "0.8"
 serde_json = "1"

@@ -312,9 +312,15 @@ fn batched_compression_matches_independent_inversions() {
             .iter()
             .map(|candidate| candidate.0.compress())
             .collect();
+        let expected_small_order: Vec<_> = candidates[..depth]
+            .iter()
+            .map(|candidate| candidate.0.is_small_order_lanes())
+            .collect();
         let mut actual = vec![[[0u8; POINT_ENCODING_LEN]; LANES]; depth];
-        compress_dalek_candidates(&candidates[..depth], &mut actual);
+        let mut small_order = vec![[false; LANES]; depth];
+        compress_dalek_candidates(&candidates[..depth], &mut actual, &mut small_order);
         assert_eq!(actual, expected, "batch of {depth} diverged");
+        assert_eq!(small_order, expected_small_order);
     }
 }
 

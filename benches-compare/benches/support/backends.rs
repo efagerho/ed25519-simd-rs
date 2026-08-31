@@ -27,7 +27,7 @@ pub(super) fn solana_ed25519_batch_zip215(inputs: &[VerifyInput<'_>]) -> bool {
         let sig = Signature::from(input.signature);
         batch.queue((vk_bytes, sig, input.message));
     }
-    batch.verify(rand::thread_rng()).is_ok()
+    batch.verify().is_ok()
 }
 
 // Verify every element without short-circuiting; parse inside the timed loop.

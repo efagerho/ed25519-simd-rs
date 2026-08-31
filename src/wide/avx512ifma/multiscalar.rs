@@ -114,8 +114,10 @@ pub(crate) fn prepare_dalek_candidate(
 pub(crate) fn compress_dalek_candidates(
     candidates: &[DalekCandidate],
     encodings: &mut [[[u8; POINT_ENCODING_LEN]; LANES]],
+    small_order: &mut [[bool; LANES]],
 ) {
     debug_assert_eq!(candidates.len(), encodings.len());
+    debug_assert_eq!(candidates.len(), small_order.len());
     debug_assert!(candidates.len() <= DALEK_BATCH);
     if candidates.is_empty() {
         return;
@@ -137,8 +139,22 @@ pub(crate) fn compress_dalek_candidates(
         let inverse = prefix[index - 1].multiply(&accumulator);
         accumulator = accumulator.multiply(z);
         encodings[index] = candidates[index].0.compress_with_z_inverse(&inverse);
+        small_order[index] = candidates[index].0.is_small_order_lanes();
     }
     encodings[0] = candidates[0].0.compress_with_z_inverse(&accumulator);
+    small_order[0] = candidates[0].0.is_small_order_lanes();
+}
+
+/// Identify small-order public keys from the already-built `[8]A` table entry.
+pub(crate) fn public_key_small_order_lanes(
+    public_key_tables: &[&PointTable; LANES],
+) -> [bool; LANES] {
+    let eight_a: [_; LANES] =
+        core::array::from_fn(|lane| public_key_tables[lane].select_signed_cached_ref(8));
+    let eight_a = WidePoint::from_cached_refs_without_t(&eight_a);
+    let x_zero = eight_a.x.is_zero_lanes();
+    let y_equals_z = eight_a.y.equals_lanes(&eight_a.z);
+    core::array::from_fn(|lane| x_zero[lane] && y_equals_z[lane])
 }
 
 #[inline(never)]

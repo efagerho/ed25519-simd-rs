@@ -12,7 +12,7 @@ pub enum VerifyPolicy {
     /// ZIP-215 cofactored verification; accepts non-canonical point encodings.
     #[default]
     Zip215,
-    /// Dalek-style canonical-`R` verification with solana-ed25519 legacy filters.
+    /// Strict Dalek-style verification with canonical `R` and no small-order points.
     Dalek,
 }
 
@@ -30,82 +30,11 @@ pub struct Zip215Policy;
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DalekPolicy;
 
-/// solana-ed25519's legacy `R` blacklist, kept byte-for-byte for Dalek policy
-/// compatibility.
-const LEGACY_EXCLUDED_R_ENCODINGS: [[u8; R_ENCODING_LEN]; 11] = [
-    // Canonical encoding of a y=0 order-4 point.
-    [0x00; R_ENCODING_LEN],
-    // Canonical identity encoding: y=1, x=0.
-    {
-        let mut e = [0x00; R_ENCODING_LEN];
-        e[0] = 0x01;
-        e
-    },
-    // Canonical encoding of an order-8 point.
-    [
-        0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef, 0x98,
-        0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88, 0x6d, 0x53,
-        0xfc, 0x05,
-    ],
-    // Canonical encoding of an order-8 point.
-    [
-        0xc7, 0x17, 0x6a, 0x70, 0x3d, 0x4d, 0xd8, 0x4f, 0xba, 0x3c, 0x0b, 0x76, 0x0d, 0x10, 0x67,
-        0x0f, 0x2a, 0x20, 0x53, 0xfa, 0x2c, 0x39, 0xcc, 0xc6, 0x4e, 0xc7, 0xfd, 0x77, 0x92, 0xac,
-        0x03, 0x7a,
-    ],
-    // Valid canonical encoding of a non-small-order point included by the legacy blacklist.
-    [
-        0x13, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef, 0x98,
-        0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88, 0x6d, 0x53,
-        0xfc, 0x85,
-    ],
-    // Invalid encoding; it does not decompress to an Edwards point.
-    [
-        0xb4, 0x17, 0x6a, 0x70, 0x3d, 0x4d, 0xd8, 0x4f, 0xba, 0x3c, 0x0b, 0x76, 0x0d, 0x10, 0x67,
-        0x0f, 0x2a, 0x20, 0x53, 0xfa, 0x2c, 0x39, 0xcc, 0xc6, 0x4e, 0xc7, 0xfd, 0x77, 0x92, 0xac,
-        0x03, 0xfa,
-    ],
-    // Canonical encoding of the order-2 point: y=-1, x=0.
-    [
-        0xec, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0x7f,
-    ],
-    // Non-canonical y=p encoding of the same y=0 order-4 point as entry 0.
-    [
-        0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0x7f,
-    ],
-    // Non-canonical y=p+1 encoding of the identity point.
-    [
-        0xee, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0x7f,
-    ],
-    // Invalid encoding; y=p-20 with the x sign bit set is not on the curve.
-    [
-        0xd9, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff,
-    ],
-    // Valid canonical encoding of a non-small-order point included by the legacy blacklist.
-    [
-        0xda, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff,
-    ],
-];
-
 /// The Ed25519 field modulus `p = 2^255 - 19`, encoded little-endian.
 const FIELD_P_BYTES: [u8; 32] = [
     0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f,
 ];
-
-pub(crate) fn r_encoding_is_legacy_excluded(r_bytes: &[u8; R_ENCODING_LEN]) -> bool {
-    LEGACY_EXCLUDED_R_ENCODINGS.contains(r_bytes)
-}
 
 pub(crate) fn r_encoding_has_canonical_y(r_bytes: &[u8; R_ENCODING_LEN]) -> bool {
     let mut y = *r_bytes;
@@ -136,7 +65,6 @@ pub(super) struct PendingLanes {
 struct PendingDalekChunk {
     lanes: PendingLanes,
     r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
-    public_keys: [[u8; PUBLIC_KEY_LEN]; SIMD_LANES],
 }
 
 /// Reusable ZIP-215-only buffers.
@@ -165,7 +93,6 @@ pub struct DalekQueues {
 /// The per-lane chunk data both policies score their SIMD result against.
 pub(super) struct ScoredLanes<'a> {
     pub(super) r_bytes: &'a [[u8; R_ENCODING_LEN]; SIMD_LANES],
-    pub(super) public_keys: &'a [[u8; PUBLIC_KEY_LEN]; SIMD_LANES],
     pub(super) valid: &'a [bool; SIMD_LANES],
 }
 
@@ -223,6 +150,11 @@ pub(super) trait PolicyOps: VerificationPolicy {
         key_tables: &mut [Option<PointTable>; SIMD_LANES],
     ) -> (u8, avx512ifma::WideRPoint, u8);
 
+    fn reject_small_order_keys(
+        public_key_tables: &[&PointTable; SIMD_LANES],
+        valid: &mut [bool; SIMD_LANES],
+    );
+
     fn verify_lanes<C: KeyCache>(
         verifier: &Verifier<Self, C>,
         prepared: &PreparedChunk<'_>,
@@ -236,7 +168,6 @@ pub(super) trait PolicyOps: VerificationPolicy {
         queues: &mut Self::Queues,
         lanes: PendingLanes,
         r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
-        public_keys: [[u8; PUBLIC_KEY_LEN]; SIMD_LANES],
     );
 
     fn queue_is_full(queues: &Self::Queues) -> bool;
@@ -290,6 +221,13 @@ impl PolicyOps for Zip215Policy {
     }
 
     #[inline(always)]
+    fn reject_small_order_keys(
+        _public_key_tables: &[&PointTable; SIMD_LANES],
+        _valid: &mut [bool; SIMD_LANES],
+    ) {
+    }
+
+    #[inline(always)]
     fn verify_lanes<C: KeyCache>(
         verifier: &Verifier<Self, C>,
         prepared: &PreparedChunk<'_>,
@@ -312,7 +250,6 @@ impl PolicyOps for Zip215Policy {
         queues: &mut Self::Queues,
         lanes: PendingLanes,
         r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
-        _public_keys: [[u8; PUBLIC_KEY_LEN]; SIMD_LANES],
     ) {
         queues.zip215_r_bytes.push(r_bytes);
         queues.zip215_pending.push(lanes);
@@ -380,6 +317,17 @@ impl PolicyOps for DalekPolicy {
     }
 
     #[inline(always)]
+    fn reject_small_order_keys(
+        public_key_tables: &[&PointTable; SIMD_LANES],
+        valid: &mut [bool; SIMD_LANES],
+    ) {
+        let small_order = avx512ifma::public_key_small_order_lanes(public_key_tables);
+        for lane in 0..SIMD_LANES {
+            valid[lane] &= !small_order[lane];
+        }
+    }
+
+    #[inline(always)]
     fn verify_lanes<C: KeyCache>(
         verifier: &Verifier<Self, C>,
         prepared: &PreparedChunk<'_>,
@@ -402,13 +350,10 @@ impl PolicyOps for DalekPolicy {
         queues: &mut Self::Queues,
         lanes: PendingLanes,
         r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
-        public_keys: [[u8; PUBLIC_KEY_LEN]; SIMD_LANES],
     ) {
-        queues.dalek_pending.push(PendingDalekChunk {
-            lanes,
-            r_bytes,
-            public_keys,
-        });
+        queues
+            .dalek_pending
+            .push(PendingDalekChunk { lanes, r_bytes });
     }
 
     #[inline(always)]
@@ -463,8 +408,8 @@ fn zip215_lane_accepts(equation_holds: bool, input_valid: bool, r_valid: bool) -
     equation_holds && input_valid && r_valid
 }
 
-/// Score one chunk's lanes against an already-decompressed `R` under the Dalek
-/// rules: canonical `y`, no negative zero, and the legacy `R` blacklist.
+/// Score one chunk's lanes against an already-decompressed `R` under the
+/// strict Dalek rules: canonical encoding and no small-order `R`.
 ///
 /// The sole home of the Dalek accept predicate; see [`score_zip215_lanes`].
 #[inline(always)]
@@ -476,6 +421,7 @@ pub(super) fn score_dalek_lanes(
     out: &mut [bool; SIMD_LANES],
 ) {
     let r_x_zero = r_points.x_zero_lanes();
+    let r_small_order = r_points.small_order_lanes();
     for lane in 0..SIMD_LANES {
         let r_bytes = &lanes.r_bytes[lane];
         let signed_zero = r_x_zero[lane] && r_bytes[31] & 0x80 != 0;
@@ -484,7 +430,7 @@ pub(super) fn score_dalek_lanes(
             && r_valid_lanes[lane]
             && r_encoding_has_canonical_y(r_bytes)
             && !signed_zero
-            && !dalek_legacy_excluded(&lanes.public_keys[lane], r_bytes);
+            && !r_small_order[lane];
     }
 }
 
@@ -501,15 +447,20 @@ fn flush_dalek_queue(queues: &mut DalekQueues, out: &mut [bool]) {
     debug_assert_eq!(candidates.len(), pending.len());
 
     let mut encodings = [[[0u8; R_ENCODING_LEN]; SIMD_LANES]; avx512ifma::DALEK_BATCH];
-    avx512ifma::compress_dalek_candidates(candidates, &mut encodings[..candidates.len()]);
+    let mut small_order = [[false; SIMD_LANES]; avx512ifma::DALEK_BATCH];
+    avx512ifma::compress_dalek_candidates(
+        candidates,
+        &mut encodings[..candidates.len()],
+        &mut small_order[..candidates.len()],
+    );
 
-    for (chunk, encoding) in pending.drain(..).zip(&encodings) {
+    for ((chunk, encoding), small_order) in pending.drain(..).zip(&encodings).zip(&small_order) {
         for lane in 0..chunk.lanes.active_lane_count {
-            // Recompression is canonical, so a non-canonical or wrong-sign `R`
-            // encoding simply fails to match; only the legacy filter is extra.
+            // Recompression is canonical, so a non-canonical or wrong-sign
+            // `R` encoding simply fails to match.
             out[chunk.lanes.output_indices[lane]] = encoding[lane] == chunk.r_bytes[lane]
                 && chunk.lanes.valid[lane]
-                && !dalek_legacy_excluded(&chunk.public_keys[lane], &chunk.r_bytes[lane]);
+                && !small_order[lane];
         }
     }
     candidates.clear();
@@ -539,11 +490,4 @@ fn flush_zip215_queue(queues: &mut Zip215Queues, out: &mut [bool]) {
     }
     candidates.clear();
     r_bytes.clear();
-}
-
-fn dalek_legacy_excluded(
-    public_key: &[u8; PUBLIC_KEY_LEN],
-    r_bytes: &[u8; R_ENCODING_LEN],
-) -> bool {
-    *public_key == [0u8; PUBLIC_KEY_LEN] || r_encoding_is_legacy_excluded(r_bytes)
 }

@@ -107,7 +107,7 @@ fn speccheck_vectors_match_zip215_and_dalek_policies() {
         true, true, true, true, true, true, false, false, false, true, true, true,
     ];
     let dalek_expected = [
-        false, true, true, true, false, false, false, false, false, false, false, true,
+        false, false, false, true, false, false, false, false, false, false, false, false,
     ];
     let fillers = mixed_batch_fillers();
 
