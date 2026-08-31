@@ -27,7 +27,7 @@ pub struct Verifier<P: VerificationPolicy = Zip215Policy, C: KeyCache = NullKeyC
     base_table: &'static BasepointTableEntries,
     // Invalid lanes are masked out but still need a real ladder table.
     identity_table: &'static PointTable,
-    bucket_order: Vec<usize>,
+    visit_order: Vec<usize>,
     queues: C::Queues<P>,
     scratch: Box<ChunkScratch>,
     cache: C,
@@ -71,7 +71,7 @@ impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
             policy: core::marker::PhantomData,
             base_table: BASE_TABLE.entries(),
             identity_table: &*IDENTITY_TABLE,
-            bucket_order: Vec::new(),
+            visit_order: Vec::new(),
             queues: C::Queues::<P>::default(),
             scratch: Box::new(ChunkScratch::new()),
             cache,
