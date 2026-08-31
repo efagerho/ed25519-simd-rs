@@ -40,6 +40,10 @@ const SCALAR_RR: [u64; LIMB_COUNT] = [
 struct WideScalar52([std::arch::x86_64::__m512i; LIMB_COUNT]);
 
 impl WideScalar52 {
+    /// Reduces eight 512-bit little-endian integers modulo the group order.
+    ///
+    /// `words[word][lane]` is word `word` of the integer in `lane`. The result
+    /// stores each reduced integer as five radix-2^52 limbs.
     fn from_wide_words(words: &[[u64; LANES]; WIDE_WORDS]) -> Self {
         use std::arch::x86_64::*;
         unsafe {
@@ -109,11 +113,14 @@ impl WideScalar52 {
         }
     }
 
+    /// Broadcasts a radix-2^52 integer into every SIMD lane.
     fn constant(value: &[u64; LIMB_COUNT]) -> Self {
         use std::arch::x86_64::*;
         unsafe { Self(core::array::from_fn(|i| _mm512_set1_epi64(value[i] as i64))) }
     }
 
+    /// Adds two reduced values lane-wise and returns their canonical sum modulo
+    /// the group order.
     fn add(a: &Self, b: &Self) -> Self {
         use std::arch::x86_64::*;
         unsafe {
@@ -131,6 +138,8 @@ impl WideScalar52 {
         }
     }
 
+    /// Subtracts `rhs` lane-wise and returns the canonical difference modulo the
+    /// group order.
     fn sub(&self, rhs: &Self) -> Self {
         use std::arch::x86_64::*;
         unsafe {
@@ -154,6 +163,7 @@ impl WideScalar52 {
         }
     }
 
+    /// Adds the group order to every lane without performing a final reduction.
     fn add_l(&self) -> Self {
         use std::arch::x86_64::*;
         unsafe {
@@ -172,11 +182,19 @@ impl WideScalar52 {
         }
     }
 
+    /// Multiplies two values lane-wise and performs Montgomery reduction.
+    ///
+    /// For Montgomery radix `R = 2^260`, the result is
+    /// `self * rhs * R^-1 mod L` in each lane.
     fn montgomery_mul(&self, rhs: &Self) -> Self {
         let (lo, hi) = Self::mul_internal(self, rhs);
         Self::montgomery_reduce(&lo, &hi)
     }
 
+    /// Computes the uncarried radix-2^52 product convolution in every lane.
+    ///
+    /// The returned arrays hold the low and high 52-bit halves accumulated for
+    /// each output limb, ready for Montgomery reduction.
     fn mul_internal(
         a: &Self,
         b: &Self,
@@ -202,6 +220,8 @@ impl WideScalar52 {
         }
     }
 
+    /// Montgomery-reduces a split product and returns its canonical residue in
+    /// each lane.
     fn montgomery_reduce(
         lo: &[std::arch::x86_64::__m512i; 2 * LIMB_COUNT - 1],
         hi: &[std::arch::x86_64::__m512i; 2 * LIMB_COUNT - 1],
@@ -300,6 +320,8 @@ impl WideScalar52 {
         }
     }
 
+    /// Packs each lane's five radix-2^52 limbs into four little-endian 64-bit
+    /// words.
     fn words(self) -> [std::arch::x86_64::__m512i; 4] {
         use std::arch::x86_64::*;
         unsafe {
@@ -321,6 +343,7 @@ impl WideScalar52 {
         }
     }
 
+    /// Serializes each lane as a 32-byte little-endian scalar.
     #[cfg(test)]
     fn to_bytes_lanes(self) -> [[u8; 32]; LANES] {
         let words = self.words();
@@ -337,6 +360,8 @@ impl WideScalar52 {
         })
     }
 
+    /// Recodes each lane as 64 little-endian signed radix-16 digits in
+    /// `-8..=7`.
     fn to_radix16(self) -> [Radix16; LANES] {
         use std::arch::x86_64::*;
         unsafe {
@@ -379,11 +404,13 @@ impl WideScalar52 {
     }
 }
 
+// Loads the eight `u64` lanes into a 512-bit SIMD vector without requiring alignment.
 #[inline(always)]
 fn loadu(values: [u64; LANES]) -> std::arch::x86_64::__m512i {
     unsafe { std::arch::x86_64::_mm512_loadu_si512(values.as_ptr() as *const _) }
 }
 
+// Stores a 512-bit SIMD vector into eight `u64` lanes without requiring alignment.
 #[inline(always)]
 fn storeu(value: std::arch::x86_64::__m512i, out: &mut [u64; LANES]) {
     unsafe { std::arch::x86_64::_mm512_storeu_si512(out.as_mut_ptr() as *mut _, value) }

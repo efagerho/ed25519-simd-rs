@@ -181,6 +181,17 @@ fallback: single verifications and ragged batch tails are processed as padded
 SIMD chunks, and required target features are enforced by the root compile-time
 gate (see [Requirements](#requirements)).
 
+Internally, batch data is transposed from eight independent values into
+limb-major vectors. Logical register 0 contains limb 0 from batch items 0–7 in
+its eight SIMD lanes, register 1 contains limb 1 from the same items, and so on:
+
+![Eight batch values transposed into limb-major AVX-512 SIMD registers](assets/simd-lane-transpose.svg)
+
+This structure-of-arrays layout lets one AVX-512 instruction operate on the
+same limb of all eight batch items. The diagram uses an eight-limb value; types
+with fewer limbs use the same layout with fewer vectors. The register numbers
+are logical array positions—the compiler chooses the physical `zmm` registers.
+
 ## Benchmark Snapshot
 
 The following numbers are Criterion estimates in microseconds per signature for
