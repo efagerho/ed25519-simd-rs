@@ -11,7 +11,10 @@ pub(crate) fn for_each_simd_chunk<'a>(
     order: &mut Vec<usize>,
     visit: impl FnMut(&[VerifyInput<'a>; SIMD_LANES], &[usize; SIMD_LANES], usize),
 ) {
-    if should_bucket_by_block_count(inputs) {
+    // Reordering costs a sort, so only pay it when a batch is big enough to
+    // hold several chunks and its lanes would otherwise disagree on how many
+    // SHA-512 blocks to compress.
+    if inputs.len() >= SIMD_LANES * 2 && has_mixed_block_counts(inputs) {
         for_each_bucketed_simd_chunk(inputs, order, visit);
     } else {
         for_each_in_order_simd_chunk(inputs, visit);
@@ -71,13 +74,16 @@ fn for_each_bucketed_simd_chunk<'a>(
     }
 }
 
-/// Bucket only when enough inputs have mixed SHA-512 challenge block counts.
-fn should_bucket_by_block_count(inputs: &[VerifyInput<'_>]) -> bool {
-    if inputs.len() < SIMD_LANES * 2 {
+/// Whether the inputs disagree on their SHA-512 challenge block count.
+///
+/// One differing input is enough: a chunk containing it must compress every
+/// lane through the longest lane's block count, masking off the short ones.
+fn has_mixed_block_counts(inputs: &[VerifyInput<'_>]) -> bool {
+    let Some(first_input) = inputs.first() else {
         return false;
-    }
+    };
 
-    let first = challenge_block_count(inputs[0].message.len());
+    let first = challenge_block_count(first_input.message.len());
     let mut i = 1;
     while i < inputs.len() {
         if challenge_block_count(inputs[i].message.len()) != first {
@@ -158,25 +164,56 @@ mod tests {
         }
     }
 
-    /// Mixed block counts take the bucketing path; uniform ones do not.
     #[test]
-    fn bucketing_engages_only_for_mixed_block_counts() {
+    fn mixed_block_counts_are_detected_by_a_single_differing_input() {
         let long = vec![0u8; 200];
-        let uniform = inputs(SIMD_LANES * 2, b"short");
-        assert!(!should_bucket_by_block_count(&uniform));
-
-        let mut mixed = inputs(SIMD_LANES * 2, b"short");
-        mixed[5].message = &long;
-        assert!(should_bucket_by_block_count(&mixed));
         assert_ne!(
             challenge_block_count(long.len()),
             challenge_block_count(b"short".len())
         );
 
-        // Too small to be worth reordering, even when the lengths differ.
+        assert!(!has_mixed_block_counts(&inputs(0, b"short")));
+        assert!(!has_mixed_block_counts(&inputs(1, b"short")));
+        assert!(!has_mixed_block_counts(&inputs(SIMD_LANES * 2, b"short")));
+
+        // A single long lane anywhere is enough, including the first.
+        for differing in [0, 5, SIMD_LANES * 2 - 1] {
+            let mut mixed = inputs(SIMD_LANES * 2, b"short");
+            mixed[differing].message = &long;
+            assert!(
+                has_mixed_block_counts(&mixed),
+                "missed a differing input at {differing}"
+            );
+        }
+    }
+
+    /// The size gate is separate from the mixedness test: a small batch keeps
+    /// its original order even though its block counts do differ.
+    #[test]
+    fn small_batches_are_visited_in_order_despite_mixed_block_counts() {
+        let long = vec![0u8; 200];
         let mut small = inputs(SIMD_LANES, b"short");
         small[0].message = &long;
-        assert!(!should_bucket_by_block_count(&small));
+        assert!(has_mixed_block_counts(&small));
+
+        let chunks = visited(&small);
+        assert_eq!(chunks.len(), 1);
+        let identity: [usize; SIMD_LANES] = core::array::from_fn(|lane| lane);
+        assert_eq!(
+            chunks[0],
+            (identity, SIMD_LANES),
+            "a batch below the reordering threshold was sorted anyway"
+        );
+
+        // Twice the size, same mixture: now the sort does run and moves the
+        // long lane to the end.
+        let mut large = inputs(SIMD_LANES * 2, b"short");
+        large[0].message = &long;
+        let visited_large = visited(&large);
+        assert_ne!(
+            visited_large[0].0[0], 0,
+            "a batch above the threshold was not reordered"
+        );
     }
 
     /// Bucketing sorts by block count, so the counts a batch visits never
