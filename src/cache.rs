@@ -1,6 +1,6 @@
-use crate::batch::PUBLIC_KEY_LEN;
 use crate::edwards::PointTable;
-use crate::verifier::{VerificationPolicy, Verifier, VerifyInput};
+use crate::input::{PUBLIC_KEY_LEN, VerifyInput};
+use crate::verifier::{VerificationPolicy, Verifier};
 use crate::wide::avx512ifma;
 
 pub(crate) mod private {

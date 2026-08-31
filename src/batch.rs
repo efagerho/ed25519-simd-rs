@@ -1,21 +1,9 @@
-use crate::edwards::PointTable;
-use crate::scalar::Radix16;
-use crate::verifier::VerifyInput;
+use crate::input::VerifyInput;
 
-/// Byte length of an encoded Ed25519 public key: a compressed Edwards point.
-pub const PUBLIC_KEY_LEN: usize = crate::edwards::POINT_ENCODING_LEN;
-/// Byte length of an encoded Ed25519 signature.
-pub const SIGNATURE_LEN: usize = 64;
 /// Byte length of a signature's compressed `R` point.
 pub(crate) const R_ENCODING_LEN: usize = crate::edwards::POINT_ENCODING_LEN;
 /// Number of verification lanes processed by one SIMD chunk.
 pub(crate) const SIMD_LANES: usize = 8;
-
-pub(crate) struct PreparedChunk<'a> {
-    pub(crate) public_key_tables: [&'a PointTable; SIMD_LANES],
-    pub(crate) s_digits: &'a [Radix16; SIMD_LANES],
-    pub(crate) k_digits: &'a [Radix16; SIMD_LANES],
-}
 
 /// Visit padded SIMD chunks, bucketed by SHA-512 block count when useful.
 pub(crate) fn for_each_simd_chunk<'a>(

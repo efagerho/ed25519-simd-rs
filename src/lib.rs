@@ -18,16 +18,16 @@ mod cache;
 mod edwards;
 mod field;
 mod hot_key_cache;
-mod policy;
+mod input;
 mod scalar;
 mod sha512;
 mod verifier;
 mod wide;
 
-pub use batch::{PUBLIC_KEY_LEN, SIGNATURE_LEN};
 pub use cache::{CachedPublicKey, KeyCache, NullKeyCache};
 pub use hot_key_cache::HotKeyCache;
-pub use policy::{DalekPolicy, VerifyPolicy, Zip215Policy};
+pub use input::{PUBLIC_KEY_LEN, SIGNATURE_LEN, VerifyInput};
 pub use verifier::{
-    DalekVerifier, RuntimeVerifier, VerificationPolicy, Verifier, VerifyInput, Zip215Verifier,
+    DalekPolicy, DalekVerifier, RuntimeVerifier, VerificationPolicy, Verifier, VerifyPolicy,
+    Zip215Policy, Zip215Verifier,
 };
