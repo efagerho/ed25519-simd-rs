@@ -1,5 +1,5 @@
-use crate::batch::PUBLIC_KEY_LEN;
 use crate::cache::{CachedPublicKey, KeyCache};
+use crate::input::PUBLIC_KEY_LEN;
 use std::cell::Cell;
 use std::collections::HashMap;
 

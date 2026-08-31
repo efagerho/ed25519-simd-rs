@@ -1,4 +1,5 @@
-use crate::batch::{PUBLIC_KEY_LEN, R_ENCODING_LEN, SIMD_LANES, challenge_block_count};
+use crate::batch::{R_ENCODING_LEN, SIMD_LANES, challenge_block_count};
+use crate::input::PUBLIC_KEY_LEN;
 
 const IV: [u64; 8] = [
     0x6a09e667f3bcc908,
