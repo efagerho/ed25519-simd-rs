@@ -16,6 +16,9 @@ pub(crate) const DALEK_BATCH: usize = 8;
 
 /// An uncompressed Dalek verification result waiting to be compared with
 /// the signature's encoded R point.
+///
+/// Eight candidates are normalized with one batch inversion before
+/// their encodings are checked, instead of performing eight separate inversions.
 pub(crate) struct DalekCandidate(pub(super) WidePoint);
 
 /// ZIP-215 chunks whose `R` decompressions are interleaved pairwise, so
@@ -23,6 +26,9 @@ pub(crate) struct DalekCandidate(pub(super) WidePoint);
 pub(crate) const ZIP215_BATCH: usize = 2;
 
 /// A ZIP-215 ladder result waiting for its `R` point to be decompressed.
+///
+/// Two candidates queue two `R` decompressions whose exponentiation
+/// chains are interleaved to hide dependent IFMA latency.
 pub(crate) struct Zip215Candidate(pub(super) WidePoint);
 
 // A queued candidate is an opaque curve point; name it and stop.

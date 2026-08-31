@@ -7,10 +7,14 @@ use crate::cache::{CachedPublicKey, KeyCache, NullKeyCache};
 use crate::edwards::PointTable;
 use crate::hot_key_cache::HotKeyCache;
 use crate::input::{PUBLIC_KEY_LEN, VerifyInput};
-use crate::scalar::{self, Radix16, Scalar};
+use crate::scalar::{self, CanonicalScalar, Radix16};
 use crate::sha512;
 use crate::wide::{PreparedChunk, avx512ifma};
 
+/// One input chunk parsed into the structure-of-arrays layout used by SIMD code.
+///
+/// Eight `R` encodings become one contiguous lane array that a
+/// decompression pass loads into vector field elements.
 struct ParsedChunk<'a> {
     valid: [bool; SIMD_LANES],
     r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
@@ -19,6 +23,10 @@ struct ParsedChunk<'a> {
     messages: [&'a [u8]; SIMD_LANES],
 }
 
+/// Reusable point-table storage for public keys decoded during verification.
+///
+/// Each chunk overwrites these eight slots instead of allocating
+/// a fresh table array before its multiscalar ladder.
 #[derive(Debug)]
 pub(super) struct ChunkScratch {
     key_tables: [Option<PointTable>; SIMD_LANES],
@@ -335,7 +343,7 @@ fn parse_chunk_inputs<'a>(inputs: &[VerifyInput<'a>; SIMD_LANES]) -> ParsedChunk
         let mut s_bytes = [0u8; 32];
         s_bytes.copy_from_slice(&input.signature[R_ENCODING_LEN..]);
         if scalar::is_canonical(&s_bytes) {
-            s_digits[lane] = Scalar::from_canonical_bytes(s_bytes).to_radix16();
+            s_digits[lane] = CanonicalScalar::from_canonical_bytes(s_bytes).to_radix16();
         } else {
             valid[lane] = false;
         }

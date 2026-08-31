@@ -3,16 +3,24 @@ const L_BYTES: [u8; 32] = [
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
 ];
 
+/// A scalar encoded as 64 little-endian signed radix-16 digits in `-8..=7`.
+///
+/// `28 = -4 + 2*16`, so a point ladder can use the digits `-4`
+/// and `2` to select precomputed multiples instead of adding the point 28 times.
 pub(crate) type Radix16 = [i8; 64];
 const LANES: usize = crate::batch::SIMD_LANES;
 const WIDE_WORDS: usize = 8;
 
+/// A canonical scalar below the Ed25519 group order, stored as 32
+/// little-endian radix-256 digits: byte `i` is the coefficient of `256^i`.
+/// It carries an already-checked signature scalar into signed radix-16 recoding
+/// for point multiplication; arithmetic is intentionally left to other types.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Scalar {
+pub(crate) struct CanonicalScalar {
     bytes: [u8; 32],
 }
 
-impl Scalar {
+impl CanonicalScalar {
     pub(crate) fn from_canonical_bytes(bytes: [u8; 32]) -> Self {
         debug_assert!(is_canonical(&bytes));
         Self { bytes }
@@ -146,7 +154,7 @@ mod tests {
         }
 
         for bytes in cases {
-            let scalar = Scalar::from_canonical_bytes(bytes);
+            let scalar = CanonicalScalar::from_canonical_bytes(bytes);
             let digits = scalar.to_radix16();
 
             assert_eq!(value_from_digits(&digits), bytes, "digits for {bytes:?}");

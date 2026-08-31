@@ -21,6 +21,9 @@ static IDENTITY_TABLE: LazyLock<PointTable> = LazyLock::new(PointTable::cold_ide
 
 /// Batch Ed25519 verifier for a compile-time [`VerificationPolicy`] and [`KeyCache`].
 /// Reuse one across [`verify_batch`](Verifier::verify_batch) calls.
+///
+/// Each full chunk hashes, reduces, and evaluates eight signature
+/// equations with AVX-512 while reusing the verifier's tables and scratch space.
 #[derive(Debug)]
 pub struct Verifier<P: VerificationPolicy = Zip215Policy, C: KeyCache = NullKeyCache> {
     policy: core::marker::PhantomData<P>,

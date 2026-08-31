@@ -72,6 +72,7 @@ pub fn signing_key_from_index(index: u64) -> SigningKey {
     SigningKey::from(seed)
 }
 
+/// Owned verification input used by integration-test generators.
 #[derive(Clone)]
 pub struct Case {
     pub public_key: [u8; PUBLIC_KEY_LEN],

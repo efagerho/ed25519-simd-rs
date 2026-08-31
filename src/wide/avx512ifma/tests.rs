@@ -382,11 +382,11 @@ fn wide_multiscalar_matches_nontrivial_basepoint_relation() {
     let base_table = BasepointTable::new();
     let mut two_bytes = [0u8; 32];
     two_bytes[0] = 2;
-    let two = crate::scalar::Scalar::from_canonical_bytes(two_bytes);
+    let two = crate::scalar::CanonicalScalar::from_canonical_bytes(two_bytes);
     let s_digits = [two.to_radix16(); LANES];
     let mut one_bytes = [0u8; 32];
     one_bytes[0] = 1;
-    let one = crate::scalar::Scalar::from_canonical_bytes(one_bytes);
+    let one = crate::scalar::CanonicalScalar::from_canonical_bytes(one_bytes);
     let k_digits = [one.to_radix16(); LANES];
     let prepared = PreparedChunk {
         public_key_tables: [&table; LANES],

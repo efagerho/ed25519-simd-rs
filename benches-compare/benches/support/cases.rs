@@ -10,18 +10,21 @@ pub(super) fn signing_key_from_index(index: u64) -> SigningKey {
     SigningKey::from(seed)
 }
 
+/// An owned public-key, signature, and message benchmark fixture.
 pub(super) struct OwnedCase {
     pk: [u8; 32],
     sig: [u8; 64],
     msg: Vec<u8>,
 }
 
+/// Message-length distribution generated for a benchmark case set.
 #[derive(Clone, Copy)]
 pub(super) enum MsgLen {
     Fixed(usize),
     Mixed,
 }
 
+/// Kind of invalid input injected into a benchmark case set.
 #[derive(Clone, Copy)]
 pub(super) enum InvalidKind {
     MalformedSignature,
