@@ -340,6 +340,7 @@ fn edge_case_grid_matches_solana_ed25519() {
     ];
     let message: &[u8] = b"taming the many eddsas";
 
+    /// Signature of a reference verifier used as a policy oracle.
     type Oracle = fn([u8; PUBLIC_KEY_LEN], [u8; SIGNATURE_LEN], &[u8]) -> bool;
     let policies: [(VerifyPolicy, Oracle); 2] = [
         (Zip215, solana_ed25519_verify_zebra),

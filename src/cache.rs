@@ -4,10 +4,14 @@ use crate::verifier::{VerificationPolicy, Verifier};
 use crate::wide::avx512ifma;
 
 pub(crate) mod private {
+    /// Prevents downstream crates from implementing sealed cache policies.
     pub trait Sealed {}
 }
 
 /// A decoded public key and its precomputed multiplication table.
+///
+/// A later signature from the same key can start its scalar
+/// ladder with these cached multiples instead of rebuilding them.
 #[derive(Clone, Debug)]
 pub struct CachedPublicKey {
     pub(crate) encoded: [u8; PUBLIC_KEY_LEN],

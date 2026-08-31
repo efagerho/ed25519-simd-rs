@@ -25,12 +25,14 @@ fn usize_arg(args: &[String], index: usize, default: usize, name: &str, usage: &
     })
 }
 
+/// Command-line choice of fixed or mixed profiling message lengths.
 #[derive(Clone, Copy)]
 enum MsgLenArg {
     Fixed(usize),
     Mixed,
 }
 
+/// Command-line choice of how invalid profiling inputs are constructed.
 #[derive(Clone, Copy)]
 enum InvalidMode {
     WellFormed,

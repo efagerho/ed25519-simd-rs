@@ -32,6 +32,10 @@ const SCALAR_RR: [u64; LIMB_COUNT] = [
     0x000009411b7c309a,
 ];
 
+/// Eight scalars packed limbwise for parallel AVX-512 modular arithmetic.
+///
+/// Each vector holds one 52-bit limb from eight SHA-512 hashes,
+/// so one IFMA Montgomery multiplication advances all eight reductions.
 #[derive(Clone, Copy)]
 struct WideScalar52([std::arch::x86_64::__m512i; LIMB_COUNT]);
 

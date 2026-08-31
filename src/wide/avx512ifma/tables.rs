@@ -193,6 +193,9 @@ fn write_cached_multiple(
     tables: &mut [Option<PointTable>; LANES],
 ) {
     let two_d = WideFe::two_d();
+    /// One transposed cached coordinate, with one scalar field per SIMD lane.
+    /// Eight scalar `Y+X` values collect here before becoming one
+    /// `WideFe` used by the next parallel point addition.
     type LaneFields = [Fe51; LANES];
     let fields: (LaneFields, LaneFields, LaneFields, LaneFields, LaneFields) = {
         let ypx = point.y.add(&point.x);

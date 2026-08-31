@@ -7,6 +7,10 @@ use crate::edwards::{POINT_ENCODING_LEN, PointTable};
 use crate::field::Fe51;
 use crate::input::PUBLIC_KEY_LEN;
 
+/// Eight decompressed signature `R` points plus optional Dalek validity state.
+///
+/// One bit of `x_zero_mask` rejects a lane whose encoding requests
+/// negative zero while the packed point continues through the SIMD ladder.
 pub(crate) struct WideRPoint {
     pub(super) point: WidePoint,
     x_zero_mask: Option<u8>,
@@ -64,6 +68,9 @@ pub(crate) fn decode_public_key_table(encoded: &[u8; PUBLIC_KEY_LEN]) -> Option<
     Some(build_lane0_table_from_point(point))
 }
 /// Decompression state before the inverse-square-root exponentiation.
+///
+/// Retaining two setups lets their exponentiation chains alternate
+/// IFMA operations so one chain fills the other's multiplication latency.
 pub(super) struct DecompressSetup {
     u: WideFe,
     v: WideFe,

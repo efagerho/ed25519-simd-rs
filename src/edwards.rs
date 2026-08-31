@@ -9,14 +9,23 @@ pub(crate) const BASEPOINT_COMPRESSED: [u8; POINT_ENCODING_LEN] = [
     0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
 ];
 
-// Signed-indexed layout: digit `d` maps to `entries[d + N]`, avoiding a hot
-// unpredictable branch on the digit sign.
+/// Precomputed signed multiples `[-8]P..=[8]P` for variable-base multiplication.
+///
+/// The signed-indexed layout avoids a hot branch: digit `-3`
+/// directly selects `entries[-3 + 8]` for the next ladder addition.
 pub(crate) struct PointTable {
     entries: [core::mem::MaybeUninit<CachedPoint>; SIGNED_POINT_TABLE_SIZE],
     #[cfg(debug_assertions)]
     initialized_entries: u32,
 }
 
+/// Precomputed signed multiples `[n]B` of the Ed25519 base point. Fixed-base
+/// scalar multiplication decomposes the scalar into signed radix-16 digits and
+/// folds adjacent digits into a table index.
+///
+/// `320` has radix-16 digits `(0, 4, 1)`. Folding adjacent pairs
+/// gives `64 = 0 + 16 * 4` and `1`, so the multiplication starts with `[1]B`,
+/// doubles it eight times to get `[256]B`, then adds `[64]B` to get `[320]B`.
 #[derive(Clone, Debug)]
 pub(crate) struct BasepointTable {
     entries: Box<BasepointTableEntries>,
@@ -30,8 +39,20 @@ const SIGNED_POINT_TABLE_SIZE: usize = 2 * POINT_TABLE_SIZE + 1;
 const ALL_POINT_TABLE_ENTRIES: u32 = (1 << SIGNED_POINT_TABLE_SIZE) - 1;
 pub(crate) const BASEPOINT_TABLE_SIZE: usize = 136;
 const SIGNED_BASEPOINT_TABLE_SIZE: usize = 2 * BASEPOINT_TABLE_SIZE + 1;
+/// The signed `[-136]B..=[136]B` entries used by the radix-256 basepoint ladder.
+///
+/// A folded digit of `-12` directly indexes the cached `[-12]B`
+/// entry, replacing several point additions with one lookup and one addition.
 pub(crate) type BasepointTableEntries = [AffineCachedPoint; SIGNED_BASEPOINT_TABLE_SIZE];
 
+/// A projective point in the form consumed by the extended Edwards addition
+/// formula. Scalar multiplication repeatedly adds table-selected points; caching
+/// `Y + X`, `Y - X`, `2Z`, and `2dT` avoids recomputing those values in every
+/// hot-path addition, reducing each lookup-and-add to field multiplications and
+/// additions with the accumulator.
+///
+/// After a ladder selects `[3]P`, these four cached coordinates
+/// feed the extended-point addition without recomputing them from `P`.
 #[derive(Clone, Debug)]
 pub(crate) struct CachedPoint {
     y_plus_x: Fe51,
@@ -68,6 +89,8 @@ impl CachedPoint {
 
 /// Affine cached point used by the fixed-base table. Since `Z = 1`, the
 /// cached `2*Z` coordinate is the constant two and does not need to be stored.
+/// Selecting `[20]B` supplies three cached fields while the mixed
+/// addition doubles the accumulator's `Z` in place of loading a fourth field.
 #[derive(Clone, Debug)]
 pub(crate) struct AffineCachedPoint {
     y_plus_x: Fe51,

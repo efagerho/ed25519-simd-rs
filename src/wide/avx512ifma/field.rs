@@ -5,14 +5,26 @@ use std::arch::x86_64::*;
 
 const LIMB_MASK: u64 = (1u64 << 51) - 1;
 
+/// Eight field elements packed by limb for AVX-512 IFMA arithmetic.
+///
+/// `limbs[0]` contains the low limb of eight independent values,
+/// so one vector multiply advances eight point operations at once.
 #[derive(Clone, Copy)]
 pub(super) struct WideFe {
     pub(super) limbs: [__m512i; LIMB_COUNT],
 }
 
+/// Two independent SIMD field values processed as one interleaved power chain.
+///
+/// Alternating the squarings for two point decompressions fills
+/// the IFMA latency gap that a single dependent chain would leave idle.
 #[derive(Clone, Copy)]
 pub(super) struct WideFePair(WideFe, WideFe);
 
+/// Arithmetic interface shared by the single and interleaved exponentiation chains.
+///
+/// `WideFePair` maps each chain step over two values so their
+/// independent IFMA instructions can be scheduled together.
 trait PowChainValue: Copy {
     fn chain_square(self) -> Self;
     fn chain_square_repeat<const N: usize>(self) -> Self;

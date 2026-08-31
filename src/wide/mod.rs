@@ -2,6 +2,10 @@ use crate::batch::SIMD_LANES;
 use crate::edwards::PointTable;
 use crate::scalar::Radix16;
 
+/// Per-lane tables and scalar digits consumed by the SIMD verification ladder.
+///
+/// One radix-16 round selects a cached public-key multiple for
+/// each lane, then updates all eight verification equations together.
 pub(crate) struct PreparedChunk<'a> {
     pub(crate) public_key_tables: [&'a PointTable; SIMD_LANES],
     pub(crate) s_digits: &'a [Radix16; SIMD_LANES],

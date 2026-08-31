@@ -25,6 +25,10 @@ pub(crate) const SQRT_M1_LIMBS: [u64; LIMB_COUNT] = [
     2_117_202_627_021_982,
     765_476_049_583_133,
 ];
+/// A field element modulo `2^255 - 19`, stored as five little-endian 51-bit limbs.
+///
+/// Field multiplication can accumulate products limbwise, then
+/// fold an overflow of `2^255` back into the low limb as `19`.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Fe51 {
     limbs: [u64; LIMB_COUNT],

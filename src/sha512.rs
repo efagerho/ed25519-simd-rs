@@ -133,6 +133,10 @@ mod avx512 {
 
     const LANES: usize = SIMD_LANES;
 
+    /// Padding and length positions for one lane of a mixed-length SIMD hash.
+    ///
+    /// A shorter lane uses `length_start` to place its bit length
+    /// while longer lanes continue loading message bytes in the same SIMD pass.
     #[derive(Clone, Copy)]
     struct MessageLayout {
         total_len: usize,

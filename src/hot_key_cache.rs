@@ -6,6 +6,10 @@ use std::collections::HashMap;
 /// Link sentinel for the ends of the recency list.
 const NONE: usize = usize::MAX;
 
+/// One retained public key and its slot-indexed links in the LRU list.
+///
+/// A cache hit detaches this slot and relinks it at the MRU end
+/// without moving the key or allocating a list node.
 #[derive(Debug)]
 struct CacheEntry {
     key: CachedPublicKey,
@@ -24,6 +28,9 @@ struct CacheEntry {
 /// allocator capacity for the whole bound, but pages generally become resident
 /// as entries are written. Size the bound from measured key reuse, or use
 /// [`NullKeyCache`](crate::NullKeyCache).
+///
+/// Verifying another signature from a retained key reuses its
+/// decoded multiplication table instead of decompressing and tabulating it.
 #[derive(Debug)]
 pub struct HotKeyCache {
     // Slot-indexed entries linked by recency give O(1) lookup and eviction.

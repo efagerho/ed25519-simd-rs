@@ -140,6 +140,9 @@ struct PendingDalekChunk {
 }
 
 /// Reusable ZIP-215-only buffers.
+///
+/// Two queued candidates let their `R` inverse-square-root chains
+/// alternate IFMA operations, hiding each chain's multiplication latency.
 #[doc(hidden)]
 #[derive(Debug, Default)]
 pub struct Zip215Queues {
@@ -149,6 +152,9 @@ pub struct Zip215Queues {
 }
 
 /// Reusable Dalek-only buffers.
+///
+/// Eight queued projective candidates share one Montgomery batch
+/// inversion before their affine encodings are compared with the signatures.
 #[doc(hidden)]
 #[derive(Debug, Default)]
 pub struct DalekQueues {
@@ -164,6 +170,7 @@ pub(super) struct ScoredLanes<'a> {
 }
 
 mod sealed {
+    /// Prevents downstream crates from defining verification policies.
     pub trait Sealed {}
 
     impl Sealed for super::Zip215Policy {}
@@ -208,6 +215,7 @@ pub trait VerificationPolicy: sealed::Sealed + Copy + core::fmt::Debug + Default
     );
 }
 
+/// Internal operations implemented differently by each verification policy.
 pub(super) trait PolicyOps: VerificationPolicy {
     fn decode_keys_and_r(
         keys: &[[u8; PUBLIC_KEY_LEN]; SIMD_LANES],
@@ -235,6 +243,7 @@ pub(super) trait PolicyOps: VerificationPolicy {
     fn flush_queue(queues: &mut Self::Queues, out: &mut [bool]);
 }
 
+/// Policy operations specialized for batches that cannot contain cache hits.
 pub(super) trait UncachedPolicyOps: PolicyOps {
     fn verify_decoded_lanes(
         verifier: &Verifier<Self, NullKeyCache>,

@@ -3,6 +3,10 @@ use super::field::WideFe;
 use crate::edwards::{AffineCachedPoint, CachedPoint, POINT_ENCODING_LEN};
 use crate::field::Fe51;
 
+/// Eight extended Edwards points packed coordinate-wise for SIMD arithmetic.
+///
+/// One ladder round doubles eight accumulators and adds eight
+/// table-selected multiples with the same sequence of vector instructions.
 #[derive(Clone, Copy)]
 pub(super) struct WidePoint {
     pub(super) x: WideFe,
@@ -11,6 +15,10 @@ pub(super) struct WidePoint {
     pub(super) t: WideFe,
 }
 
+/// Per-lane cached points selected from either projective or affine tables.
+///
+/// The affine variant omits cached `2Z`; mixed addition substitutes
+/// a vector doubling while using the same coordinate-transposition path.
 #[derive(Clone, Copy)]
 enum SelectedCachedRefs<'a> {
     Projective(&'a [&'a CachedPoint; LANES]),
