@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1520" height="700" viewBox="0 0 1520 700" role="img" aria-labelledby="title desc">
+  <title id="title">Eight batch values transposed into AVX-512 SIMD registers</title>
+  <desc id="desc">The input is eight batch items, each with limbs zero through seven. After transposition, register zero contains limb zero from batch items zero through seven in SIMD lanes zero through seven, and the pattern continues through register seven and limb seven.</desc>
+  <defs>
+    <style>
+      .title { font: 700 26px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2328; }
+      .subtitle { font: 15px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #59636e; }
+      .panel-title { font: 700 17px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2328; }
+      .header { font: 600 12px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #59636e; }
+      .row-label { font: 600 13px ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; fill: #1f2328; }
+      .cell { font: 12px ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; fill: #1f2328; text-anchor: middle; }
+      .cell-small { font: 11px ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; fill: #1f2328; text-anchor: middle; }
+      .arrow-label { font: 700 14px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #8250df; text-anchor: middle; }
+      .legend { font: 13px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #59636e; }
+      .grid { stroke: #d0d7de; stroke-width: 1; }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#8250df"/>
+    </marker>
+  </defs>
+
+  <rect width="1520" height="700" rx="14" fill="#ffffff"/>
+  <text class="title" x="40" y="42">Batch-major values become limb-major SIMD registers</text>
+  <text class="subtitle" x="40" y="70">An 8 × 8 transpose puts the same limb from every batch item into one 512-bit vector.</text>
+
+  <!-- Batch-major input matrix. -->
+  <rect x="30" y="100" width="610" height="520" rx="12" fill="#f6f8fa" stroke="#d0d7de"/>
+  <path d="M42 100 H628 A12 12 0 0 1 640 112 V150 H30 V112 A12 12 0 0 1 42 100 Z" fill="#ddf4ff"/>
+  <text class="panel-title" x="52" y="132">Before: 8 independent batch items</text>
+  <text class="header" x="52" y="178">batch item</text>
+  <text class="header" x="145" y="178">limb 0</text>
+  <text class="header" x="207" y="178">limb 1</text>
+  <text class="header" x="269" y="178">limb 2</text>
+  <text class="header" x="331" y="178">limb 3</text>
+  <text class="header" x="393" y="178">limb 4</text>
+  <text class="header" x="455" y="178">limb 5</text>
+  <text class="header" x="517" y="178">limb 6</text>
+  <text class="header" x="579" y="178">limb 7</text>
+
+  <rect x="44" y="190" width="582" height="48" rx="6" fill="#ffffff"/>
+  <rect x="44" y="286" width="582" height="48" rx="6" fill="#ffffff"/>
+  <rect x="44" y="382" width="582" height="48" rx="6" fill="#ffffff"/>
+  <rect x="44" y="478" width="582" height="48" rx="6" fill="#ffffff"/>
+  <text class="row-label" x="62" y="220">batch 0</text>
+  <text class="row-label" x="62" y="268">batch 1</text>
+  <text class="row-label" x="62" y="316">batch 2</text>
+  <text class="row-label" x="62" y="364">batch 3</text>
+  <text class="row-label" x="62" y="412">batch 4</text>
+  <text class="row-label" x="62" y="460">batch 5</text>
+  <text class="row-label" x="62" y="508">batch 6</text>
+  <text class="row-label" x="62" y="556">batch 7</text>
+
+  <g class="cell">
+    <text x="161" y="220">B0:L0</text><text x="223" y="220">B0:L1</text><text x="285" y="220">B0:L2</text><text x="347" y="220">B0:L3</text><text x="409" y="220">B0:L4</text><text x="471" y="220">B0:L5</text><text x="533" y="220">B0:L6</text><text x="595" y="220">B0:L7</text>
+    <text x="161" y="268">B1:L0</text><text x="223" y="268">B1:L1</text><text x="285" y="268">B1:L2</text><text x="347" y="268">B1:L3</text><text x="409" y="268">B1:L4</text><text x="471" y="268">B1:L5</text><text x="533" y="268">B1:L6</text><text x="595" y="268">B1:L7</text>
+    <text x="161" y="316">B2:L0</text><text x="223" y="316">B2:L1</text><text x="285" y="316">B2:L2</text><text x="347" y="316">B2:L3</text><text x="409" y="316">B2:L4</text><text x="471" y="316">B2:L5</text><text x="533" y="316">B2:L6</text><text x="595" y="316">B2:L7</text>
+    <text x="161" y="364">B3:L0</text><text x="223" y="364">B3:L1</text><text x="285" y="364">B3:L2</text><text x="347" y="364">B3:L3</text><text x="409" y="364">B3:L4</text><text x="471" y="364">B3:L5</text><text x="533" y="364">B3:L6</text><text x="595" y="364">B3:L7</text>
+    <text x="161" y="412">B4:L0</text><text x="223" y="412">B4:L1</text><text x="285" y="412">B4:L2</text><text x="347" y="412">B4:L3</text><text x="409" y="412">B4:L4</text><text x="471" y="412">B4:L5</text><text x="533" y="412">B4:L6</text><text x="595" y="412">B4:L7</text>
+    <text x="161" y="460">B5:L0</text><text x="223" y="460">B5:L1</text><text x="285" y="460">B5:L2</text><text x="347" y="460">B5:L3</text><text x="409" y="460">B5:L4</text><text x="471" y="460">B5:L5</text><text x="533" y="460">B5:L6</text><text x="595" y="460">B5:L7</text>
+    <text x="161" y="508">B6:L0</text><text x="223" y="508">B6:L1</text><text x="285" y="508">B6:L2</text><text x="347" y="508">B6:L3</text><text x="409" y="508">B6:L4</text><text x="471" y="508">B6:L5</text><text x="533" y="508">B6:L6</text><text x="595" y="508">B6:L7</text>
+    <text x="161" y="556">B7:L0</text><text x="223" y="556">B7:L1</text><text x="285" y="556">B7:L2</text><text x="347" y="556">B7:L3</text><text x="409" y="556">B7:L4</text><text x="471" y="556">B7:L5</text><text x="533" y="556">B7:L6</text><text x="595" y="556">B7:L7</text>
+  </g>
+
+  <!-- Transpose arrow. -->
+  <text class="arrow-label" x="730" y="310">transpose 8 × 8</text>
+  <text class="arrow-label" x="730" y="332">AoS → SoA</text>
+  <line x1="665" y1="352" x2="795" y2="352" stroke="#8250df" stroke-width="4" marker-end="url(#arrow)"/>
+
+  <!-- Limb-major SIMD register matrix. -->
+  <rect x="820" y="100" width="670" height="520" rx="12" fill="#f6f8fa" stroke="#d0d7de"/>
+  <path d="M832 100 H1478 A12 12 0 0 1 1490 112 V150 H820 V112 A12 12 0 0 1 832 100 Z" fill="#dafbe1"/>
+  <text class="panel-title" x="842" y="132">After: 8 limb-major vector registers</text>
+  <text class="header" x="842" y="178">register</text>
+  <text class="header" x="953" y="178">lane 0</text>
+  <text class="header" x="1019" y="178">lane 1</text>
+  <text class="header" x="1085" y="178">lane 2</text>
+  <text class="header" x="1151" y="178">lane 3</text>
+  <text class="header" x="1217" y="178">lane 4</text>
+  <text class="header" x="1283" y="178">lane 5</text>
+  <text class="header" x="1349" y="178">lane 6</text>
+  <text class="header" x="1415" y="178">lane 7</text>
+
+  <rect x="834" y="190" width="642" height="48" rx="6" fill="#ffffff"/>
+  <rect x="834" y="286" width="642" height="48" rx="6" fill="#ffffff"/>
+  <rect x="834" y="382" width="642" height="48" rx="6" fill="#ffffff"/>
+  <rect x="834" y="478" width="642" height="48" rx="6" fill="#ffffff"/>
+  <text class="row-label" x="850" y="220">reg 0 / L0</text>
+  <text class="row-label" x="850" y="268">reg 1 / L1</text>
+  <text class="row-label" x="850" y="316">reg 2 / L2</text>
+  <text class="row-label" x="850" y="364">reg 3 / L3</text>
+  <text class="row-label" x="850" y="412">reg 4 / L4</text>
+  <text class="row-label" x="850" y="460">reg 5 / L5</text>
+  <text class="row-label" x="850" y="508">reg 6 / L6</text>
+  <text class="row-label" x="850" y="556">reg 7 / L7</text>
+
+  <g class="cell-small">
+    <text x="970" y="220">B0:L0</text><text x="1036" y="220">B1:L0</text><text x="1102" y="220">B2:L0</text><text x="1168" y="220">B3:L0</text><text x="1234" y="220">B4:L0</text><text x="1300" y="220">B5:L0</text><text x="1366" y="220">B6:L0</text><text x="1432" y="220">B7:L0</text>
+    <text x="970" y="268">B0:L1</text><text x="1036" y="268">B1:L1</text><text x="1102" y="268">B2:L1</text><text x="1168" y="268">B3:L1</text><text x="1234" y="268">B4:L1</text><text x="1300" y="268">B5:L1</text><text x="1366" y="268">B6:L1</text><text x="1432" y="268">B7:L1</text>
+    <text x="970" y="316">B0:L2</text><text x="1036" y="316">B1:L2</text><text x="1102" y="316">B2:L2</text><text x="1168" y="316">B3:L2</text><text x="1234" y="316">B4:L2</text><text x="1300" y="316">B5:L2</text><text x="1366" y="316">B6:L2</text><text x="1432" y="316">B7:L2</text>
+    <text x="970" y="364">B0:L3</text><text x="1036" y="364">B1:L3</text><text x="1102" y="364">B2:L3</text><text x="1168" y="364">B3:L3</text><text x="1234" y="364">B4:L3</text><text x="1300" y="364">B5:L3</text><text x="1366" y="364">B6:L3</text><text x="1432" y="364">B7:L3</text>
+    <text x="970" y="412">B0:L4</text><text x="1036" y="412">B1:L4</text><text x="1102" y="412">B2:L4</text><text x="1168" y="412">B3:L4</text><text x="1234" y="412">B4:L4</text><text x="1300" y="412">B5:L4</text><text x="1366" y="412">B6:L4</text><text x="1432" y="412">B7:L4</text>
+    <text x="970" y="460">B0:L5</text><text x="1036" y="460">B1:L5</text><text x="1102" y="460">B2:L5</text><text x="1168" y="460">B3:L5</text><text x="1234" y="460">B4:L5</text><text x="1300" y="460">B5:L5</text><text x="1366" y="460">B6:L5</text><text x="1432" y="460">B7:L5</text>
+    <text x="970" y="508">B0:L6</text><text x="1036" y="508">B1:L6</text><text x="1102" y="508">B2:L6</text><text x="1168" y="508">B3:L6</text><text x="1234" y="508">B4:L6</text><text x="1300" y="508">B5:L6</text><text x="1366" y="508">B6:L6</text><text x="1432" y="508">B7:L6</text>
+    <text x="970" y="556">B0:L7</text><text x="1036" y="556">B1:L7</text><text x="1102" y="556">B2:L7</text><text x="1168" y="556">B3:L7</text><text x="1234" y="556">B4:L7</text><text x="1300" y="556">B5:L7</text><text x="1366" y="556">B6:L7</text><text x="1432" y="556">B7:L7</text>
+  </g>
+
+  <text class="legend" x="40" y="662">B = batch item · L = limb/word · each output row is one 512-bit vector with eight 64-bit SIMD lanes</text>
+</svg>
