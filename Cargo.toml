@@ -2,10 +2,16 @@
 name = "ed25519-simd"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.89"
 license = "Apache-2.0"
 description = "Verification-only, AVX-512 IFMA batch Ed25519 signature verification, acceptance-compatible with solana-ed25519"
+readme = "README.md"
+documentation = "https://docs.rs/ed25519-simd"
 repository = "https://github.com/efagerho/ed25519-simd-rs"
-rust-version = "1.89"
+keywords = ["ed25519", "cryptography", "signature", "simd", "avx512"]
+categories = ["cryptography", "hardware-support"]
+publish = ["crates-io"]
+exclude = ["/.github/", "/benches-compare/"]
 
 [dependencies]
 
