@@ -9,15 +9,32 @@ const LIMB_MASK: u64 = (1u64 << 51) - 1;
 ///
 /// `limbs[0]` contains the low limb of eight independent values,
 /// so one vector multiply advances eight point operations at once.
+#[repr(C)]
 #[derive(Clone, Copy)]
 pub(super) struct WideFe {
     pub(super) limbs: [__m512i; LIMB_COUNT],
 }
 
+#[cfg(all(
+    feature = "asm-pow2",
+    not(feature = "verify-asm-pow2"),
+    target_os = "linux",
+    target_pointer_width = "64"
+))]
+core::arch::global_asm!(include_str!("pow2.S"), options(raw));
+
+#[cfg(all(
+    feature = "verify-asm-pow2",
+    target_os = "linux",
+    target_pointer_width = "64"
+))]
+core::arch::global_asm!(include_str!(concat!(env!("OUT_DIR"), "/pow2-checked.S")));
+
 /// Two independent SIMD field values processed as one interleaved power chain.
 ///
 /// Alternating the squarings for two point decompressions fills
 /// the IFMA latency gap that a single dependent chain would leave idle.
+#[cfg(not(all(feature = "asm-pow2", target_os = "linux", target_pointer_width = "64")))]
 #[derive(Clone, Copy)]
 pub(super) struct WideFePair(WideFe, WideFe);
 
@@ -518,6 +535,10 @@ impl WideFe {
     }
 
     // Interleave two exponentiation chains to hide IFMA latency.
+    #[cfg(any(
+        test,
+        not(all(feature = "asm-pow2", target_os = "linux", target_pointer_width = "64"))
+    ))]
     pub(super) fn square_repeat_x2<const N: usize>(a: &Self, b: &Self) -> (Self, Self) {
         let (mut x, mut y) = (*a, *b);
         for i in 0..N {
@@ -532,6 +553,30 @@ impl WideFe {
         (x, y)
     }
 
+    #[cfg(all(feature = "asm-pow2", target_os = "linux", target_pointer_width = "64"))]
+    pub(super) fn pow_p_minus_5_over_8_x2(a: &Self, b: &Self) -> (Self, Self) {
+        unsafe extern "C" {
+            fn ed25519_simd_pow2_ifma(out: *mut u8, a: *const u8, b: *const u8);
+        }
+        const _: () = assert!(size_of::<WideFe>() == 320);
+        #[cfg(debug_assertions)]
+        debug_assert!(limbs_are_ifma_operands(&a.limbs) && limbs_are_ifma_operands(&b.limbs));
+        let mut out = core::mem::MaybeUninit::<[Self; 2]>::uninit();
+        // repr(C) places the five limb vectors at offsets 0,64,...,256.
+        // Both inputs are readable, and the distinct output holds ten vectors.
+        // The routine writes all ten before returning, including on zero inputs.
+        unsafe {
+            ed25519_simd_pow2_ifma(
+                out.as_mut_ptr().cast(),
+                core::ptr::from_ref(a).cast(),
+                core::ptr::from_ref(b).cast(),
+            );
+            let [x, y] = out.assume_init();
+            (x, y)
+        }
+    }
+
+    #[cfg(not(all(feature = "asm-pow2", target_os = "linux", target_pointer_width = "64")))]
     pub(super) fn pow_p_minus_5_over_8_x2(a: &Self, b: &Self) -> (Self, Self) {
         let pair = pow_p_minus_5_over_8_chain(WideFePair(*a, *b));
         (pair.0, pair.1)
@@ -712,6 +757,7 @@ impl PowChainValue for WideFe {
     }
 }
 
+#[cfg(not(all(feature = "asm-pow2", target_os = "linux", target_pointer_width = "64")))]
 impl PowChainValue for WideFePair {
     #[inline(always)]
     fn chain_square(self) -> Self {

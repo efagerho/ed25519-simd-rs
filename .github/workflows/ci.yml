@@ -46,3 +46,42 @@ jobs:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: ''
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --no-deps --locked
+
+      - name: Build the paired field assembly
+        run: |
+          cargo build --locked --release --features asm-pow2 --bench cold_profile_zip215 \
+            --target x86_64-unknown-linux-gnu --message-format=json > "$RUNNER_TEMP/pow2-build.json"
+
+      - name: Check the build-time proof and the linked assembly-only release binary
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y python3-z3 coq llvm
+          cargo build --locked --release --features verify-asm-pow2 --lib --target x86_64-unknown-linux-gnu
+          artifact=$(jq -r 'select(.target.name == "cold_profile_zip215" and .executable != null) | .executable' "$RUNNER_TEMP/pow2-build.json")
+          /usr/bin/python3 verification/pow2/check.py "$artifact"
+          /usr/bin/python3 verification/pow2/coq_proof.py "$artifact" --cases "$RUNNER_TEMP/pow2-cases.jsonl"
+
+      - name: Check the fixed machine corpus and linked kernel rows
+        run: |
+          export XED_KIT="$RUNNER_TEMP/xed-kit"
+          verification/machine/tests/xed/build-kit.sh "$XED_KIT"
+          backend=xed
+          if grep -qw avx512ifma /proc/cpuinfo && grep -qw avx512dq /proc/cpuinfo && grep -qw avx512f /proc/cpuinfo; then
+            backend=all
+          else
+            echo "Native comparison skipped on this runner (requires AVX-512F/DQ/IFMA)."
+          fi
+          python3 -B verification/machine/tests/run.py --backend "$backend" \
+            --report "$RUNNER_TEMP/fixed-report.json" --failure "$RUNNER_TEMP/machine-failure.json"
+          python3 -B verification/machine/tests/run.py --backend "$backend" --cases "$RUNNER_TEMP/pow2-cases.jsonl" \
+            --report "$RUNNER_TEMP/pow2-report.json" --failure "$RUNNER_TEMP/machine-failure.json"
+
+      - name: Retain conformance reports and failure input
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: machine-conformance
+          path: |
+            ${{ runner.temp }}/*-report.json
+            ${{ runner.temp }}/machine-failure.json
+          if-no-files-found: ignore

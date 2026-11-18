@@ -13,6 +13,12 @@ categories = ["cryptography", "hardware-support"]
 publish = ["crates-io"]
 exclude = ["/.github/", "/benches-compare/"]
 
+# Experimental SysV assembly for paired field exponentiation on x86-64 Linux.
+[features]
+asm-pow2 = []
+# Check the Coq proof at build time and embed the certified assembly bytes.
+verify-asm-pow2 = ["asm-pow2"]
+
 [dependencies]
 
 [dev-dependencies]

@@ -249,6 +249,37 @@ fn pow_variants_match_vectors() {
     assert_wide_bytes(paired_b, cases, "pow_a", 3);
 }
 
+/// Run in release mode, pinned to one core, with and without `asm-pow2`.
+#[test]
+#[ignore = "isolated paired exponentiation benchmark"]
+fn profile_paired_exponentiation() {
+    use std::{hint::black_box, time::Instant};
+
+    let a = wide_from_rows(core::array::from_fn(|i| {
+        core::array::from_fn(|j| ((8 * i + j + 17) as u64) * 196613)
+    }));
+    let b = wide_from_rows(core::array::from_fn(|i| {
+        core::array::from_fn(|j| ((8 * i + j + 57) as u64) * 196613)
+    }));
+    let run = || {
+        black_box(WideFe::pow_p_minus_5_over_8_x2(
+            black_box(&a),
+            black_box(&b),
+        ));
+    };
+    for _ in 0..500 {
+        run();
+    }
+    let start = Instant::now();
+    for _ in 0..20_000 {
+        run();
+    }
+    eprintln!(
+        "{:.1} ns/pair",
+        start.elapsed().as_secs_f64() * 1e9 / 20_000.0
+    );
+}
+
 #[test]
 fn wide_decompression_matches_vectors() {
     let vectors = vectors();
