@@ -10,6 +10,8 @@ The implementation is designed to be acceptance-compatible with
 such as small-order points, non-canonical encodings, and scalar-boundary
 signatures.
 
+Formal verification of this crate is a work in progress. See the [verification overview](verification/README.md).
+
 ## Requirements
 
 **This crate requires `x86_64` with AVX-512 (F, BW, DQ, IFMA) and has no scalar

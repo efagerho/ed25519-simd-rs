@@ -1,0 +1,38 @@
+name: Machine hardware conformance
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '21 4 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  campaign:
+    # Enable after registering both runner labels below with Coq, Python 3,
+    # Git, and a C toolchain. Scheduled and manual runs use the same seed on both CPUs.
+    if: ${{ vars.MACHINE_HARDWARE_CI == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        vendor: [GenuineIntel, AuthenticAMD]
+    runs-on: [self-hosted, linux, x64, avx512ifma, "${{ matrix.vendor }}"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare seeded cases with XED and native execution
+        env:
+          EXPECTED_VENDOR: ${{ matrix.vendor }}
+        run: |
+          test "$(awk '/^vendor_id/{print $3; exit}' /proc/cpuinfo)" = "$EXPECTED_VENDOR"
+          export XED_KIT="$RUNNER_TEMP/xed-kit-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          verification/machine/tests/xed/build-kit.sh "$XED_KIT"
+          python3 -B verification/machine/tests/run.py --backend all --seed "$GITHUB_RUN_ID" --random 1000 \
+            --report "$RUNNER_TEMP/machine-report.json" --failure "$RUNNER_TEMP/machine-failure.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: machine-${{ matrix.vendor }}
+          path: |
+            ${{ runner.temp }}/machine-report.json
+            ${{ runner.temp }}/machine-failure.json
+          if-no-files-found: ignore
