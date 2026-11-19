@@ -22,7 +22,7 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 | [Assembly.v](Assembly.v) | Assembles addressed source blocks into a program. Collects vector fragments and computes call and jump displacements relative to the end of the instruction. |
 | [IntelSyntax.v](IntelSyntax.v) | Coq notation for register names, memory operands, scalar and vector instructions, and named branch targets. Exposes `assemble` to listings that import the notation. |
 | [MachineState.v](MachineState.v) | Region-relative pointers, vector-cell and return-slot permissions, PC, GPRs, ZF, ZMM registers, and memory. Defines the control and data components of `state` and their accessors. |
-| [Blocks.v](Blocks.v) | Executes block bodies and terminators, applies vector and memory effects, and defines `step`, `reaches`, and `returns`. Proves that a successful `path` witnesses a return and that the returned state is unique. Also exposes the layout and state definitions through `Machine.Blocks`. |
+| [Blocks.v](Blocks.v) | Executes block bodies and terminators, produces stack events with each transfer, applies vector and memory effects, and defines `step`, `reaches`, and `returns`. Proves that a successful `path` witnesses a return and that the returned state is unique. Also exposes the layout and state definitions through `Machine.Blocks`. |
 
 ## Execution proofs
 
@@ -32,7 +32,7 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 | [VectorSequence.v](VectorSequence.v) | Defines a single SIMD step with direct memory reads. Proves that stepping a fragment instruction by instruction agrees with its batched evaluation, including failed access checks. |
 | [BlockSequence.v](BlockSequence.v) | Defines instruction-by-instruction execution with PC advancement. Proves equivalence to a fetched block step and the empty, singleton, and split-block laws. |
 | [ExecutionProperties.v](ExecutionProperties.v) | Proves memory preservation outside permitted writes and independence of the control trace and step failure from initial vector data. |
-| [MemoryTrace.v](MemoryTrace.v) | Records vector effects, call pushes and return pops. Relates the trace to block execution and checks the order and addresses of live returns. |
+| [MemoryTrace.v](MemoryTrace.v) | Uses the common execution traversal to record vector effects and transfer events. Relates the trace to block execution and checks the order and addresses of live returns. |
 | [FlatMemory.v](FlatMemory.v) | Replays vector stores and saved PCs in one little-endian byte memory. Proves agreement with tracked logical cells and preservation of every byte outside the write footprint. |
 | [WordBounds.v](WordBounds.v) | Unsigned qword invariants for scalar integer values, vector registers and memory. Proves preservation by instructions, blocks, executions and recorded vector-effect prefixes. |
 | [ByteMemory.v](ByteMemory.v) | Little-endian byte decoding, exact word/vector read-write round trips, and construction of bounded logical data from bytes. Turns serialization agreement into exact reads and proves replay preserves byte bounds. |

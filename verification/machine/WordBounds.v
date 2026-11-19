@@ -109,7 +109,7 @@ Qed.
 Lemma transfer_preserves_words l c next e last :
  gpr_words (gpr c) -> transfer l c next e = Some last -> gpr_words (gpr last).
 Proof.
- intro R. destruct e; cbn [transfer];
+ intro R. destruct e; unfold transfer, transfer_recorded; cbn beta iota zeta;
  repeat match goal with |- context [match ?v with _ => _ end] => destruct v eqn:? end;
  intro H; try discriminate; inversion H; subst; cbn [gpr];
  auto.
@@ -136,13 +136,14 @@ Lemma path_preserves_words fuel p l c last es :
  gpr_words (gpr last) /\ Forall effect_words es.
 Proof.
  revert c last es; induction fuel as [|n IH]; intros c last es W H;
- cbn [path] in H; destruct (rip c) eqn:PC; try discriminate;
+ cbn [path walk] in H; destruct (rip c) eqn:PC; try discriminate;
  try (inversion H; subst; split; [exact W|constructor]).
- unfold dispatch in H; rewrite PC in H.
+ unfold dispatch at 1 in H; rewrite PC in H.
  destruct (lookup (sections p) address) as [b|]; [|discriminate].
  unfold block_control in H.
  destruct (exec_body p l c (body b)) as [[mid ops]|] eqn:B; [|discriminate].
  destruct (transfer l mid (after p b) (terminator b)) as [next|] eqn:T; [|discriminate].
+ fold (path n p l next) in H.
  destruct (path n p l next) as [[fin tail]|] eqn:P; [|discriminate].
  inversion H; subst. destruct (body_preserves_words _ _ _ _ _ _ W B) as [M O].
  destruct (IH _ _ _ (transfer_preserves_words _ _ _ _ _ M T) P) as [L E].
