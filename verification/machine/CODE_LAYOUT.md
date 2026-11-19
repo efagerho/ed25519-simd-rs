@@ -51,7 +51,7 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 | [tests/Control.v](tests/Control.v) | Mnemonic call/return and conditional-branch probe, predicted scalar observations, and invalid control-flow and stack-access examples. |
 | [tests/Mixed.v](tests/Mixed.v) | Mnemonic loop combining vector arithmetic, load/store, and a scalar branch. Defines the initial state, memory permissions, and final observations. |
 | [tests/Prologue.v](tests/Prologue.v) | Stack and buffer probe for scalar moves, broadcasts, address calculations, vector loads and stores, and upper-lane clearing. |
-| [tests/Aligned.v](tests/Aligned.v) | Aligned-frame probe for saved RBP, register copies, all four SysV stack padding cases and two nested calls. |
+| [tests/Aligned.v](tests/Aligned.v) | Aligned-frame probe for saved RBP, register copies, restricted sign-extended imm32 moves, all four SysV stack padding cases and two nested calls. |
 | [tests/CallerForms.v](tests/CallerForms.v) | Compares a program's scalar and control-flow forms with those exercised by the native probes. |
 | [tests/model/Oracle.v](tests/model/Oracle.v) | Computes one instruction's encoded bytes and destination lanes. Proves preservation of other registers and formats numeric results for the runner. |
 | [tests/model/backend.py](tests/model/backend.py) | Builds the Coq modules, evaluates batches of instruction cases and whole-program probes, and reads back their predictions. |

@@ -1,5 +1,5 @@
 // Reduce eight independent 512-bit integers modulo the Ed25519 group order.
-// Experimental assembly: not yet formally verified.
+// Byte-bound Coq certificate: verification/scalar (canonical reduction and ABI).
 //
 // SysV AMD64: RDI is a writable 320-byte output; RSI is a read-only 512-byte
 // input. Both are disjoint, with no alignment requirement. Input row j holds

@@ -22,7 +22,7 @@ Definition capture c bases := flat_map (fun b => match pointer_at c b 0 with
 Definition exec_op p l c op : option (control * list effect) :=
  match op with
  | Mov32 d n => Some (set_gpr c d (Int (n mod 2^32)), [])
- | MovAbsRax n => Some (set_gpr c 0 (Int (n mod 2^64)), [])
+ | MovAbsRax n | MovRaxImm32 n => Some (set_gpr c 0 (Int (n mod 2^64)), [])
  | BroadcastRax d => match gpr c 0%nat with Int n => Some (c,[Broadcast d n]) | _ => None end
  | LeaR8Rsp d => match pointer_at c 4 d with
                   | Some a => Some (set_gpr c 8 (Ptr a),[]) | None => None end

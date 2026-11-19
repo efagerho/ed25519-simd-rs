@@ -46,6 +46,12 @@ linked byte sequence before executing each program on the pinned CPU.
 | `prologue` | Checks 32- and 64-bit immediates, broadcasts from RAX, stack adjustment in both directions, both `lea r8` encodings, vector loads and stores, and `vzeroupper`. Seven seeds exercise a private stack and three distinct unaligned buffers. The comparison covers RAX, RCX, R8 relative to the frame, restored RSP, all 32 ZMM registers, both inputs, output, stack scratch and guard cells. [Coq](tests/Prologue.v) · [Assembly](tests/native/prologue.S) |
 | `aligned` | Eight seeds cover all four SysV stack padding cases and saved RBP values through `2^64−1`. Checks `push`/`pop rbp`, register copies, `and rsp,-64`, scratch-relative `lea` with zero and nonzero displacements, copies from RDX to RCX and RSP to R9, two nested calls, all ZMM registers, saved stack qwords, vector memory and guards. [Coq](tests/Aligned.v) · [Assembly](tests/native/aligned.S) |
 
+The aligned probe also covers `MOV rax, imm32` (`48 c7 c0`) with zero,
+one, the scalar reducer's constant, and `2^31-1`, observing each value through
+a broadcast to a separate ZMM register. `MovRaxImm32` accepts only
+`0 <= imm < 2^31`, where sign extension is the identity; Coq domain tests
+reject negative immediates and `2^31`.
+
 Consumers can check that the probes exercise every scalar and control-flow
 form in their program by proving `uncovered_caller_forms program = []`.
 Forms distinguish the operation, instruction length, scalar destination or

@@ -2,8 +2,10 @@
 
 On x86-64 Linux, `asm-scalar` replaces the eight-lane 512-bit challenge
 reduction with `reduce.S`. The Rust reducer remains the default and the test
-reference. Radix-16 recoding stays in Rust. This assembly is **not formally
-verified**; enabling the other `verify-asm-*` features does not certify it.
+reference. Radix-16 recoding stays in Rust. The [Coq certificate](../../verification/scalar/README.md)
+proves canonical reduction, ABI preservation, and concrete byte-memory safety
+for the linked assembly. `verify-asm-scalar` checks that proof during the build
+and embeds only the certified bytes.
 
 The assembly takes disjoint input/output buffers of 512/320 bytes, without
 vector alignment requirements. Each input row contains one 64-bit word from

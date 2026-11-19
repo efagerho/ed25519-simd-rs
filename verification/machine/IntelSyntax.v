@@ -159,3 +159,6 @@ Notation "'vpmadd52huq' d , a , 'zmmword' 'ptr' b" := (d, MaddMem true a (fst b)
 Notation "'lea' 'r8' , '[' 'rsi' ']'" := (LeaR8Rsi 0)
   (in custom intel_op at level 0).
 Notation "'mov' 'rax' , 'rcx'" := (MovReg 0 1) (in custom intel_op at level 0).
+
+Notation "'mov' 'rax' , n" := (MovRaxImm32 n%Z)
+  (in custom intel_op at level 0, n constr at level 0).
