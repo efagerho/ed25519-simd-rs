@@ -1,6 +1,7 @@
+From ProofArithmetic Require Import Interval.
 From Coq Require Import List ZArith Bool Lia Ring.
 From Machine Require Import Blocks Instructions WordBounds.
-Require Import Program CachedAddABI FieldSpec Polynomial Interval Symbolic Kernels KernelInterface Lane Control Bounds.
+Require Import Program CachedAddABI FieldSpec Polynomial Symbolic Kernels KernelInterface Lane Control Bounds.
 Import ListNotations. Open Scope Z_scope.
 Definition includes a lo hi := (lo<=?lower a)&&(upper a<=?hi).
 Lemma includes_sound a lo hi x : includes a lo hi=true ->bounded a x ->lo<=x<=hi.
@@ -54,7 +55,7 @@ Qed.
 Lemma prefix_next j full affine n s e : nth_error(expected_path full affine)n=Some e ->
  prefix_state j full affine(S n)s=lane_effect j(prefix_state j full affine n s)e.
 Proof.
- intro E;unfold prefix_state,lane_effects.
+ intro E;unfold prefix_state,lane_effects,Machine.Lane.lane_effects.
  rewrite (firstn_succ _ _ _ E),fold_left_app;reflexivity.
 Qed.
 Theorem call_correct j full affine n s k bases start :

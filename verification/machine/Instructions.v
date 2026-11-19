@@ -47,6 +47,18 @@ Fixpoint run (load : nat -> Z -> Z) (code : list instruction) (r : nat -> Z) :=
   | (dst, op) :: rest => run load rest (put r dst (bits load r dst op))
   end.
 
+Lemma run_ext load1 load2 code r1 r2 :
+ (forall b d, load1 b d = load2 b d) -> (forall r, r1 r = r2 r) ->
+ forall r, run load1 code r1 r = run load2 code r2 r.
+Proof.
+ intro L; revert r1 r2; induction code as [|[dst op] tail IH];
+ intros r1 r2 R; [exact R|].
+ cbn [run]; apply IH; intro r; unfold put; destruct (Nat.eqb dst r); [|apply R].
+ destruct op; cbn [bits]; now rewrite ?R, ?L.
+Qed.
+Lemma run_app load a b r : run load (a++b) r = run load b (run load a r).
+Proof. revert r; induction a as [|[d op] a IH]; intro r; cbn [run app]; auto. Qed.
+
 Definition encode (i : instruction) :=
   let '(dst, op) := i in
   match op with

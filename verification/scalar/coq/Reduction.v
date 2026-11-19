@@ -1,6 +1,7 @@
+From ProofArithmetic Require Import Interval Polynomial.
 From Coq Require Import List ZArith Bool Lia Ring.
 From Machine Require Import Blocks Instructions WordBounds.
-Require Import Program FieldSpec Polynomial Interval ScalarSpec ScalarMath Symbolic.
+Require Import Program ScalarSpec ScalarMath Symbolic.
 Import ListNotations. Open Scope Z_scope.
 
 Definition code i := firstn 13(skipn(1+13*i)(fragment_code scalar_program 7)).

@@ -28,3 +28,7 @@ tests/Mixed.v
 tests/Prologue.v
 tests/Aligned.v
 tests/CallerForms.v
+Lane.v
+MemoryGeometry.v
+MemoryCoverage.v
+ByteExecution.v

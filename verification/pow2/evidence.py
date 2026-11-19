@@ -37,10 +37,11 @@ def write_evidence(binary, address, raw, work, checks, cases):
     shutil.copyfile(HERE.parents[1] / "src/wide/avx512ifma/pow2.S", sources / "pow2.S")
     for path in sorted(HERE.glob("*.py")):
         shutil.copyfile(path, sources / path.name)
+    shutil.copyfile(HERE.parent / "proof_build.py", sources / "proof_build.py")
     coq_sources = sorted(work.rglob("*.v"))
-    (work / "_CoqProject").write_text("-Q machine Machine\n" + "".join(
+    (work / "_CoqProject").write_text("-Q machine Machine\n-Q arithmetic ProofArithmetic\n" + "".join(
         str(path.relative_to(work)) + "\n" for path in coq_sources))
-    retained = [*coq_sources, *sources.iterdir(), work / "_CoqProject", work / "machine/_CoqProject",
+    retained = [*coq_sources, *sources.iterdir(), work / "_CoqProject", work / "machine/_CoqProject", work / "arithmetic/_CoqProject",
                 work / "pow2.expanded.S", work / "symbol.bin", work / "assumptions.txt", work / "coqchk.log"]
     if cases:
         retained.append(work / cases["path"])

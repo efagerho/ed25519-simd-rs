@@ -191,9 +191,12 @@ class ReleaseEvidenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
             (work / "machine").mkdir()
+            (work / "arithmetic").mkdir()
             artifacts = {"Program.v": "Definition program := 0.\n", "Audit.v": "Definition contract := True.\n",
                          "FieldSpec.v": "Definition exponent := 1.\n", "machine/X86.v": "Definition bits := 64.\n",
-                         "machine/_CoqProject": "-Q . Machine\nX86.v\n", f"{routine}.expanded.S": "ret\n",
+                         "machine/_CoqProject": "-Q . Machine\nX86.v\n",
+                         "arithmetic/_CoqProject": "-Q . ProofArithmetic\nExpressions.v\n",
+                         "arithmetic/Expressions.v": "Definition atom := 0.\n", f"{routine}.expanded.S": "ret\n",
                          "assumptions.txt": "Closed under the global context\n", "coqchk.log": "",
                          "conformance.jsonl": '{"export_seed":42}\n', "release.elf": "example ELF"}
             for name, value in artifacts.items():
@@ -212,6 +215,10 @@ class ReleaseEvidenceTests(unittest.TestCase):
                 self.assertEqual(evidence.sha256(work / name), digest)
             self.assertIn("FieldSpec.v", manifest["files"])
             self.assertIn("machine/X86.v", manifest["files"])
+            self.assertIn("arithmetic/Expressions.v", manifest["files"])
+            self.assertIn("arithmetic/_CoqProject", manifest["files"])
+            self.assertIn("sources/proof_build.py", manifest["files"])
+            self.assertIn("-Q arithmetic ProofArithmetic\n", (work / "_CoqProject").read_text())
             self.assertIn(generator, manifest["files"])
             self.assertIn("Program.v\n", (work / "_CoqProject").read_text())
             (work / "FieldSpec.v").write_text("Definition exponent := 2.\n")

@@ -1,6 +1,7 @@
+From ProofArithmetic Require Import Interval.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Blocks Instructions.
-Require Import FieldSpec Polynomial Interval Symbolic Program.
+Require Import FieldSpec Polynomial Symbolic Program.
 Require Export Bounds.
 Import ListNotations. Open Scope Z_scope.
 Inductive kernel := AddReduce | SquarePair | SubtractReduce | MultiplyPair | MultiplySingle.

@@ -1,6 +1,7 @@
+From ProofArithmetic Require Import Interval.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Instructions WordBounds.
-Require Import FieldSpec Polynomial Interval Symbolic Kernels.
+Require Import FieldSpec Polynomial Symbolic Kernels.
 Import ListNotations. Open Scope Z_scope.
 Definition get (r:nat->Z) start := fun i=>(r (start+i)%nat).
 Definition env (r m:nat->Z) i := if Nat.eqb (i mod 2) 0 then r (i/2)%nat else m (i/2)%nat.

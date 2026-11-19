@@ -36,6 +36,10 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 | [FlatMemory.v](FlatMemory.v) | Replays vector stores and saved PCs in one little-endian byte memory. Proves agreement with tracked logical cells and preservation of every byte outside the write footprint. |
 | [WordBounds.v](WordBounds.v) | Unsigned qword invariants for scalar integer values, vector registers and memory. Proves preservation by instructions, blocks, executions and recorded vector-effect prefixes. |
 | [ByteMemory.v](ByteMemory.v) | Little-endian byte decoding, exact word/vector read-write round trips, and construction of bounded logical data from bytes. Turns serialization agreement into exact reads and proves replay preserves byte bounds. |
+| [Lane.v](Lane.v) | Exact lane projection of vector effects and preservation of qword bounds, parameterized by the program. |
+| [MemoryGeometry.v](MemoryGeometry.v) | Region-relative vector alignment, disjointness, and reflected region-membership checks. |
+| [MemoryCoverage.v](MemoryCoverage.v) | Checked vector-write coverage implies initialization of every byte in the output region. |
+| [ByteExecution.v](ByteExecution.v) | Shared trace-frame and concrete-memory lifting proofs, including prefix reads, caller-byte preservation, and every stack pop. |
 | [Alignment.v](Alignment.v) | Relates clearing six low address bits to relative pointer alignment at a 64-byte-aligned region origin. |
 | [proofs/README.md](proofs/README.md) | States the open obligation to decode the model's bytes with an independent x86 ISA specification and prove agreement on register and memory effects. |
 

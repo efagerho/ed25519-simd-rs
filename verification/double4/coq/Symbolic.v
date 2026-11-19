@@ -1,20 +1,12 @@
+From ProofArithmetic Require Import Interval.
 From Coq Require Import ZArith List Bool Lia.
 From Machine Require Import Instructions.
-Require Import FieldSpec Polynomial Interval.
+Require Import FieldSpec Polynomial.
+From ProofArithmetic Require Symbolic.
 Import ListNotations.
 Open Scope Z_scope.
 
-Definition rhs dst op := match op with
- | MaddMem _ _ _ _ => C 0
- | Copy a => V a | Load _ _ | Xor _ _ => C 0
- | Add a b => Rem (Plus (V a) (V b)) word
- | Sub a b => Rem (Plus (V a) (Times (C (-1)) (V b))) word
- | Mul a b => Rem (Times (V a) (V b)) word
- | Shl a n => Rem (Times (V a) (C (2^Z.of_nat n))) word
- | Shr a n => Quot (V a) (2^Z.of_nat n)
- | And a _ => Rem (V a) radix
- | Madd high a b => let p:=Times (Rem (V a) split) (Rem (V b) split) in
-   Rem (Plus (V dst) (if high then Quot p split else Rem p split)) word end.
+Definition rhs := ProofArithmetic.Symbolic.rhs 51.
 Definition supported op := match op with
  | Xor a b => Nat.eqb a b | And _ b => Nat.eqb b 29 | _ => true end.
 Definition madd_inputs {A} (acc lhs rhs:A) i :=
@@ -32,17 +24,10 @@ Lemma rhs_ok load r dst op : r 29%nat=radix-1 -> supported op=true ->
  | MaddMem high a b d => IFMA.madd52 high (r dst) (r a) (load b d)
  | _ => val r (rhs dst op) end.
 Proof.
- intros Mask Form. destruct op; cbn [supported] in Form;
- try (apply Nat.eqb_eq in Form; subst).
- all: cbv beta iota zeta delta [bits rhs val Move.copy Logic.vpxorq Logic.vpandq
-   Arithmetic.vpaddq Arithmetic.vpsubq Arithmetic.vpmullq Shift.vpsllq Shift.vpsrlq IFMA.madd52 X86.low64];
- try rewrite Z.lxor_nilpotent;
- try rewrite Z.shiftl_mul_pow2 by lia;
- try rewrite Z.shiftr_div_pow2 by lia;
- repeat rewrite Z.land_ones by lia; try reflexivity.
- - rewrite Mask. change (Z.land (r a) (Z.ones 51)=r a mod (2^51)). apply Z.land_ones; lia.
- - destruct high; repeat rewrite Z.land_ones by lia;
-   try rewrite Z.shiftr_div_pow2 by lia; reflexivity.
+ intros Mask Form;apply ProofArithmetic.Symbolic.rhs_ok;[lia|].
+ destruct op;cbn [supported] in Form;cbn [ProofArithmetic.Symbolic.operand_ok];
+ try exact Logic.I;try(now apply Nat.eqb_eq in Form).
+ apply Nat.eqb_eq in Form;subst b;rewrite Mask;reflexivity.
 Qed.
 
 Lemma madd_value high acc lhs rhs0 :

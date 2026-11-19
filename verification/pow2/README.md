@@ -92,9 +92,9 @@ without the repository or assembler. In `pow2-audit`, run:
 ```bash
 set -e
 for proof_source in $(coqdep -sort -f _CoqProject); do
-  coqc -Q machine Machine "$proof_source"
+  coqc -Q machine Machine -Q arithmetic ProofArithmetic "$proof_source"
 done
-coqchk -Q machine Machine -silent Object
+coqchk -Q machine Machine -Q arithmetic ProofArithmetic -silent Object
 ```
 
 Compiling `Object.v` must print `Closed under the global context` for

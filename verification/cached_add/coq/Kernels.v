@@ -1,6 +1,7 @@
+From ProofArithmetic Require Import Interval.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Blocks Instructions.
-Require Import FieldSpec Polynomial Interval Symbolic Program.
+Require Import FieldSpec Polynomial Symbolic Program.
 Import ListNotations. Open Scope Z_scope.
 Inductive kernel := PrepareAB | PrepareFG | PrepareEH | Independent | Pair | Single.
 Definition kernel_id k := match k with PrepareAB=>0%nat | PrepareFG=>2%nat | PrepareEH=>3%nat |

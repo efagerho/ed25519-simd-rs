@@ -1,20 +1,13 @@
+From ProofArithmetic Require Import Interval Polynomial.
 From Coq Require Import List ZArith Bool Lia Ring.
 From Machine Require Import Instructions.
-Require Import FieldSpec Polynomial Interval ScalarSpec.
+Require Import ScalarSpec.
+From ProofArithmetic Require Symbolic.
 Import ListNotations. Open Scope Z_scope.
 
 (* This checker reuses the existing proved interval and polynomial engines.
    Masks are checked at each instruction; no special mask register is trusted. *)
-Definition rhs dst op := match op with
- | Copy a=>V a | Load _ _ | Xor _ _ | MaddMem _ _ _ _=>C 0
- | Add a b=>Rem(Plus(V a)(V b))W
- | Sub a b=>Rem(Plus(V a)(Times(C(-1))(V b)))W
- | Mul a b=>Rem(Times(V a)(V b))W
- | Shl a n=>Rem(Times(V a)(C(2^Z.of_nat n)))W
- | Shr a n=>Quot(V a)(2^Z.of_nat n)
- | And a _=>Rem(V a)B
- | Madd high a b=>let p:=Times(Rem(V a)B)(Rem(V b)B)in
-   Rem(Plus(V dst)(if high then Quot p B else Rem p B))W end.
+Definition rhs := ProofArithmetic.Symbolic.rhs 52.
 Definition step loads s dst op := match op with
  | Load b d=>loads b d | _=>abstract s(rhs dst op) end.
 Definition singleton a n := (lower a=?n)&&(upper a=?n).
@@ -34,22 +27,12 @@ Proof. intros H E;unfold singleton in E;rewrite andb_true_iff,!Z.eqb_eq in E.
 Lemma rhs_ok env s load r d op : (forall i,models env(s i)(r i)) ->supported s op=true ->
  bits load r d op=match op with Load b disp=>load b disp | _=>val r(rhs d op) end.
 Proof.
- intros M Form;destruct op;cbn [supported] in Form;try discriminate.
- - reflexivity.
- - reflexivity.
- - apply Nat.eqb_eq in Form;subst;apply Z.lxor_nilpotent.
- - cbn [bits rhs val];unfold Arithmetic.vpaddq,X86.low64,W;now rewrite Z.land_ones by lia.
- - cbn [bits rhs val];unfold Arithmetic.vpsubq,X86.low64,W;rewrite Z.land_ones by lia;f_equal;ring.
- - cbn [bits rhs val];unfold Arithmetic.vpmullq,X86.low64,W;now rewrite Z.land_ones by lia.
- - cbn [bits rhs val];unfold Shift.vpsllq,X86.low64,W.
-   rewrite Z.land_ones,Z.shiftl_mul_pow2 by lia;reflexivity.
- - cbn [bits rhs val];unfold Shift.vpsrlq;now rewrite Z.shiftr_div_pow2 by lia.
- - pose proof(singleton_sound env s r b (B-1) M Form)as Mask.
-   cbn [bits rhs val];unfold Logic.vpandq;rewrite Mask.
-   change(Z.land(r a)(Z.ones 52)=r a mod 2^52);apply Z.land_ones;lia.
- - cbn [bits rhs val];unfold IFMA.madd52,X86.low64,B,W.
-   repeat rewrite Z.land_ones by lia;destruct high;
-   try rewrite Z.shiftr_div_pow2 by lia;reflexivity.
+ intros M Form.
+ pose proof(ProofArithmetic.Symbolic.rhs_ok 52 load r d op ltac:(lia))as Sound.
+ destruct op;cbn [supported] in Form;try discriminate;
+ apply Sound;cbn [ProofArithmetic.Symbolic.operand_ok];try exact Logic.I.
+ - now apply Nat.eqb_eq in Form.
+ - pose proof(singleton_sound env s r b (B-1) M Form)as Mask;rewrite Mask;reflexivity.
 Qed.
 Theorem run_ok env loads load code s r :
  (forall b d,In(b,d)(loads_of code)->models env(loads b d)(load b d)) ->
@@ -68,13 +51,6 @@ Proof.
    apply Mem;now left.
 Qed.
 
-Definition exact_zero (p:polynomial) := forallb(fun t=>Z.eqb(snd t)0)p.
-Lemma exact_zero_sound env p : exact_zero p=true ->polyval env p=0.
-Proof. induction p as[|[m c]tail IH];cbn [exact_zero forallb polyval];[auto|].
- rewrite andb_true_iff;intros[C T];apply Z.eqb_eq in C;cbn in C;subst c;rewrite(IH T);ring. Qed.
-Definition equal_expr a b := exact_zero(norm(Plus a(Times(C(-1))b))).
-Lemma equal_expr_sound env a b : equal_expr a b=true ->val env a=val env b.
-Proof. intro E;apply(exact_zero_sound env)in E;rewrite norm_ok in E;cbn [val]in E;lia. Qed.
 Fixpoint numberE base (xs:list expr) := match xs with []=>C 0 | x::tail=>Plus x(Times(C base)(numberE base tail))end.
 Lemma numberE_sound env base xs : val env(numberE base xs)=number base(map(val env)xs).
 Proof. induction xs;cbn;congruence. Qed.

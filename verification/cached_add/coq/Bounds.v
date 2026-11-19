@@ -1,25 +1,8 @@
+From ProofArithmetic Require Import Interval.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Blocks Instructions WordBounds.
-Require Import Program FieldSpec Polynomial Interval Symbolic CachedAddABI Lane Control Kernels.
+Require Import Program FieldSpec Polynomial Symbolic CachedAddABI Lane Control Kernels.
 Import ListNotations. Open Scope Z_scope.
-Definition bounded a z := lower a<=z<=upper a.
-Lemma abstract_bounds s r e : (forall i,bounded(s i)(r i)) ->legal e=true ->
- bounded(abstract s e)(val r e).
-Proof.
- intros S;induction e;cbn [legal abstract val];intro H;
- try apply andb_true_iff in H as[H1 H2];
- unfold bounded in *;cbn [lower upper] in *.
- - lia.
- - apply S.
- - specialize(IHe1 H1);specialize(IHe2 H2);lia.
- - apply product_bounds;auto.
- - specialize(IHe H1);apply Z.ltb_lt in H2;split;apply Z.div_le_mono;lia.
- - specialize(IHe H1);apply Z.ltb_lt in H2.
-   destruct((0<=?lower(abstract s e))&&(upper(abstract s e)<?d))eqn:B.
-   + apply andb_true_iff in B as[A B];apply Z.leb_le in A;apply Z.ltb_lt in B.
-     rewrite Z.mod_small by lia;exact IHe.
-   + cbn [lower upper];pose proof(Z.mod_pos_bound(val r e)d H2);lia.
-Qed.
 Definition forget a := I(C 0)(lower a)(upper a).
 Fixpoint brun loads code s := match code with []=>s | (d,op)::tail=>
  brun loads tail(put s d(forget(aexec loads s d op))) end.
@@ -64,7 +47,7 @@ Definition effect_ok(s:bstate)e := match e with
 Lemma beffect_sound j b s e : bmodels b s ->effect_ok b e=true ->
  bmodels(beffect j b e)(lane_effect j s e).
 Proof.
- intros[R M]Ok;destruct e;split;intro i;cbn [beffect lane_effect fst snd registers cells];
+ intros[R M]Ok;destruct e;split;intro i;cbn [beffect lane_effect Machine.Lane.lane_effect fst snd registers cells];
  try(unfold put;destruct(Nat.eqb _ _));try(destruct(ptr_eq _ _));auto;
  try(unfold bounded;cbn;lia).
  - destruct(Nat.ltb i 16 && Nat.leb 2 j);auto;unfold bounded;cbn;lia.
@@ -110,7 +93,7 @@ Lemma prefix_segment j full affine n m s : (n<=m)%nat ->
  prefix_state j full affine m s=
  lane_effects j(skipn n(firstn m(expected_path full affine)))(prefix_state j full affine n s).
 Proof.
- intro N;unfold prefix_state,lane_effects.
+ intro N;unfold prefix_state,lane_effects,Machine.Lane.lane_effects.
  rewrite <-(firstn_skipn n(firstn m(expected_path full affine))) at 1.
  rewrite firstn_firstn,Nat.min_l by exact N;apply fold_left_app.
 Qed.

@@ -1,14 +1,12 @@
 From Coq Require Import List ZArith.
 From Machine Require Import Blocks MemoryTrace FlatMemory.
 Require Import ScalarABI.
+From Machine Require Export MemoryGeometry.
 Import ListNotations. Open Scope Z_scope.
 Definition caller_slot : pointer := (stack,0).
-Definition vector_in region length(a:pointer) :=
- fst a=region /\0<=snd a /\snd a+64<=length /\snd a mod 64=0.
 Definition allowed_write c := match c with VectorCell a=>vector_in output 320 a | ReturnSlot _=>False end.
 Definition mapped c := match c with VectorCell a=>vector_in output 320 a \/vector_in input 512 a
  | ReturnSlot a=>a=caller_slot end.
-Definition fits64 base len := 0<=base /\base+len<=2^64.
 Definition valid_placement loc size :=
  fits64(origin loc output)320 /\ fits64(origin loc input)512 /\
  fits64(origin loc stack)8 /\origin loc stack mod 16=8 /\

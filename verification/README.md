@@ -9,6 +9,7 @@ symbol. These are proofs in the tested machine model; independent refinement
 to an x86 ISA specification remains open.
 
 - `machine/` defines the x86-64 instruction model and tests its encodings and execution against Intel XED and native hardware. [Machine model and tests](machine/README.md)
+- `arithmetic/` contains the shared integer-expression, polynomial, interval and symbolic-instruction proofs. [Shared arithmetic](arithmetic/README.md)
 - `pow2/` states the routine’s contract, proves it in the machine model, and explains how to check the proof against a linked executable. [Proof and audit instructions](pow2/README.md)
 - `double4/` proves the four doubling formulas, including loose inputs, biased subtraction, in-place writes and the aligned stack frame. [Proof and audit instructions](double4/README.md)
 
@@ -44,3 +45,26 @@ the release audit instructions for [pow2](pow2/README.md#check-the-release-execu
 
 `python3 -B verification/test_evidence.py` checks report replay, seed provenance
 and audit manifest integrity without requiring Coq, XED or AVX-512 hardware.
+
+## Shared proof infrastructure
+
+The four public contracts and `Object` theorems remain in their routine
+folders. Common execution proofs live in `machine/`: lane projection,
+aligned-cell separation, output-write coverage, trace frames, and lifting
+logical execution to concrete byte reads at every prefix. Each routine
+supplies its actual program, ABI layout, region permissions, and checked
+instruction trace; its entry construction and mathematical specification
+remain explicit.
+
+`arithmetic/` uses the Coq namespace `ProofArithmetic`. It has no dependency
+on a routine's program or field specification. Polynomial congruence takes
+an explicit modulus. Symbolic instruction translation takes an explicit
+AND-mask width while retaining the machine's fixed 52-bit IFMA operands
+and 64-bit word arithmetic. Field and scalar checkers supply their own
+proved mask conditions, bounds and refinement policies.
+
+`proof_build.py` compiles both libraries and checks each complete object
+certificate. The routine drivers list their proof modules and specializations.
+Audit bundles retain the shared sources, namespace mappings and build driver
+alongside the routine proofs. Every certificate still requires closed
+assumptions and successful `coqchk` on `Object`.
