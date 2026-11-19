@@ -180,21 +180,27 @@ ed25519_simd_pow2_ifma:
 
     // For radix B = 2^51, C[k] = L[k] + 2*H[k-1]. Form the five
     // limbs C[k] + 19*C[k+5] in descending order (zmm26..22).
-    // Degree four doubles the x1*x3 low half together with H[3].
-    vmovdqa64 zmm26, zmm16
+    // Keep selected low sums independent of the high sums until their
+    // final additions. This avoids chaining low IFMAs after high IFMAs.
+    // Degree four is L[4] + 2*(H[3] + 19*H[8]).
+    vpxorq zmm26, zmm26, zmm26
     vpmadd52luq zmm26, \x1, \x3
     vpsllq zmm26, zmm26, 1
     vpmadd52luq zmm26, zmm10, \x4
     vpmadd52luq zmm26, \x2, \x2
-    vpsllq zmm27, zmm21, 1
-    vpmullq zmm27, zmm27, zmm28
+    vpmullq zmm27, zmm21, zmm28
+    vpaddq zmm27, zmm27, zmm16
+    vpsllq zmm27, zmm27, 1
     vpaddq zmm26, zmm26, zmm27
-    vpsllq zmm25, zmm15, 1
+    // Degree three: L[3] + 2*H[2] + 19*(L[8] + 2*H[7]).
+    vpxorq zmm25, zmm25, zmm25
     vpmadd52luq zmm25, zmm10, \x3
     vpmadd52luq zmm25, \x1, zmm11
     vpsllq zmm27, zmm20, 1
     vpmadd52luq zmm27, \x4, \x4
     vpmullq zmm27, zmm27, zmm28
+    vpsllq zmm15, zmm15, 1
+    vpaddq zmm27, zmm27, zmm15
     vpaddq zmm25, zmm25, zmm27
     vpsllq zmm24, zmm14, 1
     vpmadd52luq zmm24, zmm10, \x2
@@ -205,16 +211,22 @@ ed25519_simd_pow2_ifma:
     vpaddq zmm24, zmm24, zmm27
     vpsllq zmm23, zmm13, 1
     vpmadd52luq zmm23, zmm10, \x1
-    vpsllq zmm27, zmm18, 1
+    // Build L[6] before joining 2*H[5]; H[5] is no longer needed later.
+    vpxorq zmm27, zmm27, zmm27
     vpmadd52luq zmm27, zmm11, \x4
     vpmadd52luq zmm27, \x3, \x3
+    vpsllq zmm18, zmm18, 1
+    vpaddq zmm27, zmm27, zmm18
     vpmullq zmm27, zmm27, zmm28
     vpaddq zmm23, zmm23, zmm27
     vpxorq zmm22, zmm22, zmm22
     vpmadd52luq zmm22, \x0, \x0
-    vpsllq zmm27, zmm17, 1
+    // Likewise, L[5] and 2*H[4] are independent until the fold by 19.
+    vpxorq zmm27, zmm27, zmm27
     vpmadd52luq zmm27, \x1, zmm12
     vpmadd52luq zmm27, zmm11, \x3
+    vpsllq zmm17, zmm17, 1
+    vpaddq zmm27, zmm27, zmm17
     vpmullq zmm27, zmm27, zmm28
     vpaddq zmm22, zmm22, zmm27
 

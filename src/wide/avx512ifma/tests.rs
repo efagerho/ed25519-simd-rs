@@ -251,12 +251,31 @@ fn pow_variants_match_vectors() {
     assert_wide_bytes(paired_b, cases, "pow_a", 3);
 }
 
-/// Run in release mode, pinned to one core, with and without `asm-pow2`.
+/// Run in release mode, pinned to one core, with `asm-pow2` enabled.
+/// Set ED25519_POW2_ITERS for longer profiling runs.
 #[test]
 #[ignore = "isolated paired exponentiation benchmark"]
+#[allow(clippy::assertions_on_constants)]
 fn profile_paired_exponentiation() {
     use std::{hint::black_box, time::Instant};
 
+    assert!(
+        cfg!(all(
+            feature = "asm-pow2",
+            target_os = "linux",
+            target_pointer_width = "64"
+        )),
+        "paired exponentiation benchmarks require the asm-pow2 backend"
+    );
+    assert!(!cfg!(debug_assertions), "benchmark in release mode");
+    let iterations: usize = std::env::var("ED25519_POW2_ITERS")
+        .map(|value| {
+            value
+                .parse()
+                .expect("ED25519_POW2_ITERS must be an integer")
+        })
+        .unwrap_or(20_000);
+    assert!(iterations > 0);
     let a = wide_from_rows(core::array::from_fn(|i| {
         core::array::from_fn(|j| ((8 * i + j + 17) as u64) * 196613)
     }));
@@ -273,12 +292,12 @@ fn profile_paired_exponentiation() {
         run();
     }
     let start = Instant::now();
-    for _ in 0..20_000 {
+    for _ in 0..iterations {
         run();
     }
     eprintln!(
-        "{:.1} ns/pair",
-        start.elapsed().as_secs_f64() * 1e9 / 20_000.0
+        "{:.1} ns/pair ({iterations} calls, asm-pow2 enabled)",
+        start.elapsed().as_secs_f64() * 1e9 / iterations as f64
     );
 }
 
