@@ -50,10 +50,11 @@ Lemma transfer_frame l c next e last a :
  return_ok l a = false -> transfer l c next e = Some last ->
  return_memory last a = return_memory c a.
 Proof.
- intros P. destruct e; cbn [transfer]; repeat match goal with
+ intros P. destruct e; unfold transfer, transfer_recorded; cbn beta iota zeta; repeat match goal with
  | |- context [match ?v with _ => _ end] => destruct v eqn:?
  end; intro H; try discriminate; inversion H; subst; try reflexivity.
- all: cbn; destruct (ptr_eq a p) eqn:E; [|reflexivity].
+ all: cbn in *; try congruence.
+ all: match goal with |- context[ptr_eq ?x ?y] => destruct (ptr_eq x y) eqn:E end; [|reflexivity].
  all: apply ptr_eq_true in E; subst; congruence.
 Qed.
 

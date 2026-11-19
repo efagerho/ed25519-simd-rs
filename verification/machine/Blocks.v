@@ -14,6 +14,12 @@ Inductive effect :=
 | Read (dst : nat) (a : pointer) | Write (src : nat) (a : pointer)
 | Broadcast (dst : nat) (n : Z) | ClearUpper
 | Evaluate (fragment : nat) (bases : list (nat * pointer)).
+(* Transfer events are produced together with the state transition. *)
+Inductive event := DataOp (e : effect) | Push (a : pointer) (target : pc) | Pop (a : pointer) (target : pc).
+Definition data_effects := flat_map (fun e => match e with DataOp op => [op] | _ => [] end).
+Definition update_slots (m : pointer -> option pc) e :=
+ match e with Push a t => fun k => if ptr_eq k a then Some t else m k | _ => m end.
+
 Definition load_operands (code : list instruction) :=
  flat_map (fun i => match snd i with Load b d | MaddMem _ _ b d => [(b,d)] | _ => [] end) code.
 Definition capture c bases := flat_map (fun b => match pointer_at c b 0 with
@@ -72,35 +78,36 @@ Fixpoint exec_body p l c ops := match ops with
 (* Intel SDM vol. 2, CALL (near rel32), Jcc (JNE rel8) and RET (near).
    The signed displacement is relative to the end of the instruction.
    https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html *)
-Definition transfer l c next e :=
- let jump t := Some (Control t (gpr c) (zf c) (return_memory c)) in
+Definition transfer_recorded l c next e : option (control * list event) :=
+ let finish t regs es :=
+   Some (Control t regs (zf c) (fold_left update_slots es (return_memory c)), es) in
+ let jump t := finish t (gpr c) [] in
  match e with
  | Next => jump (At next)
  | JneRel8 d => match zf c with
       | Some zero => jump (At (if zero then next else next+d)) | None => None end
  | CallRel32 d => match pointer_at c 4 (-8) with
    | Some a => if return_ok l a then
-     Some (Control (At (next+d)) (put (gpr c) 4 (Ptr a)) (zf c)
-       (fun k => if ptr_eq k a then Some (At next) else return_memory c k)) else None
+     finish (At (next+d)) (put (gpr c) 4 (Ptr a)) [Push a (At next)] else None
    | None => None end
  | PushRbp => match pointer_at c 4 (-8), gpr c 5%nat with
    | Some a, Int n => if return_ok l a then
-       Some (Control (At next) (put (gpr c) 4 (Ptr a)) (zf c)
-         (fun k => if ptr_eq k a then Some (SavedWord (stack_word n)) else return_memory c k))
+       finish (At next) (put (gpr c) 4 (Ptr a)) [Push a (SavedWord (stack_word n))]
        else None
    | _,_ => None end
  | PopRbp => match pointer_at c 4 0 with
    | Some a => if return_ok l a then match return_memory c a with
-     | Some (SavedWord n) => Some (Control (At next)
+     | Some (SavedWord n) => finish (At next)
          (put (put (gpr c) 4 (Ptr (offset a 8))) 5 (Int (stack_word n)))
-         (zf c) (return_memory c))
+         [Pop a (SavedWord n)]
      | _ => None end else None
    | None => None end
  | Ret => match pointer_at c 4 0 with
    | Some a => if return_ok l a then match return_memory c a with
-     | Some t => Some (Control t (put (gpr c) 4 (Ptr (offset a 8))) (zf c) (return_memory c))
+     | Some t => finish t (put (gpr c) 4 (Ptr (offset a 8))) [Pop a t]
      | None => None end else None | None => None end
  end.
+Definition transfer l c next e := option_map fst (transfer_recorded l c next e).
 
 Definition block_control p l b c :=
  match exec_body p l c (body b) with
@@ -133,20 +140,34 @@ Definition returns p l s t := reaches p l s t /\ rip (fst t) = Caller.
 
 (* A bounded search constructs a finite execution witness. Fuel is absent
    from the architectural step relation and from the return contract. *)
-Fixpoint path fuel p l c : option (control * list effect) :=
+Fixpoint walk {A} (advance : control -> option (control * list A)) fuel c :=
  match rip c with Caller => Some (c,[]) | SavedWord _ => None | At _ => match fuel with
- | O => None | S n => match dispatch p l c with
-   | Some (next,es) => match path n p l next with
+ | O => None | S n => match advance c with
+   | Some (next,es) => match walk advance n next with
      | Some (last,tail) => Some (last,es++tail) | None => None end
    | None => None end end end.
+Definition path fuel p l c := walk (dispatch p l) fuel c.
+
+Lemma walk_project {A B} (f : A -> list B) advance projected :
+ (forall c, projected c = option_map (fun '(last,es) => (last,flat_map f es)) (advance c)) ->
+ forall fuel c, walk projected fuel c =
+ option_map (fun '(last,es) => (last,flat_map f es)) (walk advance fuel c).
+Proof.
+ intro Step; induction fuel as [|n IH]; intro c; cbn [walk];
+ destruct (rip c); try reflexivity.
+ rewrite Step; destruct (advance c) as [[next es]|]; cbn; [|reflexivity].
+ rewrite IH; destruct (walk advance n next) as [[last tail]|]; cbn; [|reflexivity].
+ now rewrite flat_map_app.
+Qed.
 Lemma path_returns fuel p l c last es :
  path fuel p l c = Some (last,es) ->
  forall s, returns p l (c,s) (last,effects p es s).
 Proof.
  revert c last es; induction fuel as [|n IH]; intros c last es H s;
- cbn [path] in H; destruct (rip c) eqn:PC; try discriminate;
+ cbn [path walk] in H; destruct (rip c) eqn:PC; try discriminate;
  try (inversion H; subst; split; [constructor | exact PC]).
  destruct (dispatch p l c) as [[next prefix]|] eqn:D; try discriminate.
+ fold (path n p l next) in H.
  destruct (path n p l next) as [[fin tail]|] eqn:T; try discriminate.
  inversion H; subst. unfold effects; rewrite fold_left_app.
  destruct (IH _ _ _ T (effects p prefix s)) as [R End].

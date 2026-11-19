@@ -3,47 +3,20 @@ From Machine Require Import Blocks ExecutionProperties.
 Import ListNotations.
 Open Scope Z_scope.
 
-(* Events are emitted from the same body and terminator used by Blocks.step.
-   A push records the actual fallthrough PC; a pop records the PC read by RET. *)
-Inductive event := DataOp (e : effect) | Push (a : pointer) (target : pc) | Pop (a : pointer) (target : pc).
-Definition exit_events c next e last :=
- match e with
- | CallRel32 _ => match pointer_at c 4 (-8) with Some a => [Push a (At next)] | None => [] end
- | Ret => match pointer_at c 4 0 with Some a => [Pop a (rip last)] | None => [] end
- | PushRbp => match pointer_at c 4 (-8), gpr c 5%nat with
-   | Some a, Int n => [Push a (SavedWord (stack_word n))] | _,_ => [] end
- | PopRbp => match pointer_at c 4 0 with
-   | Some a => match return_memory c a with Some t => [Pop a t] | None => [] end
-   | None => [] end
- | _ => []
- end.
-
-Fixpoint record_path fuel p l c : option (control * list event) :=
+(* The recorder uses the same transfer result as ordinary execution. *)
+Definition dispatch_recorded p l c : option (control * list event) :=
  match rip c with
- | Caller => Some (c,[])
- | SavedWord _ => None
- | At pc => match fuel with
-   | O => None
-   | S n =>
-     match lookup (sections p) pc with
-     | Some b => match exec_body p l c (body b) with
-       | Some (mid,es) => match transfer l mid (after p b) (terminator b) with
-         | Some next => match record_path n p l next with
-           | Some (last,tail) =>
-             Some (last, map DataOp es ++ exit_events mid (after p b) (terminator b) next ++ tail)
-           | None => None end
-         | None => None end
+ | Caller | SavedWord _ => None
+ | At pc => match lookup (sections p) pc with
+   | Some b => match exec_body p l c (body b) with
+     | Some (mid,es) => match transfer_recorded l mid (after p b) (terminator b) with
+       | Some (next,ts) => Some (next, map DataOp es ++ ts)
        | None => None end
      | None => None end
-   end
- end.
-
-Definition data_effects := flat_map (fun e => match e with DataOp op => [op] | _ => [] end).
+   | None => None end end.
+Definition record_path fuel p l c := walk (dispatch_recorded p l) fuel c.
 Definition slots := pointer -> option pc.
-Definition update_slots (m : slots) e : slots :=
- match e with Push a t => fun k => if ptr_eq k a then Some t else m k | _ => m end.
 
-(* A pop must find its recorded PC in the return memory at that instant. *)
 Fixpoint stack_reads (m : slots) es : Prop :=
  match es with
  | [] => True
@@ -61,42 +34,59 @@ Lemma reads_app a b m :
  stack_reads m (a++b) <-> stack_reads m a /\ stack_reads (fold_left update_slots a m) b.
 Proof. revert m; induction a; intro m; cbn; [tauto|rewrite IHa; tauto]. Qed.
 
-Lemma transfer_events l c next e last :
- transfer l c next e = Some last ->
- let es := exit_events c next e last in
+Lemma transfer_events l c next e last es :
+ transfer_recorded l c next e = Some (last,es) ->
  data_effects es = [] /\ fold_left update_slots es (return_memory c) = return_memory last /\
  stack_reads (return_memory c) es.
 Proof.
- destruct e; cbn [transfer exit_events]; repeat match goal with
+ destruct e; cbn [transfer_recorded]; repeat match goal with
  | |- context [match ?v with _ => _ end] => destruct v eqn:?
  end; intro H; try discriminate; inversion H; subst; cbn; intuition.
 Qed.
 
-(* This identifies the instrumented execution with the existing execution,
-   including the actual return-memory contents, without assuming a trace. *)
+Lemma data_effects_app a b : data_effects (a++b) = data_effects a ++ data_effects b.
+Proof. apply flat_map_app. Qed.
+Lemma dispatch_projection p l c : dispatch p l c =
+ option_map (fun '(last,es) => (last,data_effects es)) (dispatch_recorded p l c).
+Proof.
+ unfold dispatch, dispatch_recorded; destruct (rip c); try reflexivity.
+ destruct (lookup (sections p) address) as [b|]; [|reflexivity].
+ unfold block_control; destruct (exec_body p l c (body b)) as [[mid ops]|]; [|reflexivity].
+ unfold transfer; destruct (transfer_recorded l mid (after p b) (terminator b)) as [[last es]|] eqn:T;
+ cbn; [|reflexivity].
+ destruct (transfer_events _ _ _ _ _ _ T) as [E _].
+ rewrite data_effects_app, data_events, E, app_nil_r; reflexivity.
+Qed.
+
+(* State and event projections share one traversal; stack effects remain
+   related to memory contents at every pop. *)
 Theorem record_path_sound fuel p l c last es :
  record_path fuel p l c = Some (last,es) ->
  path fuel p l c = Some (last,data_effects es) /\
  fold_left update_slots es (return_memory c) = return_memory last /\ stack_reads (return_memory c) es.
 Proof.
- revert c last es; induction fuel as [|n IH]; intros c last es H;
- cbn [record_path] in H; cbn [path]; destruct (rip c) eqn:PC;
- try discriminate; try (inversion H; subst; repeat split; reflexivity).
- destruct (lookup (sections p) address) as [b|] eqn:B; try discriminate.
- destruct (exec_body p l c (body b)) as [[mid ops]|] eqn:Body; try discriminate.
- destruct (transfer l mid (after p b) (terminator b)) as [next|] eqn:T; try discriminate.
- destruct (record_path n p l next) as [[fin tail]|] eqn:R; try discriminate.
- inversion H; subst. destruct (IH _ _ _ R) as [P [S Reads]].
- destruct (transfer_events _ _ _ _ _ T) as [E [M Read]].
- destruct (body_writes _ _ _ _ _ _ Body) as [_ Same].
- unfold dispatch,block_control; rewrite PC,B,Body,T,P.
- unfold data_effects in E |- *; rewrite !flat_map_app; fold data_effects in *.
- rewrite data_events,E. cbn [app]. rewrite !reads_app, !fold_left_app, data_slots, <-Same, M.
- intuition auto using reads_data.
+ intro R; split.
+ - unfold path; rewrite (walk_project _ _ _ (dispatch_projection p l)).
+   change (option_map (fun '(last,es) => (last,data_effects es)) (record_path fuel p l c) = Some (last,data_effects es)).
+   now rewrite R.
+ - revert c last es R; induction fuel as [|n IH]; intros c last es H;
+   cbn [record_path walk] in H; destruct (rip c) eqn:PC; try discriminate;
+   try (inversion H; subst; split; [reflexivity|exact Logic.I]).
+   unfold dispatch_recorded at 1 in H; rewrite PC in H.
+   destruct (lookup (sections p) address) as [b|]; [|discriminate].
+   destruct (exec_body p l c (body b)) as [[mid ops]|] eqn:B; [|discriminate].
+   destruct (transfer_recorded l mid (after p b) (terminator b)) as [[next ts]|] eqn:T; [|discriminate].
+   destruct (walk (dispatch_recorded p l) n next) as [[fin tail]|] eqn:P; [|discriminate].
+   inversion H; subst; clear H.
+   destruct (body_writes _ _ _ _ _ _ B) as [_ Slots].
+   destruct (transfer_events _ _ _ _ _ _ T) as [_ [Writes Reads]].
+   destruct (IH _ _ _ P) as [Final Tail].
+   split.
+   + rewrite !fold_left_app, data_slots, <-Slots, Writes;exact Final.
+   + rewrite !reads_app, !fold_left_app, !data_slots, <-Slots, Writes.
+     repeat split; auto using reads_data.
 Qed.
 
-(* Each live entry pairs the address of its stack slot with its expected PC.
-   A CALL must use a free slot; a RET must consume the most recent entry. *)
 Inductive balanced : list (pointer * pc) -> list event -> Prop :=
 | balanced_end : balanced [] []
 | balanced_data live e rest : balanced live rest ->
