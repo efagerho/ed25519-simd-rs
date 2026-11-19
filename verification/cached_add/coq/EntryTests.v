@@ -44,7 +44,7 @@ Example initialization_without_field_bounds symbol_bytes full affine : Audit.cac
  exists final,returns Program.add_cached_program(abi_layout affine)(maximal_entry full affine)final /\
  output_initialized affine Program.add_cached_program(maximal_entry full affine)final.
 Proof.
- intros[_[_[_[Run _]]]].
+ intros[_[_[_[_[Run _]]]]].
  assert(Entry:valid_cached_add_entry(maximal_entry full affine)48 full affine).
  { split;[unfold permitted_padding;cbn;auto|];split.
    - eexists;exists(2^64-1);split;[unfold word64;lia|reflexivity].

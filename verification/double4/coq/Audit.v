@@ -1,4 +1,4 @@
-From Machine Require Import LayoutProofs.
+From Machine Require Import LayoutProofs ScalarRefinement.
 From Coq Require Import List ZArith.
 From Machine Require Import Blocks.
 Require Import Program Double4ABI Double4Memory Double4Bytes Double4Spec.
@@ -10,6 +10,9 @@ Definition double4_contract (symbol_bytes : list Z) : Prop :=
  image double4_program = symbol_bytes /\
  valid_program double4_program = true /\
   program_layout double4_program /\
+  (* Scalar operations refine qword semantics under explicit alignment and
+     stack-byte premises; this is not independent ISA refinement. *)
+  scalar_model_refinement double4_program /\
  (forall initial pad, valid_double4_entry initial pad -> exists final,
   (* Finite execution, normal return, restored RSP and SysV saved registers. *)
   returns double4_program abi_layout initial final /\

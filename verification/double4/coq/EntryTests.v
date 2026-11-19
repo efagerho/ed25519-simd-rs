@@ -48,7 +48,7 @@ Example public_initialization_without_field_input_bound symbol_bytes :
  exists final, returns Program.double4_program abi_layout maximal_word_entry final /\
    output_initialized Program.double4_program maximal_word_entry final.
 Proof.
- intros [_ [_ [_ [Run _]]]].
+ intros [_ [_ [_ [_ [Run _]]]]].
  assert (Entry : valid_double4_entry maximal_word_entry 48).
  { split; [unfold permitted_padding; cbn; auto|]. split.
    - eexists; exists (2^64-1); split; [unfold word64; lia|reflexivity].
