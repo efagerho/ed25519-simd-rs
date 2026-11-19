@@ -33,6 +33,11 @@ with patch.dict(sys.modules, {
         "listing": load_module("cached_add_listing", HERE / "cached_add/listing.py")}):
     cached_add_audit = load_module("cached_add_audit", HERE / "cached_add/audit.py")
 
+with patch.dict(sys.modules, {
+        "certificate": load_module("scalar_certificate", HERE / "scalar/certificate.py"),
+        "listing": load_module("scalar_listing", HERE / "scalar/listing.py")}):
+    scalar_audit = load_module("scalar_audit", HERE / "scalar/audit.py")
+
 
 class ReportTests(unittest.TestCase):
     def setUp(self):
@@ -123,8 +128,8 @@ class ReportTests(unittest.TestCase):
 
 
 class ReleaseEvidenceTests(unittest.TestCase):
-    def test_point_proofs_reject_changed_linked_bytes_before_certification(self):
-        for module in (double4_audit, cached_add_audit):
+    def test_proofs_reject_changed_linked_bytes_before_certification(self):
+        for module in (double4_audit, cached_add_audit, scalar_audit):
             with self.subTest(module=module.__name__), tempfile.TemporaryDirectory() as tmp:
                 work = Path(tmp)
                 with patch.object(module, "symbol_extent", return_value=(4096, 2)), \
@@ -177,7 +182,8 @@ class ReleaseEvidenceTests(unittest.TestCase):
     def test_manifest_binds_proof_sources_checks_bytes_and_corpus(self):
         for module, routine, generator in ((evidence, "pow2", "sources/coq_proof.py"),
                                             (double4_audit, "double4", "sources/double4/audit.py"),
-                                            (cached_add_audit, "add_cached", "sources/cached_add/audit.py")):
+                                            (cached_add_audit, "add_cached", "sources/cached_add/audit.py"),
+                                            (scalar_audit, "reduce", "sources/scalar/audit.py")):
             with self.subTest(routine=routine):
                 self.check_manifest(module, routine, generator)
 

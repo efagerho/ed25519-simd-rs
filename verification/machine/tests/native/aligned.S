@@ -10,6 +10,14 @@ probe:
     mov rsi, rsp
     mov r9, rsp
     mov rcx, rdx
+    mov rax, 0
+    vpbroadcastq zmm24, rax
+    mov rax, 1
+    vpbroadcastq zmm25, rax
+    mov rax, 1367801
+    vpbroadcastq zmm26, rax
+    mov rax, 2147483647
+    vpbroadcastq zmm27, rax
     movabs rax, 0xfedcba9876543210
     vpbroadcastq zmm20, rax
     vmovdqu64 [rsi + 640], zmm20

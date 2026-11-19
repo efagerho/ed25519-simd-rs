@@ -3,12 +3,16 @@ From Machine Require Import Blocks IntelSyntax tests.model.Oracle.
 Import ListNotations.
 Open Scope Z_scope.
 
-Local Notation "'.Lmiddle'" := (0x6e%Z) (in custom intel_label at level 0).
-Local Notation "'.Lleaf'" := (0x74%Z) (in custom intel_label at level 0).
+Local Notation "'.Lmiddle'" := (0xa2%Z) (in custom intel_label at level 0).
+Local Notation "'.Lleaf'" := (0xa8%Z) (in custom intel_label at level 0).
 Definition aligned_probe := assemble [
  ScalarBlock 0 [] ends[ push rbp ];
  ScalarBlock 1 ops[
    mov rbp, rsp; and rsp, -64; sub rsp, 1280; mov rsi, rsp; mov r9, rsp; mov rcx, rdx;
+   mov rax, 0; vpbroadcastq zmm24, rax;
+   mov rax, 1; vpbroadcastq zmm25, rax;
+   mov rax, 1367801; vpbroadcastq zmm26, rax;
+   mov rax, 2147483647; vpbroadcastq zmm27, rax;
    movabs rax, 0xfedcba9876543210; vpbroadcastq zmm20, rax;
    vmovdqu64 zmmword ptr [rsi + 640], zmm20;
    vmovdqu64 zmmword ptr [rsi], zmm20;
@@ -18,11 +22,11 @@ Definition aligned_probe := assemble [
    lea r8, [rsi]; vmovdqu64 zmm23, zmmword ptr [r8];
    lea r8, [rsi + 640]; vmovdqu64 zmm21, zmmword ptr [r8]
  ] ends[ call .Lmiddle ];
- ScalarBlock 0x66 ops[ mov rsp, rbp ] ends[ pop rbp ];
- ScalarBlock 0x6a ops[ vzeroupper ] ends[ ret ];
- ScalarBlock 0x6e [] ends[ call .Lleaf ];
- ScalarBlock 0x73 [] ends[ ret ];
- ScalarBlock 0x74 ops[ vmovdqu64 zmmword ptr [rdi], zmm21 ] ends[ ret ]].
+ ScalarBlock 0x9a ops[ mov rsp, rbp ] ends[ pop rbp ];
+ ScalarBlock 0x9e ops[ vzeroupper ] ends[ ret ];
+ ScalarBlock 0xa2 [] ends[ call .Lleaf ];
+ ScalarBlock 0xa7 [] ends[ ret ];
+ ScalarBlock 0xa8 ops[ vmovdqu64 zmmword ptr [rdi], zmm21 ] ends[ ret ]].
 Example aligned_valid : valid_program aligned_probe=true.
 Proof. vm_compute; reflexivity. Qed.
 
@@ -62,3 +66,10 @@ Definition aligned_result seed :=
 Definition seeds := [0;1;2;3;2^52-1;2^52;2^63;2^64-1].
 Definition aligned_report inputs := String.concat "|"%string
  (numbers (image aligned_probe) :: map (fun seed=>numbers (aligned_result seed)) inputs).
+
+Example immediate32_domain :
+ valid_op aligned_probe(MovRaxImm32 0)=true /\
+ valid_op aligned_probe(MovRaxImm32 2147483647)=true /\
+ valid_op aligned_probe(MovRaxImm32 (-1))=false /\
+ valid_op aligned_probe(MovRaxImm32 2147483648)=false.
+Proof. vm_compute;repeat split;reflexivity. Qed.

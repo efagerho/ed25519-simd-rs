@@ -9,9 +9,14 @@ fn main() {
         return;
     }
     for (routine, source, proof) in [
-        ("pow2", "pow2", "pow2"),
-        ("double4", "double4", "double4"),
-        ("cached-add", "add_cached", "cached_add"),
+        ("pow2", "src/wide/avx512ifma/pow2.S", "pow2"),
+        ("double4", "src/wide/avx512ifma/double4.S", "double4"),
+        (
+            "cached-add",
+            "src/wide/avx512ifma/add_cached.S",
+            "cached_add",
+        ),
+        ("scalar", "src/scalar/reduce.S", "scalar"),
     ] {
         let feature = format!(
             "CARGO_FEATURE_VERIFY_ASM_{}",
@@ -21,10 +26,10 @@ fn main() {
             continue;
         }
         for path in [
-            format!("src/wide/avx512ifma/{source}.S"),
+            source.into(),
             format!("verification/{proof}"),
             "verification/machine".into(),
-            // Point proofs share the polynomial checker, interval interpreter and ELF helpers.
+            // Arithmetic proofs share the polynomial checker, interval interpreter and ELF helpers.
             "verification/pow2".into(),
             "verification/double4".into(),
         ] {

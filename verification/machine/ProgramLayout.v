@@ -13,7 +13,8 @@ Inductive operation :=
 | LeaR8Rsp (disp : Z) | DecEcx
 | LoadZmm (dst base : nat) (disp : Z) | StoreZmm (src base : nat) (disp : Z)
 | VectorCode (fragment : nat) | ZeroUpper
-| MovReg (dst src : nat) | AlignRsp64 | LeaR8Rsi (disp : Z).
+| MovReg (dst src : nat) | AlignRsp64 | LeaR8Rsi (disp : Z)
+| MovRaxImm32 (imm : Z).
 Inductive exit := Next | CallRel32 (disp : Z) | JneRel8 (disp : Z) | Ret | PushRbp | PopRbp.
 Record block := Block { start : Z; body : list operation; terminator : exit }.
 Inductive section := Code (b : block) | Padding (bytes : list Z).
@@ -28,6 +29,7 @@ Definition fragment_code p id := nth id (fragments p) [].
 Definition op_bytes p op := match op with
  | Mov32 d n => [0xb8 + Z.of_nat d] ++ le32 n
  | MovAbsRax n => [0x48;0xb8] ++ le32 n ++ le32 (n / 2^32)
+ | MovRaxImm32 n => [0x48;0xc7;0xc0] ++ le32 n
  | BroadcastRax d => rr 2 1 0x7c d 0 0
  | AdjustRsp sub n => [0x48;0x81;if sub then 0xec else 0xc4] ++ le32 n
  | LeaR8Rsp d => if d =? 0 then [0x4c;0x8d;4;0x24]
@@ -61,6 +63,8 @@ Definition signed bits n := (-2^(bits-1) <=? n) && (n <? 2^(bits-1)).
 Definition valid_op p op := match op with
  | Mov32 d n => Nat.ltb d 8 && unsigned 32 n
  | MovAbsRax n => unsigned 64 n | BroadcastRax d => Nat.ltb d 32
+ (* Only nonnegative immediates: sign extension is then the identity. *)
+ | MovRaxImm32 n => unsigned 31 n
  | AdjustRsp _ n | LeaR8Rsp n => signed 32 n
  | DecEcx | ZeroUpper | AlignRsp64 => true
  | MovReg d s => Nat.ltb d 16 && Nat.ltb s 16

@@ -1,8 +1,9 @@
 # Formal verification
 
 Coq proofs cover paired field exponentiation, four in-place point doublings,
-and cached point addition in the optional `asm-pow2`, `asm-double4`, and
-`asm-cached-add` backends. Each routine has one public contract binding its
+cached point addition, and scalar reduction modulo L in the optional
+`asm-pow2`, `asm-double4`, `asm-cached-add`, and `asm-scalar` backends.
+Each routine has one public contract binding its
 arithmetic, memory and ABI guarantees to the exact bytes of its linked
 symbol. These are proofs in the tested machine model; independent refinement
 to an x86 ISA specification remains open.
@@ -13,9 +14,11 @@ to an x86 ISA specification remains open.
 
 - `cached_add/` proves cached addition with projective or affine operands, optional T, read-only staged inputs, and the aligned stack frame. [Proof and audit instructions](cached_add/README.md)
 
+- `scalar/` proves canonical reduction of all eight 512-bit inputs modulo L, including optimized Montgomery carries, conditional subtraction, and byte-memory/ABI guarantees. [Proof and audit instructions](scalar/README.md)
+
 ## Build with or without the proof
 
-On x86-64 Linux, the three `asm-*` features assemble their respective sources
+On x86-64 Linux, the four `asm-*` features assemble their respective sources
 with Rust's built-in assembler. The corresponding `verify-asm-*` features enable
 the backend, check its Coq proof, and embed the exact bytes that passed. Proof checking is off by default; the features are independent.
 
@@ -23,7 +26,7 @@ the backend, check its Coq proof, and embed the exact bytes that passed. Proof c
 export RUSTFLAGS="-C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma"
 cargo build --release --features asm-pow2         # Assembly only
 cargo build --release --features verify-asm-pow2  # Assembly with the proof checked
-cargo build --release --features verify-asm-pow2,verify-asm-double4,verify-asm-cached-add  # All three proofs
+cargo build --release --features verify-asm-pow2,verify-asm-double4,verify-asm-cached-add,verify-asm-scalar  # All four proofs
 ```
 
 Install the following tools on the host that checks the proof or audits a linked executable.
@@ -35,8 +38,9 @@ Install the following tools on the host that checks the proof or audits a linked
 
 To verify the bytes in an already linked executable from either build, follow
 the release audit instructions for [pow2](pow2/README.md#check-the-release-executable),
-[double4](double4/README.md#check-the-release-executable), and
-[cached addition](cached_add/README.md#check-the-release-executable).
+[double4](double4/README.md#check-the-release-executable),
+[cached addition](cached_add/README.md#check-the-release-executable), and
+[scalar reduction](scalar/README.md#replay-against-a-release-executable).
 
 `python3 -B verification/test_evidence.py` checks report replay, seed provenance
 and audit manifest integrity without requiring Coq, XED or AVX-512 hardware.

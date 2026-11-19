@@ -13,6 +13,7 @@ Definition scalar_form op :=
   match op with
   | Mov32 r _ => Mov32 r 0
   | MovAbsRax _ => MovAbsRax 0
+  | MovRaxImm32 _ => MovRaxImm32 0
   | BroadcastRax _ => BroadcastRax 0
   | AdjustRsp sub _ => AdjustRsp sub 0
   | LeaR8Rsp d => LeaR8Rsp (Z.sgn d)

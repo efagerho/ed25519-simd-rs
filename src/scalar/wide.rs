@@ -22,11 +22,23 @@ mod rust;
 
 #[cfg(all(
     feature = "asm-scalar",
+    not(feature = "verify-asm-scalar"),
     target_os = "linux",
     target_arch = "x86_64",
     target_pointer_width = "64"
 ))]
 core::arch::global_asm!(include_str!("reduce.S"), options(raw));
+
+#[cfg(all(
+    feature = "verify-asm-scalar",
+    target_os = "linux",
+    target_arch = "x86_64",
+    target_pointer_width = "64"
+))]
+core::arch::global_asm!(
+    include_str!(concat!(env!("OUT_DIR"), "/scalar-checked.S")),
+    options(raw)
+);
 
 #[cfg(all(
     feature = "asm-scalar",
@@ -37,7 +49,7 @@ core::arch::global_asm!(include_str!("reduce.S"), options(raw));
 unsafe extern "C" {
     /// Read 512 bytes of word-major input and write 320 bytes of canonical
     /// radix-2^52 output. Buffers are disjoint; neither needs vector alignment.
-    /// See reduce.S for the full ABI. This assembly is not formally verified.
+    /// See reduce.S for the full ABI and verification/scalar for its Coq proof.
     fn ed25519_simd_scalar_reduce_ifma(out: *mut u8, words: *const u8);
 }
 
