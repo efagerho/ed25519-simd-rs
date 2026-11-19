@@ -17,7 +17,10 @@ BlockSequence.v
 ExecutionProperties.v
 MemoryTrace.v
 FlatMemory.v
+WordBounds.v
+ByteMemory.v
 tests/Operands.v
+tests/Representation.v
 tests/model/Oracle.v
 tests/Control.v
 tests/Mixed.v

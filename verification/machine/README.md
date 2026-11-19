@@ -122,6 +122,22 @@ at entry and each writable cell is disjoint from every other tracked cell.
 `replay_frame` proves that every byte outside the trace's write footprint
 keeps its entry value. [Memory events](MemoryTrace.v) · [Byte memory](FlatMemory.v)
 
+`state_words` requires unsigned 64-bit integer GPR values, all eight lanes of
+the vector registers, and the vector memory values. `step_preserves_words`
+and `execution_preserves_words` prove preservation; `recorded_prefix_words`
+covers the intermediate vector effects within blocks. Symbolic pointers and
+PCs retain their separate region/placement interpretation. [Word bounds](WordBounds.v)
+
+`read_word` reconstructs a qword from eight little-endian bytes.
+`read_word_encoded` returns the encoded integer modulo `2^64`, while
+`read_word_exact` proves equality for a bounded word. `agrees_read_vector`
+therefore turns byte agreement into exact logical loads. The converse
+round trip constructs a matching logical data view directly from any valid
+byte array. Word/vector stores and saved return words have corresponding
+read-back lemmas, and replay preserves byte bounds. [Byte decoding proofs](ByteMemory.v)
+The pow2 certificate uses these results to construct concrete entries and
+state its field result on the output bytes. [Concrete ABI proof](../pow2/coq/Pow2Bytes.v)
+
 The model tracks relocatable byte offsets. The supplied memory layout
 distinguishes read-only vectors, writable vectors and individual return
 qwords. Vector accesses must start at a 64-byte cell boundary relative to
@@ -195,7 +211,8 @@ From this directory, with Coq and GNU Make installed, run
 ```sh
 coq_makefile -f _CoqProject -o Makefile
 make
-coqchk -Q . Machine Machine.BlockSequence Machine.ExecutionProperties Machine.Dependencies
+coqchk -Q . Machine Machine.BlockSequence Machine.ExecutionProperties Machine.Dependencies \
+  Machine.WordBounds Machine.ByteMemory
 ```
 
 A consumer maps the compiled directory with `-Q /path/to/model Machine` and

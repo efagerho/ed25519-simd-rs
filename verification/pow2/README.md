@@ -28,6 +28,16 @@ of the linked symbol. [Read the statement in Audit.v](coq/Audit.v)
    vector stores. The caller's eight bytes at `S` stay intact throughout.
    These guarantees hold independently of the arithmetic limb bound.
    [Memory and register contract](coq/Pow2Memory.v) · [Proof](coq/FrameProof.v)
+5. **Concrete bytes and word bounds.** A `concrete_entry` supplies one byte
+   array, unsigned register values, the ABI pointers and the caller's saved
+   return address. `entry_from_bytes` constructs the logical memory views;
+   their initial agreement is proved. Every integer register value and vector
+   qword remains in `[0, 2^64)` during modeled execution. At every memory-event
+   prefix, reading eight little-endian bytes reconstructs the exact logical
+   vector qword. The final output, read directly from bytes, satisfies
+   `pow2_spec`. Identical and partially overlapping read-only inputs use the
+   same underlying bytes. [Concrete entry and result](coq/Pow2Bytes.v) ·
+   [Word bounds](../machine/WordBounds.v) · [Byte round trips](../machine/ByteMemory.v)
 
 The byte proof covers every non-wrapping placement satisfying `valid_placement`.
 The output and stack must be disjoint from each other, the inputs and the

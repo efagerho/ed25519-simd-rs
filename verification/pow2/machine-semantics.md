@@ -53,3 +53,14 @@ memory after every trace prefix. Every return reads the bytes of the most
 recent live return address. The caller must supply accessible memory with
 the placement and entry contents in the contract.
 [Byte semantics](../machine/FlatMemory.v) · [Placement and contract](coq/Pow2Memory.v) · [Proof](coq/FrameProof.v)
+
+The certificate also accepts a concrete entry consisting of a byte array and
+unsigned register words. It constructs the input, scratch and output views by
+decoding that array and proves initial agreement, including when the inputs
+overlap. The word-bound invariant is preserved through execution and every
+recorded vector-effect prefix. Under this invariant, byte agreement implies
+exact qword reads; serialized values that differ by `2^64` cannot represent
+different logical operands. The final field result is stated directly on the
+decoded output bytes. Pointer relocation still uses `placement`, and this
+byte correspondence remains a theorem about the specified machine model.
+[Concrete entry and result](coq/Pow2Bytes.v) · [Word invariant](../machine/WordBounds.v) · [Byte decoding](../machine/ByteMemory.v)
