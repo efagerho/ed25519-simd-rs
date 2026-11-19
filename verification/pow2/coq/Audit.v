@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith.
 From Machine Require Blocks.
-Require Import Program Pow2ABI Pow2Memory FieldSpec.
+Require Import Program Pow2ABI Pow2Memory Pow2Bytes FieldSpec.
 
 Definition pow2_contract (symbol_bytes : list Z) : Prop :=
   (* Encoding the modeled program gives the exact symbol bytes, including padding. *)
@@ -10,7 +10,7 @@ Definition pow2_contract (symbol_bytes : list Z) : Prop :=
   Blocks.valid_program pow2_program = true /\
   (* Every call that satisfies the entry convention reaches a final state
      with the properties below. *)
-  forall initial a b, valid_pow2_entry initial a b ->
+  (forall initial a b, valid_pow2_entry initial a b ->
     exists final,
       (* Execution returns to the caller in finitely many modeled steps. *)
       Blocks.returns pow2_program abi_layout initial final /\
@@ -28,4 +28,11 @@ Definition pow2_contract (symbol_bytes : list Z) : Prop :=
          the first or second output half, respectively, at the entry RDI pointer.
          All output limbs are nonnegative. Limb 1 is at most 2^51 + 511 and
          the other four are below 2^51. *)
-      pow2_spec a b (output_words initial final).
+      pow2_spec a b (output_words initial final)) /\
+  (* A concrete ABI entry constructs its logical views from one byte array.
+     Every represented integer/vector word stays in [0, 2^64). At each trace
+     prefix, decoding vector bytes gives exactly the logical qwords. The
+     final output bytes satisfy the same field specification, and bytes
+     outside the permitted output/stack writes are preserved. Initial byte
+     agreement is proved by construction, not assumed by the caller. *)
+  concrete_pow2_contract pow2_program (Z.of_nat (List.length symbol_bytes)).

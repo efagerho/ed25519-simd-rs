@@ -34,6 +34,8 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 | [ExecutionProperties.v](ExecutionProperties.v) | Proves memory preservation outside permitted writes and independence of the control trace and step failure from initial vector data. |
 | [MemoryTrace.v](MemoryTrace.v) | Records vector effects, call pushes and return pops. Relates the trace to block execution and checks the order and addresses of live returns. |
 | [FlatMemory.v](FlatMemory.v) | Replays vector stores and saved PCs in one little-endian byte memory. Proves agreement with tracked logical cells and preservation of every byte outside the write footprint. |
+| [WordBounds.v](WordBounds.v) | Unsigned qword invariants for scalar integer values, vector registers and memory. Proves preservation by instructions, blocks, executions and recorded vector-effect prefixes. |
+| [ByteMemory.v](ByteMemory.v) | Little-endian byte decoding, exact word/vector read-write round trips, and construction of bounded logical data from bytes. Turns serialization agreement into exact reads and proves replay preserves byte bounds. |
 | [proofs/README.md](proofs/README.md) | States the open obligation to decode the model's bytes with an independent x86 ISA specification and prove agreement on register and memory effects. |
 
 ## Conformance tests
@@ -44,6 +46,7 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 | [tests/case_data.py](tests/case_data.py) | Case schema, mnemonic operand forms, register initialization, and seeded random case generation. |
 | [tests/overflow.py](tests/overflow.py) | Generates arithmetic and IFMA boundary cases and all 256 immediate shift counts, with expected values computed in Python. |
 | [tests/Operands.v](tests/Operands.v) | Coq regression examples for load encodings, signed displacement rendering, and operand order. |
+| [tests/Representation.v](tests/Representation.v) | Regressions for noncanonical word rejection, high-bit little-endian decoding, unaligned vector writes and adjacent-byte preservation. |
 | [tests/Control.v](tests/Control.v) | Mnemonic call/return and conditional-branch probe, predicted scalar observations, and invalid control-flow and stack-access examples. |
 | [tests/Mixed.v](tests/Mixed.v) | Mnemonic loop combining vector arithmetic, load/store, and a scalar branch. Defines the initial state, memory permissions, and final observations. |
 | [tests/Prologue.v](tests/Prologue.v) | Stack and buffer probe for scalar moves, broadcasts, address calculations, vector loads and stores, and upper-lane clearing. |
