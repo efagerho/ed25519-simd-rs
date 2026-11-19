@@ -7,12 +7,52 @@ use crate::field::Fe51;
 ///
 /// One ladder round doubles eight accumulators and adds eight
 /// table-selected multiples with the same sequence of vector instructions.
+#[repr(C)]
 #[derive(Clone, Copy)]
 pub(super) struct WidePoint {
     pub(super) x: WideFe,
     pub(super) y: WideFe,
     pub(super) z: WideFe,
     pub(super) t: WideFe,
+}
+
+// The assembly ABI is four consecutive fields, each containing five vectors.
+// Check both the nested layout and every coordinate offset at compile time.
+const _: () = {
+    use core::mem::{align_of, offset_of, size_of};
+    assert!(size_of::<WideFe>() == 320);
+    assert!(align_of::<WideFe>() == 64);
+    assert!(offset_of!(WideFe, limbs) == 0);
+    assert!(size_of::<WidePoint>() == 1280);
+    assert!(align_of::<WidePoint>() == 64);
+    assert!(offset_of!(WidePoint, x) == 0);
+    assert!(offset_of!(WidePoint, y) == 320);
+    assert!(offset_of!(WidePoint, z) == 640);
+    assert!(offset_of!(WidePoint, t) == 960);
+};
+
+#[cfg(all(
+    feature = "asm-double4",
+    target_os = "linux",
+    target_pointer_width = "64"
+))]
+core::arch::global_asm!(include_str!("double4.S"), options(raw));
+
+#[cfg(all(
+    feature = "asm-double4",
+    target_os = "linux",
+    target_pointer_width = "64"
+))]
+unsafe extern "C" {
+    /// SysV: RDI points to one exclusive, initialized `WidePoint`.
+    ///
+    /// For X, Y and Z, each lane must have limb 0 < 2^60,
+    /// limb 1 + (limb 0 >> 51) < 2^52, and limbs 2..4 < 2^52.
+    /// Incoming T is ignored, including its limb bounds. Writes all four
+    /// coordinates; output limbs 0, 2..4 are < 2^51 and limb 1 < 2^52.
+    /// See double4.S for the arithmetic, scratch and register contract.
+    // Use a byte pointer because Rust's SIMD vector types are not C types.
+    fn ed25519_simd_double4_ifma(point: *mut u8);
 }
 
 /// Per-lane cached points selected from either projective or affine tables.
@@ -298,6 +338,34 @@ impl WidePoint {
     /// copy never happens; the last double writes straight into `self`.
     #[inline(never)]
     pub(super) fn double_four_times_assign(&mut self) {
+        #[cfg(all(
+            feature = "asm-double4",
+            target_os = "linux",
+            target_pointer_width = "64"
+        ))]
+        unsafe {
+            // The ladder's cached-point recovery and strict products satisfy
+            // the input bounds. `self` supplies exclusive access and layout.
+            ed25519_simd_double4_ifma(core::ptr::from_mut(self).cast());
+        }
+        #[cfg(not(all(
+            feature = "asm-double4",
+            target_os = "linux",
+            target_pointer_width = "64"
+        )))]
+        self.double_four_times_assign_rust();
+    }
+
+    #[cfg(any(
+        test,
+        not(all(
+            feature = "asm-double4",
+            target_os = "linux",
+            target_pointer_width = "64"
+        ))
+    ))]
+    #[inline(always)]
+    pub(super) fn double_four_times_assign_rust(&mut self) {
         let tripled = self
             .double_without_t()
             .double_without_t()
@@ -306,6 +374,14 @@ impl WidePoint {
     }
     /// Inlined body stores its result directly through `out`, which a
     /// returned `Self` assigned across a call boundary does not.
+    #[cfg(any(
+        test,
+        not(all(
+            feature = "asm-double4",
+            target_os = "linux",
+            target_pointer_width = "64"
+        ))
+    ))]
     #[inline(always)]
     pub(super) fn double_into(&self, out: &mut Self) {
         *out = self.double_impl::<true, false>();

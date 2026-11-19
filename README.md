@@ -59,6 +59,11 @@ standard-library code before any `ed25519-simd` API is called. Running the
 binary on a host without the required CPU and OS support may therefore
 terminate with an illegal-instruction fault (`SIGILL`) at any point.
 
+On x86-64 Linux, the opt-in `asm-double4` feature uses assembly for four
+in-place point doublings in the verification ladder. It retains the Rust path
+when disabled and can be combined with `asm-pow2`. Doubling assembly is tested
+against Rust and independent integer fixtures; it is not yet formally verified.
+
 ## Scope
 
 This crate only verifies signatures. Signing is intentionally out of scope:

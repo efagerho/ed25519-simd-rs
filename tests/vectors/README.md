@@ -14,3 +14,9 @@ point implementation in the crate.
 `scalar_reduction.json` similarly fixes the expected group-order reduction and
 signed radix-16 recoding for one full eight-lane chunk. It was generated with
 integer arithmetic modulo the RFC 8032 group order `L`.
+
+`double4.json` covers four doublings of arbitrary projective coordinates,
+including maximum loose limb 0, full 52-bit upper limbs, field-zero
+representations and mixed lanes. Regenerate its coordinate residues with
+`python3 tests/vectors/generate_double4.py`; the generator uses Python integers
+modulo `2^255 - 19`, independently of the Rust and assembly field arithmetic.

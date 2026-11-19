@@ -2,6 +2,15 @@
 
 The current Coq proof covers paired field exponentiation in the optional `asm-pow2` backend.
 
+The optional `asm-double4` backend implements four in-place point doublings on
+x86-64 Linux. Its ABI and arithmetic contract are documented in
+[`double4.S`](../src/wide/avx512ifma/double4.S), with compile-time Rust layout
+checks, independent integer fixtures, Rust differential tests and a native
+SysV register-preservation test. It does not yet have a Coq proof;
+`verify-asm-pow2` certifies only paired exponentiation, even when both assembly
+features are enabled. The subtraction model and its bound proofs are still
+required before proving this new routine.
+
 - `machine/` defines the x86-64 instruction model and tests its encodings and execution against Intel XED and native hardware. [Machine model and tests](machine/README.md)
 - `pow2/` states the routine’s contract, proves it in the machine model, and explains how to check the proof against a linked executable. [Proof and audit instructions](pow2/README.md)
 
