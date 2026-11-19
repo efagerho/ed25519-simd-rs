@@ -7,6 +7,10 @@ Open Scope Z_scope.
 Definition vpaddq a b := low64 (a + b).
 Definition encode_vpaddq dst a b := rr 1 1 0xd4 dst a b.
 
+(* VPSUBQ subtracts qwords modulo 2^64, including unsigned underflow. *)
+Definition vpsubq a b := low64 (a - b).
+Definition encode_vpsubq dst a b := rr 1 1 0xfb dst a b.
+
 (* VPMULLQ — Intel Intrinsics Guide
    https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#text=_mm512_mullo_epi64 *)
 Definition vpmullq a b := low64 (a * b).

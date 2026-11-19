@@ -53,8 +53,8 @@ Proof.
  intros P. destruct e; cbn [transfer]; repeat match goal with
  | |- context [match ?v with _ => _ end] => destruct v eqn:?
  end; intro H; try discriminate; inversion H; subst; try reflexivity.
- cbn. destruct (ptr_eq a p) eqn:E; [|reflexivity].
- apply ptr_eq_true in E; subst; congruence.
+ all: cbn; destruct (ptr_eq a p) eqn:E; [|reflexivity].
+ all: apply ptr_eq_true in E; subst; congruence.
 Qed.
 
 Theorem step_memory_frame p l s t :
@@ -63,7 +63,7 @@ Theorem step_memory_frame p l s t :
  (return_ok l a = false -> return_memory (fst t) a = return_memory (fst s) a).
 Proof.
  destruct s as [c d]. unfold step, dispatch. cbn [fst snd].
- destruct (rip c) as [pc|]; [|discriminate].
+ destruct (rip c) as [pc | | saved]; try discriminate.
  destruct (lookup (sections p) pc) as [b|]; [|discriminate].
  unfold block_control. destruct (exec_body p l c (body b)) as [[mid es]|] eqn:B; [|discriminate].
  destruct (transfer l mid (after p b) (terminator b)) as [last|] eqn:T; [|discriminate].

@@ -43,6 +43,16 @@ Definition exec_op p l c op : option (control * list effect) :=
         | Some a => vector_ok l a false | None => false end) loads then
      Some (c,[Evaluate id (capture c (nodup Nat.eq_dec (map fst loads)))]) else None
  | ZeroUpper => Some (c,[ClearUpper])
+ | MovReg d s => Some (set_gpr c d (gpr c s),[])
+ (* Pointer alignment uses a region whose physical origin is 64-byte aligned.
+    Consumers must prove that placement condition; double4's scratch origin is
+    the aligned frame base. Alignment changes flags, which are not consumed. *)
+ | AlignRsp64 => match pointer_at c 4 0 with
+   | Some (r,n) => Some (Control (rip c) (put (gpr c) 4 (Ptr (r,n-n mod 64)))
+                           None (return_memory c),[])
+   | None => None end
+ | LeaR8Rsi d => match pointer_at c 6 d with
+   | Some a => Some (set_gpr c 8 (Ptr a),[]) | None => None end
  end.
 
 Fixpoint exec_body p l c ops := match ops with
@@ -64,6 +74,19 @@ Definition transfer l c next e :=
      Some (Control (At (next+d)) (put (gpr c) 4 (Ptr a)) (zf c)
        (fun k => if ptr_eq k a then Some (At next) else return_memory c k)) else None
    | None => None end
+ | PushRbp => match pointer_at c 4 (-8), gpr c 5%nat with
+   | Some a, Int n => if return_ok l a then
+       Some (Control (At next) (put (gpr c) 4 (Ptr a)) (zf c)
+         (fun k => if ptr_eq k a then Some (SavedWord (stack_word n)) else return_memory c k))
+       else None
+   | _,_ => None end
+ | PopRbp => match pointer_at c 4 0 with
+   | Some a => if return_ok l a then match return_memory c a with
+     | Some (SavedWord n) => Some (Control (At next)
+         (put (put (gpr c) 4 (Ptr (offset a 8))) 5 (Int (stack_word n)))
+         (zf c) (return_memory c))
+     | _ => None end else None
+   | None => None end
  | Ret => match pointer_at c 4 0 with
    | Some a => if return_ok l a then match return_memory c a with
      | Some t => Some (Control t (put (gpr c) 4 (Ptr (offset a 8))) (zf c) (return_memory c))
@@ -76,7 +99,7 @@ Definition block_control p l b c :=
    | Some last => Some (last,es) | None => None end
  | None => None end.
 Definition dispatch p l c := match rip c with
- | Caller => None
+ | Caller | SavedWord _ => None
  | At n => match lookup (sections p) n with
    | Some b => block_control p l b c
    | None => None end end.
@@ -102,7 +125,7 @@ Definition returns p l s t := reaches p l s t /\ rip (fst t) = Caller.
 (* A bounded search constructs a finite execution witness. Fuel is absent
    from the architectural step relation and from the return contract. *)
 Fixpoint path fuel p l c : option (control * list effect) :=
- match rip c with Caller => Some (c,[]) | At _ => match fuel with
+ match rip c with Caller => Some (c,[]) | SavedWord _ => None | At _ => match fuel with
  | O => None | S n => match dispatch p l c with
    | Some (next,es) => match path n p l next with
      | Some (last,tail) => Some (last,es++tail) | None => None end

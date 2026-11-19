@@ -16,7 +16,7 @@ def mc(*args, **kwargs):
                            "-x86-asm-syntax=intel", *args], check=True, **kwargs)
 
 
-def assemble(source, work, name):
+def assemble(source, work, name, symbol=SYMBOL):
     obj, raw = work / (name + ".o"), work / (name + ".bin")
     mc("-filetype=obj", "-o", obj, source)
     reloc = subprocess.check_output(["objdump", "-r", "-j", ".text", obj], text=True)
@@ -25,7 +25,7 @@ def assemble(source, work, name):
     subprocess.run(["objcopy", "-O", "binary", "-j", ".text", obj, raw], check=True)
     data = raw.read_bytes()
     nm = subprocess.check_output(["nm", "-S", "--defined-only", obj], text=True)
-    m = re.search(rf"^([0-9a-f]+) ([0-9a-f]+) T {SYMBOL}$", nm, re.M)
+    m = re.search(rf"^([0-9a-f]+) ([0-9a-f]+) T {re.escape(symbol)}$", nm, re.M)
     if not m or int(m[1], 16) != 0 or int(m[2], 16) != len(data):
         raise ValueError(f"{source}: expected exactly one symbol spanning .text")
     return data

@@ -12,8 +12,9 @@ Inductive operation :=
 | BroadcastRax (dst : nat) | AdjustRsp (subtract : bool) (imm : Z)
 | LeaR8Rsp (disp : Z) | DecEcx
 | LoadZmm (dst base : nat) (disp : Z) | StoreZmm (src base : nat) (disp : Z)
-| VectorCode (fragment : nat) | ZeroUpper.
-Inductive exit := Next | CallRel32 (disp : Z) | JneRel8 (disp : Z) | Ret.
+| VectorCode (fragment : nat) | ZeroUpper
+| MovReg (dst src : nat) | AlignRsp64 | LeaR8Rsi (disp : Z).
+Inductive exit := Next | CallRel32 (disp : Z) | JneRel8 (disp : Z) | Ret | PushRbp | PopRbp.
 Record block := Block { start : Z; body : list operation; terminator : exit }.
 Inductive section := Code (b : block) | Padding (bytes : list Z).
 Record program := Program { fragments : list (list instruction); sections : list section }.
@@ -36,10 +37,15 @@ Definition op_bytes p op := match op with
  | StoreZmm s b n => Move.encode_store s (Z.of_nat b) n
  | VectorCode id => flat_map encode (fragment_code p id)
  | ZeroUpper => [0xc5;0xf8;0x77]
+ | MovReg d s => [0x48 + 4*Z.of_nat (s/8) + Z.of_nat (d/8); 0x89;
+                   0xc0 + 8*Z.of_nat (s mod 8) + Z.of_nat (d mod 8)]
+ | AlignRsp64 => [0x48;0x83;0xe4;0xc0]
+ | LeaR8Rsi d => [0x4c;0x8d;0x86] ++ le32 d
  end.
 Definition exit_bytes e := match e with
  | Next => [] | CallRel32 d => 0xe8 :: le32 d
- | JneRel8 d => [0x75;d mod 256] | Ret => [0xc3] end.
+ | JneRel8 d => [0x75;d mod 256] | Ret => [0xc3]
+ | PushRbp => [0x55] | PopRbp => [0x5d] end.
 Definition block_bytes p b := flat_map (op_bytes p) (body b) ++ exit_bytes (terminator b).
 Definition image p := flat_map (fun s => match s with
  | Code b => block_bytes p b | Padding bytes => bytes end) (sections p).
@@ -54,13 +60,15 @@ Definition valid_op p op := match op with
  | Mov32 d n => Nat.ltb d 8 && unsigned 32 n
  | MovAbsRax n => unsigned 64 n | BroadcastRax d => Nat.ltb d 32
  | AdjustRsp _ n | LeaR8Rsp n => signed 32 n
- | DecEcx | ZeroUpper => true
+ | DecEcx | ZeroUpper | AlignRsp64 => true
+ | MovReg d s => Nat.ltb d 16 && Nat.ltb s 16
+ | LeaR8Rsi n => signed 32 n
  | LoadZmm d b n | StoreZmm d b n => encodable (d, Load b n)
  | VectorCode id => Nat.ltb id (length (fragments p)) && forallb encodable (fragment_code p id)
  end.
 Definition starts_block p pc := match lookup (sections p) pc with Some _ => true | None => false end.
 Definition valid_exit p b := let n := after p b in match terminator b with
- | Next => starts_block p n | Ret => true
+ | Next | PushRbp | PopRbp => starts_block p n | Ret => true
  | CallRel32 d => signed 32 d && starts_block p (n+d) && starts_block p n
  | JneRel8 d => signed 8 d && starts_block p (n+d) && starts_block p n end.
 Fixpoint layout_ok p pc ss := match ss with

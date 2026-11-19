@@ -12,7 +12,8 @@ import unittest
 from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
-sys.path[:0] = [str(HERE / "machine/tests"), str(HERE / "pow2")]
+sys.path[:0] = [str(HERE / "machine/tests"), str(HERE / "pow2"), str(HERE / "double4")]
+import audit as double4_audit
 import case_data
 import coq_proof
 import evidence
@@ -95,7 +96,8 @@ class ReportTests(unittest.TestCase):
         row = run.complete_case(self.case, b"\x62")
         record = {"schema_version": 2, "checked": [row], "corpus_sha256": run.corpus_digest([row]),
                   "control_probe": {"input_rcx": [1], "bytes": "c3"},
-                  "mixed_probe": {"seeds": [9], "bytes": "c3"}}
+                  "mixed_probe": {"seeds": [9], "bytes": "c3"},
+                  "aligned_probe": {"seeds": [0, 1, 2, 3, 2**64-1], "bytes": "55"}}
         with patch("native.backend.require_host"), patch("native.backend.Native") as native, \
                 patch.object(run, "cpu_info", return_value={"processor": "0"}), \
                 patch.object(run, "check_probe") as probe:
@@ -103,10 +105,34 @@ class ReportTests(unittest.TestCase):
             wanted[31] = row["memory"]
             native.return_value.execute.return_value = {"registers": wanted}
             self.execute(self.args(backend="native", replay=self.work / "old.json", record=record))
-            self.assertEqual([call.args[0] for call in probe.call_args_list], ["control", "mixed"])
+            self.assertEqual([call.args[0] for call in probe.call_args_list], ["control", "mixed", "aligned"])
 
 
 class ReleaseEvidenceTests(unittest.TestCase):
+    def test_double4_rejects_changed_linked_bytes_before_certification(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            with patch.object(double4_audit, "symbol_extent", return_value=(4096, 2)), \
+                    patch.object(double4_audit, "symbol_bytes", return_value=b"\x55\xc3"), \
+                    patch.object(double4_audit, "generate", return_value=b"\x5d\xc3"), \
+                    patch.object(double4_audit, "certify") as certify:
+                with self.assertRaisesRegex(ValueError, "linked symbol differs"):
+                    double4_audit.replay(work / "release.elf", work)
+                certify.assert_not_called()
+
+    def test_double4_export_uses_its_own_program_and_case_ids(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            source = HERE / "double4/coq/ExportCases.v"
+            with patch.object(coq_proof.subprocess, "check_output", return_value='= "caller 1 1|0 1 vpsubq 0 1 0"\n'), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                coq_proof.export_cases(b"\x62", work, work / "cases.jsonl", 42, source, "double4")
+            row = json.loads((work / "cases.jsonl").read_text())
+            self.assertEqual(row["id"], "double4/+0x0000")
+            self.assertEqual(row["instruction"], ["vpsubq", 0, 1, 0])
+            self.assertEqual((work / "ExportCases.v").read_bytes(), source.read_bytes())
+            case_data.validate(row)
+
     def test_export_preserves_seed_and_full_register_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
@@ -121,12 +147,18 @@ class ReleaseEvidenceTests(unittest.TestCase):
             case_data.validate(row)
 
     def test_manifest_binds_proof_sources_checks_bytes_and_corpus(self):
+        for module, routine, generator in ((evidence, "pow2", "sources/coq_proof.py"),
+                                            (double4_audit, "double4", "sources/double4/audit.py")):
+            with self.subTest(routine=routine):
+                self.check_manifest(module, routine, generator)
+
+    def check_manifest(self, module, routine, generator):
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
             (work / "machine").mkdir()
             artifacts = {"Program.v": "Definition program := 0.\n", "Audit.v": "Definition contract := True.\n",
                          "FieldSpec.v": "Definition exponent := 1.\n", "machine/X86.v": "Definition bits := 64.\n",
-                         "machine/_CoqProject": "-Q . Machine\nX86.v\n", "pow2.expanded.S": "ret\n",
+                         "machine/_CoqProject": "-Q . Machine\nX86.v\n", f"{routine}.expanded.S": "ret\n",
                          "assumptions.txt": "Closed under the global context\n", "coqchk.log": "",
                          "conformance.jsonl": '{"export_seed":42}\n', "release.elf": "example ELF"}
             for name, value in artifacts.items():
@@ -134,8 +166,8 @@ class ReleaseEvidenceTests(unittest.TestCase):
             checks = {"assumptions": "Closed under the global context",
                       "coqchk": {"command": ["coqchk", "-silent", "Object"], "exit_code": 0}}
             corpus = {"path": "conformance.jsonl", "count": 1, "export_seed": 42}
-            with patch.object(evidence, "tool_versions", return_value={"coqc": {"version": "test"}}):
-                evidence.write_evidence(work / "release.elf", 4096, b"\xc3", work, checks, corpus)
+            with patch.object(module, "tool_versions", return_value={"coqc": {"version": "test"}}):
+                module.write_evidence(work / "release.elf", 4096, b"\xc3", work, checks, corpus)
             manifest = json.loads((work / "manifest.json").read_text())
             self.assertEqual(manifest["proof_checks"], checks)
             self.assertEqual(manifest["cases"], corpus)
@@ -145,7 +177,7 @@ class ReleaseEvidenceTests(unittest.TestCase):
                 self.assertEqual(evidence.sha256(work / name), digest)
             self.assertIn("FieldSpec.v", manifest["files"])
             self.assertIn("machine/X86.v", manifest["files"])
-            self.assertIn("sources/coq_proof.py", manifest["files"])
+            self.assertIn(generator, manifest["files"])
             self.assertIn("Program.v\n", (work / "_CoqProject").read_text())
             (work / "FieldSpec.v").write_text("Definition exponent := 2.\n")
             self.assertNotEqual(evidence.sha256(work / "FieldSpec.v"), manifest["files"]["FieldSpec.v"])

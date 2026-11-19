@@ -7,7 +7,7 @@ Open Scope Z_scope.
 Definition bytes := Z -> Z.
 Record placement := Placement { origin : nat -> Z; code_base : Z; caller_pc : Z }.
 Definition address_of loc (a : pointer) := origin loc (fst a) + snd a.
-Definition pc_word loc t := match t with At n => code_base loc + n | Caller => caller_pc loc end.
+Definition pc_word loc t := match t with At n => code_base loc + n | Caller => caller_pc loc | SavedWord n => n end.
 Definition word_byte (word index : Z) := (word / 2^(8*index)) mod 256.
 Definition vector_byte (v : vector) k := word_byte (v (Z.to_nat (k/8))) (k mod 8).
 

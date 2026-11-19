@@ -10,18 +10,18 @@ def require(condition, message):
         raise ValueError(message)
 
 
-def symbol_extent(binary):
+def symbol_extent(binary, symbol=SYMBOL):
     names = subprocess.check_output(["nm", "-S", "--defined-only", binary], text=True)
-    matches = re.findall(rf"^([0-9a-fA-F]+) ([0-9a-fA-F]+) [tT] {SYMBOL}$", names, re.M)
-    require(len(matches) == 1, f"expected one defined {SYMBOL} in {binary}")
+    matches = re.findall(rf"^([0-9a-fA-F]+) ([0-9a-fA-F]+) [tT] {re.escape(symbol)}$", names, re.M)
+    require(len(matches) == 1, f"expected one defined {symbol} in {binary}")
     addr, size = matches[0]
     return int(addr, 16), int(size, 16)
 
 
-def disassemble(binary):
-    start, size = symbol_extent(binary)
+def disassemble(binary, symbol=SYMBOL):
+    start, size = symbol_extent(binary, symbol)
     dump = subprocess.check_output(["objdump", "-dz", "-M", "intel", "--insn-width=16",
-                                    "--disassemble=" + SYMBOL, binary], text=True)
+                                    "--disassemble=" + symbol, binary], text=True)
     code = {}
     expected = start
     for line in dump.splitlines():

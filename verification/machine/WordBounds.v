@@ -113,13 +113,14 @@ Proof.
  repeat match goal with |- context [match ?v with _ => _ end] => destruct v eqn:? end;
  intro H; try discriminate; inversion H; subst; cbn [gpr];
  auto.
- all: apply put_gpr_words; [exact R|exact I].
+ all: repeat apply put_gpr_words; cbn [scalar_words]; auto using mod64_word.
+ all: unfold stack_word;apply mod64_word.
 Qed.
 Theorem step_preserves_words p l s t :
  state_words s -> step p l s = Some t -> state_words t.
 Proof.
  destruct s as [c d]. intros [R D]. unfold step,dispatch; cbn [fst snd].
- destruct (rip c) as [pc|]; [|discriminate].
+ destruct (rip c) as [pc | | saved]; try discriminate.
  destruct (lookup (sections p) pc) as [b|]; [|discriminate].
  unfold block_control. destruct (exec_body p l c (body b)) as [[mid es]|] eqn:B; [|discriminate].
  destruct (transfer l mid (after p b) (terminator b)) as [last|] eqn:T; [|discriminate].

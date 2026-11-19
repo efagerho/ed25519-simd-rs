@@ -5,7 +5,7 @@ import random
 OPS = {
     "vmovdqa64": ("Copy", "rr"), "vmovdqu64": ("Load", "rbd"),
     "vpxorq": ("Xor", "rrr"), "vpaddq": ("Add", "rrr"),
-    "vpmullq": ("Mul", "rrr"), "vpandq": ("And", "rrr"),
+    "vpsubq": ("Sub", "rrr"), "vpmullq": ("Mul", "rrr"), "vpandq": ("And", "rrr"),
     "vpsllq": ("Shl", "rri"), "vpsrlq": ("Shr", "rri"),
     "vpmadd52luq": ("Madd false", "rrr"), "vpmadd52huq": ("Madd true", "rrr"),
 }

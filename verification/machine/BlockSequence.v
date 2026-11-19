@@ -53,6 +53,7 @@ Proof.
    | |- context [Blocks.gpr c ?r] => destruct (Blocks.gpr c r)
    | |- context [pointer_at c ?r ?n] => destruct (pointer_at c r n)
    | |- context [vector_ok l ?a ?w] => destruct (vector_ok l a w)
+   | |- context [match ?v with pair _ _ => _ end] => destruct v
    end; reflexivity ].
  cbn [expand_op]. rewrite SIMD_sequence, (vector_sequence _ _ _ _ _ (capture_covers _ _)).
  unfold operation_effect, exec_op; cbn [fst snd]. unfold readable.

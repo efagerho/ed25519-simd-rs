@@ -19,7 +19,10 @@ Definition return_ok l a := (snd a mod 8 =? 0) &&
  | _ => false end.
 
 Inductive scalar := Int (bits : Z) | Ptr (address : pointer) | Unknown.
-Inductive pc := At (address : Z) | Caller.
+(* SavedWord is a tagged stack qword, never an executable PC. PUSH/POP RBP
+   share the same memory as CALL/RET, so the byte proof also covers the save. *)
+Definition stack_word n := n mod 2^64.
+Inductive pc := At (address : Z) | Caller | SavedWord (bits : Z).
 Record control := Control {
  rip : pc; gpr : nat -> scalar; zf : option bool;
  return_memory : pointer -> option pc
