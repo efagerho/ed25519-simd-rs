@@ -40,7 +40,9 @@ Definition op_bytes p op := match op with
  | MovReg d s => [0x48 + 4*Z.of_nat (s/8) + Z.of_nat (d/8); 0x89;
                    0xc0 + 8*Z.of_nat (s mod 8) + Z.of_nat (d mod 8)]
  | AlignRsp64 => [0x48;0x83;0xe4;0xc0]
- | LeaR8Rsi d => [0x4c;0x8d;0x86] ++ le32 d
+ | LeaR8Rsi d => if d =? 0 then [0x4c;0x8d;0x06]
+   else if (-128 <=? d) && (d <? 128) then [0x4c;0x8d;0x46;d mod 256]
+   else [0x4c;0x8d;0x86] ++ le32 d
  end.
 Definition exit_bytes e := match e with
  | Next => [] | CallRel32 d => 0xe8 :: le32 d

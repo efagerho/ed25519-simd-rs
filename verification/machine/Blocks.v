@@ -15,7 +15,7 @@ Inductive effect :=
 | Broadcast (dst : nat) (n : Z) | ClearUpper
 | Evaluate (fragment : nat) (bases : list (nat * pointer)).
 Definition load_operands (code : list instruction) :=
- flat_map (fun i => match snd i with Load b d => [(b,d)] | _ => [] end) code.
+ flat_map (fun i => match snd i with Load b d | MaddMem _ _ b d => [(b,d)] | _ => [] end) code.
 Definition capture c bases := flat_map (fun b => match pointer_at c b 0 with
  | Some a => [(b,a)] | None => [] end) bases.
 

@@ -8,24 +8,32 @@ fn main() {
     {
         return;
     }
-    for routine in ["pow2", "double4"] {
-        let feature = format!("CARGO_FEATURE_VERIFY_ASM_{}", routine.to_ascii_uppercase());
+    for (routine, source, proof) in [
+        ("pow2", "pow2", "pow2"),
+        ("double4", "double4", "double4"),
+        ("cached-add", "add_cached", "cached_add"),
+    ] {
+        let feature = format!(
+            "CARGO_FEATURE_VERIFY_ASM_{}",
+            routine.replace('-', "_").to_ascii_uppercase()
+        );
         if env::var_os(feature).is_none() {
             continue;
         }
         for path in [
-            format!("src/wide/avx512ifma/{routine}.S"),
-            format!("verification/{routine}"),
+            format!("src/wide/avx512ifma/{source}.S"),
+            format!("verification/{proof}"),
             "verification/machine".into(),
-            // double4 also uses the field polynomial checker and ELF helpers.
+            // Point proofs share the polynomial checker, interval interpreter and ELF helpers.
             "verification/pow2".into(),
+            "verification/double4".into(),
         ] {
             println!("cargo:rerun-if-changed={path}");
         }
         println!("cargo:rerun-if-env-changed=LLVM_MC");
         let status = Command::new("python3")
             .arg("-B")
-            .arg(format!("verification/{routine}/review.py"))
+            .arg(format!("verification/{proof}/review.py"))
             .arg(env::var_os("OUT_DIR").unwrap())
             .status()
             .unwrap_or_else(|_| {

@@ -14,17 +14,7 @@ Definition encode_vmovdqa64 dst src := rr 1 1 0x6f dst 0 src.
 
 (* Base plus signed byte displacement. EVEX disp8 uses a 64-byte tuple.
    RSP/R12 need a SIB; RBP/R13 need an explicit displacement even at zero. *)
-Definition memory (op : Z) (r : nat) (base disp : Z) :=
-  let reg := Z.of_nat r in
-  let rm := base mod 8 in
-  let scaled := disp / 64 in
-  let '(mode, displacement) :=
-    if (disp =? 0) && negb (rm =? 5) then (0, [])
-    else if (disp mod 64 =? 0) && (-128 <=? scaled) && (scaled <? 128)
-         then (1, [scaled mod 256])
-         else (2, le32 disp) in
-  prefix 1 2 reg 0 base ++ [op; modrm mode reg rm]
-  ++ (if rm =? 4 then [0x24] else []) ++ displacement.
+Definition memory op r base disp := rm_memory 1 2 op r 0 base disp.
 
 (* VMOVDQU64 unaligned load, memory to ZMM.
    https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#text=_mm512_loadu_epi64 *)

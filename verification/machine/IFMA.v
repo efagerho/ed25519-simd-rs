@@ -14,3 +14,7 @@ Definition madd52 (high : bool) acc a b :=
 
 Definition encode_madd52 (high : bool) dst a b :=
   rr 2 1 (if high then 0xb5 else 0xb4) dst a b.
+
+(* Unmasked full-vector memory source: eight qwords, no broadcast. *)
+Definition encode_madd52_memory (high : bool) dst a base disp :=
+  rm_memory 2 1 (if high then 0xb5 else 0xb4) dst a (Z.of_nat base) disp.

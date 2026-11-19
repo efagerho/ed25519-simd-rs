@@ -16,7 +16,7 @@ def expression(case):
     op, kinds = OPS[mnemonic]
     args = " ".join(f"({n})" if n < 0 else str(n) for n in src)
     overrides = ";".join(f"({r}%nat,{words(v)})" for r, v in case.get("registers", {}).items())
-    base, disp = src if kinds == "rbd" else (0, 0)
+    base, disp = src[-2:] if kinds.endswith("bd") else (0, 0)
     return (f"Eval vm_compute in prediction ({dst}%nat, {op} {args}) [{overrides}] "
             f"{base}%nat ({disp}) {words(case.get('memory', []))}.")
 

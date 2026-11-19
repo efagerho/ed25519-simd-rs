@@ -149,3 +149,13 @@ Notation "'ret'" := Return (in custom intel_exit at level 0).
 
 Notation "'push' 'rbp'" := PushFrame (in custom intel_exit at level 0).
 Notation "'pop' 'rbp'" := PopFrame (in custom intel_exit at level 0).
+
+Notation "'mov' 'r9' , 'rsp'" := (MovReg 9 4) (in custom intel_op at level 0).
+Notation "'mov' 'rcx' , 'rdx'" := (MovReg 1 2) (in custom intel_op at level 0).
+Notation "'vpmadd52luq' d , a , 'zmmword' 'ptr' b" := (d, MaddMem false a (fst b) (snd b))
+  (in custom intel_vector at level 0, d custom intel_zmm, a custom intel_zmm, b custom intel_memory).
+Notation "'vpmadd52huq' d , a , 'zmmword' 'ptr' b" := (d, MaddMem true a (fst b) (snd b))
+  (in custom intel_vector at level 0, d custom intel_zmm, a custom intel_zmm, b custom intel_memory).
+Notation "'lea' 'r8' , '[' 'rsi' ']'" := (LeaR8Rsi 0)
+  (in custom intel_op at level 0).
+Notation "'mov' 'rax' , 'rcx'" := (MovReg 0 1) (in custom intel_op at level 0).

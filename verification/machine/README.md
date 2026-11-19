@@ -24,7 +24,10 @@ deterministic boundary sweep. Each backend uses the same inputs. [Fixed cases](t
 - **IFMA.** Both forms ignore operand bits above bit 51 and select the low or
   high 52 bits of the product. Tests choose the accumulator so the sum lands
   just below, at or just above 2⁵² and 2⁶⁴. A sum of 2⁵² survives and a sum
-  of 2⁶⁴ wraps to zero. [IFMA vectors](tests/cases/ifma.jsonl)
+  of 2⁶⁴ wraps to zero. Register and full-vector memory sources share the
+  same arithmetic. Memory cases cover unaligned data, aliased accumulator/LHS,
+  high registers, SIB bases, and zero, compressed and full displacements.
+  [Register vectors](tests/cases/ifma.jsonl) · [Memory vectors](tests/cases/ifma-memory.jsonl)
 - **Shifts.** Left and logical right shifts cover all 256 immediate counts,
   including inputs with bit 63 set. Counts from 64 through 255 produce zero
   in every lane.
@@ -41,7 +44,7 @@ linked byte sequence before executing each program on the pinned CPU.
 | `control` | A callee decrements ECX and the caller branches on its ZF. Eight inputs exercise both branch outcomes and 32-bit wraparound. The harness checks RAX, RCX, ZF and stack restoration. [Coq](tests/Control.v) · [Assembly](tests/native/control.S) |
 | `mixed` | Seven seeds drive one to three loop iterations across scalar and vector blocks. An unaligned load, wrapping addition, aliased IFMA and store feed the next iteration. A SIMD instruction separates `dec` from `jne`. The harness checks RCX, ZF, stack restoration, all 32 ZMM registers and the stored vector plus both adjacent cells. [Coq](tests/Mixed.v) · [Assembly](tests/native/mixed.S) |
 | `prologue` | Checks 32- and 64-bit immediates, broadcasts from RAX, stack adjustment in both directions, both `lea r8` encodings, vector loads and stores, and `vzeroupper`. Seven seeds exercise a private stack and three distinct unaligned buffers. The comparison covers RAX, RCX, R8 relative to the frame, restored RSP, all 32 ZMM registers, both inputs, output, stack scratch and guard cells. [Coq](tests/Prologue.v) · [Assembly](tests/native/prologue.S) |
-| `aligned` | Eight seeds cover all four SysV stack padding cases and saved RBP values through `2^64−1`. Checks `push`/`pop rbp`, register copies, `and rsp,-64`, scratch-relative `lea`, two nested calls, all ZMM registers, saved stack qwords, vector memory and guards. [Coq](tests/Aligned.v) · [Assembly](tests/native/aligned.S) |
+| `aligned` | Eight seeds cover all four SysV stack padding cases and saved RBP values through `2^64−1`. Checks `push`/`pop rbp`, register copies, `and rsp,-64`, scratch-relative `lea` with zero and nonzero displacements, copies from RDX to RCX and RSP to R9, two nested calls, all ZMM registers, saved stack qwords, vector memory and guards. [Coq](tests/Aligned.v) · [Assembly](tests/native/aligned.S) |
 
 Consumers can check that the probes exercise every scalar and control-flow
 form in their program by proving `uncovered_caller_forms program = []`.

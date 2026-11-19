@@ -21,6 +21,9 @@ def require_host(cpu):
 
 def asm(instruction):
     op, *args = instruction
+    if op.endswith("_mem"):
+        dst, lhs, base, disp = args
+        return f"{op[:-4]} zmm{dst}, zmm{lhs}, ZMMWORD PTR [{GPRS[base]} {disp:+d}]"
     if op == "vmovdqu64":
         dst, base, disp = args
         return f"{op} zmm{dst}, ZMMWORD PTR [{GPRS[base]} {disp:+d}]"
@@ -30,7 +33,7 @@ def asm(instruction):
 
 def wrapper(index, ins):
     name = f"probe_{index}"
-    base = GPRS[ins[2]] if ins[0] == "vmovdqu64" else None
+    base = GPRS[ins[-2]] if OPS[ins[0]][1].endswith("bd") else None
     state, saved = [r for r in ("r10", "r11", "r9") if r != base][:2]
     yield f".global {name}, {name}_ins, {name}_end"
     yield f"{name}:"
@@ -86,7 +89,7 @@ class Native:
             data_ptr = ((ctypes.addressof(backing) + 63) & ~63) + 1
             data = b"".join(x.to_bytes(8, "little") for x in case.get("memory", []))
             ctypes.memmove(data_ptr, data, len(data))
-            base_ptr = data_ptr - ins[3] if ins[0] == "vmovdqu64" else 0
+            base_ptr = data_ptr - ins[-1] if OPS[ins[0]][1].endswith("bd") else 0
             pid = os.fork()
             if pid == 0:
                 # A load may temporarily use RSP as its test address.

@@ -11,7 +11,8 @@ Definition same_result (mem : nat -> Z -> bool) (known:nat -> bool) dst op :=
  | Load b d => mem b d
  | Xor a b => Nat.eqb a b || (known a && known b)
  | Add a b | Sub a b | Mul a b | And a b => known a && known b
- | Madd _ a b => known dst && known a && known b end.
+ | Madd _ a b => known dst && known a && known b
+ | MaddMem _ a base disp => known dst && known a && mem base disp end.
 Fixpoint agreement mem code known := match code with
  | [] => known
  | (dst,op)::rest => agreement mem rest (put known dst (same_result mem known dst op)) end.
@@ -25,9 +26,11 @@ Proof.
  all: try (intro H; repeat rewrite Bool.andb_true_iff in H;
      decompose [and] H; repeat match goal with K:?f ?i = true |- _ => rewrite (R _ K); clear K end;
      reflexivity).
- destruct (Nat.eqb a b) eqn:E; cbn.
- - apply Nat.eqb_eq in E; subst. unfold Logic.vpxorq; now rewrite !Z.lxor_nilpotent.
- - intro H. apply Bool.andb_true_iff in H as [A B]; now rewrite (R _ A),(R _ B).
+ - destruct (Nat.eqb a b) eqn:E; cbn.
+   + apply Nat.eqb_eq in E; subst. unfold Logic.vpxorq; now rewrite !Z.lxor_nilpotent.
+   + intro H. apply Bool.andb_true_iff in H as [A B]; now rewrite (R _ A),(R _ B).
+ - intro H;repeat rewrite Bool.andb_true_iff in H;destruct H as [[D A] M].
+   now rewrite (R _ D),(R _ A),(L _ _ M).
 Qed.
 Lemma agreement_sound mem code known l1 l2 r1 r2 :
  (forall b d, mem b d = true -> l1 b d = l2 b d) ->

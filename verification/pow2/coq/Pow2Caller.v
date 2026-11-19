@@ -38,6 +38,7 @@ Definition execute8 sq mul c a b (scratch : nat -> nat -> field) offset :=
 (* Operand forms used by the field refinement. *)
 Definition kernel_form (op : opcode) :=
   match op with
+  | MaddMem _ _ _ _ => false
   | Load base _ => Nat.eqb base 8
   | Xor a b => Nat.eqb a b
   | And _ b => Nat.eqb b 29
