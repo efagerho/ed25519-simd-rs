@@ -6,21 +6,21 @@ Import ListNotations.
 Open Scope Z_scope.
 
 Definition rhs dst op := match op with
- | Load _ disp=>V(rhs_index disp)
+ | Load _ disp=>Some(V(rhs_index disp))
  | _=>ProofArithmetic.Symbolic.rhs 51 dst op end.
-Lemma bits_ok load r dst op :
+Lemma bits_ok load r dst op e :
  (forall disp, load 8%nat disp = r (rhs_index disp)) ->
  r 29%nat = radix-1 -> kernel_form op = true ->
- bits load r dst op = val r (rhs dst op).
+ rhs dst op=Some e -> bits load r dst op = val r e.
 Proof.
  intros Mem Mask Form.
  assert(Operands:ProofArithmetic.Symbolic.operand_ok 51 r op).
  { destruct op;cbn [kernel_form] in Form;cbn [ProofArithmetic.Symbolic.operand_ok];
    try exact Logic.I;try(now apply Nat.eqb_eq in Form).
    apply Nat.eqb_eq in Form;subst b;rewrite Mask;reflexivity. }
- pose proof(ProofArithmetic.Symbolic.rhs_ok 51 load r dst op ltac:(lia) Operands)as Sound.
+ pose proof(ProofArithmetic.Symbolic.rhs_ok 51 load r dst op e ltac:(lia) Operands)as Sound.
  destruct op;cbn [kernel_form] in Form;try discriminate;try exact Sound.
- apply Nat.eqb_eq in Form;subst base;apply Mem.
+ cbn [rhs];intros [= <-];apply Nat.eqb_eq in Form;subst base;apply Mem.
 Qed.
 
 Record absword := W { term:expr; maximum:Z }.
@@ -61,9 +61,9 @@ Proof.
 Qed.
 Fixpoint arun (code:list instruction) (s:nat -> absword) :=
  match code with [] => s | (dst,op)::xs =>
- arun xs (put s dst (abstract s (rhs dst op))) end.
+ arun xs (match rhs dst op with Some e=>put s dst (abstract s e) | None=>s end) end.
 Definition legal_instruction (i:instruction) :=
- let '(d,op):=i in Nat.ltb d 32 && negb (Nat.eqb d 29) && kernel_form op && legal (rhs d op).
+ let '(d,op):=i in Nat.ltb d 32 && negb (Nat.eqb d 29) && kernel_form op && match rhs d op with Some e=>legal e | None=>false end.
 Lemma run_ok env load code s r :
  (forall disp, load 8%nat disp = r (rhs_index disp)) ->
  r 29%nat=radix-1 ->
@@ -74,6 +74,7 @@ Proof. revert s r; induction code as [|[d op] xs IH]; intros s r Mem Mask H G;
  cbn [arun run]; auto. apply Bool.andb_true_iff in G as [A B].
  unfold legal_instruction in A. repeat rewrite Bool.andb_true_iff in A.
  destruct A as [[[Reg D] Form] Legal]. apply Bool.negb_true_iff in D.
+ destruct (rhs d op) as [e|] eqn:Translated;[|discriminate].
  apply IH.
  - intro disp. unfold put. rewrite Mem.
    assert (E : Nat.eqb d (rhs_index disp) = false).
@@ -81,7 +82,7 @@ Proof. revert s r; induction code as [|[d op] xs IH]; intros s r Mem Mask H G;
    now rewrite E.
  - unfold put; rewrite D; exact Mask.
  - intro i; unfold put; destruct (Nat.eqb d i); auto.
-   rewrite bits_ok by assumption. apply abstract_ok; auto.
+   rewrite (bits_ok load r d op e) by assumption. apply abstract_ok; auto.
  - exact B.
 Qed.
 

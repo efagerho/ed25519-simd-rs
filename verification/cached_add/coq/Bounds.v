@@ -19,9 +19,13 @@ Proof.
  - intros b off H;apply M;unfold loads_of in *;cbn [flat_map snd];apply in_or_app;now right.
  - intro i;unfold put;destruct(Nat.eqb d i);[|apply R].
    change(bounded(aexec loads s d op)(bits load r d op)).
-   rewrite rhs_ok by assumption;destruct op;cbn [aexec];try(apply abstract_bounds;assumption).
+   destruct op;cbn [aexec rhs ProofArithmetic.Symbolic.rhs legal_rhs] in *;
+     try(erewrite rhs_ok by (eassumption || reflexivity);apply abstract_bounds;assumption).
    + apply M;now left.
-   + rewrite madd_value;apply abstract_bounds;[|destruct high;reflexivity].
+   + change (bounded
+       (abstract (madd_inputs (s d) (s a) (loads base disp)) (madd_expr high (V 0) (V 1) (V 2)))
+       (IFMA.madd52 high (r d) (r a) (load base disp))).
+     rewrite madd_value;apply abstract_bounds;[|destruct high;reflexivity].
      intro k;unfold madd_inputs;destruct(Nat.eqb k 0),(Nat.eqb k 1);auto.
      apply M;now left.
  - unfold put;rewrite Dest;exact Mask.

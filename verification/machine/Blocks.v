@@ -37,11 +37,12 @@ Definition exec_op p l c op : option (control * list effect) :=
    | Some a => if vector_ok l a false then Some (c,[Read r a]) else None | None => None end
  | StoreZmm r b d => match pointer_at c b d with
    | Some a => if vector_ok l a true then Some (c,[Write r a]) else None | None => None end
- | VectorCode id =>
-   let loads := load_operands (fragment_code p id) in
+ | VectorCode id => match lookup_fragment p id with
+   | None => None
+   | Some code => let loads := load_operands code in
    if forallb (fun bd => match pointer_at c (fst bd) (snd bd) with
         | Some a => vector_ok l a false | None => false end) loads then
-     Some (c,[Evaluate id (capture c (nodup Nat.eq_dec (map fst loads)))]) else None
+     Some (c,[Evaluate id (capture c (nodup Nat.eq_dec (map fst loads)))]) else None end
  | ZeroUpper => Some (c,[ClearUpper])
  | MovReg d s => Some (set_gpr c d (gpr c s),[])
  (* Pointer alignment uses a region whose physical origin is 64-byte aligned.
@@ -54,6 +55,14 @@ Definition exec_op p l c op : option (control * list effect) :=
  | LeaR8Rsi d => match pointer_at c 6 d with
    | Some a => Some (set_gpr c 8 (Ptr a),[]) | None => None end
  end.
+
+Lemma executed_fragment_resolves p l c id mid es :
+ exec_op p l c (VectorCode id) = Some (mid,es) ->
+ exists code, lookup_fragment p id = Some code.
+Proof.
+ cbn [exec_op]; destruct (lookup_fragment p id) as [code|] eqn:F;
+ [intros; now exists code|discriminate].
+Qed.
 
 Fixpoint exec_body p l c ops := match ops with
  | [] => Some (c,[])
