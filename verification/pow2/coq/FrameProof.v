@@ -1,6 +1,7 @@
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Blocks MemoryTrace FlatMemory ExecutionProperties.
 Require Import Program Pow2ABI Pow2Memory.
+Require Execution.
 Import ListNotations.
 Open Scope Z_scope.
 
@@ -134,9 +135,31 @@ Proof.
  apply (Prefix (ReturnSlot a) k _ Map K); unfold cell_byte; now rewrite Read.
 Qed.
 
+Lemma output_trace_covered es : data_effects es = Execution.expected_path ->
+ forall loc k, 0 <= k < 640 -> writes_at loc es (origin loc output+k).
+Proof.
+ intros E loc k K. set (i := Z.to_nat (k/64)).
+ assert (Q : 0 <= k/64 < 10).
+ { split; [apply Z.div_pos|apply Z.div_lt_upper_bound]; lia. }
+ assert (I : (i<10)%nat) by (unfold i; lia).
+ assert (Index : Z.of_nat i = k/64) by (unfold i; rewrite Z2Nat.id; lia).
+ assert (W : In (Write i (limb_address output 0 i)) (data_effects es)).
+ { rewrite E. unfold Execution.expected_path.
+   apply in_or_app; right. apply in_or_app; right. apply in_or_app; left.
+   unfold Execution.stores. apply in_map_iff. exists i; split; [reflexivity|apply in_seq; lia]. }
+ unfold data_effects in W. apply in_flat_map in W as [e [Member W]].
+ destruct e as [op|a t|a t]; cbn in W; try contradiction.
+ destruct W as [Eq|W]; [subst op|contradiction].
+ exists (DataOp (Write i (limb_address output 0 i))), (VectorCell (limb_address output 0 i)).
+ split; [exact Member|]. split; [reflexivity|].
+ unfold inside,cell_address,address_of,limb_address; cbn [fst snd width].
+ pose proof (Z.div_mod k 64 ltac:(lia)). pose proof (Z.mod_pos_bound k 64 ltac:(lia)). lia.
+Qed.
+
 Theorem pow2_frame_correct size initial a b final :
  valid_pow2_entry initial a b -> returns pow2_program abi_layout initial final ->
- registers_preserved initial final /\ memory_safe pow2_program size initial final.
+ registers_preserved initial final /\ memory_safe pow2_program size initial final /\
+ output_initialized pow2_program initial final.
 Proof.
  destruct initial as [c d]. intros [[incoming Init] _] Returns. cbn [fst] in Init; subst c.
  pose proof (frame_checked incoming) as Check.
@@ -150,6 +173,12 @@ Proof.
  destruct (record_path_sound _ _ _ _ _ _ R) as [P _].
  pose proof (path_returns _ _ _ _ _ _ P d) as Ends.
  pose proof (return_unique _ _ _ _ _ Returns Ends) as ->.
- split; [unfold registers_preserved; cbn [fst]; apply map_values; exact Regs|]. exists 1024%nat,es.
- split; [exact R|]. split; [exact W|]. split; [exact B|]. now apply trace_frame.
+ split; [unfold registers_preserved; cbn [fst]; apply map_values; exact Regs|]. split.
+ - exists 1024%nat,es. split; [exact R|]. split; [exact W|]. split; [exact B|]. now apply trace_frame.
+ - exists (output,0),1024%nat,es. split; [reflexivity|]. split; [exact R|].
+   pose proof (Execution.control_path_checked incoming) as Path.
+   rewrite P in Path. cbn [Execution.observe_path] in Path.
+   injection Path as _ _ Ops.
+   intros loc k K. change (writes_at loc es (origin loc output+0+k)).
+   rewrite Z.add_0_r. apply output_trace_covered; assumption.
 Qed.

@@ -139,7 +139,8 @@ Definition concrete_pow2_contract p size :=
  let initial := entry_from_bytes loc regs vectors flag before in
  exists final after,
    returns p abi_layout initial final /\ stack_restored initial final /\
-   registers_preserved initial final /\ byte_result p loc initial final before after /\
+   registers_preserved initial final /\ output_initialized p initial final /\
+   byte_result p loc initial final before after /\
    pow2_spec (buffer_words before (origin loc input_a))
              (buffer_words before (origin loc input_b))
              (buffer_words after (origin loc output)).
@@ -148,16 +149,17 @@ Theorem concrete_contract_from_logical p size :
  (forall initial a b, valid_pow2_entry initial a b -> exists final,
    returns p abi_layout initial final /\ stack_restored initial final /\
    registers_preserved initial final /\ memory_safe p size initial final /\
+   output_initialized p initial final /\
    pow2_spec a b (output_words initial final)) ->
  concrete_pow2_contract p size.
 Proof.
  intros Logical loc regs vectors flag before Entry initial.
  destruct (concrete_entry_representable _ _ _ _ flag _ Entry) as [E [W [A _]]].
- destruct (Logical _ _ _ E) as [final [R [SP [Regs [Mem Spec]]]]].
+ destruct (Logical _ _ _ E) as [final [R [SP [Regs [Mem [Init Spec]]]]]].
  destruct (memory_safe_bytes _ _ _ _ _ _ (entry_placement _ _ _ _ _ Entry)
              W (entry_bytes _ _ _ _ _ Entry) A R Mem) as [after Result].
  exists final,after. split; [exact R|]. split; [exact SP|]. split; [exact Regs|].
- split; [exact Result|].
+ split; [exact Init|]. split; [exact Result|].
  assert (Out : forall k, (k<80)%nat -> buffer_words after (origin loc output) k = output_words initial final k).
  { apply output_bytes. exact (proj1 (proj2 (proj2 Result))). }
  intros Bound side j J. destruct (Spec Bound side j J) as [Bounds Value].

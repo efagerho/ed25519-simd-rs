@@ -20,7 +20,12 @@ of the linked symbol. [Read the statement in Audit.v](coq/Audit.v)
    with RBX, RBP and R12–R15 equal to their entry values and RSP advanced
    by eight bytes. The result is read at the output pointer supplied in RDI.
    [Entry, layout, and output definitions](coq/Pow2ABI.v) · [Execution and return](../machine/Blocks.v)
-4. **Writes and saved addresses.** Let `S` be entry RSP. Every vector store
+4. **Output initialization.** Every one of the 640 bytes at the entry RDI
+   pointer is written before return, regardless of the input limb bounds or
+   previous output contents. This definite-write guarantee justifies the
+   Rust caller's `assume_init()` independently of the conditional field result.
+   [Initialization contract](coq/Pow2Memory.v) · [Trace coverage proof](coq/FrameProof.v)
+5. **Writes and saved addresses.** Let `S` be entry RSP. Every vector store
    fits entirely in the 640-byte output or the stack scratch area
    `[S−1928, S−8)`. An internal call writes its eight-byte return address
    at `S−1936` and can reuse that slot only after the matching return.
@@ -28,7 +33,7 @@ of the linked symbol. [Read the statement in Audit.v](coq/Audit.v)
    vector stores. The caller's eight bytes at `S` stay intact throughout.
    These guarantees hold independently of the arithmetic limb bound.
    [Memory and register contract](coq/Pow2Memory.v) · [Proof](coq/FrameProof.v)
-5. **Concrete bytes and word bounds.** A `concrete_entry` supplies one byte
+6. **Concrete bytes and word bounds.** A `concrete_entry` supplies one byte
    array, unsigned register values, the ABI pointers and the caller's saved
    return address. `entry_from_bytes` constructs the logical memory views;
    their initial agreement is proved. Every integer register value and vector
