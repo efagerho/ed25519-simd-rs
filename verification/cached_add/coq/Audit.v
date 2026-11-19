@@ -1,3 +1,4 @@
+From Machine Require Import LayoutProofs.
 From Coq Require Import List ZArith.
 From Machine Require Import Blocks.
 Require Import Program CachedAddABI CachedAddMemory CachedAddBytes CachedAddSpec ReadFootprint.
@@ -6,6 +7,7 @@ Require Import Program CachedAddABI CachedAddMemory CachedAddBytes CachedAddSpec
 Definition cached_add_contract(symbol_bytes:list Z) : Prop :=
  (* Every modeled instruction encodes exactly the linked symbol's bytes. *)
  image add_cached_program=symbol_bytes /\ valid_program add_cached_program=true /\
+ program_layout add_cached_program /\
  (forall full affine initial pad,valid_cached_add_entry initial pad full affine ->exists final,
   returns add_cached_program(abi_layout affine)initial final /\
   stack_restored initial final /\ registers_preserved initial final /\

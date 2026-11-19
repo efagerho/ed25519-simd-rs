@@ -1,5 +1,5 @@
 From Coq Require Import ZArith List.
-From Machine Require Import Blocks.
+From Machine Require Import Blocks LayoutProofs.
 Require Import Program Pow2ABI Pow2Memory Pow2Bytes FieldSpec.
 Require Audit Execution FrameProof ObjectBytes.
 
@@ -26,7 +26,8 @@ Proof.
   - vm_compute. reflexivity.
   - split.
     + exact Execution.block_layout_checked.
-    + split; [apply logical_execution|].
+    + split; [apply valid_program_sound;exact Execution.block_layout_checked|].
+      split; [apply logical_execution|].
       apply concrete_contract_from_logical, logical_execution.
 Qed.
 

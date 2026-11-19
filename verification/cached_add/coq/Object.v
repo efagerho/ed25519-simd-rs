@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith.
-From Machine Require Import Blocks.
+From Machine Require Import Blocks LayoutProofs.
 Require Import Program CachedAddABI CachedAddMemory CachedAddBytes CachedAddSpec.
 Require Audit Logical FrameProof ReadFootprint ObjectBytes Control.
 Definition object_bytes := ObjectBytes.symbol_bytes.
@@ -16,7 +16,8 @@ Proof.
 Qed.
 Theorem assembled_cached_add_correct : Audit.cached_add_contract object_bytes.
 Proof.
- split;[vm_compute;reflexivity|];split;[exact Control.block_layout_checked|];split.
+ split;[vm_compute;reflexivity|];split;[exact Control.block_layout_checked|];
+ split;[apply valid_program_sound;exact Control.block_layout_checked|];split.
  - intros full affine initial pad Entry.
    destruct(logical_execution(Z.of_nat(length object_bytes)) full affine _ _ Entry)as[final[R[SP[Regs[Mem[Init Spec]]]]]].
    exists final;split;[exact R|];split;[exact SP|];split;[exact Regs|];split;[exact Mem|];split;[exact Init|];split;
