@@ -9,7 +9,8 @@ instruction semantics.
 | --- | --- |
 | [Expressions.v](Expressions.v) | Integer expressions with exact meanings for quotient and remainder. |
 | [Polynomial.v](Polynomial.v) | Normalization preserves meaning; checked coefficient identities imply exact equality or congruence for an explicit nonzero modulus. |
-| [Interval.v](Interval.v) | Signed bounds and symbolic values are sound; removing a remainder requires both interval endpoints in range. Refinement hints require proofs. |
+| [Ranges.v](Ranges.v) | Numeric bounds and their expression evaluator, with no exact-expression claim. Bound operations and positive-divisor checks are shared. |
+| [Interval.v](Interval.v) | Symbolic expressions paired with numeric bounds. Erasing the expression agrees with the bounds evaluator; remainder removal requires both endpoints in range. Refinement hints require proofs. |
 | [Symbolic.v](Symbolic.v) | Instruction expressions agree with the machine under explicit operand conditions. AND has a caller-selected mask width; IFMA stays 52-bit and wrapping arithmetic stays 64-bit. |
 
 Register-expression translation returns `None` for memory instructions.
@@ -21,8 +22,10 @@ The field wrapper in `pow2/coq/Polynomial.v` specializes congruence to
 `2^255-19`. Scalar reduction imports the general checker directly. The
 routine symbolic interpreters retain their distinct load, mask-register,
 and refinement policies, using the shared instruction-soundness theorem.
-The cached-add bounds-only interpreter uses `Interval.abstract_bounds`
-without retaining symbolic expressions.
+The cached-add bounds-only interpreter stores `Ranges.bounds` and uses
+`Ranges.range_eval_sound`. It does not construct or discard dummy expressions.
+`Interval.abstract_enclosure` proves that the symbolic evaluator produces
+exactly the same bounds as the numeric evaluator.
 
 Build and check these modules through any routine's certificate driver.
 The driver compiles `machine/` first and provides both namespace mappings;
