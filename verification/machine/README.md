@@ -171,9 +171,18 @@ python3 -B tests/run.py --backend all --random 1000 --seed 42 --report campaign-
 
 `--random N` adds N seeded cases, cycling through the modeled mnemonics.
 `--cases FILE` replaces the default corpus with a JSONL file and can be
-repeated. Reports record case counts by mnemonic, each case's ID, operands
-and bytes, the backend, seed, CPU and microcode, and Coq version. They include
-SHA-256 digests of the corpus and Coq source, plus the XED library when used.
+repeated. Successful reports retain every case's ID, operands, instruction
+bytes, all 32 initial ZMM registers, memory input and optional expected result.
+Defaults are expanded into explicit inputs, so the report can be replayed
+without the original corpus or generator. Reports also retain the inputs
+and bytes of any block probes that ran.
+
+Reports distinguish `campaign_seeds` from `export_seeds`, using the provenance
+recorded in each case. `--seed` affects only newly generated `--random` cases;
+it does not describe imported inputs. Unrecorded seeds are left unknown.
+Metadata includes case counts by mnemonic, the backend, CPU and microcode,
+Coq, Python and C compiler versions, and SHA-256 digests of the complete
+retained corpus, Coq sources and test harness, plus the XED library when used.
 
 ## Case format and replay
 
@@ -187,6 +196,8 @@ destination, GPR base and signed byte displacement.
 | `memory` | Required for a load. Supplies eight unsigned qwords at the effective address. |
 | `expected` | Optional destination vector. Each checked-in case has one verified on an AMD EPYC 9555P. |
 | `bytes` | Optional complete instruction encoding in hexadecimal. |
+| `campaign_seed` | Optional seed used by the conformance runner to generate this case. |
+| `export_seed` | Optional seed used by the release proof exporter to generate this case. |
 
 Case readers must preserve all 64 bits of each JSON integer. A mismatch exits
 nonzero and writes `machine-failure.json`, or the path supplied to `--failure`.
@@ -196,12 +207,17 @@ its bytes, the counts or seeds, and both observations. A `mixed` observation row
 seed, RCX, ZF, 256 register qwords in register and lane order, and the 24 memory qwords.
 A `prologue` row contains the seed, RAX, RCX, the R8 frame offset, the 256
 register qwords, 248 stack qwords and 32 qwords for each of the output and two inputs.
-Replay uses the
-recorded backend by default. A repeated mismatch writes a sibling
+Replay accepts both failure records and complete successful reports
+(`schema_version: 2`). It checks the retained corpus digest before running
+a successful report, and reruns any recorded native block probes. Older
+successful reports lack the inputs needed for replay and are rejected;
+legacy failure records remain supported. Replay uses the recorded backend
+by default. A repeated mismatch writes a sibling
 `.replay.json` file unless `--failure` specifies another path.
 
 ```sh
 python3 -B tests/run.py --replay machine-failure.json --failure replay-failure.json
+python3 -B tests/run.py --replay campaign-report.json --report replay-report.json
 ```
 
 ## Build independently

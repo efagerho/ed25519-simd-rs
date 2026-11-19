@@ -2,6 +2,7 @@
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 
 HERE = Path(__file__).resolve().parent
 PROOF_MODULES = ("FieldSpec", "Polynomial", "Pow2Caller", "Lane", "Chain", "Buffers",
@@ -40,6 +41,13 @@ Definition symbol_bytes : list Z := concat [\n""" + ";\n".join(chunks) + "].\n"
     subprocess.run(["coqc", *LOAD_PATH, "ObjectBytes.v"], cwd=work, check=True)
     shutil.copyfile(HERE / "coq/Object.v", work / "Object.v")
     assumptions = subprocess.check_output(["coqc", *LOAD_PATH, "Object.v"], cwd=work, text=True)
+    (work / "assumptions.txt").write_text(assumptions)
     if assumptions.strip() != "Closed under the global context":
         raise ValueError(f"unexpected proof assumptions: {assumptions}")
-    subprocess.run(["coqchk", *LOAD_PATH, "-silent", "Object"], cwd=work, check=True)
+    command = ["coqchk", *LOAD_PATH, "-silent", "Object"]
+    with (work / "coqchk.log").open("w") as log:
+        result = subprocess.run(command, cwd=work, stdout=log, stderr=subprocess.STDOUT)
+    if result.returncode:
+        sys.stderr.write((work / "coqchk.log").read_text())
+        result.check_returncode()
+    return {"assumptions": assumptions.strip(), "coqchk": {"command": command, "exit_code": 0}}

@@ -48,6 +48,9 @@ def validate(case):
         raise ValueError("expected result must contain eight qwords")
     if "bytes" in case and (not isinstance(case["bytes"], str) or not 1 <= len(bytes.fromhex(case["bytes"])) <= 15):
         raise ValueError("expected 1 to 15 instruction bytes")
+    for field in ("campaign_seed", "export_seed"):
+        if field in case and type(case[field]) is not int:
+            raise ValueError(f"{field} must be an integer")
 
 
 def registers(case):
@@ -70,4 +73,4 @@ def campaign(seed, count):
     for i in range(count):
         op = names[i % len(names)]
         args = [rng.randrange(*BOUNDS[k]) for k in OPS[op][1]]
-        yield random_state(f"random/{seed}/{i}", [op, *args], rng)
+        yield {**random_state(f"random/{seed}/{i}", [op, *args], rng), "campaign_seed": seed}

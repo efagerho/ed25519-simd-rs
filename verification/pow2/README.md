@@ -72,6 +72,30 @@ Coq proves that encoding the generated program produces those exact bytes,
 including alignment padding. The checker rejects axioms, runs `coqchk`, and
 prints the verified symbol's SHA-256. [Rust build](review.py) · [ELF byte extraction](coq_proof.py) · [Certificate](coq/Object.v)
 
+The output directory retains every generated and handwritten Coq source,
+the assembly and checker sources, the raw symbol bytes (`symbol.bin`),
+the assumption-check output (`assumptions.txt`) and `coqchk.log`.
+`manifest.json` identifies the public theorem, ELF and symbol hashes,
+tool versions and successful proof checks, and hashes each retained source
+and evidence file. If `--cases` is supplied, the directory also retains
+an exact copy as `conformance.jsonl`, with its export seed and case count
+recorded in the manifest. [Evidence writer](evidence.py)
+
+The retained `_CoqProject` lists all sources needed to rebuild the proof
+without the repository or assembler. In `pow2-audit`, run:
+
+```bash
+set -e
+for proof_source in $(coqdep -sort -f _CoqProject); do
+  coqc -Q machine Machine "$proof_source"
+done
+coqchk -Q machine Machine -silent Object
+```
+
+Compiling `Object.v` must print `Closed under the global context` for
+`assembled_symbol_correct`. The saved manifest and logs record the original
+check; rebuilding allows the auditor to repeat it.
+
 To inspect the instructions, open `pow2-audit/Program.v` next to
 `pow2-audit/pow2.expanded.S`. Both listings use symbol-relative offsets.
 The assembly listing includes the instruction bytes, and each mnemonic in
@@ -104,15 +128,21 @@ CI also runs an independent Z3 check of the linked disassembly.
 
 Add `--cases` to the release proof command to export one test per square and
 multiply instruction, including its symbol-relative offset, actual linked
-bytes, symbol SHA-256, and seeded initial state. Run the exported corpus with
-the shared vector conformance runner. The export also checks that every
+bytes, symbol SHA-256, export seed and complete initial state. Run the exported
+corpus with the shared vector conformance runner. The export also checks that every
 scalar and control-flow instruction form in the linked program occurs in
 the machine probes. The first runner invocation below executes those probes
 and the fixed corpus. The second executes each exact linked kernel row.
 Both require an AVX-512F/DQ/IFMA host and an XED kit. [Coverage check](coq/ExportCases.v) · [Backend setup](../machine/README.md#run-the-conformance-suite) · [Case format and replay](../machine/README.md#case-format-and-replay)
 
 ```bash
-python3 -B verification/pow2/coq_proof.py "$elf" --cases pow2-rows.jsonl --seed 42
-python3 -B verification/machine/tests/run.py --backend all
-python3 -B verification/machine/tests/run.py --cases pow2-rows.jsonl --backend all
+python3 -B verification/pow2/coq_proof.py "$elf" --output pow2-coverage-audit --cases pow2-rows.jsonl --seed 42
+python3 -B verification/machine/tests/run.py --backend all --report fixed-report.json
+python3 -B verification/machine/tests/run.py --cases pow2-rows.jsonl --backend all --report pow2-report.json
+python3 -B verification/machine/tests/run.py --replay pow2-report.json --report replay-report.json
 ```
+
+CI retains both conformance reports, the exported corpus and the release
+audit directory as one artifact. The reports embed their complete test inputs;
+the release manifest binds the exported corpus to the exact proof sources and
+linked symbol used by the check.

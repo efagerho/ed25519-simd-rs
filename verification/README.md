@@ -26,3 +26,6 @@ Install the following tools on the host that checks the proof or audits a linked
 
 To verify the bytes in an already linked executable from either build, follow
 the [release audit instructions](pow2/README.md#check-the-release-executable).
+
+`python3 -B verification/test_evidence.py` checks report replay, seed provenance
+and audit manifest integrity without requiring Coq, XED or AVX-512 hardware.
