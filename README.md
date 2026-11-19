@@ -59,12 +59,13 @@ standard-library code before any `ed25519-simd` API is called. Running the
 binary on a host without the required CPU and OS support may therefore
 terminate with an illegal-instruction fault (`SIGILL`) at any point.
 
-On x86-64 Linux, the opt-in `asm-double4` feature uses assembly for four
-in-place point doublings in the verification ladder. It retains the Rust path
-when disabled and can be combined with `asm-pow2`. `verify-asm-double4` checks
-the Coq proof at build time and embeds the certified bytes. The proof covers
-the doubling formulas, limb bounds, memory accesses and SysV register
-preservation. See the [doubling contract and release audit](verification/double4/README.md).
+On x86-64 Linux, the opt-in `asm` feature enables all assembly backends:
+paired field exponentiation, four in-place point doublings, cached point
+addition, scalar reduction, and radix-256 ladder steps. Without it, these
+operations use Rust. The per-routine `verify-asm-*` features enable `asm`,
+check the selected Coq proofs at build time, and embed those routines' certified
+bytes. The ladder-step wrapper is not yet formally verified. See the
+[verification contracts and release audits](verification/README.md).
 
 ## Scope
 

@@ -188,29 +188,19 @@ pub(super) fn mul_s_base_minus_k_public<const NEED_T: bool>(
     add_base_pair_digit(&mut acc, base_table, s_digits, 31);
     subtract_public_key_digit_before_double(&mut acc, public_key_tables, k_digits, 62);
 
-    // These public-key additions feed doublings, which do not use `T`.
-    for pair in (1..31).rev() {
-        acc.double_four_times_assign();
-        subtract_public_key_digit_before_double(
-            &mut acc,
-            public_key_tables,
-            k_digits,
-            pair * 2 + 1,
-        );
-
-        acc.double_four_times_assign();
-        add_base_pair_digit(&mut acc, base_table, s_digits, pair);
-        subtract_public_key_digit_before_double(&mut acc, public_key_tables, k_digits, pair * 2);
-    }
-
-    acc.double_four_times_assign();
-    subtract_public_key_digit_before_double(&mut acc, public_key_tables, k_digits, 1);
-    acc.double_four_times_assign();
-    add_base_pair_digit(&mut acc, base_table, s_digits, 0);
-    if NEED_T {
-        subtract_public_key_digit(&mut acc, public_key_tables, k_digits, 0);
-    } else {
-        subtract_public_key_digit_before_double(&mut acc, public_key_tables, k_digits, 0);
+    // Each radix-256 step consumes two public-key digits and one base pair.
+    // Only the final ZIP-215 result needs T; other results feed a doubling.
+    for pair in (0..31).rev() {
+        let odd = core::array::from_fn(|lane| {
+            public_key_tables[lane].select_signed_cached_ref(-k_digits[lane][pair * 2 + 1])
+        });
+        let base = core::array::from_fn(|lane| {
+            select_signed_affine_cached_ref(base_table, base_pair_digit(&s_digits[lane], pair))
+        });
+        let even = core::array::from_fn(|lane| {
+            public_key_tables[lane].select_signed_cached_ref(-k_digits[lane][pair * 2])
+        });
+        acc.ladder_step_assign(&odd, &base, &even, NEED_T && pair == 0);
     }
     acc
 }
@@ -226,19 +216,6 @@ fn add_base_pair_digit(
         select_signed_affine_cached_ref(base_table, base_pair_digit(&s_digits[lane], pair))
     });
     acc.add_affine_cached_refs_assign(&selected);
-}
-
-#[inline]
-fn subtract_public_key_digit(
-    acc: &mut WidePoint,
-    public_key_tables: &[&PointTable; LANES],
-    k_digits: &[Radix16; LANES],
-    index: usize,
-) {
-    let selected: [_; LANES] = core::array::from_fn(|lane| {
-        public_key_tables[lane].select_signed_cached_ref(-k_digits[lane][index])
-    });
-    acc.add_cached_refs_assign(&selected, true);
 }
 
 #[inline]

@@ -45,15 +45,15 @@ jobs:
       - name: Compile and lint all assembly backends
         run: >-
           cargo clippy --workspace --all-targets --locked
-          --features asm-pow2,asm-double4,asm-cached-add,asm-scalar
+          --features asm
           --target x86_64-unknown-linux-gnu -- -D warnings
 
       - name: Test all assembly backends when AVX-512 is available
         run: |
           if grep -qw avx512ifma /proc/cpuinfo && grep -qw avx512dq /proc/cpuinfo && grep -qw avx512bw /proc/cpuinfo && grep -qw avx512f /proc/cpuinfo; then
-            cargo test --locked --release --features asm-pow2,asm-double4,asm-cached-add,asm-scalar --target x86_64-unknown-linux-gnu
+            cargo test --locked --release --features asm --target x86_64-unknown-linux-gnu
           else
-            cargo test --locked --release --features asm-pow2,asm-double4,asm-cached-add,asm-scalar --no-run --target x86_64-unknown-linux-gnu
+            cargo test --locked --release --features asm --no-run --target x86_64-unknown-linux-gnu
           fi
 
       # Mirrors docs.rs: no AVX-512 flags, so this also pins the `not(doc)`
@@ -66,7 +66,7 @@ jobs:
 
       - name: Build all assembly backends
         run: |
-          cargo build --locked --release --features asm-pow2,asm-double4,asm-cached-add,asm-scalar --bench cold_profile_zip215 \
+          cargo build --locked --release --features asm --bench cold_profile_zip215 \
             --target x86_64-unknown-linux-gnu --message-format=json > "$RUNNER_TEMP/pow2-build.json"
 
       - name: Check the build-time proof and the linked assembly-only release binary

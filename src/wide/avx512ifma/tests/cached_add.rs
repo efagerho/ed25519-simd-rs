@@ -139,11 +139,7 @@ fn cached_add_matches_rust_for_per_lane_and_aliased_selections() {
     }
 }
 
-#[cfg(all(
-    feature = "asm-cached-add",
-    target_os = "linux",
-    target_pointer_width = "64"
-))]
+#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
 mod native {
     use super::*;
     use core::ffi::{c_int, c_void};
@@ -187,7 +183,7 @@ mod native {
         (input, fields)
     }
 
-    /// Run pinned to one core in release mode with asm-pow2 enabled.
+    /// Run pinned to one core in release mode with asm enabled.
     /// ED25519_CACHED_ADD_MODE: projective, projective-no-t, or affine.
     /// ED25519_CACHED_ADD_PATH: selected (includes staging) or staged.
     /// ED25519_CACHED_ADD_ITERS controls the sampling duration.
@@ -196,7 +192,7 @@ mod native {
     #[allow(clippy::assertions_on_constants)]
     fn profile_cached_add() {
         use std::{hint::black_box, time::Instant};
-        assert!(cfg!(feature = "asm-pow2"), "benchmarks require asm-pow2");
+        assert!(cfg!(feature = "asm"), "benchmarks require asm");
         assert!(!cfg!(debug_assertions), "benchmark in release mode");
         let mode = std::env::var("ED25519_CACHED_ADD_MODE").unwrap_or("projective".into());
         let (is_affine, compute_t) = match mode.as_str() {
@@ -250,7 +246,7 @@ mod native {
             }
             _ => panic!("unknown cached-add path: {path}"),
         };
-        eprintln!("{ns:.2} ns/cached-add ({mode}, {path}, {iterations} calls, asm-pow2 enabled)");
+        eprintln!("{ns:.2} ns/cached-add ({mode}, {path}, {iterations} calls, asm enabled)");
     }
 
     fn expected(

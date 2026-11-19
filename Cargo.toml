@@ -13,20 +13,14 @@ categories = ["cryptography", "hardware-support"]
 publish = ["crates-io"]
 exclude = ["/.github/", "/benches-compare/"]
 
-# Experimental SysV assembly for paired field exponentiation on x86-64 Linux.
 [features]
-asm-pow2 = []
-# Experimental SysV assembly for four in-place point doublings on x86-64 Linux.
-asm-double4 = []
-# Experimental SysV assembly for cached point addition on x86-64 Linux.
-asm-cached-add = []
-# Experimental SysV assembly for scalar reduction on x86-64 Linux.
-asm-scalar = []
-# Check the Coq proof at build time and embed the certified assembly bytes.
-verify-asm-pow2 = ["asm-pow2"]
-verify-asm-double4 = ["asm-double4"]
-verify-asm-cached-add = ["asm-cached-add"]
-verify-asm-scalar = ["asm-scalar"]
+# All SysV assembly backends on x86-64 Linux. The ladder step is not yet proved.
+asm = []
+# Enable assembly, check the named Coq proof, and embed that routine's certified bytes.
+verify-asm-pow2 = ["asm"]
+verify-asm-double4 = ["asm"]
+verify-asm-cached-add = ["asm"]
+verify-asm-scalar = ["asm"]
 
 [dependencies]
 

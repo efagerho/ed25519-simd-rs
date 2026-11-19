@@ -12,7 +12,7 @@ const LIMB_COUNT: usize = 5;
 #[cfg(any(
     test,
     not(all(
-        feature = "asm-scalar",
+        feature = "asm",
         target_os = "linux",
         target_arch = "x86_64",
         target_pointer_width = "64"
@@ -21,7 +21,7 @@ const LIMB_COUNT: usize = 5;
 mod rust;
 
 #[cfg(all(
-    feature = "asm-scalar",
+    feature = "asm",
     not(feature = "verify-asm-scalar"),
     target_os = "linux",
     target_arch = "x86_64",
@@ -41,7 +41,7 @@ core::arch::global_asm!(
 );
 
 #[cfg(all(
-    feature = "asm-scalar",
+    feature = "asm",
     target_os = "linux",
     target_arch = "x86_64",
     target_pointer_width = "64"
@@ -70,7 +70,7 @@ impl WideScalar52 {
     /// Reduces all 512 input bits to canonical radix-2^52 residues modulo L.
     fn from_wide_words(words: &[[u64; LANES]; WIDE_WORDS]) -> Self {
         #[cfg(all(
-            feature = "asm-scalar",
+            feature = "asm",
             target_os = "linux",
             target_arch = "x86_64",
             target_pointer_width = "64"
@@ -85,7 +85,7 @@ impl WideScalar52 {
             }
         }
         #[cfg(not(all(
-            feature = "asm-scalar",
+            feature = "asm",
             target_os = "linux",
             target_arch = "x86_64",
             target_pointer_width = "64"
@@ -180,7 +180,7 @@ impl WideScalar52 {
 #[cfg(any(
     test,
     not(all(
-        feature = "asm-scalar",
+        feature = "asm",
         target_os = "linux",
         target_arch = "x86_64",
         target_pointer_width = "64"

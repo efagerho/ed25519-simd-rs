@@ -16,7 +16,7 @@ pub(super) struct WideFe {
 }
 
 #[cfg(all(
-    feature = "asm-pow2",
+    feature = "asm",
     not(feature = "verify-asm-pow2"),
     target_os = "linux",
     target_pointer_width = "64"
@@ -34,7 +34,7 @@ core::arch::global_asm!(include_str!(concat!(env!("OUT_DIR"), "/pow2-checked.S")
 ///
 /// Alternating the squarings for two point decompressions fills
 /// the IFMA latency gap that a single dependent chain would leave idle.
-#[cfg(not(all(feature = "asm-pow2", target_os = "linux", target_pointer_width = "64")))]
+#[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
 #[derive(Clone, Copy)]
 pub(super) struct WideFePair(WideFe, WideFe);
 
@@ -377,11 +377,7 @@ impl WideFe {
     }
     #[cfg(any(
         test,
-        not(all(
-            feature = "asm-cached-add",
-            target_os = "linux",
-            target_pointer_width = "64"
-        ))
+        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
     ))]
     pub(super) fn multiply_loose(&self, rhs: &Self) -> Self {
         let (lo, hi) = self.multiply_accum(rhs);
@@ -545,7 +541,7 @@ impl WideFe {
     // Interleave two exponentiation chains to hide IFMA latency.
     #[cfg(any(
         test,
-        not(all(feature = "asm-pow2", target_os = "linux", target_pointer_width = "64"))
+        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
     ))]
     pub(super) fn square_repeat_x2<const N: usize>(a: &Self, b: &Self) -> (Self, Self) {
         let (mut x, mut y) = (*a, *b);
@@ -561,7 +557,7 @@ impl WideFe {
         (x, y)
     }
 
-    #[cfg(all(feature = "asm-pow2", target_os = "linux", target_pointer_width = "64"))]
+    #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
     pub(super) fn pow_p_minus_5_over_8_x2(a: &Self, b: &Self) -> (Self, Self) {
         unsafe extern "C" {
             fn ed25519_simd_pow2_ifma(out: *mut u8, a: *const u8, b: *const u8);
@@ -585,7 +581,7 @@ impl WideFe {
         }
     }
 
-    #[cfg(not(all(feature = "asm-pow2", target_os = "linux", target_pointer_width = "64")))]
+    #[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
     pub(super) fn pow_p_minus_5_over_8_x2(a: &Self, b: &Self) -> (Self, Self) {
         let pair = pow_p_minus_5_over_8_chain(WideFePair(*a, *b));
         (pair.0, pair.1)
@@ -766,7 +762,7 @@ impl PowChainValue for WideFe {
     }
 }
 
-#[cfg(not(all(feature = "asm-pow2", target_os = "linux", target_pointer_width = "64")))]
+#[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
 impl PowChainValue for WideFePair {
     #[inline(always)]
     fn chain_square(self) -> Self {

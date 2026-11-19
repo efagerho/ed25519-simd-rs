@@ -60,14 +60,15 @@ done
 coqchk -Q machine Machine -Q arithmetic ProofArithmetic -silent Object
 ```
 
-To embed only certified bytes during the build:
+To embed certified bytes for scalar reduction during the build:
 
 ```sh
 export RUSTFLAGS='-C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma'
-cargo build --release --features asm-pow2,verify-asm-scalar
+cargo build --release --features verify-asm-scalar
 ```
 
-`asm-scalar` selects the same assembly without running Coq during the build.
+`asm` selects this and all other assembly backends without running Coq during
+the build. `verify-asm-scalar` also enables `asm` and certifies scalar reduction.
 Release auditing checks the final linked artifact from either build.
 
 ## Proof structure

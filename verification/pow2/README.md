@@ -50,7 +50,7 @@ symbol. The read-only inputs may overlap if their bytes agree. Native use
 requires accessible buffers, a SysV-aligned stack with 1,936 bytes available
 below RSP, a valid caller return address, and AVX-512F/DQ/IFMA instruction
 behavior matching the model. The Rust caller supplies the limb bound. The
-certificate covers the optional `asm-pow2` backend.
+certificate covers the paired-exponentiation backend enabled by `asm`.
 [Instruction semantics and model assumptions](machine-semantics.md) · [Rust call boundary](../../src/wide/avx512ifma/field.rs)
 
 ## Check the release executable
@@ -63,15 +63,15 @@ elf=/path/to/unstripped-release-elf
 python3 -B verification/pow2/coq_proof.py "$elf" --output ./pow2-audit
 ```
 
-**The implementation lives in `pow2.S`.** The `asm-pow2` feature assembles it
-directly with Rust's built-in assembler. The optional `verify-asm-pow2`
-build and the release checker use LLVM MC to assemble the same file and
+**The implementation lives in `pow2.S`.** The `asm` feature assembles it
+alongside the other backends with Rust's built-in assembler. The optional
+`verify-asm-pow2` build and the release checker use LLVM MC to assemble the same file and
 generate `Program.v` from its expanded Intel mnemonics, grouped into basic
 blocks. Coq uses this program for both encoding and execution. It derives the
 sequence of squares, multiplies and saves by following the caller's branches.
 [Assembly source](../../src/wide/avx512ifma/pow2.S) · [Listing generator](generate_listing.py) · [Arithmetic trace](coq/Linked.v)
 
-The `verify-asm-pow2` build embeds the bytes that Coq checked. For a release
+The `verify-asm-pow2` build embeds the pow2 bytes that Coq checked. For a release
 audit, the checker extracts the linked symbol into `pow2-audit/ObjectBytes.v`.
 Coq proves that encoding the generated program produces those exact bytes,
 including alignment padding. The checker rejects axioms, runs `coqchk`, and

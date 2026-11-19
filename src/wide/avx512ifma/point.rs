@@ -32,7 +32,7 @@ const _: () = {
 };
 
 #[cfg(all(
-    feature = "asm-double4",
+    feature = "asm",
     not(feature = "verify-asm-double4"),
     target_os = "linux",
     target_pointer_width = "64"
@@ -46,11 +46,7 @@ core::arch::global_asm!(include_str!("double4.S"), options(raw));
 ))]
 core::arch::global_asm!(include_str!(concat!(env!("OUT_DIR"), "/double4-checked.S")));
 
-#[cfg(all(
-    feature = "asm-double4",
-    target_os = "linux",
-    target_pointer_width = "64"
-))]
+#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
 unsafe extern "C" {
     /// SysV: RDI points to one exclusive, initialized `WidePoint`.
     ///
@@ -64,7 +60,7 @@ unsafe extern "C" {
 }
 
 #[cfg(all(
-    feature = "asm-cached-add",
+    feature = "asm",
     not(feature = "verify-asm-cached-add"),
     target_os = "linux",
     target_pointer_width = "64"
@@ -82,11 +78,7 @@ core::arch::global_asm!(include_str!(concat!(
     "/cached-add-checked.S"
 )));
 
-#[cfg(all(
-    feature = "asm-cached-add",
-    target_os = "linux",
-    target_pointer_width = "64"
-))]
+#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
 unsafe extern "C" {
     /// In-place addition with staged (Y-X), (Y+X), 2dT, and optional 2Z.
     /// `affine` and `compute_t` are 0 or 1. Every input limb is < 2^52.
@@ -285,11 +277,7 @@ impl WidePoint {
     }
     #[inline(never)]
     fn add_selected_cached_refs_assign(&mut self, points: SelectedCachedRefs<'_>, compute_t: bool) {
-        #[cfg(all(
-            feature = "asm-cached-add",
-            target_os = "linux",
-            target_pointer_width = "64"
-        ))]
+        #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
         {
             #[cfg(debug_assertions)]
             for field in [&self.x, &self.y, &self.z, &self.t] {
@@ -314,19 +302,11 @@ impl WidePoint {
                 }
             }
         }
-        #[cfg(not(all(
-            feature = "asm-cached-add",
-            target_os = "linux",
-            target_pointer_width = "64"
-        )))]
+        #[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
         self.add_selected_cached_refs_assign_rust(points, compute_t);
     }
 
-    #[cfg(all(
-        feature = "asm-cached-add",
-        target_os = "linux",
-        target_pointer_width = "64"
-    ))]
+    #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
     #[inline(always)]
     fn add_staged_cached_assign(&mut self, fields: &[WideFe], compute_t: bool, affine: bool) {
         debug_assert_eq!(fields.len(), if affine { 3 } else { 4 });
@@ -349,11 +329,7 @@ impl WidePoint {
 
     #[cfg(any(
         test,
-        not(all(
-            feature = "asm-cached-add",
-            target_os = "linux",
-            target_pointer_width = "64"
-        ))
+        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
     ))]
     #[inline(always)]
     fn add_selected_cached_refs_assign_rust(
@@ -474,31 +450,19 @@ impl WidePoint {
     /// copy never happens; the last double writes straight into `self`.
     #[inline(never)]
     pub(super) fn double_four_times_assign(&mut self) {
-        #[cfg(all(
-            feature = "asm-double4",
-            target_os = "linux",
-            target_pointer_width = "64"
-        ))]
+        #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
         unsafe {
             // The ladder's cached-point recovery and strict products satisfy
             // the input bounds. `self` supplies exclusive access and layout.
             ed25519_simd_double4_ifma(core::ptr::from_mut(self).cast());
         }
-        #[cfg(not(all(
-            feature = "asm-double4",
-            target_os = "linux",
-            target_pointer_width = "64"
-        )))]
+        #[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
         self.double_four_times_assign_rust();
     }
 
     #[cfg(any(
         test,
-        not(all(
-            feature = "asm-double4",
-            target_os = "linux",
-            target_pointer_width = "64"
-        ))
+        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
     ))]
     #[inline(always)]
     pub(super) fn double_four_times_assign_rust(&mut self) {
@@ -512,11 +476,7 @@ impl WidePoint {
     /// returned `Self` assigned across a call boundary does not.
     #[cfg(any(
         test,
-        not(all(
-            feature = "asm-double4",
-            target_os = "linux",
-            target_pointer_width = "64"
-        ))
+        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
     ))]
     #[inline(always)]
     pub(super) fn double_into(&self, out: &mut Self) {
