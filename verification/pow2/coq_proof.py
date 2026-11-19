@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 
 from certify import LOAD_PATH, certify
+from evidence import write_evidence
 from elf import require, symbol_extent
 from generate_listing import generate
 
@@ -54,31 +55,44 @@ def export_cases(raw, work, dest, seed):
                      "registers": {str(reg): [rng.getrandbits(64) for _ in range(8)]
                                    for reg in range(32)},
                      "memory": [rng.getrandbits(64) for _ in range(8)],
-                     "bytes": raw[off:off+size].hex(), "symbol_sha256": symbol_hash})
+                     "bytes": raw[off:off+size].hex(), "symbol_sha256": symbol_hash,
+                     "export_seed": seed})
     dest.write_text("".join(json.dumps(row, separators=(",", ":")) + "\n" for row in rows))
     print(f"{caller_sites} scalar/control sites use {caller_forms} forms covered by the native probes.")
     print(f"Exported {len(rows)} linked kernel rows to {dest}")
+    return len(rows)
 
 
 def replay(binary, work, cases=None, seed=1):
     if cases and cases.resolve() == binary.resolve():
         raise ValueError("choose a case output distinct from the input ELF")
-    raw = symbol_bytes(binary, *symbol_extent(binary))
+    address, size = symbol_extent(binary)
+    raw = symbol_bytes(binary, address, size)
     assembled = generate(work)
     if raw != assembled:
         offset = next((i for i, (a, b) in enumerate(zip(raw, assembled)) if a != b),
                       min(len(raw), len(assembled)))
         raise ValueError(f"linked symbol differs from assembled pow2.S at +0x{offset:x}")
-    certify(raw, work)
+    checks = certify(raw, work)
+    corpus = None
     if cases:
-        export_cases(raw, work, cases, seed)
+        reserved = {work / name for name in ("manifest.json", "symbol.bin", "_CoqProject", "sources", "ExportCases.v")}
+        if ((work.resolve() in cases.resolve().parents and cases.exists()) or
+                cases.resolve() in {path.resolve() for path in reserved}):
+            raise ValueError("case output conflicts with an audit file")
+        count = export_cases(raw, work, cases, seed)
+        retained = work / "conformance.jsonl"
+        if cases.resolve() != retained.resolve():
+            shutil.copyfile(cases, retained)
+        corpus = {"path": retained.name, "count": count, "export_seed": seed}
+    write_evidence(binary, address, raw, work, checks, corpus)
     print(f"Coq kernel replay passed for ed25519_simd_pow2_ifma, SHA-256 {hashlib.sha256(raw).hexdigest()}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("elf", type=Path)
-    parser.add_argument("--output", type=Path, help="retain proof sources and compiled objects in a new directory")
+    parser.add_argument("--output", type=Path, help="retain proof sources, check logs, corpus and audit manifest in a new directory")
     parser.add_argument("--cases", type=Path, help="export the verified kernel rows as conformance JSONL")
     parser.add_argument("--seed", type=int, default=1, help="seed for exported register and memory inputs")
     args = parser.parse_args()

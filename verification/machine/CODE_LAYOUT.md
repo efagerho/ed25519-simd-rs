@@ -42,7 +42,7 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 
 | File | Contents |
 | --- | --- |
-| [tests/run.py](tests/run.py) | Command-line runner for Coq, Intel XED, and native comparisons. Selects cases and block probes, writes reports, and replays failure records. |
+| [tests/run.py](tests/run.py) | Command-line runner for Coq, Intel XED, and native comparisons. Selects cases and block probes, retains complete inputs in reports, and replays successful reports or failure records. |
 | [tests/case_data.py](tests/case_data.py) | Case schema, mnemonic operand forms, register initialization, and seeded random case generation. |
 | [tests/overflow.py](tests/overflow.py) | Generates arithmetic and IFMA boundary cases and all 256 immediate shift counts, with expected values computed in Python. |
 | [tests/Operands.v](tests/Operands.v) | Coq regression examples for load encodings, signed displacement rendering, and operand order. |

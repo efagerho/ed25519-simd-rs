@@ -29,6 +29,9 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Check verification report and audit evidence regressions
+        run: python3 -B verification/test_evidence.py
+
       - name: Compile all targets
         run: >-
           cargo check --workspace --all-targets --locked
@@ -59,7 +62,8 @@ jobs:
           cargo build --locked --release --features verify-asm-pow2 --lib --target x86_64-unknown-linux-gnu
           artifact=$(jq -r 'select(.target.name == "cold_profile_zip215" and .executable != null) | .executable' "$RUNNER_TEMP/pow2-build.json")
           /usr/bin/python3 verification/pow2/check.py "$artifact"
-          /usr/bin/python3 verification/pow2/coq_proof.py "$artifact" --cases "$RUNNER_TEMP/pow2-cases.jsonl"
+          /usr/bin/python3 verification/pow2/coq_proof.py "$artifact" \
+            --output "$RUNNER_TEMP/pow2-audit" --cases "$RUNNER_TEMP/pow2-cases.jsonl" --seed 42
 
       - name: Check the fixed machine corpus and linked kernel rows
         run: |
@@ -76,7 +80,7 @@ jobs:
           python3 -B verification/machine/tests/run.py --backend "$backend" --cases "$RUNNER_TEMP/pow2-cases.jsonl" \
             --report "$RUNNER_TEMP/pow2-report.json" --failure "$RUNNER_TEMP/machine-failure.json"
 
-      - name: Retain conformance reports and failure input
+      - name: Retain conformance reports, inputs, and release proof evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -84,4 +88,6 @@ jobs:
           path: |
             ${{ runner.temp }}/*-report.json
             ${{ runner.temp }}/machine-failure.json
+            ${{ runner.temp }}/pow2-cases.jsonl
+            ${{ runner.temp }}/pow2-audit/
           if-no-files-found: ignore
