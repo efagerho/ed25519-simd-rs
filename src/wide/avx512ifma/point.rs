@@ -63,6 +63,26 @@ unsafe extern "C" {
     fn ed25519_simd_double4_ifma(point: *mut u8);
 }
 
+#[cfg(all(
+    feature = "asm-cached-add",
+    target_os = "linux",
+    target_pointer_width = "64"
+))]
+core::arch::global_asm!(include_str!("add_cached.S"), options(raw));
+
+#[cfg(all(
+    feature = "asm-cached-add",
+    target_os = "linux",
+    target_pointer_width = "64"
+))]
+unsafe extern "C" {
+    /// In-place addition with staged (Y-X), (Y+X), 2dT, and optional 2Z.
+    /// `affine` and `compute_t` are 0 or 1. Every input limb is < 2^52.
+    /// Buffers are disjoint and 64-byte aligned. See add_cached.S for the
+    /// complete ABI and arithmetic contract; this symbol is not yet proved.
+    fn ed25519_simd_add_cached_ifma(point: *mut u8, cached: *const u8, compute_t: u64, affine: u64);
+}
+
 /// Per-lane cached points selected from either projective or affine tables.
 ///
 /// The affine variant omits cached `2Z`; mixed addition substitutes
@@ -235,8 +255,8 @@ impl WidePoint {
     }
     /// Add the per-lane cached points selected for one digit.
     ///
-    /// Transpose each cached field just before use; gathering all four needs
-    /// 20 live ZMM registers and spills.
+    /// The Rust path transposes each cached field just before use. The
+    /// assembly path stages the fields contiguously for its pointer ABI.
     #[inline(always)]
     pub(super) fn add_cached_refs_assign(
         &mut self,
@@ -253,6 +273,82 @@ impl WidePoint {
     }
     #[inline(never)]
     fn add_selected_cached_refs_assign(&mut self, points: SelectedCachedRefs<'_>, compute_t: bool) {
+        #[cfg(all(
+            feature = "asm-cached-add",
+            target_os = "linux",
+            target_pointer_width = "64"
+        ))]
+        {
+            #[cfg(debug_assertions)]
+            for field in [&self.x, &self.y, &self.z, &self.t] {
+                debug_assert!(super::field::limbs_are_ifma_operands(&field.limbs));
+            }
+            // Arrays of repr(C) WideFe values give the assembly consecutive
+            // 320-byte fields. The affine allocation has no fourth field.
+            // Explicit staging keeps table selection and transposition in Rust.
+            match points {
+                SelectedCachedRefs::Projective(_) => {
+                    let fields = [
+                        points.y_minus_x(),
+                        points.y_plus_x(),
+                        points.t2d(),
+                        points.projective_z2().unwrap(),
+                    ];
+                    self.add_staged_cached_assign(&fields, compute_t, false);
+                }
+                SelectedCachedRefs::Affine(_) => {
+                    let fields = [points.y_minus_x(), points.y_plus_x(), points.t2d()];
+                    self.add_staged_cached_assign(&fields, compute_t, true);
+                }
+            }
+        }
+        #[cfg(not(all(
+            feature = "asm-cached-add",
+            target_os = "linux",
+            target_pointer_width = "64"
+        )))]
+        self.add_selected_cached_refs_assign_rust(points, compute_t);
+    }
+
+    #[cfg(all(
+        feature = "asm-cached-add",
+        target_os = "linux",
+        target_pointer_width = "64"
+    ))]
+    #[inline(always)]
+    fn add_staged_cached_assign(&mut self, fields: &[WideFe], compute_t: bool, affine: bool) {
+        debug_assert_eq!(fields.len(), if affine { 3 } else { 4 });
+        #[cfg(debug_assertions)]
+        for field in fields {
+            debug_assert!(super::field::limbs_are_ifma_operands(&field.limbs));
+        }
+        // The arrays above provide initialized, disjoint input storage with
+        // the checked WideFe layout; self is exclusively borrowed. Point and
+        // cached-table producers guarantee the documented 52-bit limb bound.
+        unsafe {
+            ed25519_simd_add_cached_ifma(
+                core::ptr::from_mut(self).cast(),
+                fields.as_ptr().cast(),
+                u64::from(compute_t),
+                u64::from(affine),
+            );
+        }
+    }
+
+    #[cfg(any(
+        test,
+        not(all(
+            feature = "asm-cached-add",
+            target_os = "linux",
+            target_pointer_width = "64"
+        ))
+    ))]
+    #[inline(always)]
+    fn add_selected_cached_refs_assign_rust(
+        &mut self,
+        points: SelectedCachedRefs<'_>,
+        compute_t: bool,
+    ) {
         // Loose products feed additive ops; use loose-input subtracts for limb0
         // values up to ~2^60.
         let a = self.y.subtract(&self.x).multiply_loose(&points.y_minus_x());
@@ -275,6 +371,26 @@ impl WidePoint {
         };
         self.z = f.multiply(&g);
         self.y = g.multiply(&h);
+    }
+
+    #[cfg(test)]
+    pub(super) fn add_cached_refs_assign_rust(
+        &mut self,
+        points: &[&CachedPoint; LANES],
+        compute_t: bool,
+    ) {
+        self.add_selected_cached_refs_assign_rust(
+            SelectedCachedRefs::Projective(points),
+            compute_t,
+        );
+    }
+
+    #[cfg(test)]
+    pub(super) fn add_affine_cached_refs_assign_rust(
+        &mut self,
+        points: &[&AffineCachedPoint; LANES],
+    ) {
+        self.add_selected_cached_refs_assign_rust(SelectedCachedRefs::Affine(points), true);
     }
     #[cfg(test)]
     pub(super) fn subtract(&self, rhs: &Self) -> Self {

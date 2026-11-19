@@ -42,6 +42,20 @@ jobs:
           cargo clippy --workspace --all-targets --locked
           --target x86_64-unknown-linux-gnu -- -D warnings
 
+      - name: Compile and lint all assembly backends
+        run: >-
+          cargo clippy --workspace --all-targets --locked
+          --features asm-pow2,asm-double4,asm-cached-add
+          --target x86_64-unknown-linux-gnu -- -D warnings
+
+      - name: Test all assembly backends when AVX-512 is available
+        run: |
+          if grep -qw avx512ifma /proc/cpuinfo && grep -qw avx512dq /proc/cpuinfo && grep -qw avx512bw /proc/cpuinfo && grep -qw avx512f /proc/cpuinfo; then
+            cargo test --locked --release --features asm-pow2,asm-double4,asm-cached-add --target x86_64-unknown-linux-gnu
+          else
+            cargo test --locked --release --features asm-pow2,asm-double4,asm-cached-add --no-run --target x86_64-unknown-linux-gnu
+          fi
+
       # Mirrors docs.rs: no AVX-512 flags, so this also pins the `not(doc)`
       # escape from the crate's compile_error gate.
       - name: Build documentation

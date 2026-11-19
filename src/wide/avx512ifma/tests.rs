@@ -11,6 +11,7 @@ use crate::field::LIMB_COUNT;
 use crate::wide::PreparedChunk;
 use serde_json::Value;
 
+mod cached_add;
 mod double4;
 
 const VECTOR_JSON: &str = include_str!("../../../tests/vectors/avx512ifma.json");

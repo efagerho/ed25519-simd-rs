@@ -375,6 +375,14 @@ impl WideFe {
             (lo, hi)
         }
     }
+    #[cfg(any(
+        test,
+        not(all(
+            feature = "asm-cached-add",
+            target_os = "linux",
+            target_pointer_width = "64"
+        ))
+    ))]
     pub(super) fn multiply_loose(&self, rhs: &Self) -> Self {
         let (lo, hi) = self.multiply_accum(rhs);
         Self::reduce_ifma_loose(lo, hi)
@@ -784,7 +792,7 @@ impl PowChainValue for WideFePair {
 /// Debug-only: the callers below assert their operands rather than trusting a
 /// prose invariant.
 #[cfg(debug_assertions)]
-fn limbs_are_ifma_operands(limbs: &[__m512i; LIMB_COUNT]) -> bool {
+pub(super) fn limbs_are_ifma_operands(limbs: &[__m512i; LIMB_COUNT]) -> bool {
     limbs.iter().all(|&limb| {
         let mut lanes = [0u64; LANES];
         storeu(limb, &mut lanes);

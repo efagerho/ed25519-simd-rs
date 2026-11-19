@@ -18,6 +18,8 @@ exclude = ["/.github/", "/benches-compare/"]
 asm-pow2 = []
 # Experimental SysV assembly for four in-place point doublings on x86-64 Linux.
 asm-double4 = []
+# Experimental cached point addition; not yet formally verified.
+asm-cached-add = []
 # Check the Coq proof at build time and embed the certified assembly bytes.
 verify-asm-pow2 = ["asm-pow2"]
 verify-asm-double4 = ["asm-double4"]
