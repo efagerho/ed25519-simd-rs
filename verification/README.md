@@ -6,6 +6,12 @@ public contract binding its arithmetic, memory and ABI guarantees to the
 exact bytes of its linked symbol. These are proofs in the tested machine
 model; independent refinement to an x86 ISA specification remains open.
 
+The optional `asm-cached-add` backend implements cached point addition using
+Rust-staged projective or affine operands. Its ABI is documented in
+[`add_cached.S`](../src/wide/avx512ifma/add_cached.S). It is tested against Rust
+and independent integer fixtures but is not yet formally verified. Neither
+`verify-asm-pow2` nor `verify-asm-double4` certifies this new symbol.
+
 - `machine/` defines the x86-64 instruction model and tests its encodings and execution against Intel XED and native hardware. [Machine model and tests](machine/README.md)
 - `pow2/` states the routine’s contract, proves it in the machine model, and explains how to check the proof against a linked executable. [Proof and audit instructions](pow2/README.md)
 - `double4/` proves the four doubling formulas, including loose inputs, biased subtraction, in-place writes and the aligned stack frame. [Proof and audit instructions](double4/README.md)
