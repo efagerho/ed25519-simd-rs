@@ -18,7 +18,7 @@ deterministic boundary sweep. Each backend uses the same inputs. [Fixed cases](t
 | `native` | Adds execution on x86-64 Linux with AVX-512F, DQ and IFMA. The runner verifies that the assembled instruction matches Coq's bytes, executes it in a child pinned to the reported CPU, and compares all 32 ZMM registers. The Coq lemma `preserved` establishes that each register other than the destination keeps its input value. [Native runner](tests/native/backend.py) |
 | `all` | Runs all three checks. |
 
-- **Arithmetic.** Addition and multiplication cover operands around powers
+- **Arithmetic.** Addition, subtraction and multiplication cover operands around powers
   2²⁶, 2³², 2⁵¹, 2⁵² and 2⁶³, and the largest qwords. Exact results of
   2⁶⁴−1, 2⁶⁴ and 2⁶⁴+1 must produce 2⁶⁴−1, 0 and 1. [Multiplication boundary vector](tests/cases/arithmetic.jsonl)
 - **IFMA.** Both forms ignore operand bits above bit 51 and select the low or
@@ -32,7 +32,7 @@ deterministic boundary sweep. Each backend uses the same inputs. [Fixed cases](t
   loads from unaligned private storage, compressed 8-bit displacement limits
   and both signed 32-bit displacement extremes. [Move and load vectors](tests/cases/move.jsonl)
 
-The default native run also compares three programs written in Coq's Intel
+The default native run also compares four programs written in Coq's Intel
 notation with independently assembled `.S` files. It checks the entire
 linked byte sequence before executing each program on the pinned CPU.
 
@@ -41,6 +41,7 @@ linked byte sequence before executing each program on the pinned CPU.
 | `control` | A callee decrements ECX and the caller branches on its ZF. Eight inputs exercise both branch outcomes and 32-bit wraparound. The harness checks RAX, RCX, ZF and stack restoration. [Coq](tests/Control.v) · [Assembly](tests/native/control.S) |
 | `mixed` | Seven seeds drive one to three loop iterations across scalar and vector blocks. An unaligned load, wrapping addition, aliased IFMA and store feed the next iteration. A SIMD instruction separates `dec` from `jne`. The harness checks RCX, ZF, stack restoration, all 32 ZMM registers and the stored vector plus both adjacent cells. [Coq](tests/Mixed.v) · [Assembly](tests/native/mixed.S) |
 | `prologue` | Checks 32- and 64-bit immediates, broadcasts from RAX, stack adjustment in both directions, both `lea r8` encodings, vector loads and stores, and `vzeroupper`. Seven seeds exercise a private stack and three distinct unaligned buffers. The comparison covers RAX, RCX, R8 relative to the frame, restored RSP, all 32 ZMM registers, both inputs, output, stack scratch and guard cells. [Coq](tests/Prologue.v) · [Assembly](tests/native/prologue.S) |
+| `aligned` | Eight seeds cover all four SysV stack padding cases and saved RBP values through `2^64−1`. Checks `push`/`pop rbp`, register copies, `and rsp,-64`, scratch-relative `lea`, two nested calls, all ZMM registers, saved stack qwords, vector memory and guards. [Coq](tests/Aligned.v) · [Assembly](tests/native/aligned.S) |
 
 Consumers can check that the probes exercise every scalar and control-flow
 form in their program by proving `uncovered_caller_forms program = []`.
@@ -135,14 +136,22 @@ therefore turns byte agreement into exact logical loads. The converse
 round trip constructs a matching logical data view directly from any valid
 byte array. Word/vector stores and saved return words have corresponding
 read-back lemmas, and replay preserves byte bounds. [Byte decoding proofs](ByteMemory.v)
-The pow2 certificate uses these results to construct concrete entries and
-state its field result on the output bytes. [Concrete ABI proof](../pow2/coq/Pow2Bytes.v)
+Both certificates use these results to construct concrete entries and
+state their arithmetic results on output bytes. [Pow2 concrete ABI proof](../pow2/coq/Pow2Bytes.v) · [Double4 concrete ABI proof](../double4/coq/Double4Bytes.v)
+
+`aligned_region_and` proves that clearing the low six bits of a concrete
+address equals alignment of its relative offset when the region origin is
+64-byte aligned. Consumers of `AlignRsp64` must establish that placement
+condition. Double4 proves it for its stack frame, including all four SysV
+padding cases. `SavedWord` stack entries hold saved RBP qwords in the same
+memory as return addresses; they are never executable PCs. [Alignment](Alignment.v)
 
 The model tracks relocatable byte offsets. The supplied memory layout
 distinguishes read-only vectors, writable vectors and individual return
 qwords. Vector accesses must start at a 64-byte cell boundary relative to
-the region origin. Its physical base can be unaligned. The scalar subset
-models the zero flag written by `DEC`. Stack-pointer arithmetic makes ZF
+the region origin. Its physical base can be unaligned except for a region
+used by `AlignRsp64`. The scalar subset
+models the zero flag written by `DEC`. Stack-pointer arithmetic and alignment make ZF
 unknown, and executing `JNE` requires a known ZF. [State and permissions](MachineState.v) · [Intel instruction reference, Vol. 2](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html)
 
 ## Run the conformance suite
@@ -156,6 +165,7 @@ python3 -B tests/run.py --backend model
 python3 -B tests/run.py --backend native --case arithmetic/mul-wrap-boundary
 python3 -B tests/run.py --backend native --probe mixed
 python3 -B tests/run.py --backend native --probe prologue
+python3 -B tests/run.py --backend native --probe aligned
 ```
 
 For `xed` or `all`, set `XED_KIT` to a static Intel XED kit. To build one in a

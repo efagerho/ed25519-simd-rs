@@ -33,10 +33,18 @@ const _: () = {
 
 #[cfg(all(
     feature = "asm-double4",
+    not(feature = "verify-asm-double4"),
     target_os = "linux",
     target_pointer_width = "64"
 ))]
 core::arch::global_asm!(include_str!("double4.S"), options(raw));
+
+#[cfg(all(
+    feature = "verify-asm-double4",
+    target_os = "linux",
+    target_pointer_width = "64"
+))]
+core::arch::global_asm!(include_str!(concat!(env!("OUT_DIR"), "/double4-checked.S")));
 
 #[cfg(all(
     feature = "asm-double4",

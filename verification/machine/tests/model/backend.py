@@ -61,6 +61,7 @@ class Model:
             "control": ("Control", "probe_report", "counts", 4),
             "mixed": ("Mixed", "mixed_report", "seeds", 3 + 32*8 + 3*8),
             "prologue": ("Prologue", "prologue_report", "seeds", 4 + 32*8 + 31*8 + 3*4*8),
+            "aligned": ("Aligned", "aligned_report", "seeds", 8 + 32*8 + 20*8 + 8),
         }[name]
         values = defaults
         if inputs is not None:

@@ -33,8 +33,8 @@ def symbol_bytes(binary, pc, size):
     return raw
 
 
-def export_cases(raw, work, dest, seed):
-    source = Path(__file__).parent / "coq/ExportCases.v"
+def export_cases(raw, work, dest, seed, source=None, tag="pow2"):
+    source = source or Path(__file__).parent / "coq/ExportCases.v"
     shutil.copyfile(source, work / source.name)
     output = subprocess.check_output(["coqc", *LOAD_PATH, source.name], cwd=work, text=True)
     match = re.search(r'= "([^"]+)"', output)
@@ -43,15 +43,15 @@ def export_cases(raw, work, dest, seed):
     rng = random.Random(seed)
     rows = []
     counts, *kernel_rows = match[1].split("|")
-    tag, caller_sites, caller_forms = counts.split()
-    require(tag == "caller", "missing Coq caller coverage counts")
+    coverage_tag, caller_sites, caller_forms = counts.split()
+    require(coverage_tag == "caller", "missing Coq caller coverage counts")
     for row in kernel_rows:
         offset, length, mnemonic, *args = row.split()
         off, size = int(offset), int(length)
         operands = list(map(int, args))
         require(0 <= off < off + size <= len(raw), "kernel row outside linked symbol")
         # Preserve every architectural input, independently of operand aliasing.
-        rows.append({"id": f"pow2/+0x{off:04x}", "instruction": [mnemonic, *operands],
+        rows.append({"id": f"{tag}/+0x{off:04x}", "instruction": [mnemonic, *operands],
                      "registers": {str(reg): [rng.getrandbits(64) for _ in range(8)]
                                    for reg in range(32)},
                      "memory": [rng.getrandbits(64) for _ in range(8)],

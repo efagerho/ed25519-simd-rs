@@ -3,7 +3,7 @@ From Machine Require Import Instructions ProgramLayout.
 Import ListNotations.
 Open Scope Z_scope.
 
-Inductive ending := FallThrough | Return | CallTo (target:Z) | JneTo (target:Z).
+Inductive ending := FallThrough | Return | CallTo (target:Z) | JneTo (target:Z) | PushFrame | PopFrame.
 
 Inductive source_section :=
 | ScalarBlock (pc:Z) (ops:list operation) (last:ending)
@@ -13,7 +13,7 @@ Inductive source_section :=
 Definition assemble_block p pc ops last :=
   let next e := after p (Block pc ops e) in
   let e := match last with
-    | FallThrough => Next | Return => Ret
+    | FallThrough => Next | Return => Ret | PushFrame => PushRbp | PopFrame => PopRbp
     | CallTo target => CallRel32 (target - next (CallRel32 0))
     | JneTo target => JneRel8 (target - next (JneRel8 0))
     end in

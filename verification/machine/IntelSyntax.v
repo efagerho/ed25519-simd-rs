@@ -101,6 +101,12 @@ Notation "'lea' 'r8' , '[' 'rsp' '+' n ']'" := (LeaR8Rsp n%Z)
   (in custom intel_op at level 0, n constr at level 0).
 Notation "'lea' 'r8' , '[' 'rsp' '-' n ']'" := (LeaR8Rsp (-n)%Z)
   (in custom intel_op at level 0, n constr at level 0).
+Notation "'mov' 'rbp' , 'rsp'" := (MovReg 5 4) (in custom intel_op at level 0).
+Notation "'mov' 'rsi' , 'rsp'" := (MovReg 6 4) (in custom intel_op at level 0).
+Notation "'mov' 'rsp' , 'rbp'" := (MovReg 4 5) (in custom intel_op at level 0).
+Notation "'and' 'rsp' , '-' '64'" := AlignRsp64 (in custom intel_op at level 0).
+Notation "'lea' 'r8' , '[' 'rsi' '+' n ']'" := (LeaR8Rsi n%Z)
+  (in custom intel_op at level 0, n constr at level 0).
 Notation "'dec' 'ecx'" := DecEcx (in custom intel_op at level 0).
 Notation "'vmovdqu64' d , 'zmmword' 'ptr' a" := (LoadZmm d (fst a) (snd a))
   (in custom intel_op at level 0, d custom intel_zmm, a custom intel_memory).
@@ -117,6 +123,8 @@ Notation "'vmovdqu64' d , 'zmmword' 'ptr' a" := (d, Load (fst a) (snd a))
 Notation "'vpxorq' d , a , b" := (d, Xor a b)
   (in custom intel_vector at level 0, d custom intel_zmm, a custom intel_zmm, b custom intel_zmm).
 Notation "'vpaddq' d , a , b" := (d, Add a b)
+  (in custom intel_vector at level 0, d custom intel_zmm, a custom intel_zmm, b custom intel_zmm).
+Notation "'vpsubq' d , a , b" := (d, Sub a b)
   (in custom intel_vector at level 0, d custom intel_zmm, a custom intel_zmm, b custom intel_zmm).
 Notation "'vpmullq' d , a , b" := (d, Mul a b)
   (in custom intel_vector at level 0, d custom intel_zmm, a custom intel_zmm, b custom intel_zmm).
@@ -138,3 +146,6 @@ Notation "'ends[' e ']'" := e (e custom intel_exit at level 0, only parsing).
 Notation "'call' l" := (CallTo l) (in custom intel_exit at level 0, l custom intel_label).
 Notation "'jne' l" := (JneTo l) (in custom intel_exit at level 0, l custom intel_label).
 Notation "'ret'" := Return (in custom intel_exit at level 0).
+
+Notation "'push' 'rbp'" := PushFrame (in custom intel_exit at level 0).
+Notation "'pop' 'rbp'" := PopFrame (in custom intel_exit at level 0).

@@ -1,9 +1,9 @@
 // Four doublings, independently in each of eight lanes, modulo p = 2^255-19.
-// Experimental: this assembly is not yet formally verified.
-// The pow2 Coq theorem does not cover this symbol.
+// Coq contract: verification/double4/coq/Audit.v, double4_contract.
+// Use verify-asm-double4 to check the proof and embed the certified bytes.
 //
-// SysV AMD64: RDI points to an exclusive 1280-byte WidePoint. Fields X/Y/Z/T
-// start at 0/320/640/960, with five little-endian u64x8 limb vectors each.
+// SysV AMD64: RDI points to an exclusive, 64-byte-aligned 1280-byte WidePoint.
+// Fields X/Y/Z/T start at 0/320/640/960, with five u64x8 limb vectors each.
 // For X/Y/Z: limb0 < 2^60, limb1 + (limb0 >> 51) < 2^52, limbs2..4 < 2^52.
 // No curve-membership assumption. Incoming T is never read. Every output
 // limb0,2,3,4 < 2^51, limb1 < 2^52; all 1280 output bytes are written.
@@ -106,10 +106,12 @@ ed25519_simd_double4_ifma:
 .Ld4_prepare:
     d4_load rdi, 0, 0
     d4_load rdi, 320, 5
+.Ld4_add_reduce:
 .irp i,0,1,2,3,4
     d4_rrr vpaddq, %(10+\i), \i, %(5+\i)
 .endr
     d4_reduce 10
+.Ld4_added:
     d4_store rsi, 960, 10
     call .Ld4_square_pair
     d4_store rsi, 0, 0
@@ -125,6 +127,7 @@ ed25519_simd_double4_ifma:
     vpbroadcastq zmm30, rax
     mov rax, 0x3ffffffffffff800
     vpbroadcastq zmm31, rax
+.Ld4_subtract_reduce:
 .irp i,0,1,2,3,4
     vmovdqu64 zmm20, [rsi + 64*\i]
     vmovdqu64 zmm21, [rsi + 320 + 64*\i]
@@ -146,6 +149,7 @@ ed25519_simd_double4_ifma:
     d4_reduce 5
     d4_reduce 10
     d4_reduce 15
+.Ld4_subtracted:
     d4_store rsi, 0, 0
     d4_store rsi, 320, 10
     d4_store rsi, 640, 15

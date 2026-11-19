@@ -7,7 +7,7 @@ Open Scope Z_scope.
    name architectural registers. Load takes a GPR base and byte displacement. *)
 Inductive opcode :=
 | Copy (src : nat) | Load (base : nat) (disp : Z)
-| Xor (a b : nat) | Add (a b : nat) | Mul (a b : nat)
+| Xor (a b : nat) | Add (a b : nat) | Sub (a b : nat) | Mul (a b : nat)
 | Shl (a n : nat) | Shr (a n : nat) | And (a b : nat)
 | Madd (high : bool) (a b : nat).
 Definition instruction := (nat * opcode)%type.
@@ -19,7 +19,7 @@ Definition encodable (i : instruction) :=
   | Copy src => zmm src
   | Load base disp => Nat.ltb base 16 && (-2^31 <=? disp) && (disp <? 2^31)
   | Shl a n | Shr a n => zmm a && Nat.ltb n 256
-  | Xor a b | Add a b | Mul a b | And a b | Madd _ a b => zmm a && zmm b
+  | Xor a b | Add a b | Sub a b | Mul a b | And a b | Madd _ a b => zmm a && zmm b
   end.
 
 (* At a fixed qword lane, read [base + disp] through the supplied memory view. *)
@@ -29,6 +29,7 @@ Definition bits (load : nat -> Z -> Z) (r : nat -> Z) dst op :=
   | Load base disp => Move.copy (load base disp)
   | Xor a b => Logic.vpxorq (r a) (r b)
   | Add a b => Arithmetic.vpaddq (r a) (r b)
+  | Sub a b => Arithmetic.vpsubq (r a) (r b)
   | Mul a b => Arithmetic.vpmullq (r a) (r b)
   | Shl a n => Shift.vpsllq (r a) n
   | Shr a n => Shift.vpsrlq (r a) n
@@ -50,6 +51,7 @@ Definition encode (i : instruction) :=
   | Load base disp => Move.encode_load dst (Z.of_nat base) disp
   | Xor a b => Logic.encode_vpxorq dst a b
   | Add a b => Arithmetic.encode_vpaddq dst a b
+  | Sub a b => Arithmetic.encode_vpsubq dst a b
   | Mul a b => Arithmetic.encode_vpmullq dst a b
   | Shl a n => Shift.encode_vpsllq dst a n
   | Shr a n => Shift.encode_vpsrlq dst a n
@@ -75,6 +77,7 @@ Definition asm_of (i : instruction) :=
   | Load base disp => "vmovdqu64 " ++ zmm d ++ ", zmmword ptr " ++ address base disp
   | Xor a b => args3 "vpxorq" d a b
   | Add a b => args3 "vpaddq" d a b
+  | Sub a b => args3 "vpsubq" d a b
   | Mul a b => args3 "vpmullq" d a b
   | And a b => args3 "vpandq" d a b
   | Shl a n => "vpsllq " ++ zmm d ++ ", " ++ zmm a ++ ", " ++ decimal n

@@ -1,7 +1,7 @@
 From Coq Require Import List ZArith Bool.
 From Machine Require Import ProgramLayout.
 From Machine Require Blocks.
-From Machine Require tests.Control tests.Mixed tests.Prologue.
+From Machine Require tests.Control tests.Mixed tests.Prologue tests.Aligned.
 Import ListNotations.
 Open Scope Z_scope.
 
@@ -21,6 +21,9 @@ Definition scalar_form op :=
   | StoreZmm _ base d => StoreZmm 0 base (Z.sgn d)
   | VectorCode id => VectorCode id
   | ZeroUpper => ZeroUpper
+  | MovReg d s => MovReg d s
+  | AlignRsp64 => AlignRsp64
+  | LeaR8Rsi d => LeaR8Rsi (Z.sgn d)
   end.
 
 Definition op_forms p op : list form :=
@@ -30,7 +33,7 @@ Definition op_forms p op : list form :=
   end.
 Definition exit_forms e : list form :=
   let f := match e with
-    | Next => Next | Ret => Ret
+    | Next => Next | Ret => Ret | PushRbp => PushRbp | PopRbp => PopRbp
     | CallRel32 d => CallRel32 (Z.sgn d)
     | JneRel8 d => JneRel8 (Z.sgn d)
     end in
@@ -60,7 +63,8 @@ Proof. unfold form. repeat decide equality. Defined.
 Definition native_forms := Eval vm_compute in nodup form_eq_dec (
   flat_map (fun n => exercised 8 Control.branch_probe Control.probe_layout (Control.probe_entry n)) Control.counts ++
   flat_map (fun n => exercised 10 Mixed.mixed_probe Mixed.mixed_layout (Mixed.entry n)) Mixed.seeds ++
-  exercised 1 Prologue.prologue_probe Prologue.prologue_layout Prologue.entry).
+  exercised 1 Prologue.prologue_probe Prologue.prologue_layout Prologue.entry ++
+  flat_map (fun n => exercised 8 Aligned.aligned_probe Aligned.aligned_layout (Aligned.entry n)) Aligned.seeds).
 
 Definition uncovered_caller_forms p :=
   filter (fun f => if in_dec form_eq_dec f native_forms then false else true) (caller_forms p).

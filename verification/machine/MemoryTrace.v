@@ -10,12 +10,18 @@ Definition exit_events c next e last :=
  match e with
  | CallRel32 _ => match pointer_at c 4 (-8) with Some a => [Push a (At next)] | None => [] end
  | Ret => match pointer_at c 4 0 with Some a => [Pop a (rip last)] | None => [] end
+ | PushRbp => match pointer_at c 4 (-8), gpr c 5%nat with
+   | Some a, Int n => [Push a (SavedWord (stack_word n))] | _,_ => [] end
+ | PopRbp => match pointer_at c 4 0 with
+   | Some a => match return_memory c a with Some t => [Pop a t] | None => [] end
+   | None => [] end
  | _ => []
  end.
 
 Fixpoint record_path fuel p l c : option (control * list event) :=
  match rip c with
  | Caller => Some (c,[])
+ | SavedWord _ => None
  | At pc => match fuel with
    | O => None
    | S n =>
@@ -101,7 +107,7 @@ Inductive balanced : list (pointer * pc) -> list event -> Prop :=
     balanced ((a,t)::live) (Pop a t :: rest).
 
 Definition pc_eq (a b : pc) := match a,b with
- | Caller,Caller => true | At x, At y => x =? y | _,_ => false end.
+ | Caller,Caller => true | At x, At y | SavedWord x, SavedWord y => x =? y | _,_ => false end.
 Fixpoint check_stack (live : list (pointer * pc)) es :=
  match es with
  | [] => match live with [] => true | _ => false end
@@ -127,7 +133,7 @@ Proof.
    + destruct live as [|[b u] tail]; [discriminate|].
      repeat rewrite andb_true_iff in H. destruct H as [[A B] T].
      apply ptr_eq_true in A; subst. assert (t=u).
-     { destruct t,u; cbn in B; try discriminate; [apply Z.eqb_eq in B; congruence|reflexivity]. }
+     { destruct t,u; cbn in B; try discriminate; try reflexivity; apply Z.eqb_eq in B; congruence. }
      subst. constructor. now apply IH.
 Qed.
 

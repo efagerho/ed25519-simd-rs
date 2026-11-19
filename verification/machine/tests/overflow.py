@@ -44,6 +44,8 @@ def overflow_cases():
     yield from vectors("vpaddq", "carry", (1, 2),
                        ((a, target - a, target % WORD) for a in EDGES
                         for target in (WORD - 1, WORD, WORD + 1) if 0 <= target - a < WORD))
+    yield from vectors("vpsubq", "difference", (1, 2),
+                       ((a, b, (a - b) % WORD) for a, b in product(EDGES, repeat=2)))
     yield from vectors("vpmullq", "product", (1, 2),
                        ((a, b, (a * b) % WORD) for a, b in product(EDGES, repeat=2)))
     for mnemonic, high in (("vpmadd52luq", False), ("vpmadd52huq", True)):

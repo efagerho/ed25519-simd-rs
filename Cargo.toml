@@ -20,6 +20,7 @@ asm-pow2 = []
 asm-double4 = []
 # Check the Coq proof at build time and embed the certified assembly bytes.
 verify-asm-pow2 = ["asm-pow2"]
+verify-asm-double4 = ["asm-double4"]
 
 [dependencies]
 

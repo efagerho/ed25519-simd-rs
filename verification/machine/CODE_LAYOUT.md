@@ -8,7 +8,7 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 | --- | --- |
 | [X86.v](X86.v) | Shared 64-bit truncation, EVEX prefixes, ModR/M fields, register encodings, and little-endian 32-bit fields. |
 | [Move.v](Move.v) | Lane copy and encodings for register moves, loads, and stores, including SIB bytes and compressed displacements. |
-| [Arithmetic.v](Arithmetic.v) | Wrapping qword addition and multiplication for `vpaddq` and `vpmullq`, with their encoders. |
+| [Arithmetic.v](Arithmetic.v) | Wrapping qword addition, subtraction and multiplication for `vpaddq`, `vpsubq` and `vpmullq`, with their encoders. |
 | [Logic.v](Logic.v) | Lane operations and encodings for `vpxorq` and `vpandq`. |
 | [Shift.v](Shift.v) | Immediate left and logical right qword shifts and their encodings. |
 | [IFMA.v](IFMA.v) | Low and high 52-bit multiply-add operations, accumulator wraparound, and both encodings. |
@@ -36,6 +36,7 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 | [FlatMemory.v](FlatMemory.v) | Replays vector stores and saved PCs in one little-endian byte memory. Proves agreement with tracked logical cells and preservation of every byte outside the write footprint. |
 | [WordBounds.v](WordBounds.v) | Unsigned qword invariants for scalar integer values, vector registers and memory. Proves preservation by instructions, blocks, executions and recorded vector-effect prefixes. |
 | [ByteMemory.v](ByteMemory.v) | Little-endian byte decoding, exact word/vector read-write round trips, and construction of bounded logical data from bytes. Turns serialization agreement into exact reads and proves replay preserves byte bounds. |
+| [Alignment.v](Alignment.v) | Relates clearing six low address bits to relative pointer alignment at a 64-byte-aligned region origin. |
 | [proofs/README.md](proofs/README.md) | States the open obligation to decode the model's bytes with an independent x86 ISA specification and prove agreement on register and memory effects. |
 
 ## Conformance tests
@@ -50,6 +51,7 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 | [tests/Control.v](tests/Control.v) | Mnemonic call/return and conditional-branch probe, predicted scalar observations, and invalid control-flow and stack-access examples. |
 | [tests/Mixed.v](tests/Mixed.v) | Mnemonic loop combining vector arithmetic, load/store, and a scalar branch. Defines the initial state, memory permissions, and final observations. |
 | [tests/Prologue.v](tests/Prologue.v) | Stack and buffer probe for scalar moves, broadcasts, address calculations, vector loads and stores, and upper-lane clearing. |
+| [tests/Aligned.v](tests/Aligned.v) | Aligned-frame probe for saved RBP, register copies, all four SysV stack padding cases and two nested calls. |
 | [tests/CallerForms.v](tests/CallerForms.v) | Compares a program's scalar and control-flow forms with those exercised by the native probes. |
 | [tests/model/Oracle.v](tests/model/Oracle.v) | Computes one instruction's encoded bytes and destination lanes. Proves preservation of other registers and formats numeric results for the runner. |
 | [tests/model/backend.py](tests/model/backend.py) | Builds the Coq modules, evaluates batches of instruction cases and whole-program probes, and reads back their predictions. |
@@ -64,12 +66,14 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 | [tests/native/mixed.c](tests/native/mixed.c) | Seeds registers and an unaligned memory buffer, invokes the mixed wrapper, and prints the registers and three memory cells. |
 | [tests/native/prologue.S](tests/native/prologue.S) | Assembly counterpart of the stack and buffer probe. Switches to a private stack and snapshots registers before returning to C. |
 | [tests/native/prologue.c](tests/native/prologue.c) | Initializes the private stack, registers and three guarded buffers, and reports the observed qwords. |
+| [tests/native/aligned.S](tests/native/aligned.S) | Assembly counterpart of the aligned-frame probe and wrapper that captures registers and stack words. |
+| [tests/native/aligned.c](tests/native/aligned.c) | Initializes private stack alignments, checks guards and prints the aligned probe's observations. |
 
 ### Fixed input files
 
 | File | Cases |
 | --- | --- |
-| [tests/cases/arithmetic.jsonl](tests/cases/arithmetic.jsonl) | Qword addition overflow and multiplication truncation and wraparound. |
+| [tests/cases/arithmetic.jsonl](tests/cases/arithmetic.jsonl) | Qword addition overflow, subtraction underflow and aliasing, and multiplication truncation and wraparound. |
 | [tests/cases/ifma.jsonl](tests/cases/ifma.jsonl) | Accumulator wraparound, discarded upper operand bits, and an aliased accumulator. |
 | [tests/cases/logic.jsonl](tests/cases/logic.jsonl) | Self-XOR, XOR of distinct sources, and AND with an aliased destination. |
 | [tests/cases/move.jsonl](tests/cases/move.jsonl) | Register copies and loads across base registers and displacement boundaries. |

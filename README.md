@@ -61,8 +61,10 @@ terminate with an illegal-instruction fault (`SIGILL`) at any point.
 
 On x86-64 Linux, the opt-in `asm-double4` feature uses assembly for four
 in-place point doublings in the verification ladder. It retains the Rust path
-when disabled and can be combined with `asm-pow2`. Doubling assembly is tested
-against Rust and independent integer fixtures; it is not yet formally verified.
+when disabled and can be combined with `asm-pow2`. `verify-asm-double4` checks
+the Coq proof at build time and embeds the certified bytes. The proof covers
+the doubling formulas, limb bounds, memory accesses and SysV register
+preservation. See the [doubling contract and release audit](verification/double4/README.md).
 
 ## Scope
 
@@ -240,8 +242,8 @@ Message length 1:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 3.95 | 3.95 | 3.95 | 3.95 |
-| ed25519-simd Dalek null-cache | 3.88 | 3.88 | 3.88 | 3.88 |
+| ed25519-simd Zip215 null-cache | 3.56 | 3.56 | 3.56 | 3.56 |
+| ed25519-simd Dalek null-cache | 3.57 | 3.57 | 3.57 | 3.57 |
 | solana-ed25519 Zip215 batch[^batch-api] | 13.22 | 12.21 | 11.74 | 11.52 |
 | solana-ed25519 Dalek loop | 23.63 | 23.58 | 23.60 | 23.59 |
 | ed25519-dalek batch[^batch-api] | 14.30 | 13.21 | 12.68 | 12.44 |
@@ -255,8 +257,8 @@ Message length 1024:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 4.21 | 4.21 | 4.21 | 4.21 |
-| ed25519-simd Dalek null-cache | 4.15 | 4.16 | 4.16 | 4.16 |
+| ed25519-simd Zip215 null-cache | 3.84 | 3.84 | 3.84 | 3.84 |
+| ed25519-simd Dalek null-cache | 3.85 | 3.85 | 3.86 | 3.85 |
 | solana-ed25519 Zip215 batch[^batch-api] | 14.28 | 13.23 | 12.73 | 12.53 |
 | solana-ed25519 Dalek loop | 24.57 | 24.63 | 24.64 | 24.66 |
 | ed25519-dalek batch[^batch-api] | 15.33 | 14.26 | 13.67 | 13.40 |
@@ -270,8 +272,8 @@ Mixed message lengths:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 4.08 | 4.03 | 4.04 | 4.01 |
-| ed25519-simd Dalek null-cache | 4.01 | 3.97 | 3.97 | 3.95 |
+| ed25519-simd Zip215 null-cache | 3.70 | 3.65 | 3.66 | 3.63 |
+| ed25519-simd Dalek null-cache | 3.71 | 3.67 | 3.67 | 3.65 |
 | solana-ed25519 Zip215 batch[^batch-api] | 13.42 | 12.38 | 11.93 | 11.71 |
 | solana-ed25519 Dalek loop | 23.69 | 23.76 | 23.77 | 23.76 |
 | ed25519-dalek batch[^batch-api] | 14.39 | 13.40 | 12.84 | 12.60 |
@@ -309,10 +311,10 @@ set:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 3.94 | 3.94 | 3.94 | 3.94 |
-| ed25519-simd Zip215 hot-key cache (warm) | 3.69 | 3.53 | 3.53 | 3.53 |
-| ed25519-simd Dalek null-cache | 3.90 | 3.90 | 3.90 | 3.90 |
-| ed25519-simd Dalek hot-key cache (warm) | 3.68 | 3.49 | 3.39 | 3.34 |
+| ed25519-simd Zip215 null-cache | 3.56 | 3.56 | 3.56 | 3.56 |
+| ed25519-simd Zip215 hot-key cache (warm) | 3.47 | 3.25 | 3.25 | 3.25 |
+| ed25519-simd Dalek null-cache | 3.57 | 3.58 | 3.58 | 3.58 |
+| ed25519-simd Dalek hot-key cache (warm) | 3.47 | 3.28 | 3.18 | 3.13 |
 
 ## Compatibility Target
 

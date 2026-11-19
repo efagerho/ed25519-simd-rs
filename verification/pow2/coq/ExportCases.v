@@ -21,6 +21,7 @@ Definition fields (i : instruction) :=
   | Load b d => ["vmovdqu64"; decimal dst; decimal b; signed d]
   | Xor a b => args3 "vpxorq" a b
   | Add a b => args3 "vpaddq" a b
+  | Sub a b => args3 "vpsubq" a b
   | Mul a b => args3 "vpmullq" a b
   | And a b => args3 "vpandq" a b
   | Shl a n => args3 "vpsllq" a n
