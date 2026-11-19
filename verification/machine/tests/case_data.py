@@ -1,12 +1,14 @@
 """Portable case format for the unmasked EVEX.512 instruction subset."""
 import random
 
-# Keys are also the Intel mnemonic. Operands follow Intel syntax.
+# Register forms use Intel mnemonics; _mem distinguishes memory-source IFMA.
+# Operands follow Intel syntax.
 OPS = {
     "vmovdqa64": ("Copy", "rr"), "vmovdqu64": ("Load", "rbd"),
     "vpxorq": ("Xor", "rrr"), "vpaddq": ("Add", "rrr"),
     "vpsubq": ("Sub", "rrr"), "vpmullq": ("Mul", "rrr"), "vpandq": ("And", "rrr"),
     "vpsllq": ("Shl", "rri"), "vpsrlq": ("Shr", "rri"),
+    "vpmadd52luq_mem": ("MaddMem false", "rrbd"), "vpmadd52huq_mem": ("MaddMem true", "rrbd"),
     "vpmadd52luq": ("Madd false", "rrr"), "vpmadd52huq": ("Madd true", "rrr"),
 }
 GPRS = "rax rcx rdx rbx rsp rbp rsi rdi r8 r9 r10 r11 r12 r13 r14 r15".split()
@@ -41,7 +43,7 @@ def validate(case):
     for k, vals in overrides.items():
         if k not in REGISTER_IDS or not vector(vals):
             raise ValueError(f"invalid register initializer {k}")
-    if "memory" in case or ins[0] == "vmovdqu64":
+    if "memory" in case or OPS[ins[0]][1].endswith("bd"):
         if not vector(case.get("memory")):
             raise ValueError("load memory must contain eight qwords")
     if "expected" in case and not vector(case["expected"]):
@@ -62,7 +64,7 @@ def random_state(case_id, instruction, rng):
     regs = {str(n): [rng.getrandbits(64) for _ in range(8)]
             for n, kind in zip(instruction[1:], OPS[instruction[0]][1]) if kind == "r"}
     case = {"id": case_id, "instruction": instruction, "registers": regs}
-    if instruction[0] == "vmovdqu64":
+    if OPS[instruction[0]][1].endswith("bd"):
         case["memory"] = [rng.getrandbits(64) for _ in range(8)]
     return case
 

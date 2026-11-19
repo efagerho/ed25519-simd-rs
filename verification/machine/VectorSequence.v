@@ -70,13 +70,17 @@ Proof.
  revert s; induction code as [|[dst op] rest IH]; intros s C.
  - destruct s; reflexivity.
  - change (load_operands ((dst,op)::rest)) with
-     (match op with Load b d => [(b,d)] | _ => [] end ++ load_operands rest) in *.
-   set (head := match op with Load b d => [(b,d)] | _ => [] end) in *.
+     (match op with Load b d | MaddMem _ _ b d => [(b,d)] | _ => [] end ++ load_operands rest) in *.
+   set (head := match op with Load b d | MaddMem _ _ b d => [(b,d)] | _ => [] end) in *.
    assert (T : covers c bases (load_operands rest)).
    { intros b d H. apply C, in_or_app. now right. }
    assert (V : (fun j => bits (direct_load c s j) (zmm s j) dst op) =
                (fun j => bits (effective_load s bases j) (zmm s j) dst op)).
-   { destruct op; try reflexivity. symmetry. apply C. now left. }
+   { destruct op; try reflexivity.
+     - symmetry. apply C. now left.
+     - unfold bits. symmetry. exact (f_equal
+       (fun f => fun j => IFMA.madd52 high (zmm s j dst) (zmm s j a) (f j))
+       (C base disp ltac:(now left) s)). }
    cbn [sequence vector_step].
    change (load_operands [(dst,op)]) with (head ++ []).
    rewrite app_nil_r, forallb_app.

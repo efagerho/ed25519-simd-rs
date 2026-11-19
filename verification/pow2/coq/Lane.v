@@ -6,6 +6,7 @@ Open Scope Z_scope.
 
 Definition rhs dst op :=
  match op with
+ | MaddMem _ _ _ _ => C 0
  | Copy a => V a | Load _ disp => V (rhs_index disp) | Xor _ _ => C 0
  | Add a b => Rem (Plus (V a) (V b)) word
  | Sub a b => Rem (Plus (V a) (Times (C (-1)) (V b))) word
@@ -22,7 +23,7 @@ Lemma bits_ok load r dst op :
  r 29%nat = radix-1 -> kernel_form op = true ->
  bits load r dst op = val r (rhs dst op).
 Proof.
- intros Mem Mask Form. destruct op; cbn [kernel_form] in Form;
+ intros Mem Mask Form. destruct op; cbn [kernel_form] in Form; try discriminate;
  try (apply Nat.eqb_eq in Form; subst).
  all: cbv beta iota zeta delta [bits rhs val Move.copy Logic.vpxorq Logic.vpandq
    Arithmetic.vpaddq Arithmetic.vpsubq Arithmetic.vpmullq Shift.vpsllq Shift.vpsrlq IFMA.madd52 X86.low64];

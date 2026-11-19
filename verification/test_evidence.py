@@ -4,6 +4,7 @@ import contextlib
 import copy
 import hashlib
 import io
+import importlib.util
 import json
 from pathlib import Path
 import sys
@@ -18,6 +19,19 @@ import case_data
 import coq_proof
 import evidence
 import run
+
+
+def load_module(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+with patch.dict(sys.modules, {
+        "certificate": load_module("cached_add_certificate", HERE / "cached_add/certificate.py"),
+        "listing": load_module("cached_add_listing", HERE / "cached_add/listing.py")}):
+    cached_add_audit = load_module("cached_add_audit", HERE / "cached_add/audit.py")
 
 
 class ReportTests(unittest.TestCase):
@@ -109,16 +123,30 @@ class ReportTests(unittest.TestCase):
 
 
 class ReleaseEvidenceTests(unittest.TestCase):
-    def test_double4_rejects_changed_linked_bytes_before_certification(self):
+    def test_point_proofs_reject_changed_linked_bytes_before_certification(self):
+        for module in (double4_audit, cached_add_audit):
+            with self.subTest(module=module.__name__), tempfile.TemporaryDirectory() as tmp:
+                work = Path(tmp)
+                with patch.object(module, "symbol_extent", return_value=(4096, 2)), \
+                        patch.object(module, "symbol_bytes", return_value=b"\x55\xc3"), \
+                        patch.object(module, "generate", return_value=b"\x5d\xc3"), \
+                        patch.object(module, "certify") as certify:
+                    with self.assertRaisesRegex(ValueError, "linked symbol differs"):
+                        module.replay(work / "release.elf", work)
+                    certify.assert_not_called()
+
+    def test_cached_add_exports_memory_source_ifma(self):
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
-            with patch.object(double4_audit, "symbol_extent", return_value=(4096, 2)), \
-                    patch.object(double4_audit, "symbol_bytes", return_value=b"\x55\xc3"), \
-                    patch.object(double4_audit, "generate", return_value=b"\x5d\xc3"), \
-                    patch.object(double4_audit, "certify") as certify:
-                with self.assertRaisesRegex(ValueError, "linked symbol differs"):
-                    double4_audit.replay(work / "release.elf", work)
-                certify.assert_not_called()
+            source = HERE / "cached_add/coq/ExportCases.v"
+            with patch.object(coq_proof.subprocess, "check_output", return_value='= "caller 1 1|0 1 vpmadd52huq_mem 31 16 8 320"\n'), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                coq_proof.export_cases(b"\x62", work, work / "cases.jsonl", 42, source, "cached_add")
+            row = json.loads((work / "cases.jsonl").read_text())
+            self.assertEqual(row["id"], "cached_add/+0x0000")
+            self.assertEqual(row["instruction"], ["vpmadd52huq_mem", 31, 16, 8, 320])
+            self.assertEqual((work / "ExportCases.v").read_bytes(), source.read_bytes())
+            case_data.validate(row)
 
     def test_double4_export_uses_its_own_program_and_case_ids(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -148,7 +176,8 @@ class ReleaseEvidenceTests(unittest.TestCase):
 
     def test_manifest_binds_proof_sources_checks_bytes_and_corpus(self):
         for module, routine, generator in ((evidence, "pow2", "sources/coq_proof.py"),
-                                            (double4_audit, "double4", "sources/double4/audit.py")):
+                                            (double4_audit, "double4", "sources/double4/audit.py"),
+                                            (cached_add_audit, "add_cached", "sources/cached_add/audit.py")):
             with self.subTest(routine=routine):
                 self.check_manifest(module, routine, generator)
 

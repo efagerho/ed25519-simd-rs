@@ -3,22 +3,26 @@ From Machine Require Import Blocks IntelSyntax tests.model.Oracle.
 Import ListNotations.
 Open Scope Z_scope.
 
-Local Notation "'.Lmiddle'" := (0x49%Z) (in custom intel_label at level 0).
-Local Notation "'.Lleaf'" := (0x4f%Z) (in custom intel_label at level 0).
+Local Notation "'.Lmiddle'" := (0x6e%Z) (in custom intel_label at level 0).
+Local Notation "'.Lleaf'" := (0x74%Z) (in custom intel_label at level 0).
 Definition aligned_probe := assemble [
  ScalarBlock 0 [] ends[ push rbp ];
  ScalarBlock 1 ops[
-   mov rbp, rsp; and rsp, -64; sub rsp, 1280; mov rsi, rsp;
+   mov rbp, rsp; and rsp, -64; sub rsp, 1280; mov rsi, rsp; mov r9, rsp; mov rcx, rdx;
    movabs rax, 0xfedcba9876543210; vpbroadcastq zmm20, rax;
    vmovdqu64 zmmword ptr [rsi + 640], zmm20;
    vmovdqu64 zmmword ptr [rsi], zmm20;
+   vmovdqu64 zmmword ptr [r9 + 640], zmm20;
+   mov rax, rcx; vpbroadcastq zmm22, rax;
+   vmovdqu64 zmmword ptr [r9], zmm22;
+   lea r8, [rsi]; vmovdqu64 zmm23, zmmword ptr [r8];
    lea r8, [rsi + 640]; vmovdqu64 zmm21, zmmword ptr [r8]
  ] ends[ call .Lmiddle ];
- ScalarBlock 0x41 ops[ mov rsp, rbp ] ends[ pop rbp ];
- ScalarBlock 0x45 ops[ vzeroupper ] ends[ ret ];
- ScalarBlock 0x49 [] ends[ call .Lleaf ];
- ScalarBlock 0x4e [] ends[ ret ];
- ScalarBlock 0x4f ops[ vmovdqu64 zmmword ptr [rdi], zmm21 ] ends[ ret ]].
+ ScalarBlock 0x66 ops[ mov rsp, rbp ] ends[ pop rbp ];
+ ScalarBlock 0x6a ops[ vzeroupper ] ends[ ret ];
+ ScalarBlock 0x6e [] ends[ call .Lleaf ];
+ ScalarBlock 0x73 [] ends[ ret ];
+ ScalarBlock 0x74 ops[ vmovdqu64 zmmword ptr [rdi], zmm21 ] ends[ ret ]].
 Example aligned_valid : valid_program aligned_probe=true.
 Proof. vm_compute; reflexivity. Qed.
 
@@ -31,6 +35,7 @@ Definition aligned_layout : layout := fun r cell =>
 Definition padding seed := 16*(seed mod 4).
 Definition entry seed := Control (At 0)
  (fun r => match r with
+ | 2%nat => Int seed
  | 4%nat => Ptr (0%nat,1288+padding seed) | 5%nat => Int seed
  | 7%nat => Ptr (1%nat,0) | _ => Unknown end)
  None (fun a => if ptr_eq a (0%nat,1288+padding seed) then Some Caller else None).

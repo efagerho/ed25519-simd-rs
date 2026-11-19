@@ -26,6 +26,7 @@ Definition fields (i : instruction) :=
   | And a b => args3 "vpandq" a b
   | Shl a n => args3 "vpsllq" a n
   | Shr a n => args3 "vpsrlq" a n
+  | MaddMem hi a base d => [(if hi then "vpmadd52huq_mem" else "vpmadd52luq_mem"); decimal dst; decimal a; decimal base; signed d]
   | Madd hi a b => args3 (if hi then "vpmadd52huq" else "vpmadd52luq") a b
   end.
 Fixpoint kernel_rows (pc : Z) (code : list instruction) : list string :=

@@ -64,22 +64,33 @@ jobs:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --no-deps --locked
 
-      - name: Build the field and doubling assembly
+      - name: Build all assembly backends
         run: |
-          cargo build --locked --release --features asm-pow2,asm-double4 --bench cold_profile_zip215 \
+          cargo build --locked --release --features asm-pow2,asm-double4,asm-cached-add --bench cold_profile_zip215 \
             --target x86_64-unknown-linux-gnu --message-format=json > "$RUNNER_TEMP/pow2-build.json"
 
       - name: Check the build-time proof and the linked assembly-only release binary
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y python3-z3 coq llvm
-          cargo build --locked --release --features verify-asm-pow2,verify-asm-double4 --lib --target x86_64-unknown-linux-gnu
+          cargo build --locked --release --features verify-asm-pow2,verify-asm-double4,verify-asm-cached-add --lib --target x86_64-unknown-linux-gnu
           artifact=$(jq -r 'select(.target.name == "cold_profile_zip215" and .executable != null) | .executable' "$RUNNER_TEMP/pow2-build.json")
           /usr/bin/python3 verification/pow2/check.py "$artifact"
           /usr/bin/python3 verification/pow2/coq_proof.py "$artifact" \
             --output "$RUNNER_TEMP/pow2-audit" --cases "$RUNNER_TEMP/pow2-cases.jsonl" --seed 42
           /usr/bin/python3 verification/double4/audit.py "$artifact" \
             --output "$RUNNER_TEMP/double4-audit" --cases "$RUNNER_TEMP/double4-cases.jsonl" --seed 42
+          /usr/bin/python3 verification/cached_add/audit.py "$artifact" \
+            --output "$RUNNER_TEMP/cached-add-audit" --cases "$RUNNER_TEMP/cached-add-cases.jsonl" --seed 42
+
+      - name: Check cached-add proof mutation rejection
+        run: |
+          native=
+          if grep -qw avx512ifma /proc/cpuinfo && grep -qw avx512dq /proc/cpuinfo && grep -qw avx512f /proc/cpuinfo; then
+            native=--native
+          fi
+          python3 -B verification/cached_add/mutations.py \
+            --output "$RUNNER_TEMP/cached-add-mutations" $native
 
       - name: Check the fixed machine corpus and linked kernel rows
         run: |
@@ -97,6 +108,8 @@ jobs:
             --report "$RUNNER_TEMP/pow2-report.json" --failure "$RUNNER_TEMP/machine-failure.json"
           python3 -B verification/machine/tests/run.py --backend "$backend" --cases "$RUNNER_TEMP/double4-cases.jsonl" \
             --report "$RUNNER_TEMP/double4-report.json" --failure "$RUNNER_TEMP/machine-failure.json"
+          python3 -B verification/machine/tests/run.py --backend "$backend" --cases "$RUNNER_TEMP/cached-add-cases.jsonl" \
+            --report "$RUNNER_TEMP/cached-add-report.json" --failure "$RUNNER_TEMP/machine-failure.json"
 
       - name: Retain conformance reports, inputs, and release proof evidence
         if: always()
@@ -110,4 +123,7 @@ jobs:
             ${{ runner.temp }}/pow2-audit/
             ${{ runner.temp }}/double4-cases.jsonl
             ${{ runner.temp }}/double4-audit/
+            ${{ runner.temp }}/cached-add-cases.jsonl
+            ${{ runner.temp }}/cached-add-audit/
+            ${{ runner.temp }}/cached-add-mutations/
           if-no-files-found: ignore

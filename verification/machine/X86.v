@@ -1,4 +1,4 @@
-From Coq Require Import ZArith List.
+From Coq Require Import ZArith List Bool.
 Import ListNotations.
 Open Scope Z_scope.
 
@@ -15,3 +15,17 @@ Definition rr map pp op (r v m:nat) :=
  prefix map pp reg (Z.of_nat v) rm ++ [op;modrm 3 reg rm].
 
 Definition le32 (n:Z) := map (fun k=>n / 2^k mod 256) [0;8;16;24].
+
+(* Unmasked full-vector memory forms: base + signed displacement, a 64-byte
+   compressed tuple, optional RSP/R12 SIB, and explicit zero for RBP/R13. *)
+Definition rm_memory (map pp op : Z) (r v : nat) (base disp : Z) :=
+  let reg := Z.of_nat r in
+  let rm := base mod 8 in
+  let scaled := disp / 64 in
+  let '(mode, displacement) :=
+    if (disp =? 0) && negb (rm =? 5) then (0, [])
+    else if (disp mod 64 =? 0) && (-128 <=? scaled) && (scaled <? 128)
+         then (1, [scaled mod 256])
+         else (2, le32 disp) in
+  prefix map pp reg (Z.of_nat v) base ++ [op; modrm mode reg rm]
+  ++ (if rm =? 4 then [0x24] else []) ++ displacement.

@@ -9,7 +9,8 @@ Inductive opcode :=
 | Copy (src : nat) | Load (base : nat) (disp : Z)
 | Xor (a b : nat) | Add (a b : nat) | Sub (a b : nat) | Mul (a b : nat)
 | Shl (a n : nat) | Shr (a n : nat) | And (a b : nat)
-| Madd (high : bool) (a b : nat).
+| Madd (high : bool) (a b : nat)
+| MaddMem (high : bool) (a base : nat) (disp : Z).
 Definition instruction := (nat * opcode)%type.
 
 Definition encodable (i : instruction) :=
@@ -17,6 +18,7 @@ Definition encodable (i : instruction) :=
   let zmm n := Nat.ltb n 32 in
   zmm dst && match op with
   | Copy src => zmm src
+  | MaddMem _ a base disp => zmm a && Nat.ltb base 16 && (-2^31 <=? disp) && (disp <? 2^31)
   | Load base disp => Nat.ltb base 16 && (-2^31 <=? disp) && (disp <? 2^31)
   | Shl a n | Shr a n => zmm a && Nat.ltb n 256
   | Xor a b | Add a b | Sub a b | Mul a b | And a b | Madd _ a b => zmm a && zmm b
@@ -35,6 +37,7 @@ Definition bits (load : nat -> Z -> Z) (r : nat -> Z) dst op :=
   | Shr a n => Shift.vpsrlq (r a) n
   | And a b => Logic.vpandq (r a) (r b)
   | Madd high a b => IFMA.madd52 high (r dst) (r a) (r b)
+  | MaddMem high a base disp => IFMA.madd52 high (r dst) (r a) (load base disp)
   end.
 
 Definition put {A} (s : nat -> A) i x j := if Nat.eqb i j then x else s j.
@@ -57,6 +60,7 @@ Definition encode (i : instruction) :=
   | Shr a n => Shift.encode_vpsrlq dst a n
   | And a b => Logic.encode_vpandq dst a b
   | Madd high a b => IFMA.encode_madd52 high dst a b
+  | MaddMem high a base disp => IFMA.encode_madd52_memory high dst a base disp
   end.
 
 Open Scope string_scope.
@@ -83,4 +87,5 @@ Definition asm_of (i : instruction) :=
   | Shl a n => "vpsllq " ++ zmm d ++ ", " ++ zmm a ++ ", " ++ decimal n
   | Shr a n => "vpsrlq " ++ zmm d ++ ", " ++ zmm a ++ ", " ++ decimal n
   | Madd high a b => args3 (if high then "vpmadd52huq" else "vpmadd52luq") d a b
+  | MaddMem high a base disp => (if high then "vpmadd52huq" else "vpmadd52luq") ++ " " ++ zmm d ++ ", " ++ zmm a ++ ", zmmword ptr " ++ address base disp
   end.

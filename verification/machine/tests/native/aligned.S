@@ -8,10 +8,18 @@ probe:
     and rsp, -64
     sub rsp, 1280
     mov rsi, rsp
+    mov r9, rsp
+    mov rcx, rdx
     movabs rax, 0xfedcba9876543210
     vpbroadcastq zmm20, rax
     vmovdqu64 [rsi + 640], zmm20
     vmovdqu64 [rsi], zmm20
+    vmovdqu64 [r9 + 640], zmm20
+    mov rax, rcx
+    vpbroadcastq zmm22, rax
+    vmovdqu64 [r9], zmm22
+    lea r8, [rsi]
+    vmovdqu64 zmm23, [r8]
     lea r8, [rsi + 640]
     vmovdqu64 zmm21, [r8]
     call .Lmiddle
@@ -47,6 +55,7 @@ capture:
     lea rsp, [r9 + 1296]
     add rsp, rax
     mov rbp, r13
+    mov rdx, r13
     call probe
     mov [r11], rbp
     mov rax, rsp

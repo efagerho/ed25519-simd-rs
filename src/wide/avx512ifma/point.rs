@@ -65,10 +65,22 @@ unsafe extern "C" {
 
 #[cfg(all(
     feature = "asm-cached-add",
+    not(feature = "verify-asm-cached-add"),
     target_os = "linux",
     target_pointer_width = "64"
 ))]
 core::arch::global_asm!(include_str!("add_cached.S"), options(raw));
+
+#[cfg(all(
+    feature = "verify-asm-cached-add",
+    target_os = "linux",
+    target_arch = "x86_64",
+    target_pointer_width = "64"
+))]
+core::arch::global_asm!(include_str!(concat!(
+    env!("OUT_DIR"),
+    "/cached-add-checked.S"
+)));
 
 #[cfg(all(
     feature = "asm-cached-add",
@@ -79,7 +91,7 @@ unsafe extern "C" {
     /// In-place addition with staged (Y-X), (Y+X), 2dT, and optional 2Z.
     /// `affine` and `compute_t` are 0 or 1. Every input limb is < 2^52.
     /// Buffers are disjoint and 64-byte aligned. See add_cached.S for the
-    /// complete ABI and arithmetic contract; this symbol is not yet proved.
+    /// complete ABI and arithmetic contract, proved in verification/cached_add.
     fn ed25519_simd_add_cached_ifma(point: *mut u8, cached: *const u8, compute_t: u64, affine: u64);
 }
 

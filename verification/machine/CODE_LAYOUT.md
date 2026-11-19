@@ -11,7 +11,7 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 | [Arithmetic.v](Arithmetic.v) | Wrapping qword addition, subtraction and multiplication for `vpaddq`, `vpsubq` and `vpmullq`, with their encoders. |
 | [Logic.v](Logic.v) | Lane operations and encodings for `vpxorq` and `vpandq`. |
 | [Shift.v](Shift.v) | Immediate left and logical right qword shifts and their encodings. |
-| [IFMA.v](IFMA.v) | Low and high 52-bit multiply-add operations, accumulator wraparound, and both encodings. |
+| [IFMA.v](IFMA.v) | Low and high 52-bit multiply-add operations, accumulator wraparound, and register/memory encodings. |
 | [Instructions.v](Instructions.v) | Typed vector operands and opcodes, operand validation, per-lane execution (`bits`, `run`), byte encoding (`encode`), and Intel text rendering (`asm_of`). |
 
 ## Programs and execution

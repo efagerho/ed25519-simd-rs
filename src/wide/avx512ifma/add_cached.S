@@ -1,6 +1,6 @@
 // Cached point addition, independently in eight lanes modulo p = 2^255-19.
-// Experimental: this symbol is NOT yet formally verified. The pow2 and
-// double4 Coq theorems do not cover it.
+// Coq certificate: verification/cached_add, Object.assembled_cached_add_correct.
+// The verify-asm-cached-add feature emits only bytes certified by that theorem.
 //
 // SysV AMD64 arguments:
 //   RDI: exclusive, initialized 1280-byte WidePoint (X/Y/Z/T at 0/320/640/960).
