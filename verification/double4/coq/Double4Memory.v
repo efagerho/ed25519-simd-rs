@@ -1,12 +1,11 @@
 From Coq Require Import List ZArith.
 From Machine Require Import Blocks MemoryTrace FlatMemory.
 Require Import Double4ABI.
+From Machine Require Export MemoryGeometry.
 Import ListNotations. Open Scope Z_scope.
 Definition caller_slot pad : pointer := (scratch,1288+pad).
 Definition saved_slot pad : pointer := (scratch,1280+pad).
 Definition private_slots pad := [(scratch,-16);(scratch,-8);saved_slot pad].
-Definition vector_in region length (a:pointer) :=
- fst a=region /\ 0<=snd a /\ snd a+64<=length /\ snd a mod 64=0.
 Definition allowed_write pad c := match c with
  | VectorCell a=>vector_in point 1280 a \/ vector_in scratch 1280 a
  | ReturnSlot a=>In a(private_slots pad) end.
@@ -14,7 +13,6 @@ Definition mapped pad c := match c with
  | VectorCell a=>vector_ok abi_layout a false=true
  | ReturnSlot a=>In a(private_slots pad) \/ a=caller_slot pad end.
 Definition entry_rsp loc pad := origin loc scratch+1288+pad.
-Definition fits64 base len := 0<=base /\ base+len<=2^64.
 Definition valid_placement loc size pad :=
  permitted_padding pad /\
  fits64 (origin loc point) 1280 /\ origin loc point mod 64=0 /\

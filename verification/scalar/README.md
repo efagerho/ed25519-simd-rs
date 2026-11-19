@@ -55,9 +55,9 @@ Replay the retained certificate without the repository or assembler:
 cd scalar-audit
 set -e
 for proof_source in $(coqdep -sort -f _CoqProject); do
-  coqc -Q machine Machine "$proof_source"
+  coqc -Q machine Machine -Q arithmetic ProofArithmetic "$proof_source"
 done
-coqchk -Q machine Machine -silent Object
+coqchk -Q machine Machine -Q arithmetic ProofArithmetic -silent Object
 ```
 
 To embed only certified bytes during the build:
@@ -77,7 +77,7 @@ Release auditing checks the final linked artifact from either build.
 | `Unpack.v`, `Product.v` | Exact 64-to-52-bit unpacking and both constant products; actual IFMA operand and accumulator bounds. |
 | `ScalarMath.v`, `Reduction.v`, `Montgomery.v` | Cancellation of each low column, the optimized ceiling carry including zero low limbs, all five Montgomery steps, normalization, and the bound that makes one subtraction sufficient. |
 | `Borrow.v`, `Finish.v` | Borrow propagation through five limbs, wrapped subtraction, and bitwise selection of the canonical result. |
-| `Symbolic.v`, `Calculate.v` | Sound interval/exact-polynomial checking and composition into `H mod L`. |
+| [Shared arithmetic](../arithmetic/README.md), `Symbolic.v`, `Calculate.v` | Sound interval/exact-polynomial checking, scalar instruction conditions, and composition into `H mod L`. |
 | `Control.v`, `Lane.v`, `Routing.v`, `Logical.v` | Actual control path, broadcasts, register and memory routing, stores, and all eight lanes. |
 | `ScalarMemory.v`, `FrameProof.v`, `ScalarBytes.v` | ABI, complete writes, concrete byte memory, read consistency, and preservation outside output. |
 | `Audit.v`, `Object.v`, `EntryTests.v` | Complete public certificate, byte binding, and concrete non-vacuity witnesses. |

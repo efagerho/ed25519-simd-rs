@@ -5,7 +5,7 @@ Import ListNotations. Open Scope Z_scope.
 Local Opaque code stage0 stage1 stage2 stage3 stage4 stage5 stage6.
 Lemma round_split j full s : round j full s=finish j full(prepare j s).
 Proof.
- unfold round,round_effects,finish,prepare,shuffle,lane_effects.
+ unfold round,round_effects,finish,prepare,shuffle,lane_effects,Machine.Lane.lane_effects.
  cbn [stage]. rewrite !fold_left_app. cbn [fold_left].
  rewrite !call_is_effect. reflexivity.
 Qed.
@@ -75,7 +75,7 @@ Local Transparent round early_rounds.
 Lemma path_lanes j s : lane_effects j expected_path s=
  lane_effect j (four_rounds j (initialize j s)) ClearUpper.
 Proof. unfold expected_path,initialize,four_rounds;cbn [early_rounds].
- unfold lane_effects,round;rewrite !fold_left_app;reflexivity. Qed.
+ unfold lane_effects,Machine.Lane.lane_effects,round;rewrite !fold_left_app;reflexivity. Qed.
 Local Opaque round early_rounds.
 Local Opaque effects.
 Definition lane_spec q s := forall c,(c<4)%nat ->

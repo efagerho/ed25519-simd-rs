@@ -25,11 +25,12 @@ def write_evidence(binary, address, raw, work, checks, cases):
         (sources / name).mkdir()
         for path in sorted(directory.glob("*.py")):
             shutil.copyfile(path, sources / name / path.name)
+    shutil.copyfile(HERE.parent / "proof_build.py", sources / "proof_build.py")
     coq_sources = sorted(work.rglob("*.v"))
-    (work / "_CoqProject").write_text("-Q machine Machine\n" + "".join(
+    (work / "_CoqProject").write_text("-Q machine Machine\n-Q arithmetic ProofArithmetic\n" + "".join(
         str(path.relative_to(work)) + "\n" for path in coq_sources))
     retained = [*coq_sources, *(p for p in sources.rglob("*") if p.is_file()),
-                work / "_CoqProject", work / "machine/_CoqProject", work / "double4.expanded.S",
+                work / "_CoqProject", work / "machine/_CoqProject", work / "arithmetic/_CoqProject", work / "double4.expanded.S",
                 work / "symbol.bin", work / "assumptions.txt", work / "coqchk.log"]
     if cases:
         retained.append(work / cases["path"])

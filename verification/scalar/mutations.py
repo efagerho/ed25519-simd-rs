@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 
+from certificate import LOAD_PATH
 from listing import SOURCE, SYMBOL
 from generate_listing import assemble
 from coq_proof import symbol_bytes
@@ -111,7 +112,7 @@ def run_case(name, old, new, passes, output, native):
         "Example exact_bytes : image scalar_program = [" + ";".join(map(str, raw)) +
         "].\nProof. vm_compute;reflexivity. Qed.\n"
         "Example valid_layout : valid_program scalar_program=true.\nProof. vm_compute;reflexivity. Qed.\n")
-    subprocess.run(["coqc", "-Q", "machine", "Machine", "MutationBinding.v"], cwd=audit, check=True)
+    subprocess.run(["coqc", *LOAD_PATH, "MutationBinding.v"], cwd=audit, check=True)
     result = {"name": name, "certificate_passed": status == 0, "failure": failure,
               "byte_binding_passed": True, "symbol_sha256": hashlib.sha256(raw).hexdigest()}
     if native:

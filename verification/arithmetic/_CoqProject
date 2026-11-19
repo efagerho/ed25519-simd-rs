@@ -1,0 +1,6 @@
+-Q . ProofArithmetic
+-Q ../machine Machine
+Expressions.v
+Polynomial.v
+Interval.v
+Symbolic.v

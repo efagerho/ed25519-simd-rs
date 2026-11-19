@@ -162,3 +162,19 @@ Proof.
  replace (a+8*Z.of_nat j+k) with (a+(8*Z.of_nat j+k)) by ring.
  rewrite write_at by lia. now apply vector_byte_lane.
 Qed.
+
+
+(* A buffer's qword index is its vector index followed by its lane index. *)
+Definition buffer_words flat base k := read_word flat(base+8*Z.of_nat k).
+Lemma vector_word_address loc region k :
+ address_of loc(region,64*Z.of_nat(k/8))+8*Z.of_nat(k mod 8)=
+ origin loc region+8*Z.of_nat k.
+Proof.
+ unfold address_of;cbn [fst snd].
+ pose proof(Nat.div_mod k 8 ltac:(lia))as D;apply(f_equal Z.of_nat)in D.
+ rewrite Nat2Z.inj_add,Nat2Z.inj_mul in D;lia.
+Qed.
+Lemma decoded_buffer loc vectors flat region k :
+ memory(data_from_bytes loc vectors flat)(region,64*Z.of_nat(k/8))(k mod 8)%nat=
+ buffer_words flat(origin loc region)k.
+Proof. unfold data_from_bytes,buffer_words;cbn [memory];now rewrite vector_word_address. Qed.

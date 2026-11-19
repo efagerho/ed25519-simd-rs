@@ -29,7 +29,9 @@ fn main() {
             source.into(),
             format!("verification/{proof}"),
             "verification/machine".into(),
-            // Arithmetic proofs share the polynomial checker, interval interpreter and ELF helpers.
+            "verification/arithmetic".into(),
+            "verification/proof_build.py".into(),
+            // Field proofs and certificate drivers also share routine-specific helpers.
             "verification/pow2".into(),
             "verification/double4".into(),
         ] {

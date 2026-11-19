@@ -1,13 +1,12 @@
 From Coq Require Import List ZArith.
 From Machine Require Import Blocks MemoryTrace FlatMemory.
 Require Import Pow2ABI.
+From Machine Require Export MemoryGeometry.
 Import ListNotations.
 Open Scope Z_scope.
 
 Definition caller_slot : pointer := (stack,1928).
 Definition private_slot : pointer := (stack,-8).
-Definition vector_in region length (a : pointer) :=
- fst a = region /\ 0 <= snd a /\ snd a + 64 <= length /\ snd a mod 64 = 0.
 Definition allowed_write s := match s with
  | VectorCell a => vector_in output 640 a \/ vector_in stack 1920 a
  | ReturnSlot a => a = private_slot
@@ -18,7 +17,6 @@ Definition mapped s := match s with
  end.
 
 Definition entry_rsp loc := origin loc stack + 1928.
-Definition fits64 base len := 0 <= base /\ base + len <= 2^64.
 
 (* Region bases need no vector alignment. The two read-only inputs may alias.
    The stack interval includes the private slot, scratch, gap and caller slot. *)

@@ -1,6 +1,7 @@
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Blocks MemoryTrace FlatMemory WordBounds ByteMemory ExecutionProperties.
 Require Import CachedAddABI CachedAddMemory CachedAddSpec FieldSpec FrameProof.
+From Machine Require Import ByteExecution.
 Import ListNotations. Open Scope Z_scope.
 Section Mode.
 Variable full affine:bool.
@@ -16,18 +17,14 @@ Record concrete_entry loc size pad(regs:nat->Z)(vectors:nat->nat->Z)before : Pro
  entry_affine:regs 1%nat=flag_word affine;
  entry_return_word:read_word before(entry_rsp loc pad)=caller_pc loc
 }.
-Definition buffer_words flat base k := read_word flat(base+8*Z.of_nat k).
+Definition buffer_words := ByteMemory.buffer_words.
 Definition entry_from_bytes loc pad regs vectors flag before : state :=
  (initial_control(Control Caller(fun r=>Int(regs r))flag(fun _=>None))pad(regs 5%nat)full affine,
  data_from_bytes loc vectors before).
 Definition scalar_value loc v := match v with Int n=>Some n | Ptr a=>Some(address_of loc a) | Unknown=>None end.
 Lemma decoded_buffer loc vectors flat region k :
  words_at(memory(data_from_bytes loc vectors flat))region k=buffer_words flat(origin loc region)k.
-Proof.
- unfold words_at,data_from_bytes,limb_address,address_of,buffer_words;cbn [memory fst snd].
- pose proof(Nat.div_mod k 8 ltac:(lia))as D;apply(f_equal Z.of_nat)in D.
- rewrite Nat2Z.inj_add,Nat2Z.inj_mul in D;f_equal;lia.
-Qed.
+Proof. apply ByteMemory.decoded_buffer. Qed.
 Theorem concrete_entry_representable loc size pad regs vectors flag before :
  concrete_entry loc size pad regs vectors before ->
  let initial:=entry_from_bytes loc pad regs vectors flag before in
@@ -80,35 +77,23 @@ Lemma memory_safe_bytes p size loc pad initial final before :
  returns p (abi_layout affine) initial final ->memory_safe affine p size pad initial final ->
  exists after,byte_result p loc pad initial final before after.
 Proof.
- intros Place W Bytes Agree[R End][fuel[es[Trace[_[_ Frame]]]]].
- pose proof(execution_preserves_words _ _ _ _ R W)as Final.
+ intros Place W Bytes Agree [R End] [fuel [es [Trace [_ [_ Frame]]]]].
  destruct(Frame loc Place)as[_ F];destruct(F before Agree)as[A[Outside[Prefixes Pops]]].
  exists(replay p loc es(snd initial)before).
- split;[intros middle Reach;eapply execution_preserves_words;eassumption|].
- split;[now apply replay_well_formed|].
- split;[intros a j M J;eapply agrees_read_vector;eauto;exact(proj2 Final)|].
- split;[exact Outside|];exists fuel,es;split;[exact Trace|];split;[reflexivity|];split.
- - intros pre tail E.
-   assert(D:data_words(effects p(data_effects pre)(snd initial)))by(destruct initial;eapply recorded_prefix_words;eassumption).
-   split;[exact D|];split;[now apply replay_well_formed|].
-   intros a j M J;eapply agrees_read_vector;eauto;exact(proj1(Prefixes _ _ E)).
- - intros pre a t tail E;apply read_word_encoded;intros k K;exact(Pops _ _ _ _ _ E K).
+ eapply recorded_bytes; try eassumption.
+ intros pre tail E; exact(proj1(Prefixes _ _ E)).
 Qed.
 Lemma output_bytes loc pad d after : vector_reads loc pad d after ->forall k,(k<160)%nat ->
  buffer_words after(origin loc point)k=words_at(memory d)point k.
 Proof.
- intros Reads k K;unfold words_at;rewrite <-(Reads(limb_address point(k/8))(k mod 8)%nat).
- - unfold buffer_words,limb_address,address_of;cbn [fst snd].
-   pose proof(Nat.div_mod k 8 ltac:(lia))as D;apply(f_equal Z.of_nat)in D;
-   rewrite Nat2Z.inj_add,Nat2Z.inj_mul in D;f_equal;lia.
- - unfold mapped,vector_ok,access,limb_address,abi_layout,point,scratch;cbn [fst snd].
+ intros Reads k K;unfold words_at;eapply read_buffer_vector;[exact Reads|].
+ unfold mapped,vector_ok,access,limb_address,abi_layout,point,scratch;cbn [fst snd].
    replace(64*Z.of_nat(k/8))with(Z.of_nat(k/8)*64)by ring.
    rewrite Z.mod_mul,Z.div_mul by lia;cbn [Z.eqb Nat.eqb andb].
    assert(C:((0<=?Z.of_nat(k/8))&&(Z.of_nat(k/8)<?20))=true).
    { apply Bool.andb_true_iff;split;[apply Z.leb_le;lia|apply Z.ltb_lt].
      pose proof(Nat.div_mod k 8 ltac:(lia));lia. }
    rewrite C;reflexivity.
- - apply Nat.mod_upper_bound;lia.
 Qed.
 Definition concrete_cached_add_contract p size :=
  forall loc pad regs vectors flag before,concrete_entry loc size pad regs vectors before ->

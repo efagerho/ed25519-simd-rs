@@ -92,9 +92,9 @@ An auditor can rebuild the retained proof without the repository or assembler:
 cd double4-audit
 set -e
 for proof_source in $(coqdep -sort -f _CoqProject); do
-  coqc -Q machine Machine "$proof_source"
+  coqc -Q machine Machine -Q arithmetic ProofArithmetic "$proof_source"
 done
-coqchk -Q machine Machine -silent Object
+coqchk -Q machine Machine -Q arithmetic ProofArithmetic -silent Object
 ```
 
 Compiling `Object.v` must print `Closed under the global context`. In
@@ -141,7 +141,7 @@ python3 -B verification/machine/tests/run.py --backend all \
 
 | Files | Responsibility |
 | --- | --- |
-| `Interval.v`, `Symbolic.v` | Sound signed interval evaluation and symbolic instruction execution. Subtraction keeps its `2^64` remainder unless both bounds prove no wrap. Relational square-input hints require proofs. |
+| [Shared Interval.v](../arithmetic/Interval.v), `Symbolic.v` | Sound signed interval evaluation and symbolic instruction execution. Subtraction keeps its `2^64` remainder unless both bounds prove no wrap. Relational square-input hints require proofs. |
 | `Kernels.v`, `KernelInterface.v` | Check addition/reduction, loose squaring, biased subtraction/reduction, paired multiplication and single multiplication against the actual generated instruction blocks. Reuse the proved field polynomial checker from pow2. |
 | `RoundArithmetic.v`, `Preparation.v`, `Finish.v` | Compose the kernel results with the actual register moves and scratch loads/stores into one doubling. |
 | `Round.v`, `Execution.v`, `Logical.v` | Check the actual caller path, including three early rounds and the final T-producing round, and lift lane arithmetic to the full machine state. |

@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Lia.
-From Machine Require Import Blocks MemoryTrace FlatMemory WordBounds ByteMemory ExecutionProperties.
+From Machine Require Import Blocks MemoryTrace FlatMemory WordBounds ByteMemory ExecutionProperties ByteExecution.
 Require Import Pow2ABI Pow2Memory FieldSpec.
 Open Scope Z_scope.
 
@@ -17,7 +17,7 @@ Record concrete_entry loc size (regs : nat -> Z) (vectors : nat -> nat -> Z) bef
  entry_return_word : read_word before (entry_rsp loc) = caller_pc loc
 }.
 
-Definition buffer_words flat base k := read_word flat (base+8*Z.of_nat k).
+Definition buffer_words := ByteMemory.buffer_words.
 Definition entry_from_bytes loc regs vectors flag before : state :=
  (initial_control (Control Caller (fun r => Int (regs r)) flag (fun _ => None)),
   data_from_bytes loc vectors before).
@@ -27,12 +27,7 @@ Definition scalar_value loc v := match v with
 Lemma decoded_buffer loc vectors flat region k :
  words_at (memory (data_from_bytes loc vectors flat)) region k =
  buffer_words flat (origin loc region) k.
-Proof.
- unfold words_at,data_from_bytes,limb_address,address_of,buffer_words; cbn [memory fst snd].
- pose proof (Nat.div_mod k 8 ltac:(lia)) as D.
- apply (f_equal Z.of_nat) in D. rewrite Nat2Z.inj_add,Nat2Z.inj_mul in D.
- f_equal; lia.
-Qed.
+Proof. apply ByteMemory.decoded_buffer. Qed.
 
 Theorem concrete_entry_representable loc size regs vectors flag before :
  concrete_entry loc size regs vectors before ->
@@ -94,20 +89,10 @@ Lemma memory_safe_bytes p size loc initial final before :
  exists after, byte_result p loc initial final before after.
 Proof.
  intros Place W Bytes Agree [R End] [fuel [es [Trace [_ [_ Frame]]]]].
- pose proof (execution_preserves_words _ _ _ _ R W) as Final.
- destruct (Frame loc Place) as [_ F].
- destruct (F before Agree) as [A [Outside [Prefixes Pops]]].
- exists (replay p loc es (snd initial) before).
- split; [intros middle Reach; eapply execution_preserves_words; eassumption|].
- split; [now apply replay_well_formed|].
- split; [intros a j M J; eapply agrees_read_vector; eauto; exact (proj2 Final)|].
- split; [exact Outside|]. exists fuel,es. split; [exact Trace|]. split; [reflexivity|]. split.
- - intros pre tail E.
-   assert (D : data_words (effects p (data_effects pre) (snd initial))).
-   { destruct initial; eapply recorded_prefix_words; eassumption. }
-   split; [exact D|]. split; [now apply replay_well_formed|].
-   intros a j M J. eapply agrees_read_vector; eauto. exact (proj1 (Prefixes _ _ E)).
- - intros pre a t tail E. apply read_word_encoded. intros k K; exact (Pops _ _ _ _ _ E K).
+ destruct(Frame loc Place)as[_ F];destruct(F before Agree)as[A[Outside[Prefixes Pops]]].
+ exists(replay p loc es(snd initial)before).
+ eapply recorded_bytes; try eassumption.
+ intros pre tail E; exact(proj1(Prefixes _ _ E)).
 Qed.
 
 Lemma output_bytes loc regs vectors flag before final after :
@@ -115,21 +100,16 @@ Lemma output_bytes loc regs vectors flag before final after :
  buffer_words after (origin loc output) k =
  output_words (entry_from_bytes loc regs vectors flag before) final k.
 Proof.
- intros Reads k K.
- change (buffer_words after (origin loc output) k =
-   memory (snd final) (limb_address output 0 (k/8)) (k mod 8)%nat).
- rewrite <-(Reads (limb_address output 0 (k/8)) (k mod 8)%nat).
- - unfold buffer_words,limb_address,address_of; cbn [fst snd].
-   pose proof (Nat.div_mod k 8 ltac:(lia)) as D.
-   apply (f_equal Z.of_nat) in D. rewrite Nat2Z.inj_add,Nat2Z.inj_mul in D. f_equal; lia.
- - unfold mapped,vector_ok,access,limb_address,abi_layout,output,stack; cbn [fst snd].
-   replace (0+64*Z.of_nat (k/8)) with (Z.of_nat (k/8)*64) by ring.
+ intros Reads k K;change(buffer_words after(origin loc output)k=
+ memory(snd final)(limb_address output 0(k/8))(k mod 8)%nat).
+ eapply read_buffer_vector;[exact Reads|].
+ unfold mapped,vector_ok,access,limb_address,abi_layout,output,stack; cbn [fst snd].
+   replace (64*Z.of_nat (k/8)) with (Z.of_nat (k/8)*64) by ring.
    rewrite Z.mod_mul,Z.div_mul by lia. cbn [Z.eqb andb].
    assert (C : ((0 <=? Z.of_nat (k/8)) && (Z.of_nat (k/8) <? 10))%bool = true).
    { apply Bool.andb_true_iff; split; [apply Z.leb_le; lia|apply Z.ltb_lt].
      pose proof (Nat.div_mod k 8 ltac:(lia)); lia. }
    rewrite C; reflexivity.
- - apply Nat.mod_upper_bound; lia.
 Qed.
 
 (* This is the byte-facing part of the single public certificate. Execution is

@@ -1,41 +1,26 @@
 From Coq Require Import ZArith List Bool Lia.
 From Machine Require Import Instructions.
 Require Import FieldSpec Polynomial Pow2Caller.
+From ProofArithmetic Require Symbolic.
 Import ListNotations.
 Open Scope Z_scope.
 
-Definition rhs dst op :=
- match op with
- | MaddMem _ _ _ _ => C 0
- | Copy a => V a | Load _ disp => V (rhs_index disp) | Xor _ _ => C 0
- | Add a b => Rem (Plus (V a) (V b)) word
- | Sub a b => Rem (Plus (V a) (Times (C (-1)) (V b))) word
- | Mul a b => Rem (Times (V a) (V b)) word
- | Shl a n => Rem (Times (V a) (C (2^Z.of_nat n))) word
- | Shr a n => Quot (V a) (2^Z.of_nat n)
- | And a _ => Rem (V a) radix
- | Madd high a b =>
-   let p := Times (Rem (V a) split) (Rem (V b) split) in
-   Rem (Plus (V dst) (if high then Quot p split else Rem p split)) word
- end.
+Definition rhs dst op := match op with
+ | Load _ disp=>V(rhs_index disp)
+ | _=>ProofArithmetic.Symbolic.rhs 51 dst op end.
 Lemma bits_ok load r dst op :
  (forall disp, load 8%nat disp = r (rhs_index disp)) ->
  r 29%nat = radix-1 -> kernel_form op = true ->
  bits load r dst op = val r (rhs dst op).
 Proof.
- intros Mem Mask Form. destruct op; cbn [kernel_form] in Form; try discriminate;
- try (apply Nat.eqb_eq in Form; subst).
- all: cbv beta iota zeta delta [bits rhs val Move.copy Logic.vpxorq Logic.vpandq
-   Arithmetic.vpaddq Arithmetic.vpsubq Arithmetic.vpmullq Shift.vpsllq Shift.vpsrlq IFMA.madd52 X86.low64];
- try rewrite Z.lxor_nilpotent;
- try rewrite Z.shiftl_mul_pow2 by lia;
- try rewrite Z.shiftr_div_pow2 by lia;
- repeat rewrite Z.land_ones by lia; try reflexivity.
- - apply Mem.
- - rewrite Mask. change (Z.land (r a) (Z.ones 51) = r a mod (2^51)).
-   apply Z.land_ones; lia.
- - destruct high; repeat rewrite Z.land_ones by lia;
-   try rewrite Z.shiftr_div_pow2 by lia; reflexivity.
+ intros Mem Mask Form.
+ assert(Operands:ProofArithmetic.Symbolic.operand_ok 51 r op).
+ { destruct op;cbn [kernel_form] in Form;cbn [ProofArithmetic.Symbolic.operand_ok];
+   try exact Logic.I;try(now apply Nat.eqb_eq in Form).
+   apply Nat.eqb_eq in Form;subst b;rewrite Mask;reflexivity. }
+ pose proof(ProofArithmetic.Symbolic.rhs_ok 51 load r dst op ltac:(lia) Operands)as Sound.
+ destruct op;cbn [kernel_form] in Form;try discriminate;try exact Sound.
+ apply Nat.eqb_eq in Form;subst base;apply Mem.
 Qed.
 
 Record absword := W { term:expr; maximum:Z }.

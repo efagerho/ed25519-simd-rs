@@ -1,6 +1,5 @@
 From Coq Require Import ZArith List Bool Lia Ring.
-From Machine Require Import Instructions.
-Require Import FieldSpec Polynomial.
+From ProofArithmetic Require Export Expressions.
 Import ListNotations.
 Open Scope Z_scope.
 
@@ -43,25 +42,44 @@ Proof.
  split; destruct (Z_le_dec 0 y); [destruct (Z_le_dec 0 l)|destruct (Z_le_dec 0 u)|destruct (Z_le_dec 0 u)|destruct (Z_le_dec 0 l)]; nia.
 Qed.
 
+Definition bounded a z := lower a<=z<=upper a.
+Lemma abstract_bounds s r e : (forall i,bounded(s i)(r i)) ->legal e=true ->
+ bounded(abstract s e)(val r e).
+Proof.
+ intros S;induction e;cbn [legal abstract val];intro H;
+ try apply andb_true_iff in H as[H1 H2];
+ unfold bounded in *;cbn [lower upper] in *.
+ - lia.
+ - apply S.
+ - specialize(IHe1 H1);specialize(IHe2 H2);lia.
+ - apply product_bounds;auto.
+ - specialize(IHe H1);apply Z.ltb_lt in H2;split;apply Z.div_le_mono;lia.
+ - specialize(IHe H1);apply Z.ltb_lt in H2.
+   destruct((0<=?lower(abstract s e))&&(upper(abstract s e)<?d))eqn:B.
+   + apply andb_true_iff in B as[A B];apply Z.leb_le in A;apply Z.ltb_lt in B.
+     rewrite Z.mod_small by lia;exact IHe.
+   + cbn [lower upper];pose proof(Z.mod_pos_bound(val r e)d H2);lia.
+Qed.
+
 Theorem abstract_ok env s r e :
  (forall i, models env (s i) (r i)) -> legal e = true ->
  models env (abstract s e) (val r e).
 Proof.
- intros S; induction e; cbn [legal abstract val]; intro H;
- try apply andb_true_iff in H as [H1 H2];
- unfold models in *; cbn [term lower upper val] in *.
- - split; [reflexivity|lia].
- - apply S.
- - destruct (IHe1 H1), (IHe2 H2); split; [congruence|lia].
- - destruct (IHe1 H1), (IHe2 H2); split; [congruence|now apply product_bounds].
- - destruct (IHe H1) as [E [L U]]. apply Z.ltb_lt in H2; rewrite E.
-   split; [reflexivity|split; apply Z.div_le_mono; lia].
- - destruct (IHe H1) as [E [L U]]. apply Z.ltb_lt in H2.
-   destruct ((0 <=? lower (abstract s e)) && (upper (abstract s e) <? d)) eqn:B.
-   + apply andb_true_iff in B as [A B]. apply Z.leb_le in A; apply Z.ltb_lt in B.
-     rewrite Z.mod_small by lia. auto.
-   + cbn [term lower upper val]. rewrite E.
-     pose proof (Z.mod_pos_bound (val r e) d H2). split; [reflexivity|lia].
+ intros S H; split.
+ - revert H; induction e; cbn [legal abstract val]; intro H;
+   try apply andb_true_iff in H as [H1 H2].
+   + reflexivity.
+   + exact(proj1(S i)).
+   + cbn [term val];now rewrite (IHe1 H1),(IHe2 H2).
+   + cbn [term val];now rewrite (IHe1 H1),(IHe2 H2).
+   + cbn [term val];now rewrite (IHe H1).
+   + destruct((0<=?lower(abstract s e))&&(upper(abstract s e)<?d))eqn:B.
+     * rewrite (IHe H1);symmetry;apply Z.mod_small.
+       pose proof(abstract_bounds s r e (fun i=>proj2(S i)) H1)as Bounds.
+       apply andb_true_iff in B as[L U];apply Z.leb_le in L;apply Z.ltb_lt in U.
+       unfold bounded in Bounds;lia.
+     * cbn [term val];now rewrite (IHe H1).
+ - apply abstract_bounds;[intro i;exact(proj2(S i))|exact H].
 Qed.
 
 (* A caller can supply proved relational bounds, e.g. limb1+limb0/radix.
@@ -77,9 +95,9 @@ Proof.
  unfold models,valid_hint in *. rewrite Same in E. split; [exact E|now rewrite <-E].
 Qed.
 Example underflow_is_wrapped :
- term (abstract (fun _=>I (C 0) 0 0) (Rem (C (-1)) word)) = Rem (C (-1)) word.
+ term (abstract (fun _=>I (C 0) 0 0) (Rem (C (-1)) (2^64))) = Rem (C (-1)) (2^64).
 Proof. vm_compute; reflexivity. Qed.
 Example safe_subtraction_is_exact :
  term (abstract (fun i=>if Nat.eqb i 0 then I (V 0) 100 200 else I (V 1) 0 99)
-   (Rem (Plus (V 0) (Times (C (-1)) (V 1))) word)) = Plus (V 0) (Times (C (-1)) (V 1)).
+   (Rem (Plus (V 0) (Times (C (-1)) (V 1))) (2^64))) = Plus (V 0) (Times (C (-1)) (V 1)).
 Proof. vm_compute; reflexivity. Qed.
