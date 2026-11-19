@@ -20,7 +20,14 @@ Record block := Block { start : Z; body : list operation; terminator : exit }.
 Inductive section := Code (b : block) | Padding (bytes : list Z).
 Record program := Program { fragments : list (list instruction); sections : list section }.
 
-Definition fragment_code p id := nth id (fragments p) [].
+Definition lookup_fragment p id := nth_error (fragments p) id.
+(* Total serialization/proof view. Execution must resolve the reference with
+   lookup_fragment first; an absent fragment is never an empty execution. *)
+Definition fragment_code p id := match lookup_fragment p id with
+ | Some code => code | None => [] end.
+Lemma lookup_fragment_code p id code : lookup_fragment p id = Some code ->
+ fragment_code p id = code.
+Proof. intro H; unfold fragment_code; now rewrite H. Qed.
 (* Scalar encodings: Intel SDM vol. 2, MOV, LEA, ADD/SUB, DEC.
    https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html
    The vector moves use the encoders in Machine.Move. VPBROADCASTQ and VZEROUPPER:
@@ -70,7 +77,8 @@ Definition valid_op p op := match op with
  | MovReg d s => Nat.ltb d 16 && Nat.ltb s 16
  | LeaR8Rsi n => signed 32 n
  | LoadZmm d b n | StoreZmm d b n => encodable (d, Load b n)
- | VectorCode id => Nat.ltb id (length (fragments p)) && forallb encodable (fragment_code p id)
+ | VectorCode id => match lookup_fragment p id with
+   | Some code => forallb encodable code | None => false end
  end.
 Definition starts_block p pc := match lookup (sections p) pc with Some _ => true | None => false end.
 Definition valid_exit p b := let n := after p b in match terminator b with

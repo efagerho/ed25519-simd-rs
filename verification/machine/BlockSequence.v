@@ -7,7 +7,9 @@ Open Scope Z_scope.
    boundaries. Ordinary instructions emitted by expand_op are never VectorCode. *)
 Inductive body_instruction := Ordinary (op : operation) | SIMD (i : instruction).
 Definition expand_op p op := match op with
- | VectorCode id => map SIMD (fragment_code p id) | _ => [Ordinary op] end.
+ | VectorCode id => match lookup_fragment p id with
+   | Some code => map SIMD code | None => [Ordinary op] end
+ | _ => [Ordinary op] end.
 Definition instructions p b := flat_map (expand_op p) (body b).
 Definition no_fragments := Program [] [].
 Definition instruction_bytes i := match i with
@@ -55,9 +57,13 @@ Proof.
    | |- context [vector_ok l ?a ?w] => destruct (vector_ok l a w)
    | |- context [match ?v with pair _ _ => _ end] => destruct v
    end; reflexivity ].
- cbn [expand_op]. rewrite SIMD_sequence, (vector_sequence _ _ _ _ _ (capture_covers _ _)).
- unfold operation_effect, exec_op; cbn [fst snd]. unfold readable.
- destruct (forallb _ (load_operands (fragment_code p fragment))); reflexivity.
+ cbn [expand_op]. destruct (lookup_fragment p fragment) as [code|] eqn:F.
+ - rewrite SIMD_sequence, (vector_sequence _ _ _ _ _ (capture_covers _ _)).
+   unfold operation_effect; cbn [exec_op fst snd]; rewrite F.
+   unfold readable; destruct (forallb _ (load_operands code));
+   cbn [apply_result effects fold_left apply_effect];
+   try rewrite (lookup_fragment_code _ _ _ F); reflexivity.
+ - unfold operation_effect; cbn [exec_op fst snd]; rewrite F; reflexivity.
 Qed.
 
 Lemma body_effects_sequential p l ops s :
@@ -82,7 +88,9 @@ Proof.
  induction ops as [|op rest IH]; [reflexivity|].
  cbn [flat_map]. rewrite flat_map_app, IH. f_equal.
  destruct op; cbn [expand_op flat_map instruction_bytes op_bytes]; try apply app_nil_r.
- induction (fragment_code p fragment) as [|i tail T]; cbn; congruence.
+ unfold fragment_code; destruct (lookup_fragment p fragment) as [code|]; cbn.
+ - induction code as [|i tail T]; cbn; congruence.
+ - unfold fragment_code, lookup_fragment, no_fragments; destruct fragment; reflexivity.
 Qed.
 
 Lemma encoded_end p b :

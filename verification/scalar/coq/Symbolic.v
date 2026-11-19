@@ -9,12 +9,14 @@ Import ListNotations. Open Scope Z_scope.
    Masks are checked at each instruction; no special mask register is trusted. *)
 Definition rhs := ProofArithmetic.Symbolic.rhs 52.
 Definition step loads s dst op := match op with
- | Load b d=>loads b d | _=>abstract s(rhs dst op) end.
+ | Load b d=>loads b d | _=>match rhs dst op with Some e=>abstract s e | None=>s dst end end.
+Definition legal_rhs dst op := match op with Load _ _=>true
+ | _=>match rhs dst op with Some e=>legal e | None=>false end end.
 Definition singleton a n := (lower a=?n)&&(upper a=?n).
 Definition supported s op := match op with
  | Xor a b=>Nat.eqb a b | And _ b=>singleton(s b)(B-1)
  | MaddMem _ _ _ _=>false | _=>true end.
-Definition legal_step s (i:instruction) := encodable i && supported s(snd i) && legal(rhs(fst i)(snd i)).
+Definition legal_step s (i:instruction) := encodable i && supported s(snd i) && legal_rhs(fst i)(snd i).
 Fixpoint arun loads code s := match code with []=>s | (d,op)::tail=>
  arun loads tail(put s d(step loads s d op)) end.
 Fixpoint check loads code s := match code with []=>true | (d,op)::tail=>
@@ -24,13 +26,12 @@ Lemma singleton_sound env (s:nat->interval) (r:nat->Z) b n : (forall i,models en
  singleton(s b)n=true ->r b=n.
 Proof. intros H E;unfold singleton in E;rewrite andb_true_iff,!Z.eqb_eq in E.
  destruct(H b)as[_ Bound];destruct E;lia. Qed.
-Lemma rhs_ok env s load r d op : (forall i,models env(s i)(r i)) ->supported s op=true ->
- bits load r d op=match op with Load b disp=>load b disp | _=>val r(rhs d op) end.
+Lemma rhs_ok env s load r d op e : (forall i,models env(s i)(r i)) ->supported s op=true ->
+ rhs d op=Some e -> bits load r d op=val r e.
 Proof.
- intros M Form.
- pose proof(ProofArithmetic.Symbolic.rhs_ok 52 load r d op ltac:(lia))as Sound.
+ intros M Form;apply ProofArithmetic.Symbolic.rhs_ok;[lia|].
  destruct op;cbn [supported] in Form;try discriminate;
- apply Sound;cbn [ProofArithmetic.Symbolic.operand_ok];try exact Logic.I.
+ cbn [ProofArithmetic.Symbolic.operand_ok];try exact Logic.I.
  - now apply Nat.eqb_eq in Form.
  - pose proof(singleton_sound env s r b (B-1) M Form)as Mask;rewrite Mask;reflexivity.
 Qed.
@@ -46,8 +47,8 @@ Proof.
  cbn [arun run];apply IH;[| |exact Tail].
  - intros b disp I;apply Mem;unfold loads_of in *;cbn;apply in_or_app;now right.
  - intro i;unfold put;destruct(Nat.eqb d i);[|apply Reg].
-   rewrite(rhs_ok env s load r d op Reg Form).
-   destruct op;cbn [step];try(apply abstract_ok;assumption).
+   destruct op;cbn [step rhs ProofArithmetic.Symbolic.rhs legal_rhs supported] in *;try discriminate;
+   try (erewrite (rhs_ok env s) by (eassumption || reflexivity);apply abstract_ok;assumption).
    apply Mem;now left.
 Qed.
 

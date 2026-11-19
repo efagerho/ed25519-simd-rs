@@ -12,6 +12,11 @@ instruction semantics.
 | [Interval.v](Interval.v) | Signed bounds and symbolic values are sound; removing a remainder requires both interval endpoints in range. Refinement hints require proofs. |
 | [Symbolic.v](Symbolic.v) | Instruction expressions agree with the machine under explicit operand conditions. AND has a caller-selected mask width; IFMA stays 52-bit and wrapping arithmetic stays 64-bit. |
 
+Register-expression translation returns `None` for memory instructions.
+Its soundness theorem requires a successful translation and proves equality
+with the machine result without exceptions. Routine interpreters handle loads
+and memory IFMA explicitly; their checks reject unsupported translations.
+
 The field wrapper in `pow2/coq/Polynomial.v` specializes congruence to
 `2^255-19`. Scalar reduction imports the general checker directly. The
 routine symbolic interpreters retain their distinct load, mask-register,
