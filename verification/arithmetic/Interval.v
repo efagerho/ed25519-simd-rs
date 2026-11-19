@@ -1,84 +1,52 @@
 From Coq Require Import ZArith List Bool Lia Ring.
-From ProofArithmetic Require Export Expressions.
+From ProofArithmetic Require Export Ranges.
 Import ListNotations.
 Open Scope Z_scope.
 
-(* Signed mathematical intervals are needed before a wrapping subtraction.
-   A remainder is removed only when BOTH ends lie in its canonical range. *)
-Record interval := I { term : expr; lower : Z; upper : Z }.
-Definition models env a z := val env (term a) = z /\ lower a <= z <= upper a.
-Definition min4 a b c d := Z.min (Z.min a b) (Z.min c d).
-Definition max4 a b c d := Z.max (Z.max a b) (Z.max c d).
-Fixpoint abstract (s:nat -> interval) (e:expr) : interval :=
- match e with
- | V i => s i | C c => I (C c) c c
- | Plus a b => let x:=abstract s a in let y:=abstract s b in
-   I (Plus (term x) (term y)) (lower x+lower y) (upper x+upper y)
- | Times a b => let x:=abstract s a in let y:=abstract s b in
-   I (Times (term x) (term y))
-     (min4 (lower x*lower y) (lower x*upper y) (upper x*lower y) (upper x*upper y))
-     (max4 (lower x*lower y) (lower x*upper y) (upper x*lower y) (upper x*upper y))
- | Quot a d => let x:=abstract s a in I (Quot (term x) d) (lower x/d) (upper x/d)
- | Rem a d => let x:=abstract s a in
-   if (0 <=? lower x) && (upper x <? d) then x else I (Rem (term x) d) 0 (d-1)
- end.
-Fixpoint legal e := match e with
- | V _ | C _ => true
- | Plus a b | Times a b => legal a && legal b
- | Rem a d | Quot a d => legal a && (0 <? d) end.
-
-Lemma product_bounds l u v w x y : l<=x<=u -> v<=y<=w ->
- min4 (l*v) (l*w) (u*v) (u*w) <= x*y <= max4 (l*v) (l*w) (u*v) (u*w).
+(* Exact symbolic values carry a separate numeric enclosure. I is the
+   convenient constructor for expressions with two explicit endpoints. *)
+Record interval := SymbolicValue { term : expr; enclosure : bounds }.
+Definition I e lo hi := SymbolicValue e (Range lo hi).
+Definition lower a := lower_bound(enclosure a).
+Definition upper a := upper_bound(enclosure a).
+Definition models env a z := val env(term a)=z /\ lower a<=z<=upper a.
+Fixpoint abstract (s:nat->interval) e : interval := match e with
+ | V i=>s i | C n=>I(C n)n n
+ | Plus a b=>let x:=abstract s a in let y:=abstract s b in
+   SymbolicValue(Plus(term x)(term y))(add_bounds(enclosure x)(enclosure y))
+ | Times a b=>let x:=abstract s a in let y:=abstract s b in
+   SymbolicValue(Times(term x)(term y))(multiply_bounds(enclosure x)(enclosure y))
+ | Quot a d=>let x:=abstract s a in
+   SymbolicValue(Quot(term x)d)(quotient_bounds(enclosure x)d)
+ | Rem a d=>let x:=abstract s a in
+   if within_modulus(enclosure x)d then x else SymbolicValue(Rem(term x)d)(Range 0(d-1)) end.
+Lemma abstract_enclosure s e : enclosure(abstract s e)=range_eval(fun i=>enclosure(s i))e.
 Proof.
- intros X Y. unfold min4,max4.
- pose proof (Z.le_min_l (l*v) (l*w)). pose proof (Z.le_min_r (l*v) (l*w)).
- pose proof (Z.le_min_l (u*v) (u*w)). pose proof (Z.le_min_r (u*v) (u*w)).
- pose proof (Z.le_min_l (Z.min (l*v) (l*w)) (Z.min (u*v) (u*w))).
- pose proof (Z.le_min_r (Z.min (l*v) (l*w)) (Z.min (u*v) (u*w))).
- pose proof (Z.le_max_l (l*v) (l*w)). pose proof (Z.le_max_r (l*v) (l*w)).
- pose proof (Z.le_max_l (u*v) (u*w)). pose proof (Z.le_max_r (u*v) (u*w)).
- pose proof (Z.le_max_l (Z.max (l*v) (l*w)) (Z.max (u*v) (u*w))).
- pose proof (Z.le_max_r (Z.max (l*v) (l*w)) (Z.max (u*v) (u*w))).
- split; destruct (Z_le_dec 0 y); [destruct (Z_le_dec 0 l)|destruct (Z_le_dec 0 u)|destruct (Z_le_dec 0 u)|destruct (Z_le_dec 0 l)]; nia.
+ induction e;cbn [abstract range_eval I enclosure];try reflexivity;
+ try now rewrite ?IHe1,?IHe2,?IHe.
+ unfold remainder_bounds;rewrite <-IHe;destruct(within_modulus(enclosure(abstract s e))d);reflexivity.
 Qed.
-
-Definition bounded a z := lower a<=z<=upper a.
-Lemma abstract_bounds s r e : (forall i,bounded(s i)(r i)) ->legal e=true ->
- bounded(abstract s e)(val r e).
-Proof.
- intros S;induction e;cbn [legal abstract val];intro H;
- try apply andb_true_iff in H as[H1 H2];
- unfold bounded in *;cbn [lower upper] in *.
- - lia.
- - apply S.
- - specialize(IHe1 H1);specialize(IHe2 H2);lia.
- - apply product_bounds;auto.
- - specialize(IHe H1);apply Z.ltb_lt in H2;split;apply Z.div_le_mono;lia.
- - specialize(IHe H1);apply Z.ltb_lt in H2.
-   destruct((0<=?lower(abstract s e))&&(upper(abstract s e)<?d))eqn:B.
-   + apply andb_true_iff in B as[A B];apply Z.leb_le in A;apply Z.ltb_lt in B.
-     rewrite Z.mod_small by lia;exact IHe.
-   + cbn [lower upper];pose proof(Z.mod_pos_bound(val r e)d H2);lia.
-Qed.
+Lemma abstract_bounds s r e : (forall i,bounded(enclosure(s i))(r i)) ->legal e=true ->
+ bounded(enclosure(abstract s e))(val r e).
+Proof. rewrite abstract_enclosure;apply range_eval_sound. Qed.
 
 Theorem abstract_ok env s r e :
- (forall i, models env (s i) (r i)) -> legal e = true ->
- models env (abstract s e) (val r e).
+ (forall i,models env(s i)(r i)) ->legal e=true ->models env(abstract s e)(val r e).
 Proof.
- intros S H; split.
- - revert H; induction e; cbn [legal abstract val]; intro H;
-   try apply andb_true_iff in H as [H1 H2].
+ intros S H;split.
+ - revert H;induction e;cbn [legal abstract val];intro H;
+   try apply andb_true_iff in H as[H1 H2].
    + reflexivity.
    + exact(proj1(S i)).
    + cbn [term val];now rewrite (IHe1 H1),(IHe2 H2).
    + cbn [term val];now rewrite (IHe1 H1),(IHe2 H2).
    + cbn [term val];now rewrite (IHe H1).
-   + destruct((0<=?lower(abstract s e))&&(upper(abstract s e)<?d))eqn:B.
-     * rewrite (IHe H1);symmetry;apply Z.mod_small.
-       pose proof(abstract_bounds s r e (fun i=>proj2(S i)) H1)as Bounds.
-       apply andb_true_iff in B as[L U];apply Z.leb_le in L;apply Z.ltb_lt in U.
-       unfold bounded in Bounds;lia.
-     * cbn [term val];now rewrite (IHe H1).
+   + destruct(within_modulus(enclosure(abstract s e))d)eqn:B.
+     * rewrite(IHe H1);symmetry;apply Z.mod_small.
+       pose proof(abstract_bounds s r e (fun i=>proj2(S i)) H1)as Bound.
+       unfold within_modulus in B;apply andb_true_iff in B as[L U];
+       apply Z.leb_le in L;apply Z.ltb_lt in U;unfold bounded in Bound;lia.
+     * cbn [term val];now rewrite(IHe H1).
  - apply abstract_bounds;[intro i;exact(proj2(S i))|exact H].
 Qed.
 

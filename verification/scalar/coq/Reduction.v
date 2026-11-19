@@ -41,8 +41,8 @@ Lemma initial_models n r : (forall i,word64(r i)) ->constants_ok r ->bounded_sta
  forall i,models r(initial n i)(r i).
 Proof.
  intros Words Const Bound i;unfold initial;destruct(constants i)as[c|]eqn:C.
- - rewrite(Const _ _ C);unfold models;cbn [val term lower upper];split;[reflexivity|lia].
- - unfold models;cbn [val term lower upper];split;[reflexivity|].
+ - rewrite(Const _ _ C);unfold models;cbn [val term lower upper ProofArithmetic.Interval.I enclosure lower_bound upper_bound];split;[reflexivity|lia].
+ - unfold models;cbn [val term lower upper ProofArithmetic.Interval.I enclosure lower_bound upper_bound];split;[reflexivity|].
    destruct(Nat.ltb i 26)eqn:E.
    + apply Nat.ltb_lt in E;specialize(Bound i E);lia.
    + specialize(Words i);unfold word64,W in *;lia.

@@ -33,15 +33,15 @@ Lemma initial_models k r m : (forall i, word64 (r i)) -> operands k r ->
 Proof.
  intros Words [Bounds [C [Mask Bias]]] i.
  unfold initial. destruct (Nat.eqb i 28) eqn:E.
- - apply Nat.eqb_eq in E;subst;unfold models;cbn [term lower upper val];rewrite C;lia.
+ - apply Nat.eqb_eq in E;subst;unfold models;cbn [term lower upper val ProofArithmetic.Interval.I enclosure lower_bound upper_bound];rewrite C;lia.
  - destruct (Nat.eqb i 29) eqn:M.
-   + apply Nat.eqb_eq in M;subst;unfold models;cbn [term lower upper val];rewrite Mask;lia.
+   + apply Nat.eqb_eq in M;subst;unfold models;cbn [term lower upper val ProofArithmetic.Interval.I enclosure lower_bound upper_bound];rewrite Mask;lia.
    + destruct (needs_bias k && Nat.leb 30 i && Nat.ltb i 32) eqn:B.
      * repeat rewrite andb_true_iff in B;destruct B as [[K L] U].
        apply Nat.leb_le in L;apply Nat.ltb_lt in U.
        assert (i=30%nat \/ i=31%nat) by lia. destruct (Bias K) as [A B].
-       destruct H as [-> | ->];unfold models;cbn [term lower upper val Nat.sub];rewrite ?A,?B;lia.
-     * unfold models;cbn [term lower upper];rewrite env_reg;split;[reflexivity|].
+       destruct H as [-> | ->];unfold models;cbn [term lower upper val Nat.sub ProofArithmetic.Interval.I enclosure lower_bound upper_bound];rewrite ?A,?B;lia.
+     * unfold models;cbn [term lower upper ProofArithmetic.Interval.I enclosure lower_bound upper_bound];rewrite env_reg;split;[reflexivity|].
        destruct (Nat.ltb i 10) eqn:I.
        -- apply Nat.ltb_lt in I;apply Bounds;exact I.
        -- unfold input_bound;rewrite I. specialize (Words i);unfold word64,word in *;lia.
@@ -63,7 +63,7 @@ Proof.
  apply Nat.eqb_eq in Base;subst b. apply Z.leb_le in D;apply Z.eqb_eq in Align;apply Nat.ltb_lt in I.
  assert (Disp:d=64*Z.of_nat(Z.to_nat(d/64))).
  { rewrite Z2Nat.id by (apply Z.div_pos;lia). pose proof (Z.div_mod d 64 ltac:(lia));lia. }
- unfold models,loads;cbn [term lower upper];rewrite env_mem.
+ unfold models,loads;cbn [term lower upper ProofArithmetic.Interval.I enclosure lower_bound upper_bound];rewrite env_mem.
  pose proof (Mem (Z.to_nat(d/64)) I) as E; rewrite <-Disp in E.
  rewrite E. split;[reflexivity|apply R;exact I].
 Qed.

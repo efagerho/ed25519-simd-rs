@@ -1,9 +1,9 @@
-From ProofArithmetic Require Import Interval.
+From ProofArithmetic Require Import Ranges.
 From Coq Require Import List ZArith Bool Lia Ring.
 From Machine Require Import Blocks Instructions WordBounds.
 Require Import Program CachedAddABI FieldSpec Polynomial Symbolic Kernels KernelInterface Lane Control Bounds.
 Import ListNotations. Open Scope Z_scope.
-Definition includes a lo hi := (lo<=?lower a)&&(upper a<=?hi).
+Definition includes a lo hi := (lo<=?lower_bound a)&&(upper_bound a<=?hi).
 Lemma includes_sound a lo hi x : includes a lo hi=true ->bounded a x ->lo<=x<=hi.
 Proof. unfold includes,bounded;rewrite andb_true_iff,!Z.leb_le;lia. Qed.
 Definition kernel_inputs k (b:bstate) bases :=

@@ -1,4 +1,4 @@
-From Coq Require Import ZArith List.
+From Coq Require Import ZArith List Bool.
 Import ListNotations. Open Scope Z_scope.
 
 (* Quotients are atoms in ring identities, with their actual integer meaning.
@@ -13,3 +13,8 @@ Fixpoint val (env:nat -> Z) (e:expr) : Z :=
   | Quot x d => val env x / d | Rem x d => val env x mod d end.
 Definition expr_dec (a b:expr) : {a=b}+{a<>b}.
 Proof. decide equality; first [apply Z.eq_dec | apply Nat.eq_dec]. Defined.
+
+Fixpoint legal e := match e with
+ | V _ | C _ => true
+ | Plus a b | Times a b => legal a && legal b
+ | Rem a d | Quot a d => legal a && (0 <? d) end.

@@ -33,8 +33,8 @@ Proof.
  apply andb_true_iff in Check as[C Bounds];apply andb_true_iff in C as[Legal Targets].
  assert(Models:forall i,models r(initial i)(r i)).
  { intro i;unfold initial;destruct(Nat.eqb i 29)eqn:E.
-   - apply Nat.eqb_eq in E;subst i;rewrite Mask;unfold models;cbn [val term lower upper];split;[reflexivity|lia].
-   - unfold models;cbn [val term lower upper];split;[reflexivity|specialize(Words i);unfold word64,W in *;lia]. }
+   - apply Nat.eqb_eq in E;subst i;rewrite Mask;unfold models;cbn [val term lower upper ProofArithmetic.Interval.I enclosure lower_bound upper_bound];split;[reflexivity|lia].
+   - unfold models;cbn [val term lower upper ProofArithmetic.Interval.I enclosure lower_bound upper_bound];split;[reflexivity|specialize(Words i);unfold word64,W in *;lia]. }
  pose proof(run_ok r no_loads load code initial r ltac:(intros b d I;change(In(b,d)[])in I;contradiction) Models Legal)as Model.
  change(forall i,models r(result i)(run load code r i))in Model.
  assert(Value:forall i,(i<28)%nat ->run load code r i=val r(target i)).

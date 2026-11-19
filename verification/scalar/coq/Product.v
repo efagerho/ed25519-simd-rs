@@ -34,7 +34,7 @@ Definition target := Plus(Times(packE V 18)(C multiplier0))(Times(packE V 23)(C 
 Lemma input_models r : input_valid r ->forall i,models r(initial i)(r i).
 Proof.
  intros[Zero Bound]i;unfold initial;destruct(Nat.ltb i 18)eqn:E;
- unfold models;cbn [term lower upper val].
+ unfold models;cbn [term lower upper val ProofArithmetic.Interval.I enclosure lower_bound upper_bound].
  - apply Nat.ltb_lt in E;rewrite(Zero i E);split;[reflexivity|lia].
  - split;[reflexivity|apply Bound].
 Qed.
