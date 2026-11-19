@@ -44,6 +44,14 @@ arithmetic proof. The finite search supplies a witness for the unbounded
 `returns` relation. Kernel dependency proofs justify reusing the arithmetic
 lemmas with arbitrary incoming scratch registers. [Control and data proofs](coq/Execution.v) · [Register dependencies](../machine/Dependencies.v)
 
+The public contract separately guarantees `output_initialized`: every byte
+at offsets 0 through 639 from the entry output pointer occurs in the write
+footprint of that returning execution. The proof derives the ten output
+stores from the checked control path and proves that their 64-byte spans
+cover the whole output. This guarantee requires no arithmetic limb bound
+and holds for arbitrary initial output contents. [Contract](coq/Pow2Memory.v) ·
+[Trace coverage](coq/FrameProof.v) · [Regression examples](coq/ByteEntryTests.v)
+
 The byte proof assigns concrete bases to the buffers, stack and code, and a
 concrete address to `Caller`. It records stores, calls and returns along the
 executed path. A vector store writes 64 little-endian bytes and a call

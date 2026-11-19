@@ -23,6 +23,9 @@ Definition pow2_contract (symbol_bytes : list Z) : Prop :=
          free private slot. Every RET reads its own saved address from the
          shared byte memory, including the caller's original return address. *)
       memory_safe pow2_program (Z.of_nat (List.length symbol_bytes)) initial final /\
+      (* All 640 bytes at the entry RDI pointer are written before returning,
+         independently of the input limb bounds or previous output contents. *)
+      output_initialized pow2_program initial final /\
       (* If all input limbs are in [0, 2^52), each lane value x in a or b
          gives a result congruent to x^(2^252 - 3) modulo (2^255 - 19) in
          the first or second output half, respectively, at the entry RDI pointer.
@@ -31,8 +34,9 @@ Definition pow2_contract (symbol_bytes : list Z) : Prop :=
       pow2_spec a b (output_words initial final)) /\
   (* A concrete ABI entry constructs its logical views from one byte array.
      Every represented integer/vector word stays in [0, 2^64). At each trace
-     prefix, decoding vector bytes gives exactly the logical qwords. The
-     final output bytes satisfy the same field specification, and bytes
-     outside the permitted output/stack writes are preserved. Initial byte
+     prefix, decoding vector bytes gives exactly the logical qwords. All
+     output bytes are written before return, the final output bytes satisfy
+     the same field specification, and bytes outside the permitted
+     output/stack writes are preserved. Initial byte
      agreement is proved by construction, not assumed by the caller. *)
   concrete_pow2_contract pow2_program (Z.of_nat (List.length symbol_bytes)).

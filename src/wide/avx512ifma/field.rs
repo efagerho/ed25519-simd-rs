@@ -564,7 +564,8 @@ impl WideFe {
         let mut out = core::mem::MaybeUninit::<[Self; 2]>::uninit();
         // repr(C) places the five limb vectors at offsets 0,64,...,256.
         // Both inputs are readable, and the distinct output holds ten vectors.
-        // The routine writes all ten before returning, including on zero inputs.
+        // Audit.pow2_contract's output_initialized guarantee covers all 640
+        // bytes before return, independently of the arithmetic limb bounds.
         unsafe {
             ed25519_simd_pow2_ifma(
                 out.as_mut_ptr().cast(),

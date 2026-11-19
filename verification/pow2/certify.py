@@ -6,8 +6,8 @@ import sys
 
 HERE = Path(__file__).resolve().parent
 PROOF_MODULES = ("FieldSpec", "Polynomial", "Pow2Caller", "Lane", "Chain", "Buffers",
-                 "Pow2ABI", "Pow2Memory", "Pow2Bytes", "ByteEntryTests", "Audit",
-                 "FrameProof", "Linked", "Execution")
+                 "Pow2ABI", "Pow2Memory", "Pow2Bytes", "Audit", "ByteEntryTests",
+                 "Linked", "Execution", "FrameProof")
 LOAD_PATH = ("-Q", "machine", "Machine")
 
 

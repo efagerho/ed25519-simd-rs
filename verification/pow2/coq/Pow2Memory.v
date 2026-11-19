@@ -61,6 +61,15 @@ Definition memory_safe p code_size (initial final : state) :=
    writes_only allowed_write es /\ balanced [(caller_slot,Caller)] es /\
    flat_frame p code_size es initial final.
 
+(* Every byte of the 640-byte output at the entry RDI pointer is actually
+   written along the returning execution. This has no arithmetic precondition
+   and does not depend on the previous contents of the output storage. *)
+Definition output_initialized p (initial final : state) :=
+ exists out fuel es,
+   Blocks.gpr (fst initial) 7%nat = Ptr out /\
+   record_path fuel p abi_layout (fst initial) = Some (fst final,es) /\
+   forall loc k, 0 <= k < 640 -> writes_at loc es (address_of loc out+k).
+
 (* SysV AMD64 nonvolatile integer registers: RBX, RBP and R12 through R15.
    RSP has its own postcondition because RET consumes an eight-byte address. *)
 Definition saved_registers := [3;5;12;13;14;15]%nat.
