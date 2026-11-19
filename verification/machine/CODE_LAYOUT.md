@@ -41,6 +41,7 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 | [MemoryGeometry.v](MemoryGeometry.v) | Region-relative vector alignment, disjointness, and reflected region-membership checks. |
 | [MemoryCoverage.v](MemoryCoverage.v) | Checked vector-write coverage implies initialization of every byte in the output region. |
 | [ByteExecution.v](ByteExecution.v) | Shared trace-frame and concrete-memory lifting proofs, including prefix reads, caller-byte preservation, and every stack pop. |
+| [ScalarRefinement.v](ScalarRefinement.v) | Concrete qword scalar effects and stack transfers, their representation relation, operation/body/block refinement with explicit placement and byte-read premises, and preservation of concrete word bounds. |
 | [Alignment.v](Alignment.v) | Relates clearing six low address bits to relative pointer alignment at a 64-byte-aligned region origin. |
 | [proofs/README.md](proofs/README.md) | States the open obligation to decode the model's bytes with an independent x86 ISA specification and prove agreement on register and memory effects. |
 

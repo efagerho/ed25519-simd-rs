@@ -1,4 +1,4 @@
-From Machine Require Import LayoutProofs.
+From Machine Require Import LayoutProofs ScalarRefinement.
 From Coq Require Import List ZArith.
 From Machine Require Blocks.
 Require Import Program Pow2ABI Pow2Memory Pow2Bytes FieldSpec.
@@ -10,6 +10,9 @@ Definition pow2_contract (symbol_bytes : list Z) : Prop :=
      call, jump, and fallthrough targets start a basic block. *)
   Blocks.valid_program pow2_program = true /\
   program_layout pow2_program /\
+  (* Scalar operations refine qword semantics under explicit alignment and
+     stack-byte premises; this is not independent ISA refinement. *)
+  scalar_model_refinement pow2_program /\
   (* Every call that satisfies the entry convention reaches a final state
      with the properties below. *)
   (forall initial a b, valid_pow2_entry initial a b ->

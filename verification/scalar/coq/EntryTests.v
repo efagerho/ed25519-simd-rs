@@ -35,7 +35,7 @@ Example maximal_input_is_covered symbol_bytes : Audit.scalar_contract symbol_byt
  returns Program.scalar_program abi_layout maximal_entry final /\
  scalar_spec(words_at(memory(snd maximal_entry))input)(words_at(memory(snd final))output).
 Proof.
- intros[_[_[_[Run _]]]].
+ intros[_[_[_[_[Run _]]]]].
  assert(Entry:valid_scalar_entry maximal_entry).
  { split;[eexists;reflexivity|split;intros;change(0<=2^64-1<2^64);lia]. }
  destruct(Run _ Entry)as[final[R[_[_[_[_ Spec]]]]]];exists final;auto.

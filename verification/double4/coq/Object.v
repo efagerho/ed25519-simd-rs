@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith.
-From Machine Require Import Blocks LayoutProofs.
+From Machine Require Import Blocks LayoutProofs ScalarRefinement.
 Require Import Program Double4ABI Double4Memory Double4Bytes Double4Spec.
 Require Audit Logical FrameProof ReadFootprint ObjectBytes Round.
 Definition object_bytes := ObjectBytes.symbol_bytes.
@@ -16,7 +16,8 @@ Qed.
 Theorem assembled_double4_correct : Audit.double4_contract object_bytes.
 Proof.
  split;[vm_compute;reflexivity|];split;[exact Round.block_layout_checked|];
- split;[apply valid_program_sound;exact Round.block_layout_checked|];split.
+ split;[apply valid_program_sound;exact Round.block_layout_checked|];
+ split;[apply scalar_model_refinement_checked|];split.
  - intros initial pad Entry;destruct(logical_execution (Z.of_nat(length object_bytes)) _ _ Entry)as[final[R[SP[Regs[Mem[Init Spec]]]]]].
    exists final;split;[exact R|];split;[exact SP|];split;[exact Regs|];split;[exact Mem|];split;[exact Init|];split;
    [eapply ReadFootprint.input_t_unread_correct;eassumption|exact Spec].

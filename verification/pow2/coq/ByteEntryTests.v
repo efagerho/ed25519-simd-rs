@@ -56,7 +56,7 @@ Example public_initialization_without_field_input_bound symbol_bytes :
  exists final, returns Program.pow2_program abi_layout maximal_word_entry final /\
    output_initialized Program.pow2_program maximal_word_entry final.
 Proof.
- intros [_ [_ [_ [Run _]]]].
+ intros [_ [_ [_ [_ [Run _]]]]].
  assert (Entry : valid_pow2_entry maximal_word_entry (fun _ => 2^64-1) (fun _ => 2^64-1)).
  { split; [eexists; reflexivity|]. split; intros; reflexivity. }
  destruct (Run _ _ _ Entry) as [final [R [_ [_ [_ [Init _]]]]]].
