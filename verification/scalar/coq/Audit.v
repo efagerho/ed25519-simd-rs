@@ -1,3 +1,4 @@
+From Machine Require Import LayoutProofs.
 From Coq Require Import List ZArith.
 From Machine Require Import Blocks.
 Require Import Program ScalarABI ScalarSpec ScalarMemory ScalarBytes.
@@ -8,6 +9,7 @@ Definition scalar_contract (symbol_bytes : list Z) : Prop :=
   (* The instruction model encodes exactly the linked function. *)
   image scalar_program = symbol_bytes /\
   valid_program scalar_program = true /\
+  program_layout scalar_program /\
   (* Every unsigned 512-bit input is covered; there is no limb-bound premise. *)
   (forall initial, valid_scalar_entry initial -> exists final,
     returns scalar_program abi_layout initial final /\

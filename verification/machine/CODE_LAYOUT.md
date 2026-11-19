@@ -19,6 +19,7 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 | File | Contents |
 | --- | --- |
 | [ProgramLayout.v](ProgramLayout.v) | Block bodies, terminators, shared vector fragments, and padding. `image` emits bytes. `valid_program` checks encodability, contiguous layout, and static control-flow targets. |
+| [LayoutProofs.v](LayoutProofs.v) | Proves that successful layout validation locates block bytes in the image, gives unique fetches and non-overlapping blocks, resolves vector fragments, and establishes static targets. |
 | [Assembly.v](Assembly.v) | Assembles addressed source blocks into a program. Collects vector fragments and computes call and jump displacements relative to the end of the instruction. |
 | [IntelSyntax.v](IntelSyntax.v) | Coq notation for register names, memory operands, scalar and vector instructions, and named branch targets. Exposes `assemble` to listings that import the notation. |
 | [MachineState.v](MachineState.v) | Region-relative pointers, vector-cell and return-slot permissions, PC, GPRs, ZF, ZMM registers, and memory. Defines the control and data components of `state` and their accessors. |

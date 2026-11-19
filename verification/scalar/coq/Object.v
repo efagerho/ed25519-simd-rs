@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith.
-From Machine Require Import Blocks.
+From Machine Require Import Blocks LayoutProofs.
 Require Import Program ScalarABI ScalarSpec ScalarMemory ScalarBytes.
 Require Audit Logical FrameProof ObjectBytes Control.
 Definition object_bytes := ObjectBytes.symbol_bytes.
@@ -15,7 +15,8 @@ Proof.
 Qed.
 Theorem assembled_scalar_correct : Audit.scalar_contract object_bytes.
 Proof.
- split;[vm_compute;reflexivity|];split;[exact Control.block_layout_checked|];split.
+ split;[vm_compute;reflexivity|];split;[exact Control.block_layout_checked|];
+ split;[apply valid_program_sound;exact Control.block_layout_checked|];split.
  - apply logical_execution.
  - apply concrete_contract_from_logical,logical_execution.
 Qed.
