@@ -1,8 +1,9 @@
 # Formal verification
 
 Coq proofs cover paired field exponentiation, four in-place point doublings,
-cached point addition, and scalar reduction modulo L in the optional
-`asm-pow2`, `asm-double4`, `asm-cached-add`, and `asm-scalar` backends.
+cached point addition, and scalar reduction modulo L enabled by the optional
+`asm` feature. The radix-256 ladder-step wrapper also enabled by `asm` is not
+yet formally verified.
 Each routine has one public contract binding its
 arithmetic, memory and ABI guarantees to the exact bytes of its linked
 symbol. These are proofs in the tested machine model; independent refinement
@@ -19,14 +20,16 @@ to an x86 ISA specification remains open.
 
 ## Build with or without the proof
 
-On x86-64 Linux, the four `asm-*` features assemble their respective sources
-with Rust's built-in assembler. The corresponding `verify-asm-*` features enable
-the backend, check its Coq proof, and embed the exact bytes that passed. Proof checking is off by default; the features are independent.
+On x86-64 Linux, `asm` assembles all five backends with Rust's built-in
+assembler. Each `verify-asm-*` feature enables `asm`, checks the named
+routine's Coq proof, and embeds that routine's exact bytes that passed.
+Proof checking is off by default and can be selected independently for each
+of the four proved routines. These checks do not certify the ladder-step wrapper.
 
 ```sh
 export RUSTFLAGS="-C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma"
-cargo build --release --features asm-pow2         # Assembly only
-cargo build --release --features verify-asm-pow2  # Assembly with the proof checked
+cargo build --release --features asm            # All assembly, no build-time proof checking
+cargo build --release --features verify-asm-pow2 # All assembly, with the pow2 proof checked
 cargo build --release --features verify-asm-pow2,verify-asm-double4,verify-asm-cached-add,verify-asm-scalar  # All four proofs
 ```
 

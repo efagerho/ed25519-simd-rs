@@ -128,18 +128,10 @@ fn double4_matches_rust_at_loose_bounds_and_ignores_t() {
     }
 }
 
-#[cfg(all(
-    feature = "asm-double4",
-    target_os = "linux",
-    target_pointer_width = "64"
-))]
+#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
 core::arch::global_asm!(include_str!("double4_abi.S"), options(raw));
 
-#[cfg(all(
-    feature = "asm-double4",
-    target_os = "linux",
-    target_pointer_width = "64"
-))]
+#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
 #[test]
 fn double4_preserves_sysv_registers() {
     unsafe extern "C" {
@@ -166,8 +158,9 @@ fn double4_preserves_sysv_registers() {
     }
 }
 
-/// Run pinned to one core, in release mode, always with `asm-pow2` enabled.
-/// Add `asm-double4` to measure assembly, omit it to measure Rust doubling.
+/// Run pinned to one core, in release mode, always with `asm` enabled.
+/// ED25519_DOUBLE4_PATH=rust measures the reference; the default is assembly.
+/// Both paths retain assembly pow2.
 /// Set ED25519_DOUBLE4_ITERS for longer instruction-sampling runs.
 #[test]
 #[ignore = "isolated four-doubling benchmark"]
@@ -176,11 +169,11 @@ fn profile_double4() {
     use std::{hint::black_box, time::Instant};
     assert!(
         cfg!(all(
-            feature = "asm-pow2",
+            feature = "asm",
             target_os = "linux",
             target_pointer_width = "64"
         )),
-        "double4 benchmarks require the asm-pow2 backend"
+        "double4 benchmarks require the asm backend"
     );
     assert!(!cfg!(debug_assertions), "benchmark in release mode");
     let iterations: usize = std::env::var("ED25519_DOUBLE4_ITERS")
@@ -191,17 +184,23 @@ fn profile_double4() {
         })
         .unwrap_or(2_000_000);
     assert!(iterations > 0);
-    let (mut point, mask) = decompress_points_wide(&[BASEPOINT_COMPRESSED; LANES]);
+    let path = std::env::var("ED25519_DOUBLE4_PATH").unwrap_or("selected".into());
+    let (point, mask) = decompress_points_wide(&[BASEPOINT_COMPRESSED; LANES]);
     assert_eq!(mask, u8::MAX);
-    for _ in 0..10_000 {
-        black_box(&mut point).double_four_times_assign();
-    }
-    let start = Instant::now();
-    for _ in 0..iterations {
-        black_box(&mut point).double_four_times_assign();
-    }
-    eprintln!(
-        "{:.1} ns/double4 ({iterations} calls, asm-pow2 enabled)",
+    fn measure(mut point: WidePoint, iterations: usize, double: impl Fn(&mut WidePoint)) -> f64 {
+        for _ in 0..10_000 {
+            double(black_box(&mut point));
+        }
+        let start = Instant::now();
+        for _ in 0..iterations {
+            double(black_box(&mut point));
+        }
         start.elapsed().as_secs_f64() * 1e9 / iterations as f64
-    );
+    }
+    let ns = match path.as_str() {
+        "selected" => measure(point, iterations, WidePoint::double_four_times_assign),
+        "rust" => measure(point, iterations, WidePoint::double_four_times_assign_rust),
+        _ => panic!("unknown double4 path: {path}"),
+    };
+    eprintln!("{ns:.1} ns/double4 ({path}, {iterations} calls, asm enabled)");
 }

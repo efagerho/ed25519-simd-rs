@@ -13,6 +13,7 @@ use serde_json::Value;
 
 mod cached_add;
 mod double4;
+mod ladder_step;
 
 const VECTOR_JSON: &str = include_str!("../../../tests/vectors/avx512ifma.json");
 
@@ -252,7 +253,7 @@ fn pow_variants_match_vectors() {
     assert_wide_bytes(paired_b, cases, "pow_a", 3);
 }
 
-/// Run in release mode, pinned to one core, with `asm-pow2` enabled.
+/// Run in release mode, pinned to one core, with `asm` enabled.
 /// Set ED25519_POW2_ITERS for longer profiling runs.
 #[test]
 #[ignore = "isolated paired exponentiation benchmark"]
@@ -262,11 +263,11 @@ fn profile_paired_exponentiation() {
 
     assert!(
         cfg!(all(
-            feature = "asm-pow2",
+            feature = "asm",
             target_os = "linux",
             target_pointer_width = "64"
         )),
-        "paired exponentiation benchmarks require the asm-pow2 backend"
+        "paired exponentiation benchmarks require the asm backend"
     );
     assert!(!cfg!(debug_assertions), "benchmark in release mode");
     let iterations: usize = std::env::var("ED25519_POW2_ITERS")
@@ -297,7 +298,7 @@ fn profile_paired_exponentiation() {
         run();
     }
     eprintln!(
-        "{:.1} ns/pair ({iterations} calls, asm-pow2 enabled)",
+        "{:.1} ns/pair ({iterations} calls, asm enabled)",
         start.elapsed().as_secs_f64() * 1e9 / iterations as f64
     );
 }

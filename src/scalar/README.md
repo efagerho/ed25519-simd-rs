@@ -1,11 +1,12 @@
 # Scalar reduction assembly
 
-On x86-64 Linux, `asm-scalar` replaces the eight-lane 512-bit challenge
-reduction with `reduce.S`. The Rust reducer remains the default and the test
-reference. Radix-16 recoding stays in Rust. The [Coq certificate](../../verification/scalar/README.md)
+On x86-64 Linux, `asm` enables all assembly backends, including `reduce.S`
+for eight-lane 512-bit challenge reduction. The Rust reducer remains the default
+and the test reference. Radix-16 recoding stays in Rust.
+The [Coq certificate](../../verification/scalar/README.md)
 proves canonical reduction, ABI preservation, and concrete byte-memory safety
 for the linked assembly. `verify-asm-scalar` checks that proof during the build
-and embeds only the certified bytes.
+and embeds the certified bytes for this routine. It also enables `asm`.
 
 The assembly takes disjoint input/output buffers of 512/320 bytes, without
 vector alignment requirements. Each input row contains one 64-bit word from
@@ -29,8 +30,9 @@ IFMAs. The high-half products remain necessary. The assembly comments record
 the intermediate bounds that prevent overflow.
 
 On an AMD EPYC 9555P, pinned to CPU 4, seven alternating release runs of
-15 million calls gave these medians. Every build enabled `asm-pow2`,
-`asm-double4`, and `asm-cached-add`; one call reduces eight scalars.
+15 million calls gave these medians. Every build used assembly for paired
+field exponentiation, four point doublings, and cached point addition;
+one call reduces eight scalars.
 
 | Implementation | ns/call |
 |---|---:|
@@ -55,7 +57,7 @@ alignments, canaries, read-only input, and guard pages.
 
 ```sh
 export RUSTFLAGS='-C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma'
-features=asm-pow2,asm-double4,asm-cached-add,asm-scalar
+features=asm
 cargo test --release --features "$features"
 taskset -c 4 cargo test --release --features "$features" --lib \
   scalar::wide::tests::profile_scalar_reduce -- --exact --ignored --nocapture
@@ -65,4 +67,4 @@ ED25519_SCALAR_PATH=rust taskset -c 4 cargo test --release \
 ```
 
 Set `ED25519_SCALAR_ITERS` to change the profiling duration. The ignored
-benchmark requires release mode and `asm-pow2`.
+benchmark requires release mode and `asm`, including assembly pow2.

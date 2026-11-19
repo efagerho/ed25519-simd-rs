@@ -121,7 +121,7 @@ cargo build --release --features verify-asm-pow2,verify-asm-double4
 
 The build runs the same theorem and emits literal certified bytes through
 [`review.py`](review.py). Release auditing still checks the final linked
-artifact. `asm-double4` alone selects the same assembly without requiring
+artifact. `asm` selects this and all other assembly backends without requiring
 the proof toolchain.
 
 The optional case export covers every modeled vector instruction occurrence

@@ -3,7 +3,7 @@ use crate::scalar::is_canonical;
 use rand::{RngCore, SeedableRng, rngs::StdRng};
 
 #[cfg(all(
-    feature = "asm-scalar",
+    feature = "asm",
     target_os = "linux",
     target_arch = "x86_64",
     target_pointer_width = "64"
@@ -91,7 +91,7 @@ fn full_width_reduction_matches_rust_and_independent_scalar() {
     }
 }
 
-/// Pin to one core and enable asm-pow2. ED25519_SCALAR_PATH=rust compares the
+/// Pin to one core and enable asm. ED25519_SCALAR_PATH=rust compares the
 /// reference; the default measures the selected backend. Set
 /// ED25519_SCALAR_ITERS for longer instruction-sampling runs.
 #[test]
@@ -101,11 +101,11 @@ fn profile_scalar_reduce() {
     use std::{hint::black_box, time::Instant};
     assert!(
         cfg!(all(
-            feature = "asm-pow2",
+            feature = "asm",
             target_os = "linux",
             target_pointer_width = "64"
         )),
-        "benchmarks require asm-pow2"
+        "benchmarks require asm"
     );
     assert!(!cfg!(debug_assertions), "benchmark in release mode");
     let iterations: usize = std::env::var("ED25519_SCALAR_ITERS")
@@ -134,9 +134,7 @@ fn profile_scalar_reduce() {
         "selected" => measure(&words, iterations, WideScalar52::from_wide_words),
         _ => panic!("unknown scalar path: {path}"),
     };
-    eprintln!(
-        "{ns:.2} ns/scalar-reduce ({path}, eight lanes, {iterations} calls, asm-pow2 enabled)"
-    );
+    eprintln!("{ns:.2} ns/scalar-reduce ({path}, eight lanes, {iterations} calls, asm enabled)");
 }
 
 #[test]

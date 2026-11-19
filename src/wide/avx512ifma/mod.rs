@@ -1,5 +1,6 @@
 mod decode;
 mod field;
+mod ladder_step;
 mod multiscalar;
 mod point;
 mod tables;
