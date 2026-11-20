@@ -27,8 +27,6 @@ def run_case(work, audit, case):
         (work / dep).symlink_to(audit / dep)
     dest = work / "Torsion"
     dest.mkdir()
-    for dep in ("Zero", "Arithmetic", "Check"):
-        (dest / (dep + ".vo")).symlink_to(audit / "Torsion" / (dep + ".vo"))
     source = SOURCE.read_text()
     if source.count(before) != 1:
         raise ValueError(f"{name}: expected one assembly mutation site")

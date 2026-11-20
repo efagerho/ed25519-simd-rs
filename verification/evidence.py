@@ -33,13 +33,16 @@ def tool_versions():
 
 def write_evidence(binary, work, component, checks, symbols, sources, flags, cases=None):
     """Retain one checked declaration and all of its linked symbol inputs."""
+    coq_sources = sorted(work.rglob("*.v"))
     dest = work / "sources"
     dest.mkdir()
     for path in sources:
         shutil.copyfile(path, dest / path.name)
     for path in [HERE / "proof_build.py", HERE / "elf.py", Path(__file__)]:
         shutil.copyfile(path, dest / path.name)
-    dependencies = {"pow2", component}
+    if component in ("torsion", "small_order"):
+        shutil.copyfile(HERE / "mask_listing.py", dest / "mask_listing.py")
+    dependencies = {component} if component == "small_order" else {"pow2", component}
     if component == "ladder_step":
         dependencies.update(("double4", "cached_add"))
     for name in sorted(dependencies):
@@ -48,7 +51,6 @@ def write_evidence(binary, work, component, checks, symbols, sources, flags, cas
         for path in (HERE / "crate" / name).glob("*.py"):
             shutil.copyfile(path, directory / path.name)
 
-    coq_sources = sorted(work.rglob("*.v"))
     write_project(work, flags, coq_sources)
     retained = [*coq_sources, *(p for p in dest.rglob("*") if p.is_file()),
                 *work.rglob("_CoqProject"), *work.rglob("*.expanded.S"),

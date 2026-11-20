@@ -29,6 +29,7 @@ tests/Representation.v
 tests/model/Oracle.v
 tests/Control.v
 tests/Mask.v
+tests/Filter.v
 tests/Mixed.v
 tests/Prologue.v
 tests/Aligned.v

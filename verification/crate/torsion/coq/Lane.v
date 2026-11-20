@@ -3,21 +3,14 @@ From Machine Require Import execution.MaskTrace execution.CircuitFacts.
 From ProofArithmetic Require Import Expressions.
 From Curve25519 Require Import Field Radix51 Edwards Torsion.
 From Ed25519Simd Require Import Wide51.
-From Ed25519Simd.Torsion Require Import Audit Arithmetic Check Schedule Masks.
+From Ed25519Simd.Torsion Require Import Audit Schedule Masks.
+From Ed25519Simd.field51 Require Import Arithmetic Check.
 Import ListNotations. Local Open Scope Z_scope.
-
-Definition bit_spec (b:Z) (P:Prop) := (b=0 \/ b=1) /\ (b=1 <-> P).
-Local Lemma zero_spec a b : represents a b -> bit_spec (bit_of_zero a) (b mod prime=0).
-Proof. intro R;unfold bit_of_zero,bit_spec;rewrite (represents_mod _ _ R).
- destruct (Z.eqb_spec (b mod prime) 0); intuition discriminate. Qed.
-Local Lemma or_spec a b P Q : bit_spec a P -> bit_spec b Q ->
- bit_spec (Z.lor a b) (P \/ Q).
-Proof. intros [[->| ->] A] [[->| ->] B];cbn; unfold bit_spec;intuition discriminate. Qed.
 
 Definition environment p r j (w:nat->Z) k :=
  if Nat.ltb k 32 then cell p k j else if Nat.ltb k 64 then cell r (k-32)%nat j else w (k-64)%nat.
 Lemma sources lane p r ini w : (lane<8)%nat -> input_bounds p r ->
- source_ok (environment p r lane w) (operand lane (inputs p r lane) ini w).
+ source_ok input_used (environment p r lane w) (operand lane (inputs p r lane) ini w).
 Proof.
  intros J Bounds;split; [|split].
  - intros a H;destruct a as [n|b i|k|i|a];try discriminate;cbn [atom operand val];try reflexivity.
@@ -47,34 +40,34 @@ Ltac use_congruence := first [apply crefl | assumption |
   apply cplus;use_congruence |apply cminus;use_congruence |apply ctimes;use_congruence].
 Local Lemma empty_ok env v : state_ok env v (fun _=>None).
 Proof. intros i s H;discriminate. Qed.
-Local Lemma early_spec env v : source_ok env v -> satisfies v O short ->
+Local Lemma early_spec env v : source_ok input_used env v -> satisfies v O short ->
  bit_spec (v(Wire 165)) (torsion_determinant (qpoint env) (rpoint env) mod prime=0).
 Proof.
- intros S G. pose proof (verify_sound _ _ _ _ _ _ S (empty_ok env v) G early_checked) as Cs.
+ intros S G. pose proof (verify_sound input_used _ _ _ _ _ _ S (empty_ok env v) G early_checked) as Cs.
  pose proof (Forall_inv Cs) as C. change (claim env early_cut) in C.
- pose proof (zero_gate_result _ _ _ _ early_cut S G early_shape C eq_refl) as E.
+ pose proof (zero_gate_result input_used _ _ _ _ early_cut S G early_shape C eq_refl) as E.
  change (v(Wire 165)=bit_of_zero(val env det)) in E. rewrite E;apply zero_spec.
  destruct C as [D _]. change (represents (val env det) (val env (minus (Times px ry) (Times py rx)))) in D.
  rewrite val_minus in D; exact D.
 Qed.
 
-Local Lemma full_spec env v : source_ok env v -> satisfies v O long ->
+Local Lemma full_spec env v : source_ok input_used env v -> satisfies v O long ->
  bit_spec (v(Wire 822)) (torsion_check (qpoint env) (rpoint env)).
 Proof.
- intros S G. pose proof (verify_sound _ _ _ _ _ _ S (empty_ok env v) G scheduled_arithmetic) as Cs.
+ intros S G. pose proof (verify_sound input_used _ _ _ _ _ _ S (empty_ok env v) G scheduled_arithmetic) as Cs.
  unfold plan in Cs.
  cut_head Cs D. cut_head Cs A. cut_head Cs B. cut_head Cs H. cut_head Cs TT.
  cut_head Cs Gsum. cut_head Cs Minus. cut_head Cs X. cut_head Cs Y.
  cut_head Cs IY. cut_head Cs Sum. cut_head Cs Diff.
  destruct long_shapes as [ZI [ZX [ZS [ZD [O1 [O2 O3]]]]]].
  let c:=match type of IY with claim _ ?c => c end in
- pose proof (zero_gate_result _ _ _ _ c S G ZI IY eq_refl) as BI.
+ pose proof (zero_gate_result input_used _ _ _ _ c S G ZI IY eq_refl) as BI.
  let c:=match type of X with claim _ ?c => c end in
- pose proof (zero_gate_result _ _ _ _ c S G ZX X eq_refl) as BX.
+ pose proof (zero_gate_result input_used _ _ _ _ c S G ZX X eq_refl) as BX.
  let c:=match type of Sum with claim _ ?c => c end in
- pose proof (zero_gate_result _ _ _ _ c S G ZS Sum eq_refl) as BS.
+ pose proof (zero_gate_result input_used _ _ _ _ c S G ZS Sum eq_refl) as BS.
  let c:=match type of Diff with claim _ ?c => c end in
- pose proof (zero_gate_result _ _ _ _ c S G ZD Diff eq_refl) as BD.
+ pose proof (zero_gate_result input_used _ _ _ _ c S G ZD Diff eq_refl) as BD.
  change (v(Wire 756)=bit_of_zero(val env iy)) in BI.
  change (v(Wire 762)=bit_of_zero(val env xx)) in BX.
  change (v(Wire 814)=bit_of_zero(val env sum)) in BS.
@@ -102,11 +95,7 @@ Proof.
  assert (Is:represents (val env iy) s) by (eapply ctrans;[exact IY|unfold s;use_congruence]).
  assert (Su:represents (val env sum) (s+u)) by (eapply ctrans;[exact Sum|use_congruence]).
  assert (Di:represents (val env diff) (s-u)) by (eapply ctrans;[exact Diff|use_congruence]).
- pose proof (or_spec _ _ _ _ (or_spec _ _ _ _ (or_spec _ _ _ _ (zero_spec _ _ Is) (zero_spec _ _ Xu))
-   (zero_spec _ _ Su)) (zero_spec _ _ Di)) as [Bits Meaning].
- split;[exact Bits|rewrite Meaning].
- change ((((s mod prime=0 \/ u mod prime=0) \/ (s+u) mod prime=0) \/ (s-u) mod prime=0)
-     <-> s mod prime=0 \/ u mod prime=0 \/ (s+u) mod prime=0 \/ (s-u) mod prime=0). tauto.
+ exact (four_zero_bits _ _ _ _ _ _ Is Xu Su Di).
 Qed.
 
 Theorem early_lane p r initial j : (j<8)%nat -> input_bounds p r ->

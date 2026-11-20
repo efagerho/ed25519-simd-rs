@@ -14,9 +14,11 @@ LIBRARIES = (("arithmetic", "ProofArithmetic"), ("machine", "Machine"),
              ("curve25519", "Curve25519"), ("crate", "Ed25519Simd"))
 SHARED_PROJECTS = ("arithmetic", "curve25519", "machine", "machine/symbolic", "crate")
 GROUP_PROJECTS = (*SHARED_PROJECTS, "curve25519/group")
+MASK_PROJECTS = (*GROUP_PROJECTS, "crate/field51")
 SHARED_ENV = "ED25519_SIMD_COQ_LIBRARIES"
 COMPONENTS = {"pow2": "Pow2", "double4": "Double4", "cached_add": "CachedAdd",
-              "scalar": "Scalar", "ladder_step": "LadderStep", "torsion": "Torsion"}
+              "scalar": "Scalar", "ladder_step": "LadderStep", "torsion": "Torsion",
+              "small_order": "SmallOrder"}
 
 
 # The release statement is independent of the theorem implementation in Object.v.
@@ -26,6 +28,7 @@ PUBLIC_THEOREMS = {
     "cached_add": ("assembled_cached_add_correct", "cached_add_contract"),
     "scalar": ("assembled_scalar_correct", "scalar_contract"),
     "ladder_step": ("assembled_ladder_step_correct", "ladder_contract"),
+    "small_order": ("assembled_small_order_correct", "small_order_contract"),
     "torsion": ("assembled_torsion_correct", "torsion_contract"),
 }
 
@@ -34,7 +37,10 @@ def public_statement(component):
     namespace = "Ed25519Simd." + COMPONENTS[component]
     theorem, contract = PUBLIC_THEOREMS[component]
     expected = f"{namespace}.Audit.{contract}"
-    if component != "ladder_step":
+    if component == "small_order":
+        for module in ("EntryBytes", "HelperBytes"):
+            expected += f" {namespace}.{module}.address {namespace}.{module}.symbol_bytes"
+    elif component != "ladder_step":
         expected += f" {namespace}.ObjectBytes.symbol_bytes"
     return f"{namespace}.Object.{theorem}", expected
 
@@ -86,7 +92,7 @@ def prepare_shared_libraries(destination, jobs):
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=destination.parent) as tmp:
         work = Path(tmp) / "build"
-        inputs = stage_sources(HERE, work, GROUP_PROJECTS)
+        inputs = stage_sources(HERE, work, MASK_PROJECTS)
         sources = [p for p in inputs if p.suffix == ".v"]
         write_project(work, library_flags(), [work / p for p in sources])
         subprocess.run(["coq_makefile", "-f", "_CoqProject", "-o", "Makefile"], cwd=work, check=True)

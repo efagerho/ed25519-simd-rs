@@ -1,6 +1,7 @@
 From Coq Require Import ZArith Lia List.
 From Curve25519 Require Import Torsion group.Cofactor.
 From Machine Require Import execution.MaskTrace execution.CircuitFacts.
+From Ed25519Simd.field51 Require Import RootMasks.
 From Ed25519Simd.Torsion Require Import Program Schedule Audit Lane ObjectBytes.
 Local Open Scope Z_scope.
 

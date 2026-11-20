@@ -2,7 +2,7 @@ From Coq Require Import List ZArith Lia Bool Ring.
 From ProofArithmetic Require Import Interval Polynomial.
 From Curve25519 Require Import Field Radix51.
 From Machine Require Import isa.Instructions execution.MaskTrace execution.CircuitFacts.
-From Ed25519Simd.Torsion Require Import Arithmetic Zero.
+From Ed25519Simd.field51 Require Import Arithmetic Zero.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition slot (base i:nat) := (base + match i with O=>4 | S j=>j end)%nat.
@@ -43,7 +43,10 @@ Definition forget w i := match w i with None=>w | Some a=>
  put w i (Some(I (var i) (lower a) (upper a))) end.
 Definition reset w c := fold_left forget (map (slot(base c)) (seq 0 5)) w.
 
-Local Lemma cells_ok env v w c : source_ok env v -> state_ok env v w ->
+Section Inputs.
+Variable input_used : nat -> nat -> bool.
+
+Local Lemma cells_ok env v w c : source_ok input_used env v -> state_ok env v w ->
  forallb (fun j=>safe_cell w (slot(base c) j)) (seq 0 5)=true ->
  forall j, (j<5)%nat -> let i:=slot(base c) j in let a:=defined w i in
  val env (term a)=env (64+i)%nat /\ 0<=lower a<=val env (term a) /\
@@ -58,7 +61,7 @@ Proof.
  split; [congruence|lia].
 Qed.
 
-Lemma field_check_ok env v w c : source_ok env v -> state_ok env v w ->
+Lemma field_check_ok env v w c : source_ok input_used env v -> state_ok env v w ->
  field_check w c=true -> claim env c.
 Proof.
  intros S R H;unfold field_check in H;apply andb_true_iff in H as [H P].
@@ -84,7 +87,7 @@ Proof.
    unfold p,field_expr,pack_f,pack_expr,var;cbn [val];unfold radix in *;lia.
 Qed.
 
-Lemma forget_ok env v w i : source_ok env v -> state_ok env v w ->
+Lemma forget_ok env v w i : source_ok input_used env v -> state_ok env v w ->
  (forall a,w i=Some a -> 0<=lower a /\upper a<W) -> state_ok env v (forget w i).
 Proof.
  intros [S _] R Safe;unfold forget. destruct(w i) as [a|] eqn:A;[|exact R].
@@ -95,7 +98,7 @@ Proof.
  unfold word_models;change (lower a<=env (64+i)%nat<=upper a /\ env (64+i)%nat mod W=v(Wire i)).
  rewrite F,<-E,Z.mod_small by lia;auto.
 Qed.
-Lemma reset_ok env v w c : source_ok env v -> state_ok env v w -> field_check w c=true ->
+Lemma reset_ok env v w c : source_ok input_used env v -> state_ok env v w -> field_check w c=true ->
  state_ok env v (reset w c).
 Proof.
  intros S R H. unfold field_check in H;repeat rewrite andb_true_iff in H.
@@ -112,8 +115,8 @@ Proof.
 Qed.
 
 Fixpoint advance n gs w := match gs with []=>w | g::t=>
- advance (S n) t (put w n (abstract_gate w g)) end.
-Lemma advance_ok env v gs n w : source_ok env v -> state_ok env v w ->
+ advance (S n) t (put w n (abstract_gate input_used w g)) end.
+Lemma advance_ok env v gs n w : source_ok input_used env v -> state_ok env v w ->
  satisfies v n gs -> state_ok env v (advance n gs w).
 Proof.
  intro S0;revert n w;induction gs as [|g gs IH];intros n w R G;[exact R|].
@@ -128,7 +131,7 @@ Definition stage := (nat*cut)%type.
 Fixpoint verify (plan:list stage) gs n w := match plan with []=>true
  | (len,c)::t=>let prefix:=firstn len gs in let next:=advance n prefix w in
  field_check next c && verify t (skipn len gs) (n+length prefix)%nat (reset next c) end.
-Theorem verify_sound plan gs n w env v : source_ok env v -> state_ok env v w ->
+Theorem verify_sound plan gs n w env v : source_ok input_used env v -> state_ok env v w ->
  satisfies v n gs -> verify plan gs n w=true -> Forall (fun st=>claim env (snd st)) plan.
 Proof.
  intro Src;revert gs n w;induction plan as [|[len c] rest IH];intros gs n w R G H;[constructor|].
@@ -142,3 +145,4 @@ Proof.
  intros i h E. replace (n+length prefix+i)%nat with (n+(length prefix+i))%nat by lia.
  apply G. rewrite nth_error_app2 by lia. now replace (length prefix+i-length prefix)%nat with i by lia.
 Qed.
+End Inputs.

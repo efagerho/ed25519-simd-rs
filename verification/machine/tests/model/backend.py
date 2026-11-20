@@ -56,6 +56,7 @@ class Model:
         """Evaluate the complete block program and serialize the observed machine state."""
         module, report, defaults, columns = {
             "mask": ("Mask", "mask_report", "seeds", 2),
+            "filter": ("Filter", "filter_report", "seeds", 2),
             "control": ("Control", "probe_report", "counts", 4),
             "mixed": ("Mixed", "mixed_report", "seeds", 3 + 32*8 + 3*8),
             "prologue": ("Prologue", "prologue_report", "seeds", 4 + 32*8 + 31*8 + 3*4*8),

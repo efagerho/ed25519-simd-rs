@@ -22,8 +22,8 @@ Qed.
 Fixpoint earlier (n:nat) a := match a with Wire i=>Nat.ltb i n
  | UpperCleared p=>earlier n p | _=>true end.
 Definition arguments g := match g with
- | AddQ a b | SubQ a b | MulQ a b | AndQ a b | EqQ a b | OrK a b=>[a;b]
- | ShiftQ a _=>[a] | MaddQ _ acc a b=>[acc;a;b] end.
+ | AddQ a b | SubQ a b | MulQ a b | AndQ a b | EqQ a b | OrK a b | MinUQ a b | LessUQ a b=>[a;b]
+ | ShiftQ a _ | LeftQ a _=>[a] | MaddQ _ acc a b=>[acc;a;b] end.
 Fixpoint ordered n gs := match gs with []=>true | g::t=>
  forallb (earlier n) (arguments g) && ordered (S n) t end.
 
