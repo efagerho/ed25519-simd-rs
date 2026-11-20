@@ -19,8 +19,7 @@ sys.path.append(str(ROOT / "verification"))
 from proof_build import component_flags
 from listing import SOURCE, SYMBOL
 from generate_listing import assemble
-from coq_proof import symbol_bytes
-from elf import symbol_extent
+from elf import symbol_bytes, symbol_extent
 
 MUTATIONS = {
     "remove-carry-rounding": (r"    sr_rrr vpaddq, 24, \i, 26" + "\n", "", False),

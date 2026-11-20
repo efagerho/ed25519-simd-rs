@@ -4,7 +4,7 @@ import sys
 import tempfile
 
 from certify import certify
-from elf import SYMBOL
+from disassembly import SYMBOL
 from generate_listing import generate
 
 

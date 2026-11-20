@@ -12,26 +12,9 @@ import tempfile
 from certify import certify
 from proof_build import COMPONENTS, component_flags
 from evidence import write_evidence
-from elf import SYMBOL, require, symbol_extent
+from disassembly import SYMBOL
+from elf import require, symbol_bytes, symbol_extent
 from generate_listing import generate
-
-
-def symbol_bytes(binary, pc, size):
-    # Independent of objdump's instruction text: extract the bytes directly
-    # from the ELF file using the address and file offset of the text section.
-    sections = subprocess.check_output(["objdump", "-h", "-j", ".text", binary], text=True)
-    m = re.search(r"^\s*\d+ \.text\s+(\w+)\s+(\w+)\s+\w+\s+(\w+)", sections, re.M)
-    require(m, "missing ELF text section")
-    length, address, offset = (int(x, 16) for x in m.groups())
-    require(address <= pc and pc + size <= address + length, "symbol outside text section")
-    with open(binary, "rb") as f:
-        hdr = f.read(20)
-        require(hdr[:6] == b"\x7fELF\x02\x01" and hdr[18:20] == b"\x3e\0",
-                "requires little-endian x86-64 ELF")
-        f.seek(offset + pc - address)
-        raw = f.read(size)
-    require(len(raw) == size, "truncated symbol")
-    return raw
 
 
 def export_cases(raw, work, dest, seed, source=None, tag="pow2"):
@@ -69,7 +52,7 @@ def export_cases(raw, work, dest, seed, source=None, tag="pow2"):
 def replay(binary, work, cases=None, seed=1):
     if cases and cases.resolve() == binary.resolve():
         raise ValueError("choose a case output distinct from the input ELF")
-    address, size = symbol_extent(binary)
+    address, size = symbol_extent(binary, SYMBOL)
     raw = symbol_bytes(binary, address, size)
     assembled = generate(work)
     if raw != assembled:

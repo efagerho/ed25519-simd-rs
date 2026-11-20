@@ -7,8 +7,8 @@ import tempfile
 
 from certificate import certify
 from listing import SYMBOL, SOURCE, generate
-from coq_proof import export_cases, symbol_bytes
-from elf import symbol_extent
+from coq_proof import export_cases
+from elf import symbol_bytes, symbol_extent
 from evidence import write_evidence
 
 from proof_build import component_flags

@@ -1,21 +1,13 @@
 """Decode every byte of the linked pow2 symbol using GNU binutils."""
 import re
+import sys
+from pathlib import Path
 import subprocess
 
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+from elf import require, symbol_extent
+
 SYMBOL = "ed25519_simd_pow2_ifma"
-
-
-def require(condition, message):
-    if not condition:
-        raise ValueError(message)
-
-
-def symbol_extent(binary, symbol=SYMBOL):
-    names = subprocess.check_output(["nm", "-S", "--defined-only", binary], text=True)
-    matches = re.findall(rf"^([0-9a-fA-F]+) ([0-9a-fA-F]+) [tT] {re.escape(symbol)}$", names, re.M)
-    require(len(matches) == 1, f"expected one defined {symbol} in {binary}")
-    addr, size = matches[0]
-    return int(addr, 16), int(size, 16)
 
 
 def disassemble(binary, symbol=SYMBOL):
