@@ -27,20 +27,20 @@ fn main() {
         }
         for path in [
             source.into(),
-            format!("verification/{proof}"),
+            format!("verification/crate/{proof}"),
             "verification/machine".into(),
             "verification/arithmetic".into(),
             "verification/proof_build.py".into(),
             // Field proofs and certificate drivers also share routine-specific helpers.
-            "verification/pow2".into(),
-            "verification/double4".into(),
+            "verification/crate/pow2".into(),
+            "verification/crate/double4".into(),
         ] {
             println!("cargo:rerun-if-changed={path}");
         }
         println!("cargo:rerun-if-env-changed=LLVM_MC");
         let status = Command::new("python3")
             .arg("-B")
-            .arg(format!("verification/{proof}/review.py"))
+            .arg(format!("verification/crate/{proof}/review.py"))
             .arg(env::var_os("OUT_DIR").unwrap())
             .status()
             .unwrap_or_else(|_| {

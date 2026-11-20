@@ -25,12 +25,12 @@ verification targets.
 ## Check a release executable
 
 Use an unstripped release executable built with `--features asm` and the
-[verification toolchain](../README.md#build-with-or-without-the-proof).
+[verification toolchain](../../README.md#build-with-or-without-the-proof).
 The output directory must be new.
 
 ```sh
-python3 -B verification/ladder_step/audit.py "$ELF" --output "$AUDIT"
-python3 -B verification/ladder_step/mutations.py "$ELF" --audit "$AUDIT"
+python3 -B verification/crate/ladder_step/audit.py "$ELF" --output "$AUDIT"
+python3 -B verification/crate/ladder_step/mutations.py "$ELF" --audit "$AUDIT"
 ```
 
 The first command extracts each symbol's bytes and address, checks the
@@ -46,7 +46,7 @@ proof fails.
 
 ## Proof boundaries
 
-[`LinkedCalls.v`](../machine/LinkedCalls.v) gives the wrapper instructions
+[`LinkedCalls.v`](../../machine/LinkedCalls.v) gives the wrapper instructions
 their encoding and execution on word registers and flat byte memory. A
 call pushes its actual continuation. [`Callees.v`](coq/Callees.v) admits
 a return only with an execution of the linked callee's block interpreter

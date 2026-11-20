@@ -8,7 +8,7 @@ from pathlib import Path
 
 from elf import SYMBOL, disassemble, require
 
-SOURCE = Path(__file__).resolve().parents[2] / "src/wide/avx512ifma/pow2.S"
+SOURCE = Path(__file__).resolve().parents[3] / "src/wide/avx512ifma/pow2.S"
 
 
 def mc(*args, **kwargs):

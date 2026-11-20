@@ -3,7 +3,7 @@ from pathlib import Path
 import sys
 
 HERE = Path(__file__).resolve().parent
-sys.path.append(str(HERE.parent))
+sys.path.append(str(HERE.parents[1]))
 from proof_build import LOAD_PATH, certify_modules
 
 PROOF_MODULES = (

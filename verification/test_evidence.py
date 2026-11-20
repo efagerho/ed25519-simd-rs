@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
-sys.path[:0] = [str(HERE / "machine/tests"), str(HERE / "pow2"), str(HERE / "double4")]
+sys.path[:0] = [str(HERE / "machine/tests"), str(HERE / "crate/pow2"), str(HERE / "crate/double4")]
 import audit as double4_audit
 import case_data
 import coq_proof
@@ -29,14 +29,14 @@ def load_module(name, path):
 
 
 with patch.dict(sys.modules, {
-        "certificate": load_module("cached_add_certificate", HERE / "cached_add/certificate.py"),
-        "listing": load_module("cached_add_listing", HERE / "cached_add/listing.py")}):
-    cached_add_audit = load_module("cached_add_audit", HERE / "cached_add/audit.py")
+        "certificate": load_module("cached_add_certificate", HERE / "crate/cached_add/certificate.py"),
+        "listing": load_module("cached_add_listing", HERE / "crate/cached_add/listing.py")}):
+    cached_add_audit = load_module("cached_add_audit", HERE / "crate/cached_add/audit.py")
 
 with patch.dict(sys.modules, {
-        "certificate": load_module("scalar_certificate", HERE / "scalar/certificate.py"),
-        "listing": load_module("scalar_listing", HERE / "scalar/listing.py")}):
-    scalar_audit = load_module("scalar_audit", HERE / "scalar/audit.py")
+        "certificate": load_module("scalar_certificate", HERE / "crate/scalar/certificate.py"),
+        "listing": load_module("scalar_listing", HERE / "crate/scalar/listing.py")}):
+    scalar_audit = load_module("scalar_audit", HERE / "crate/scalar/audit.py")
 
 
 class ReportTests(unittest.TestCase):
@@ -143,7 +143,7 @@ class ReleaseEvidenceTests(unittest.TestCase):
     def test_cached_add_exports_memory_source_ifma(self):
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
-            source = HERE / "cached_add/coq/ExportCases.v"
+            source = HERE / "crate/cached_add/coq/ExportCases.v"
             with patch.object(coq_proof.subprocess, "check_output", return_value='= "caller 1 1|0 1 vpmadd52huq_mem 31 16 8 320"\n'), \
                     contextlib.redirect_stdout(io.StringIO()):
                 coq_proof.export_cases(b"\x62", work, work / "cases.jsonl", 42, source, "cached_add")
@@ -156,7 +156,7 @@ class ReleaseEvidenceTests(unittest.TestCase):
     def test_double4_export_uses_its_own_program_and_case_ids(self):
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
-            source = HERE / "double4/coq/ExportCases.v"
+            source = HERE / "crate/double4/coq/ExportCases.v"
             with patch.object(coq_proof.subprocess, "check_output", return_value='= "caller 1 1|0 1 vpsubq 0 1 0"\n'), \
                     contextlib.redirect_stdout(io.StringIO()):
                 coq_proof.export_cases(b"\x62", work, work / "cases.jsonl", 42, source, "double4")

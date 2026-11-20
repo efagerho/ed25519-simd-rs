@@ -74,7 +74,7 @@ From the repository root, with Python 3.8+, LLVM MC, GNU binutils and Coq
 
 ```sh
 elf=/path/to/unstripped-release-elf
-python3 -B verification/double4/audit.py "$elf" \
+python3 -B verification/crate/double4/audit.py "$elf" \
   --output ./double4-audit --cases ./double4-cases.jsonl --seed 42
 ```
 
@@ -141,7 +141,7 @@ python3 -B verification/machine/tests/run.py --backend all \
 
 | Files | Responsibility |
 | --- | --- |
-| [Shared Interval.v](../arithmetic/Interval.v), `Symbolic.v` | Sound signed interval evaluation and symbolic instruction execution. Subtraction keeps its `2^64` remainder unless both bounds prove no wrap. Relational square-input hints require proofs. |
+| [Shared Interval.v](../../arithmetic/Interval.v), `Symbolic.v` | Sound signed interval evaluation and symbolic instruction execution. Subtraction keeps its `2^64` remainder unless both bounds prove no wrap. Relational square-input hints require proofs. |
 | `Kernels.v`, `KernelInterface.v` | Check addition/reduction, loose squaring, biased subtraction/reduction, paired multiplication and single multiplication against the actual generated instruction blocks. Reuse the proved field polynomial checker from pow2. |
 | `RoundArithmetic.v`, `Preparation.v`, `Finish.v` | Compose the kernel results with the actual register moves and scratch loads/stores into one doubling. |
 | `Round.v`, `Execution.v`, `Logical.v` | Check the actual caller path, including three early rounds and the final T-producing round, and lift lane arithmetic to the full machine state. |
@@ -161,7 +161,7 @@ all four padding cases, memory guards and register contents. Shared lemmas
 prove instruction/block agreement, word bounds, memory frames, exact byte
 reads and alignment arithmetic. Tests do not replace an independent ISA
 refinement theorem; that theorem remains open.
-[`Machine model`](../machine/README.md) · [`ISA obligation`](../machine/proofs/README.md)
+[`Machine model`](../../machine/README.md) · [`ISA obligation`](../../machine/proofs/README.md)
 
 This certificate proves the four coordinate formulas. It does not yet prove
 the group-theoretic statement `[16]P`, the surrounding Rust caller, constant

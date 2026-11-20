@@ -15,11 +15,11 @@ of the linked symbol. [Read the statement in Audit.v](coq/Audit.v)
    padding. The return and field guarantees apply to this same program.
    Its operands, block layout, and static control-flow targets pass
    the machine model's validity check.
-   [Assembly source](../../src/wide/avx512ifma/pow2.S) · [Encoding and validity](../machine/ProgramLayout.v)
+   [Assembly source](../../../src/wide/avx512ifma/pow2.S) · [Encoding and validity](../../machine/ProgramLayout.v)
 3. **Registers and return.** From every valid ABI entry, execution returns
    with RBX, RBP and R12–R15 equal to their entry values and RSP advanced
    by eight bytes. The result is read at the output pointer supplied in RDI.
-   [Entry, layout, and output definitions](coq/Pow2ABI.v) · [Execution and return](../machine/Blocks.v)
+   [Entry, layout, and output definitions](coq/Pow2ABI.v) · [Execution and return](../../machine/Blocks.v)
 4. **Output initialization.** Every one of the 640 bytes at the entry RDI
    pointer is written before return, regardless of the input limb bounds or
    previous output contents. This definite-write guarantee justifies the
@@ -42,7 +42,7 @@ of the linked symbol. [Read the statement in Audit.v](coq/Audit.v)
    vector qword. The final output, read directly from bytes, satisfies
    `pow2_spec`. Identical and partially overlapping read-only inputs use the
    same underlying bytes. [Concrete entry and result](coq/Pow2Bytes.v) ·
-   [Word bounds](../machine/WordBounds.v) · [Byte round trips](../machine/ByteMemory.v)
+   [Word bounds](../../machine/WordBounds.v) · [Byte round trips](../../machine/ByteMemory.v)
 
 The byte proof covers every non-wrapping placement satisfying `valid_placement`.
 The output and stack must be disjoint from each other, the inputs and the
@@ -51,7 +51,7 @@ requires accessible buffers, a SysV-aligned stack with 1,936 bytes available
 below RSP, a valid caller return address, and AVX-512F/DQ/IFMA instruction
 behavior matching the model. The Rust caller supplies the limb bound. The
 certificate covers the paired-exponentiation backend enabled by `asm`.
-[Instruction semantics and model assumptions](machine-semantics.md) · [Rust call boundary](../../src/wide/avx512ifma/field.rs)
+[Instruction semantics and model assumptions](machine-semantics.md) · [Rust call boundary](../../../src/wide/avx512ifma/field.rs)
 
 ## Check the release executable
 
@@ -60,7 +60,7 @@ output directory. Requires Python 3, LLVM MC, GNU binutils, and Coq (`coqdep`, `
 
 ```bash
 elf=/path/to/unstripped-release-elf
-python3 -B verification/pow2/coq_proof.py "$elf" --output ./pow2-audit
+python3 -B verification/crate/pow2/coq_proof.py "$elf" --output ./pow2-audit
 ```
 
 **The implementation lives in `pow2.S`.** The `asm` feature assembles it
@@ -69,7 +69,7 @@ alongside the other backends with Rust's built-in assembler. The optional
 generate `Program.v` from its expanded Intel mnemonics, grouped into basic
 blocks. Coq uses this program for both encoding and execution. It derives the
 sequence of squares, multiplies and saves by following the caller's branches.
-[Assembly source](../../src/wide/avx512ifma/pow2.S) · [Listing generator](generate_listing.py) · [Arithmetic trace](coq/Linked.v)
+[Assembly source](../../../src/wide/avx512ifma/pow2.S) · [Listing generator](generate_listing.py) · [Arithmetic trace](coq/Linked.v)
 
 The `verify-asm-pow2` build embeds the pow2 bytes that Coq checked. For a release
 audit, the checker extracts the linked symbol into `pow2-audit/ObjectBytes.v`.
@@ -106,7 +106,7 @@ To inspect the instructions, open `pow2-audit/Program.v` next to
 The assembly listing includes the instruction bytes, and each mnemonic in
 `Program.v` is Coq notation for a typed instruction. To compare with the
 linked bytes, disassemble the same ELF.
-[Intel notation](../machine/IntelSyntax.v)
+[Intel notation](../../machine/IntelSyntax.v)
 
 ```bash
 objdump -d -M intel --disassemble=ed25519_simd_pow2_ifma "$elf"
@@ -123,11 +123,11 @@ Check Object.assembled_symbol_correct : Audit.pow2_contract ObjectBytes.symbol_b
 To generate the two readable listings without a release ELF, run
 
 ```bash
-python3 -B verification/pow2/generate_listing.py ./pow2-listing
+python3 -B verification/crate/pow2/generate_listing.py ./pow2-listing
 ```
 
 CI also runs an independent Z3 check of the linked disassembly.
-[Z3 checker](check.py) · [CI workflow](../../.github/workflows/ci.yml)
+[Z3 checker](check.py) · [CI workflow](../../../.github/workflows/ci.yml)
 
 ## Check native instruction coverage
 
@@ -138,10 +138,10 @@ corpus with the shared vector conformance runner. The export also checks that ev
 scalar and control-flow instruction form in the linked program occurs in
 the machine probes. The first runner invocation below executes those probes
 and the fixed corpus. The second executes each exact linked kernel row.
-Both require an AVX-512F/DQ/IFMA host and an XED kit. [Coverage check](coq/ExportCases.v) · [Backend setup](../machine/README.md#run-the-conformance-suite) · [Case format and replay](../machine/README.md#case-format-and-replay)
+Both require an AVX-512F/DQ/IFMA host and an XED kit. [Coverage check](coq/ExportCases.v) · [Backend setup](../../machine/README.md#run-the-conformance-suite) · [Case format and replay](../../machine/README.md#case-format-and-replay)
 
 ```bash
-python3 -B verification/pow2/coq_proof.py "$elf" --output pow2-coverage-audit --cases pow2-rows.jsonl --seed 42
+python3 -B verification/crate/pow2/coq_proof.py "$elf" --output pow2-coverage-audit --cases pow2-rows.jsonl --seed 42
 python3 -B verification/machine/tests/run.py --backend all --report fixed-report.json
 python3 -B verification/machine/tests/run.py --cases pow2-rows.jsonl --backend all --report pow2-report.json
 python3 -B verification/machine/tests/run.py --replay pow2-report.json --report replay-report.json

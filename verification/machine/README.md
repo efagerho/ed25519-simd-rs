@@ -146,7 +146,7 @@ round trip constructs a matching logical data view directly from any valid
 byte array. Word/vector stores and saved return words have corresponding
 read-back lemmas, and replay preserves byte bounds. [Byte decoding proofs](ByteMemory.v)
 Both certificates use these results to construct concrete entries and
-state their arithmetic results on output bytes. [Pow2 concrete ABI proof](../pow2/coq/Pow2Bytes.v) · [Double4 concrete ABI proof](../double4/coq/Double4Bytes.v)
+state their arithmetic results on output bytes. [Pow2 concrete ABI proof](../crate/pow2/coq/Pow2Bytes.v) · [Double4 concrete ABI proof](../crate/double4/coq/Double4Bytes.v)
 
 `aligned_region_and` proves that clearing the low six bits of a concrete
 address equals alignment of its relative offset when the region origin is

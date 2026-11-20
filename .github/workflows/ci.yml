@@ -75,19 +75,19 @@ jobs:
           sudo apt-get install -y python3-z3 coq llvm
           cargo build --locked --release --features verify-asm-pow2,verify-asm-double4,verify-asm-cached-add,verify-asm-scalar --lib --target x86_64-unknown-linux-gnu
           artifact=$(jq -r 'select(.target.name == "cold_profile_zip215" and .executable != null) | .executable' "$RUNNER_TEMP/pow2-build.json")
-          /usr/bin/python3 verification/pow2/check.py "$artifact"
-          /usr/bin/python3 verification/pow2/coq_proof.py "$artifact" \
+          /usr/bin/python3 verification/crate/pow2/check.py "$artifact"
+          /usr/bin/python3 verification/crate/pow2/coq_proof.py "$artifact" \
             --output "$RUNNER_TEMP/pow2-audit" --cases "$RUNNER_TEMP/pow2-cases.jsonl" --seed 42
-          /usr/bin/python3 verification/double4/audit.py "$artifact" \
+          /usr/bin/python3 verification/crate/double4/audit.py "$artifact" \
             --output "$RUNNER_TEMP/double4-audit" --cases "$RUNNER_TEMP/double4-cases.jsonl" --seed 42
-          /usr/bin/python3 verification/cached_add/audit.py "$artifact" \
+          /usr/bin/python3 verification/crate/cached_add/audit.py "$artifact" \
             --output "$RUNNER_TEMP/cached-add-audit" --cases "$RUNNER_TEMP/cached-add-cases.jsonl" --seed 42
-          /usr/bin/python3 verification/scalar/audit.py "$artifact" \
+          /usr/bin/python3 verification/crate/scalar/audit.py "$artifact" \
             --output "$RUNNER_TEMP/scalar-audit" --cases "$RUNNER_TEMP/scalar-cases.jsonl" --seed 42
 
-          /usr/bin/python3 -B verification/ladder_step/audit.py "$artifact" \
+          /usr/bin/python3 -B verification/crate/ladder_step/audit.py "$artifact" \
             --output "$RUNNER_TEMP/ladder-step-audit"
-          /usr/bin/python3 -B verification/ladder_step/mutations.py "$artifact" \
+          /usr/bin/python3 -B verification/crate/ladder_step/mutations.py "$artifact" \
             --audit "$RUNNER_TEMP/ladder-step-audit"
 
       - name: Check cached-add and scalar proof mutation rejection
@@ -96,9 +96,9 @@ jobs:
           if grep -qw avx512ifma /proc/cpuinfo && grep -qw avx512dq /proc/cpuinfo && grep -qw avx512f /proc/cpuinfo; then
             native=--native
           fi
-          python3 -B verification/cached_add/mutations.py \
+          python3 -B verification/crate/cached_add/mutations.py \
             --output "$RUNNER_TEMP/cached-add-mutations" $native
-          python3 -B verification/scalar/mutations.py \
+          python3 -B verification/crate/scalar/mutations.py \
             --output "$RUNNER_TEMP/scalar-mutations" $native
 
       - name: Check the fixed machine corpus and linked kernel rows
