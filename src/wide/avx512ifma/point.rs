@@ -87,6 +87,14 @@ unsafe extern "C" {
     fn ed25519_simd_add_cached_ifma(point: *mut u8, cached: *const u8, compute_t: u64, affine: u64);
 }
 
+#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
+core::arch::global_asm!(include_str!("torsion.S"), options(raw));
+
+#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
+unsafe extern "C" {
+    fn ed25519_simd_check_8_torsion_ifma(point: *const u8, affine: *const u8) -> u8;
+}
+
 /// Per-lane cached points selected from either projective or affine tables.
 ///
 /// The affine variant omits cached `2Z`; mixed addition substitutes
@@ -394,6 +402,31 @@ impl WidePoint {
             "ZIP-215 R subtraction requires affine rhs"
         );
 
+        #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
+        {
+            #[cfg(debug_assertions)]
+            for field in [&self.x, &self.y, &self.z, &self.t, &rhs.x, &rhs.y, &rhs.t] {
+                debug_assert!(super::field::limbs_are_ifma_operands(&field.limbs));
+            }
+            // SAFETY: Both borrows are readable WidePoints with the layout checked above.
+            // The ladder and decompressor produce 52-bit limbs in the fields read.
+            let mask = unsafe {
+                ed25519_simd_check_8_torsion_ifma(
+                    core::ptr::from_ref(self).cast(),
+                    core::ptr::from_ref(rhs).cast(),
+                )
+            };
+            super::mask_to_lanes(mask)
+        }
+        #[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
+        self.subtract_affine_and_check_8_torsion_rust(rhs)
+    }
+
+    #[cfg(any(
+        test,
+        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
+    ))]
+    pub(super) fn subtract_affine_and_check_8_torsion_rust(&self, rhs: &Self) -> [bool; LANES] {
         // Strongly-unified mixed subtraction.  Only X and Y are needed.
         let a = self.y.subtract(&self.x).multiply(&rhs.y.add_loose(&rhs.x));
         let b = self.y.add_loose(&self.x).multiply(&rhs.y.subtract(&rhs.x));

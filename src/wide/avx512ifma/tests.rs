@@ -14,6 +14,8 @@ use serde_json::Value;
 mod cached_add;
 mod double4;
 mod ladder_step;
+#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
+mod torsion;
 
 const VECTOR_JSON: &str = include_str!("../../../tests/vectors/avx512ifma.json");
 
