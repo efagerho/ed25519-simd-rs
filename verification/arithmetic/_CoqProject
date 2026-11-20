@@ -1,7 +1,6 @@
 -Q . ProofArithmetic
--Q ../machine Machine
 Expressions.v
 Ranges.v
 Polynomial.v
 Interval.v
-Symbolic.v
+Radix.v

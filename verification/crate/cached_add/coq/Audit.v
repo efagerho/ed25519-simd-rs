@@ -1,7 +1,7 @@
 From Machine Require Import LayoutProofs ScalarRefinement.
 From Coq Require Import List ZArith.
 From Machine Require Import Blocks.
-Require Import Program CachedAddABI CachedAddMemory CachedAddBytes CachedAddSpec ReadFootprint.
+From Ed25519Simd.CachedAdd Require Import Program CachedAddABI CachedAddMemory CachedAddBytes CachedAddSpec ReadFootprint.
 (* Complete public certificate. Arithmetic inputs are arbitrary bounded field
    coordinates; no curve membership or consistency of cached coordinates is assumed. *)
 Definition cached_add_contract(symbol_bytes:list Z) : Prop :=

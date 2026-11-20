@@ -1,6 +1,6 @@
 # Linked radix-256 ladder step
 
-The public theorem is `Object.assembled_ladder_step_correct`. Read
+The public theorem is `Ed25519Simd.LadderStep.Object.assembled_ladder_step_correct`. Read
 [`ladder_contract`](coq/Audit.v) for the statement and
 [`ladder_formula`](coq/Schedule.v) for the lane arithmetic. The theorem
 binds the wrapper and both callees to the bytes of one linked x86-64 ELF.
@@ -36,7 +36,7 @@ python3 -B verification/crate/ladder_step/mutations.py "$ELF" --audit "$AUDIT"
 The first command extracts each symbol's bytes and address, checks the
 two existing callee theorems in distinct Coq namespaces, compiles the
 ladder theorem, and runs `coqchk` on its dependency closure. The audit
-directory includes the generated sources, `LinkedBytes.v`, the two
+directory includes the generated sources, `LadderStep/LinkedBytes.v`, the two
 callee byte literals, `assumptions.txt`, and `coqchk.log`.
 The audit also instantiates the public theorem on concrete input memory for
 both T modes and all four supported stack alignments. The second command checks an unchanged control and three mutations in

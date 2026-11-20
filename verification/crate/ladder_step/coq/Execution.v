@@ -1,9 +1,10 @@
+From Ed25519Simd Require Import Wide51.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Instructions Blocks FlatMemory ByteMemory WordBounds
  MemoryGeometry ScalarRefinement SysV LinkedCalls.
-From Double4 Require Double4Spec Double4ABI.
-From CachedAdd Require CachedAddSpec CachedAddABI.
-Require Import LinkedBytes Callees Schedule Audit Calls.
+From Ed25519Simd.Double4 Require Double4Spec Double4ABI.
+From Ed25519Simd.CachedAdd Require CachedAddSpec CachedAddABI.
+From Ed25519Simd.LadderStep Require Import LinkedBytes Callees Schedule Audit Calls.
 Import ListNotations. Open Scope Z_scope.
 
 Section Execution.
@@ -159,7 +160,7 @@ Proof.
 Qed.
 
 Lemma execute :
- Double4Spec.input_bounds(buffer_words(mem initial)pt) ->
+ Wide51.loose_xyz(buffer_words(mem initial)pt) ->
  cache_bounds false (buffer_words(mem initial)cache) ->
  cache_bounds true (buffer_words(mem initial)(cache+1280)) ->
  cache_bounds false (buffer_words(mem initial)(cache+2240)) ->
@@ -171,7 +172,7 @@ Lemma execute :
  preserved outside (mem initial)(mem out) /\ strict(buffer_words(mem out)pt) /\
  has_value(buffer_words(mem out)pt)(result_value full (mem initial) pt cache) /\
  (full=false ->forall i j,(i<5)%nat ->(j<8)%nat ->
- Double4.FieldSpec.cell(buffer_words(mem out)pt)(15+i)%nat j=0).
+ Wide51.cell(buffer_words(mem out)pt)(15+i)%nat j=0).
 Proof.
  intros B Odd Base Even.
  assert (98 < wrapper_size) by (vm_compute;reflexivity).
@@ -179,7 +180,7 @@ Proof.
    (conj rdi I)) as [s1 [R1 [I1 S1]]].
  assert (D:Double4Spec.double4_spec(buffer_words(mem initial)pt)(buffer_words(mem s1)pt)).
  { eapply Double4Spec.spec_ext;[|intros;reflexivity|exact S1];intros;symmetry;now apply spill_point. }
- assert (V:has_value (buffer_words(mem initial)pt) (fun j=>Double4Spec.point_values(buffer_words(mem initial)pt)j)).
+ assert (V:has_value (buffer_words(mem initial)pt) (fun j=>Wide51.point_values(buffer_words(mem initial)pt)j)).
  { intros j J c C;reflexivity. }
  destruct(double_result _ _ _ V B D)as[B1 V1].
  assert (O:invariant(odd_args s1)) by (temps I1).
@@ -187,8 +188,8 @@ Proof.
     ltac:(inputs I1))as[s2[R2[I2 S2]]].
  pose proof(staged_add _ _ false false 0 O ltac:(lia) ltac:(cbn;lia) S2)as A2.
  rewrite Z.add_0_r in A2.
- destruct(add_result false false _ _ _ _ (cached_at (mem initial)cache)
-   V1 B1 Odd ltac:(intros;reflexivity) A2)as[B2 V2].
+ destruct(add_result false false _ _ _ _
+   V1 B1 Odd A2)as[B2 V2].
  assert (P:invariant(point_arg s2)) by (temps I2).
  destruct(invoke_ok Double (wrapper_pc+43) _ P ltac:(lia) ltac:(lia)
    ltac:(inputs I2))as[s3[R3[I3 S3]]].
@@ -197,14 +198,14 @@ Proof.
  destruct(invoke_ok (Plus true true 1280) (wrapper_pc+69) _ A ltac:(lia) ltac:(lia)
    ltac:(inputs I3))as[s4[R4[I4 S4]]].
  pose proof(staged_add _ _ true true 1280 A ltac:(lia) ltac:(cbn;lia) S4)as A4.
- destruct(add_result true true _ _ _ _ (cached_at (mem initial)(cache+1280))
-   V3 B3 Base ltac:(intros;reflexivity) A4)as[B4 V4].
+ destruct(add_result true true _ _ _ _
+   V3 B3 Base A4)as[B4 V4].
  assert (E:invariant(even_args s4)) by (temps I4).
  destruct(invoke_ok (Plus full false 2240) (wrapper_pc+93) _ E ltac:(lia) ltac:(lia)
    ltac:(inputs I4))as[s5[R5[I5 S5]]].
  pose proof(staged_add _ _ full false 2240 E ltac:(lia) ltac:(cbn;lia) S5)as A5.
- destruct(add_result full false _ _ _ _ (cached_at (mem initial)(cache+2240))
-   V4 B4 Even ltac:(intros;reflexivity) A5)as[B5 V5].
+ destruct(add_result full false _ _ _ _
+   V4 B4 Even A5)as[B5 V5].
  destruct(finish (wrapper_pc+98) s5 I5)as[Ret [Stack Saved]].
  exists(returning(restored s5));split.
  - exists s1;split;[exact R1|];exists s2;split;[exact R2|];exists s3;split;[exact R3|];

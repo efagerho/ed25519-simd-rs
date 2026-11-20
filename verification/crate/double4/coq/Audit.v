@@ -1,10 +1,10 @@
 From Machine Require Import LayoutProofs ScalarRefinement.
 From Coq Require Import List ZArith.
 From Machine Require Import Blocks.
-Require Import Program Double4ABI Double4Memory Double4Bytes Double4Spec.
+From Ed25519Simd.Double4 Require Import Program Double4ABI Double4Memory Double4Bytes Double4Spec.
 
 (* This is the complete public contract. Its arithmetic specification is four
-   applications of Double4Spec.doubling, independently in all eight lanes. *)
+   applications of Edwards.doubling, independently in all eight lanes. *)
 Definition double4_contract (symbol_bytes : list Z) : Prop :=
  (* The modeled instructions encode exactly the bytes in the linked symbol. *)
  image double4_program = symbol_bytes /\

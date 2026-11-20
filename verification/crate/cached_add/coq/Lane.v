@@ -1,6 +1,8 @@
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Blocks Instructions WordBounds Dependencies.
-Require Import Program CachedAddABI FieldSpec.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Ed25519Simd.CachedAdd Require Import Program CachedAddABI.
 Import ListNotations. Open Scope Z_scope.
 From Machine Require Export Lane.
 Definition lane_effect := Machine.Lane.lane_effect add_cached_program.

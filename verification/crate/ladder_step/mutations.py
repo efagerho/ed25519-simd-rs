@@ -4,7 +4,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 
-from audit import LOAD_PATH, read_symbol, write_symbol_bytes
+from audit import component_flags, read_symbol, write_symbol_bytes
 
 
 def replace_once(value, old, new):
@@ -16,34 +16,39 @@ def replace_once(value, old, new):
 def run_case(directory, audit, name, raw, edit, expect):
     work = directory / name
     work.mkdir()
-    flags = [*LOAD_PATH, "-Q", "Double4", "Double4", "-Q", "CachedAdd", "CachedAdd"]
-    for dep in ["machine", "arithmetic", "Double4", "CachedAdd", "Callees.vo", "Schedule.vo"]:
+    ladder = work / "LadderStep"
+    ladder.mkdir()
+    flags = [*component_flags("ladder_step"), "-Q", "Double4", "Ed25519Simd.Double4",
+             "-Q", "CachedAdd", "Ed25519Simd.CachedAdd"]
+    for dep in ["machine", "arithmetic", "curve25519", "crate", "Double4", "CachedAdd"]:
         (work / dep).symlink_to(audit / dep)
+    for dep in ["Callees.vo", "Schedule.vo"]:
+        (ladder / dep).symlink_to(audit / "LadderStep" / dep)
     for mod in ["Audit", "Calls", "Execution", "Object"]:
-        source = (audit / (mod + ".v")).read_text()
+        source = (audit / "LadderStep" / (mod + ".v")).read_text()
         if mod == "Audit" and edit:
             source = replace_once(source, *edit)
-        (work / (mod + ".v")).write_text(source)
-    linked = work / "LinkedBytes.v"
+        (ladder / (mod + ".v")).write_text(source)
+    linked = ladder / "LinkedBytes.v"
     write_symbol_bytes(linked, raw)
     with linked.open("a") as dest:
-        for line in (audit / "LinkedBytes.v").read_text().splitlines():
+        for line in (audit / "LadderStep/LinkedBytes.v").read_text().splitlines():
             if "_pc : Z :=" in line:
                 dest.write(line + "\n")
 
     modules = ["LinkedBytes", "Audit", "Calls", "Execution", "Object"]
     if edit:
         # A wrong semantic result must be rejected even when the byte binding succeeds.
-        (work / "Binding.v").write_text(
-            "From Machine Require Import LinkedCalls. Require Import Audit LinkedBytes.\n"
+        (ladder / "Binding.v").write_text(
+            "From Machine Require Import LinkedCalls. From Ed25519Simd.LadderStep Require Import Audit LinkedBytes.\n"
             "Example binds : assemble wrapper_pc program=Some symbol_bytes.\n"
             "Proof. vm_compute. reflexivity. Qed.\n")
         modules.insert(2, "Binding")
     for mod in modules:
-        check = subprocess.run(["coqc", *flags, mod + ".v"], cwd=work,
+        check = subprocess.run(["coqc", *flags, "LadderStep/" + mod + ".v"], cwd=work,
                                capture_output=True, text=True)
         if check.returncode:
-            if mod != expect or f'File "./{mod}.v"' not in check.stderr:
+            if mod != expect or f'File "./LadderStep/{mod}.v"' not in check.stderr:
                 raise RuntimeError(check.stderr)
             print(f"{name}: rejected in {mod}.v")
             return

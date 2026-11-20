@@ -1,8 +1,8 @@
 From Coq Require Import List ZArith Lia.
 From Machine Require Import Instructions Blocks FlatMemory ByteMemory WordBounds MemoryGeometry ScalarRefinement SysV LinkedCalls.
-From Double4 Require Double4Spec Double4Memory.
-From CachedAdd Require CachedAddSpec CachedAddABI CachedAddMemory.
-Require Import Callees Schedule LinkedBytes Audit.
+From Ed25519Simd.Double4 Require Double4Spec Double4Memory.
+From Ed25519Simd.CachedAdd Require CachedAddSpec CachedAddABI CachedAddMemory.
+From Ed25519Simd.LadderStep Require Import Callees Schedule LinkedBytes Audit.
 Import ListNotations. Open Scope Z_scope.
 
 Inductive kernel := Double | Plus (full affine:bool) (offset:Z).
@@ -27,7 +27,7 @@ Definition protected x := ~(pt<=x<pt+1280 \/ scratch-16<=x<sp).
 Local Ltac geometry :=
  unfold fits64, disjoint,word64,sp in *;try lia.
 Lemma padding_bounds : 0<=pad<=48.
-Proof. destruct Place as [H _];cbn in H;unfold Double4.Double4ABI.permitted_padding in H;
+Proof. destruct Place as [H _];cbn in H;unfold Ed25519Simd.Double4.Double4ABI.permitted_padding in H;
  destruct H as [<-|[<-|[<-|[<-|[]]]]];lia. Qed.
 
 (* All calls push into the same eight-byte slot. Convert the callee's

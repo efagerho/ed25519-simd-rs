@@ -1,13 +1,13 @@
 From ProofArithmetic Require Import Interval Polynomial.
 From Coq Require Import List ZArith Bool Lia Ring.
 From Machine Require Import Instructions.
-Require Import ScalarSpec.
-From ProofArithmetic Require Symbolic.
+From Ed25519Simd.Scalar Require Import ScalarSpec.
+From Machine.symbolic Require Expressions.
 Import ListNotations. Open Scope Z_scope.
 
 (* This checker reuses the existing proved interval and polynomial engines.
    Masks are checked at each instruction; no special mask register is trusted. *)
-Definition rhs := ProofArithmetic.Symbolic.rhs 52.
+Definition rhs := Machine.symbolic.Expressions.rhs 52.
 Definition step loads s dst op := match op with
  | Load b d=>loads b d | _=>match rhs dst op with Some e=>abstract s e | None=>s dst end end.
 Definition legal_rhs dst op := match op with Load _ _=>true
@@ -29,9 +29,9 @@ Proof. intros H E;unfold singleton in E;rewrite andb_true_iff,!Z.eqb_eq in E.
 Lemma rhs_ok env s load r d op e : (forall i,models env(s i)(r i)) ->supported s op=true ->
  rhs d op=Some e -> bits load r d op=val r e.
 Proof.
- intros M Form;apply ProofArithmetic.Symbolic.rhs_ok;[lia|].
+ intros M Form;apply Machine.symbolic.Expressions.rhs_ok;[lia|].
  destruct op;cbn [supported] in Form;try discriminate;
- cbn [ProofArithmetic.Symbolic.operand_ok];try exact Logic.I.
+ cbn [Machine.symbolic.Expressions.operand_ok];try exact Logic.I.
  - now apply Nat.eqb_eq in Form.
  - pose proof(singleton_sound env s r b (B-1) M Form)as Mask;rewrite Mask;reflexivity.
 Qed.
@@ -47,7 +47,7 @@ Proof.
  cbn [arun run];apply IH;[| |exact Tail].
  - intros b disp I;apply Mem;unfold loads_of in *;cbn;apply in_or_app;now right.
  - intro i;unfold put;destruct(Nat.eqb d i);[|apply Reg].
-   destruct op;cbn [step rhs ProofArithmetic.Symbolic.rhs legal_rhs supported] in *;try discriminate;
+   destruct op;cbn [step rhs Machine.symbolic.Expressions.rhs legal_rhs supported] in *;try discriminate;
    try (erewrite (rhs_ok env s) by (eassumption || reflexivity);apply abstract_ok;assumption).
    apply Mem;now left.
 Qed.

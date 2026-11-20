@@ -4,10 +4,10 @@ import sys
 
 HERE = Path(__file__).resolve().parent
 sys.path.append(str(HERE.parents[1]))
-from proof_build import LOAD_PATH, certify_modules
+from proof_build import certify_modules
 
 PROOF_MODULES = (
-    "FieldSpec", "Polynomial", "Symbolic", "CachedAddABI", "CachedAddMemory", "Lane",
+    "CachedAddABI", "CachedAddMemory", "Lane",
     "Control", "Kernels", "KernelInterface", "Bounds", "KernelCalls", "Calls", "Routing",
     "CachedAddSpec", "Arithmetic", "Logical", "FrameProof", "CachedAddBytes", "ReadFootprint",
     "Audit", "EntryTests",
@@ -15,10 +15,7 @@ PROOF_MODULES = (
 
 
 def proof_sources():
-    return [(HERE.parent / "pow2/coq" if module in ("FieldSpec", "Polynomial")
-                  else HERE.parent / "double4/coq" if module == "Symbolic"
-                  else HERE / "coq") / (module + ".v")
-               for module in PROOF_MODULES]
+    return [HERE / "coq" / (module + ".v") for module in PROOF_MODULES]
 
 
 def certify(raw, work):

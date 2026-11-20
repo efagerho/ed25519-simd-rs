@@ -1,7 +1,9 @@
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Blocks Instructions Dependencies.
-Require Import Pow2Caller Linked Program FieldSpec.
-Require Export Pow2ABI.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Ed25519Simd.Pow2 Require Import Pow2Caller Linked Program Pow2Spec.
+From Ed25519Simd.Pow2 Require Export Pow2ABI.
 Import ListNotations.
 Open Scope Z_scope.
 

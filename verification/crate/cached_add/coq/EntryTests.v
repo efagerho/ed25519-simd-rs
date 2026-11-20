@@ -1,7 +1,9 @@
 From Coq Require Import ZArith List Lia.
 From Machine Require Import Blocks MemoryTrace FlatMemory WordBounds ByteMemory.
-Require Import CachedAddABI CachedAddMemory CachedAddBytes CachedAddSpec FrameProof FieldSpec.
-Require Audit Program.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Ed25519Simd.CachedAdd Require Import CachedAddABI CachedAddMemory CachedAddBytes CachedAddSpec FrameProof.
+From Ed25519Simd.CachedAdd Require Audit Program.
 Import ListNotations. Open Scope Z_scope.
 Definition test_placement := Placement
  (fun r=>if Nat.eqb r scratch then 0x10000 else if Nat.eqb r point then 0x4000 else 0x8000) 0x1000 0.
@@ -33,7 +35,7 @@ Proof.
 Qed.
 Example concrete_arithmetic_inputs affine : input_bounds affine
  (buffer_words test_bytes(origin test_placement point))(buffer_words test_bytes(origin test_placement cached)).
-Proof. split;intros;change(0<=0<split);unfold split;lia. Qed.
+Proof. unfold input_bounds,cache_bounds;split;intros;change(0<=0<split);unfold split;lia. Qed.
 Example wrong_return_rejected full affine :
  ~concrete_entry full affine test_placement 8192 0(test_regs 0 full affine)(fun _ _=>0)(fun _=>1).
 Proof. intro E;pose proof(entry_return_word _ _ _ _ _ _ _ _ E)as H;discriminate. Qed.

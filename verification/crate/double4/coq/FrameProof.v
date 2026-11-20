@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Blocks MemoryTrace FlatMemory ExecutionProperties WordBounds Alignment.
-Require Import Program Double4ABI Double4Memory Round Logical.
+From Ed25519Simd.Double4 Require Import Program Double4ABI Double4Memory Round Logical.
 From Machine Require Import MemoryCoverage ByteExecution.
 Import ListNotations. Open Scope Z_scope.
 Lemma padding_range pad : permitted_padding pad -> 0<=pad<=48.

@@ -1,6 +1,9 @@
 From Coq Require Import List ZArith Bool Lia Ring.
 From Machine Require Import Blocks Instructions WordBounds Dependencies.
-Require Import Program Double4ABI FieldSpec Polynomial Kernels KernelInterface Round.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Curve25519 Require Import FieldPolynomial.
+From Ed25519Simd.Double4 Require Import Program Double4ABI Kernels KernelInterface Round.
 Import ListNotations. Open Scope Z_scope.
 Local Opaque code.
 Definition operand_fields k x y := match k with

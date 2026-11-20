@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith.
 From Machine Require Import Blocks MemoryTrace FlatMemory.
-Require Import ScalarABI.
+From Ed25519Simd.Scalar Require Import ScalarABI.
 From Machine Require Export MemoryGeometry.
 Import ListNotations. Open Scope Z_scope.
 Definition caller_slot : pointer := (stack,0).

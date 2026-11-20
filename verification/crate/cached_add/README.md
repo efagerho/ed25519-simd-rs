@@ -75,10 +75,9 @@ Rebuild the retained certificate without the repository or assembler:
 ```sh
 cd cached-add-audit
 set -e
-for proof_source in $(coqdep -sort -f _CoqProject); do
-  coqc -Q machine Machine -Q arithmetic ProofArithmetic "$proof_source"
-done
-coqchk -Q machine Machine -Q arithmetic ProofArithmetic -silent Object
+coq_makefile -f _CoqProject -o Makefile
+make -B
+make validate
 ```
 
 To embed certified bytes for pow2, double4, and cached addition:

@@ -7,6 +7,8 @@ import shutil
 import subprocess
 import sys
 
+from proof_build import component_flags, write_project
+
 HERE = Path(__file__).resolve().parent
 
 
@@ -39,15 +41,14 @@ def write_evidence(binary, address, raw, work, checks, cases):
         shutil.copyfile(path, sources / path.name)
     shutil.copyfile(HERE.parents[1] / "proof_build.py", sources / "proof_build.py")
     coq_sources = sorted(work.rglob("*.v"))
-    (work / "_CoqProject").write_text("-Q machine Machine\n-Q arithmetic ProofArithmetic\n" + "".join(
-        str(path.relative_to(work)) + "\n" for path in coq_sources))
-    retained = [*coq_sources, *sources.iterdir(), work / "_CoqProject", work / "machine/_CoqProject", work / "arithmetic/_CoqProject",
+    write_project(work, component_flags("pow2"), coq_sources)
+    retained = [*coq_sources, *sources.iterdir(), *work.rglob("_CoqProject"),
                 work / "pow2.expanded.S", work / "symbol.bin", work / "assumptions.txt", work / "coqchk.log"]
     if cases:
         retained.append(work / cases["path"])
     manifest = {
         "schema_version": 1,
-        "theorem": "Object.assembled_symbol_correct : Audit.pow2_contract ObjectBytes.symbol_bytes",
+        "theorem": "Ed25519Simd.Pow2.Object.assembled_symbol_correct : Ed25519Simd.Pow2.Audit.pow2_contract Ed25519Simd.Pow2.ObjectBytes.symbol_bytes",
         "elf": {"name": binary.name, "sha256": sha256(binary)},
         "symbol": {"name": "ed25519_simd_pow2_ifma", "address": address, "size": len(raw),
                    "sha256": hashlib.sha256(raw).hexdigest()},

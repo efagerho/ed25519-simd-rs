@@ -1,7 +1,10 @@
 From Coq Require Import List ZArith Bool Lia Ring.
 From Machine Require Import Instructions.
-Require Import Pow2Caller.
-Require Import FieldSpec Polynomial Lane.
+From Ed25519Simd.Pow2 Require Import Pow2Caller.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Curve25519 Require Import FieldPolynomial.
+From Ed25519Simd.Pow2 Require Import Lane Pow2Spec.
 Import ListNotations.
 Open Scope Z_scope.
 
@@ -32,7 +35,7 @@ Proof.
  - destruct (Nat.leb 32 i && Nat.ltb i 42) eqn:H.
    + apply Bool.andb_true_iff in H as [L U]; apply Nat.leb_le in L;apply Nat.ltb_lt in U.
      apply Y;lia.
-   + fold word. pose proof (Z.mod_pos_bound (x i) word ltac:(vm_compute;reflexivity));lia.
+   + pose proof (Z.mod_pos_bound (x i) (2^64) ltac:(vm_compute;reflexivity));lia.
 Qed.
 
 Lemma feed_left x y i : (i=0%nat \/ i=5%nat) -> pack (feed x y) i = pack x i.

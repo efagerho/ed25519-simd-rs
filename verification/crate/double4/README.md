@@ -10,7 +10,7 @@ Object.assembled_double4_correct : Audit.double4_contract ObjectBytes.symbol_byt
 `ed25519_simd_double4_ifma`. Its only parameter is the linked symbol's bytes.
 [`Object.v`](coq/Object.v) proves it without axioms. The independently stated
 arithmetic specification is in [`Double4Spec.v`](coq/Double4Spec.v), with
-limb bounds in [`Bounds.v`](coq/Bounds.v).
+limb bounds in [`Radix51.v`](../../curve25519/Radix51.v).
 
 ## What the theorem guarantees
 
@@ -91,17 +91,16 @@ An auditor can rebuild the retained proof without the repository or assembler:
 ```sh
 cd double4-audit
 set -e
-for proof_source in $(coqdep -sort -f _CoqProject); do
-  coqc -Q machine Machine -Q arithmetic ProofArithmetic "$proof_source"
-done
-coqchk -Q machine Machine -Q arithmetic ProofArithmetic -silent Object
+coq_makefile -f _CoqProject -o Makefile
+make -B
+make validate
 ```
 
 Compiling `Object.v` must print `Closed under the global context`. In
-`coqtop -quiet -Q machine Machine`, inspect the exact theorem type:
+`coqtop -quiet $(sed -n '/^-Q /p' _CoqProject)`, inspect the exact theorem type:
 
 ```coq
-Require Object Audit ObjectBytes.
+From Ed25519Simd.Double4 Require Object Audit ObjectBytes.
 Check Object.assembled_double4_correct : Audit.double4_contract ObjectBytes.symbol_bytes.
 ```
 
@@ -141,7 +140,7 @@ python3 -B verification/machine/tests/run.py --backend all \
 
 | Files | Responsibility |
 | --- | --- |
-| [Shared Interval.v](../../arithmetic/Interval.v), `Symbolic.v` | Sound signed interval evaluation and symbolic instruction execution. Subtraction keeps its `2^64` remainder unless both bounds prove no wrap. Relational square-input hints require proofs. |
+| [Shared Interval.v](../../arithmetic/Interval.v), [`FieldSymbolic.v`](../FieldSymbolic.v) | Sound signed interval evaluation and symbolic instruction execution. Subtraction keeps its `2^64` remainder unless both bounds prove no wrap. Relational square-input hints require proofs. |
 | `Kernels.v`, `KernelInterface.v` | Check addition/reduction, loose squaring, biased subtraction/reduction, paired multiplication and single multiplication against the actual generated instruction blocks. Reuse the proved field polynomial checker from pow2. |
 | `RoundArithmetic.v`, `Preparation.v`, `Finish.v` | Compose the kernel results with the actual register moves and scratch loads/stores into one doubling. |
 | `Round.v`, `Execution.v`, `Logical.v` | Check the actual caller path, including three early rounds and the final T-producing round, and lift lane arithmetic to the full machine state. |

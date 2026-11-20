@@ -10,7 +10,7 @@ of the linked symbol. [Read the statement in Audit.v](coq/Audit.v)
    Each input and each output half occupies 320 bytes. Limb `i` of lane `j`
    is the little-endian qword at byte offset `64*i + 8*j` and has weight
    `2^(51*i)`. Output limbs 0, 2, 3 and 4 are below `2^51`. Limb 1 is at
-   most `2^51 + 511`. [Field specification](coq/FieldSpec.v)
+   most `2^51 + 511`. [Field specification](coq/Pow2Spec.v)
 2. **Code.** Encoding `pow2_program` produces exactly those bytes, including
    padding. The return and field guarantees apply to this same program.
    Its operands, block layout, and static control-flow targets pass
@@ -72,7 +72,7 @@ sequence of squares, multiplies and saves by following the caller's branches.
 [Assembly source](../../../src/wide/avx512ifma/pow2.S) · [Listing generator](generate_listing.py) · [Arithmetic trace](coq/Linked.v)
 
 The `verify-asm-pow2` build embeds the pow2 bytes that Coq checked. For a release
-audit, the checker extracts the linked symbol into `pow2-audit/ObjectBytes.v`.
+audit, the checker extracts the linked symbol into `pow2-audit/Pow2/ObjectBytes.v`.
 Coq proves that encoding the generated program produces those exact bytes,
 including alignment padding. The checker rejects axioms, runs `coqchk`, and
 prints the verified symbol's SHA-256. [Rust build](review.py) · [ELF byte extraction](coq_proof.py) · [Certificate](coq/Object.v)
@@ -91,17 +91,16 @@ without the repository or assembler. In `pow2-audit`, run:
 
 ```bash
 set -e
-for proof_source in $(coqdep -sort -f _CoqProject); do
-  coqc -Q machine Machine -Q arithmetic ProofArithmetic "$proof_source"
-done
-coqchk -Q machine Machine -Q arithmetic ProofArithmetic -silent Object
+coq_makefile -f _CoqProject -o Makefile
+make -B
+make validate
 ```
 
 Compiling `Object.v` must print `Closed under the global context` for
 `assembled_symbol_correct`. The saved manifest and logs record the original
 check; rebuilding allows the auditor to repeat it.
 
-To inspect the instructions, open `pow2-audit/Program.v` next to
+To inspect the instructions, open `pow2-audit/Pow2/Program.v` next to
 `pow2-audit/pow2.expanded.S`. Both listings use symbol-relative offsets.
 The assembly listing includes the instruction bytes, and each mnemonic in
 `Program.v` is Coq notation for a typed instruction. To compare with the
@@ -112,11 +111,11 @@ linked bytes, disassemble the same ELF.
 objdump -d -M intel --disassemble=ed25519_simd_pow2_ifma "$elf"
 ```
 
-To inspect the theorem binding, start `coqtop -quiet -Q machine Machine` in
+To inspect the theorem binding, start `coqtop -quiet $(sed -n '/^-Q /p' _CoqProject)` in
 `pow2-audit` and enter
 
 ```coq
-Require Object Audit ObjectBytes.
+From Ed25519Simd.Pow2 Require Object Audit ObjectBytes.
 Check Object.assembled_symbol_correct : Audit.pow2_contract ObjectBytes.symbol_bytes.
 ```
 

@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith Bool.
 From Machine Require Import Blocks Instructions.
-Require Import Program CachedAddABI.
+From Ed25519Simd.CachedAdd Require Import Program CachedAddABI.
 Import ListNotations. Open Scope Z_scope.
 Definition dummy := Control Caller (fun _=>Unknown) None (fun _=>None).
 (* The path is computed from the byte-bound program, never supplied as an assumption. *)

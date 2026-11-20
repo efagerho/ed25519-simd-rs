@@ -5,23 +5,48 @@ import subprocess
 import sys
 
 HERE = Path(__file__).resolve().parent
-LOAD_PATH = ("-Q", "machine", "Machine", "-Q", "arithmetic", "ProofArithmetic")
+LIBRARIES = (("arithmetic", "ProofArithmetic"), ("machine", "Machine"),
+             ("curve25519", "Curve25519"), ("crate", "Ed25519Simd"))
+COMPONENTS = {"pow2": "Pow2", "double4": "Double4", "cached_add": "CachedAdd",
+              "scalar": "Scalar", "ladder_step": "LadderStep"}
 
 
-def compile_library(source, dest, namespace, dependencies=()):
-    dest.mkdir()
-    shutil.copyfile(source / "_CoqProject", dest / "_CoqProject")
-    for path in source.rglob("*.v"):
-        target = dest / path.relative_to(source)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(path, target)
+def library_flags(prefix=Path(".")):
+    return [arg for directory, namespace in LIBRARIES
+            for arg in ("-Q", str(prefix / directory), namespace)]
+
+
+def component_flags(name, directory=None, prefix=Path(".")):
+    namespace = COMPONENTS[name]
+    return ["-Q", str(directory or namespace), "Ed25519Simd." + namespace, *library_flags(prefix)]
+
+
+def compile_library(source, dest):
+    dest.mkdir(parents=True, exist_ok=True)
+    project = source / "_CoqProject"
+    shutil.copyfile(project, dest / project.name)
+    flags = []
+    for line in project.read_text().splitlines():
+        if line.startswith("-Q "):
+            flags.extend(line.split())
+        elif line.endswith(".v"):
+            target = dest / line
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source / line, target)
     ordered = subprocess.check_output(["coqdep", "-sort", "-f", "_CoqProject"], cwd=dest, text=True)
     for path in ordered.split():
-        subprocess.run(["coqc", "-Q", ".", namespace, *dependencies, path], cwd=dest, check=True)
+        subprocess.run(["coqc", *flags, path], cwd=dest, check=True)
 
 
-def compile_machine(dest):
-    compile_library(HERE / "machine", dest, "Machine")
+def compile_libraries(work):
+    for directory in ("arithmetic", "curve25519", "machine", "machine/symbolic", "crate"):
+        compile_library(HERE / directory, work / directory)
+
+
+def write_project(work, flags, sources):
+    lines = [" ".join(flags[i:i+3]) for i in range(0, len(flags), 3)]
+    lines.extend(str(path.relative_to(work)) for path in sources)
+    (work / "_CoqProject").write_text("\n".join(lines) + "\n")
 
 
 def write_symbol_bytes(path, raw):
@@ -46,18 +71,21 @@ def compile_object(raw, work, modules, object_source, flags):
 
 
 def certify_modules(raw, work, modules, object_source):
-    compile_machine(work / "machine")
-    compile_library(HERE / "arithmetic", work / "arithmetic", "ProofArithmetic",
-                    ("-Q", "../machine", "Machine"))
-    assumptions = compile_object(raw, work, modules, object_source, LOAD_PATH)
-    return check_object(work, LOAD_PATH, assumptions)
+    component = object_source.parent.parent.name
+    compile_libraries(work)
+    dest = work / COMPONENTS[component]
+    dest.mkdir()
+    (work / "Program.v").rename(dest / "Program.v")
+    assumptions = compile_object(raw, dest, modules, object_source,
+                                 component_flags(component, ".", Path("..")))
+    return check_object(work, component_flags(component), assumptions, component)
 
 
-def check_object(work, flags, assumptions):
+def check_object(work, flags, assumptions, component):
     (work / "assumptions.txt").write_text(assumptions)
     if assumptions.strip() != "Closed under the global context":
         raise ValueError(f"unexpected proof assumptions: {assumptions}")
-    command = ["coqchk", *flags, "-silent", "Object"]
+    command = ["coqchk", *flags, "-silent", f"Ed25519Simd.{COMPONENTS[component]}.Object"]
     with (work / "coqchk.log").open("w") as log:
         result = subprocess.run(command, cwd=work, stdout=log, stderr=subprocess.STDOUT)
     if result.returncode:

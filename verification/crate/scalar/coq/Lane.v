@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Blocks Instructions WordBounds Dependencies.
-Require Import Program ScalarABI.
+From Ed25519Simd.Scalar Require Import Program ScalarABI.
 Import ListNotations. Open Scope Z_scope.
 From Machine Require Export Lane.
 Definition lane_effect := Machine.Lane.lane_effect scalar_program.

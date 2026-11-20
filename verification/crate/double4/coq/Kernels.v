@@ -1,8 +1,12 @@
 From ProofArithmetic Require Import Interval.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Blocks Instructions.
-Require Import FieldSpec Polynomial Symbolic Program.
-Require Export Bounds.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Curve25519 Require Import FieldPolynomial.
+From Ed25519Simd Require Import FieldSymbolic.
+From Ed25519Simd.Double4 Require Import Program.
+From Curve25519 Require Export Radix51.
 Import ListNotations. Open Scope Z_scope.
 Inductive kernel := AddReduce | SquarePair | SubtractReduce | MultiplyPair | MultiplySingle.
 Definition kernel_pc k := match k with
@@ -16,7 +20,7 @@ Definition input_bound k i :=
  if Nat.ltb i 10 then match k with
  | AddReduce | SquarePair=>loose_bound i
  | SubtractReduce=>square_bound i
- | _=>split-1 end else word-1.
+ | _=>split-1 end else 2^64-1.
 Definition regvar i := V (2*i).
 Definition memvar i := V (2*i+1).
 Definition initial k i :=

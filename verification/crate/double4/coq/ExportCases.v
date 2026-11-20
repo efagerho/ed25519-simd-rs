@@ -3,7 +3,7 @@ From Coq Require Import List ZArith Strings.String Numbers.DecimalString.
 From Machine Require Import Instructions.
 From Machine Require ProgramLayout.
 From Machine Require tests.CallerForms.
-Require Import Program.
+From Ed25519Simd.Double4 Require Import Program.
 Import ListNotations.
 Open Scope string_scope.
 

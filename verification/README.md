@@ -9,7 +9,9 @@ symbol. These are proofs in the tested machine model; independent refinement
 to an x86 ISA specification remains open.
 
 - `machine/` defines the x86-64 instruction model and tests its encodings and execution against Intel XED and native hardware. [Machine model and tests](machine/README.md)
-- `arithmetic/` contains the shared integer-expression, polynomial, interval and symbolic-instruction proofs. [Shared arithmetic](arithmetic/README.md)
+- `arithmetic/` contains the shared integer-expression, polynomial, radix and interval proofs. [Shared arithmetic](arithmetic/README.md)
+- `curve25519/` defines field congruence, radix-51 limbs and bounds, Edwards point and cached-add formulas, and the scalar order. These definitions are independent of x86 and the crate's memory layout.
+- `crate/` owns the eight-lane buffer representation and the component certificates in the Coq namespace `Ed25519Simd`. [Shared buffer layout](crate/Wide51.v)
 - `crate/pow2/` states the routine’s contract, proves it in the machine model, and explains how to check the proof against a linked executable. [Proof and audit instructions](crate/pow2/README.md)
 - `crate/double4/` proves the four doubling formulas, including loose inputs, biased subtraction, in-place writes and the aligned stack frame. [Proof and audit instructions](crate/double4/README.md)
 
@@ -62,15 +64,12 @@ supplies its actual program, ABI layout, region permissions, and checked
 instruction trace; its entry construction and mathematical specification
 remain explicit.
 
-`arithmetic/` uses the Coq namespace `ProofArithmetic`. It has no dependency
-on a routine's program or field specification. Polynomial congruence takes
-an explicit modulus. Symbolic instruction translation takes an explicit
-AND-mask width while retaining the machine's fixed 52-bit IFMA operands
-and 64-bit word arithmetic. Field and scalar checkers supply their own
-proved mask conditions, bounds and refinement policies.
+The pure libraries `ProofArithmetic` and `Curve25519` can be compiled without
+the machine model. `Machine.symbolic.Expressions` relates integer expressions
+to machine instructions. The shared crate interpreter `Ed25519Simd.FieldSymbolic`
+specializes its rules to the register and mask conventions of the field kernels.
 
-`proof_build.py` compiles both libraries and checks each complete object
-certificate. The routine drivers list their proof modules and specializations.
-Audit bundles retain the shared sources, namespace mappings and build driver
-alongside the routine proofs. Every certificate still requires closed
-assumptions and successful `coqchk` on `Object`.
+`proof_build.py` builds each shared library once per certificate. Standalone
+audits and composed audits import the same qualified component modules.
+The retained `_CoqProject` records the logical mappings and sources for replay.
+The drivers check closed assumptions and run `coqchk` on the public theorem's module.

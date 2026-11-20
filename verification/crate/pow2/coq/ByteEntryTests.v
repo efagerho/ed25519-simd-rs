@@ -1,7 +1,9 @@
 From Coq Require Import ZArith List Lia.
 From Machine Require Import Blocks MemoryTrace FlatMemory WordBounds ByteMemory.
-Require Import Pow2ABI Pow2Memory Pow2Bytes.
-Require Audit Program FieldSpec.
+From Ed25519Simd.Pow2 Require Import Pow2ABI Pow2Memory Pow2Bytes.
+From Curve25519 Require Field Radix51.
+From Ed25519Simd Require Wide51.
+From Ed25519Simd.Pow2 Require Audit Program Pow2Spec.
 Import ListNotations.
 Open Scope Z_scope.
 
@@ -48,8 +50,8 @@ Definition maximal_word_entry : state :=
   Data (fun _ _ => 2^64-1) (fun _ _ => 2^64-1)).
 
 Example maximal_words_are_outside_the_field_input_bound :
- ~ (0 <= 2^64-1 < FieldSpec.split).
-Proof. unfold FieldSpec.split; vm_compute; intuition discriminate. Qed.
+ ~ (0 <= 2^64-1 < Radix51.split).
+Proof. unfold Radix51.split; vm_compute; intuition discriminate. Qed.
 
 Example public_initialization_without_field_input_bound symbol_bytes :
  Audit.pow2_contract symbol_bytes ->

@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Blocks Instructions WordBounds Dependencies.
-Require Import Program ScalarABI ScalarSpec ScalarMath Product Unpack Reduction Montgomery Finish Calculate Lane Control.
+From Ed25519Simd.Scalar Require Import Program ScalarABI ScalarSpec ScalarMath Product Unpack Reduction Montgomery Finish Calculate Lane Control.
 Import ListNotations. Open Scope Z_scope.
 Definition no_memory(_:nat)(_:Z) := 0.
 Definition loaded s := run(lane_load s[(6%nat,(input,0))])(fragment_code scalar_program 0)(registers s).

@@ -1,7 +1,7 @@
 From Machine Require Import LayoutProofs ScalarRefinement.
 From Coq Require Import List ZArith.
 From Machine Require Import Blocks.
-Require Import Program ScalarABI ScalarSpec ScalarMemory ScalarBytes.
+From Ed25519Simd.Scalar Require Import Program ScalarABI ScalarSpec ScalarMemory ScalarBytes.
 
 (* One complete public contract. The byte-memory clause constructs the
    logical entry from actual pointer qwords, vector qwords and bytes. *)

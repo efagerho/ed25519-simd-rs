@@ -1,7 +1,7 @@
 From Coq Require Import List ZArith.
 From Machine Require Import Blocks LayoutProofs ScalarRefinement.
-Require Import Program ScalarABI ScalarSpec ScalarMemory ScalarBytes.
-Require Audit Logical FrameProof ObjectBytes Control.
+From Ed25519Simd.Scalar Require Import Program ScalarABI ScalarSpec ScalarMemory ScalarBytes.
+From Ed25519Simd.Scalar Require Audit Logical FrameProof ObjectBytes Control.
 Definition object_bytes := ObjectBytes.symbol_bytes.
 Local Lemma logical_execution size initial : valid_scalar_entry initial ->exists final,
  returns scalar_program abi_layout initial final /\stack_restored initial final /\

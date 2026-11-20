@@ -1,9 +1,10 @@
+From Ed25519Simd Require Import Wide51.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Instructions Blocks SysV LinkedCalls FlatMemory ByteMemory
  WordBounds MemoryGeometry ScalarRefinement.
-From Double4 Require Double4ABI Double4Memory Double4Spec.
-From CachedAdd Require CachedAddABI CachedAddMemory CachedAddSpec.
-Require Import LinkedBytes Callees Schedule.
+From Ed25519Simd.Double4 Require Double4ABI Double4Memory Double4Spec.
+From Ed25519Simd.CachedAdd Require CachedAddABI CachedAddMemory CachedAddSpec.
+From Ed25519Simd.LadderStep Require Import LinkedBytes Callees Schedule.
 Import ListNotations. Open Scope Z_scope.
 
 Local Notation RCX := (1%nat).
@@ -49,9 +50,9 @@ Record placement_ok slide scratch pad point cache : Prop := {
 Definition writable scratch pad point x :=
  point<=x<point+1280 \/ scratch-16<=x<scratch+1320+pad.
 Definition result_value full initial point cache j :=
- ladder_formula full (Double4Spec.point_values(buffer_words initial point)j)
-  (cached_at initial cache j) (cached_at initial (cache+1280) j)
-  (cached_at initial (cache+2240) j).
+ ladder_formula full (Wide51.point_values(buffer_words initial point)j)
+  (cache_values false (buffer_words initial cache) j) (cache_values true (buffer_words initial (cache+1280)) j)
+  (cache_values false (buffer_words initial (cache+2240)) j).
 
 Definition separate_images :=
  disjoint wrapper_pc wrapper_size double4_pc dsize /\ disjoint wrapper_pc wrapper_size cached_pc asize /\
@@ -61,15 +62,15 @@ Definition separate_images :=
    A placement supplies only the runtime addresses, alignment and separation. *)
 Definition ladder_contract :=
   assemble wrapper_pc program = Some symbol_bytes /\
-  Blocks.image Double4.Program.double4_program = Double4.Object.object_bytes /\
-  Blocks.image CachedAdd.Program.add_cached_program = CachedAdd.Object.object_bytes /\
+  Blocks.image Ed25519Simd.Double4.Program.double4_program = Ed25519Simd.Double4.Object.object_bytes /\
+  Blocks.image Ed25519Simd.CachedAdd.Program.add_cached_program = Ed25519Simd.CachedAdd.Object.object_bytes /\
   separate_images /\
   forall slide scratch pad point cache full entry,
     placement_ok slide scratch pad point cache -> well_formed entry ->
     regs entry RSP = scratch + 1320 + pad ->
     regs entry RDI = point -> regs entry RSI = cache ->
     regs entry RDX = CachedAddABI.flag_word full ->
-    Double4Spec.input_bounds (buffer_words (mem entry) point) ->
+    Wide51.loose_xyz (buffer_words (mem entry) point) ->
     cache_bounds false (buffer_words (mem entry) cache) ->
     cache_bounds true (buffer_words (mem entry) (cache + 1280)) ->
     cache_bounds false (buffer_words (mem entry) (cache + 2240)) ->
@@ -85,4 +86,4 @@ Definition ladder_contract :=
       strict (buffer_words (mem out) point) /\
       has_value (buffer_words (mem out) point) (result_value full (mem entry) point cache) /\
       (full = false -> forall i j, (i < 5)%nat -> (j < 8)%nat ->
-         Double4.FieldSpec.cell (buffer_words (mem out) point) (15+i)%nat j = 0).
+         Wide51.cell (buffer_words (mem out) point) (15+i)%nat j = 0).

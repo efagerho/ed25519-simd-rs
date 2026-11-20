@@ -1,6 +1,8 @@
 From Coq Require Import List ZArith Bool Lia Ring.
 From Machine Require Import Blocks Instructions WordBounds.
-Require Import Program Double4ABI FieldSpec Kernels KernelInterface Round RoundArithmetic Double4Spec Preparation.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Ed25519Simd.Double4 Require Import Program Double4ABI Kernels KernelInterface Round RoundArithmetic Double4Spec Preparation.
 Import ListNotations. Open Scope Z_scope.
 Local Opaque code.
 Definition finish j (full:bool) s :=

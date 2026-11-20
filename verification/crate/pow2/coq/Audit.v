@@ -1,7 +1,9 @@
 From Machine Require Import LayoutProofs ScalarRefinement.
 From Coq Require Import List ZArith.
 From Machine Require Blocks.
-Require Import Program Pow2ABI Pow2Memory Pow2Bytes FieldSpec.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Ed25519Simd.Pow2 Require Import Program Pow2ABI Pow2Memory Pow2Bytes Pow2Spec.
 
 Definition pow2_contract (symbol_bytes : list Z) : Prop :=
   (* Encoding the modeled program gives the exact symbol bytes, including padding. *)

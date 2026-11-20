@@ -1,6 +1,8 @@
 From Coq Require Import ZArith List Lia.
-Require Import Pow2Caller.
-Require Import FieldSpec Lane Chain.
+From Ed25519Simd.Pow2 Require Import Pow2Caller.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Ed25519Simd.Pow2 Require Import Lane Chain Pow2Spec.
 Open Scope Z_scope.
 
 Lemma get_output sq mul c a b scratch i j : (j<8)%nat ->

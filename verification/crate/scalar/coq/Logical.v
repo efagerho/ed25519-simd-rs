@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Blocks WordBounds.
-Require Import Program ScalarABI ScalarSpec Lane Control Routing.
+From Ed25519Simd.Scalar Require Import Program ScalarABI ScalarSpec Lane Control Routing.
 Import ListNotations. Open Scope Z_scope.
 Lemma words_lane m region i j : (j<8)%nat ->
  words_at m region(8*i+j)%nat=m(region,64*Z.of_nat i)j.

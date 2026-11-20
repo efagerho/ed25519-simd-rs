@@ -1,24 +1,27 @@
 From Coq Require Import ZArith List Bool Lia.
 From Machine Require Import Instructions.
-Require Import FieldSpec Polynomial Pow2Caller.
-From ProofArithmetic Require Symbolic.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Curve25519 Require Import FieldPolynomial.
+From Ed25519Simd.Pow2 Require Import Pow2Caller Pow2Spec.
+From Machine.symbolic Require Expressions.
 Import ListNotations.
 Open Scope Z_scope.
 
 Definition rhs dst op := match op with
  | Load _ disp=>Some(V(rhs_index disp))
- | _=>ProofArithmetic.Symbolic.rhs 51 dst op end.
+ | _=>Machine.symbolic.Expressions.rhs 51 dst op end.
 Lemma bits_ok load r dst op e :
  (forall disp, load 8%nat disp = r (rhs_index disp)) ->
  r 29%nat = radix-1 -> kernel_form op = true ->
  rhs dst op=Some e -> bits load r dst op = val r e.
 Proof.
  intros Mem Mask Form.
- assert(Operands:ProofArithmetic.Symbolic.operand_ok 51 r op).
- { destruct op;cbn [kernel_form] in Form;cbn [ProofArithmetic.Symbolic.operand_ok];
+ assert(Operands:Machine.symbolic.Expressions.operand_ok 51 r op).
+ { destruct op;cbn [kernel_form] in Form;cbn [Machine.symbolic.Expressions.operand_ok];
    try exact Logic.I;try(now apply Nat.eqb_eq in Form).
    apply Nat.eqb_eq in Form;subst b;rewrite Mask;reflexivity. }
- pose proof(ProofArithmetic.Symbolic.rhs_ok 51 load r dst op e ltac:(lia) Operands)as Sound.
+ pose proof(Machine.symbolic.Expressions.rhs_ok 51 load r dst op e ltac:(lia) Operands)as Sound.
  destruct op;cbn [kernel_form] in Form;try discriminate;try exact Sound.
  cbn [rhs];intros [= <-];apply Nat.eqb_eq in Form;subst base;apply Mem.
 Qed.
@@ -93,7 +96,7 @@ Definition initial sq i :=
  if Nat.eqb i 28 then W (C 19) 19 else
  if Nat.eqb i 29 then W (C (radix-1)) (radix-1) else
  W (V i) (if Nat.ltb i 10 then if sq:bool then smax i else imax
-         else if Nat.leb 32 i && Nat.ltb i 42 then imax else word-1).
+         else if Nat.leb 32 i && Nat.ltb i 42 then imax else 2^64-1).
 Definition pack s i := limbs (fun j => s (i+j)%nat).
 Definition packE (s:nat->expr) i :=
  let d j:=s (i+j)%nat in

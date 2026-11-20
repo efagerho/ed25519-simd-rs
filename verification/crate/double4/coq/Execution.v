@@ -1,6 +1,8 @@
 From Coq Require Import List ZArith Bool Lia Ring.
 From Machine Require Import Blocks Instructions WordBounds.
-Require Import Program Double4ABI FieldSpec Kernels KernelInterface Round RoundArithmetic Double4Spec Preparation Finish.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Ed25519Simd.Double4 Require Import Program Double4ABI Kernels KernelInterface Round RoundArithmetic Double4Spec Preparation Finish.
 Import ListNotations. Open Scope Z_scope.
 Local Opaque code stage0 stage1 stage2 stage3 stage4 stage5 stage6.
 Lemma round_split j full s : round j full s=finish j full(prepare j s).

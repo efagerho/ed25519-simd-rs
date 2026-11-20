@@ -1,7 +1,7 @@
 From ProofArithmetic Require Import Interval Polynomial.
 From Coq Require Import List ZArith Bool Lia Ring.
 From Machine Require Import Blocks Instructions WordBounds.
-Require Import Program ScalarSpec Symbolic.
+From Ed25519Simd.Scalar Require Import Program ScalarSpec Symbolic.
 Import ListNotations. Open Scope Z_scope.
 
 Definition multiplier0 := R mod L.

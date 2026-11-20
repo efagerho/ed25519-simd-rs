@@ -1,7 +1,11 @@
 From ProofArithmetic Require Import Ranges.
 From Coq Require Import List ZArith Bool Lia Ring.
 From Machine Require Import Blocks Instructions WordBounds.
-Require Import Program CachedAddABI FieldSpec Polynomial Symbolic Kernels KernelInterface Lane Control Bounds.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Curve25519 Require Import FieldPolynomial.
+From Ed25519Simd Require Import FieldSymbolic.
+From Ed25519Simd.CachedAdd Require Import Program CachedAddABI Kernels KernelInterface Lane Control Bounds.
 Import ListNotations. Open Scope Z_scope.
 Definition includes a lo hi := (lo<=?lower_bound a)&&(upper_bound a<=?hi).
 Lemma includes_sound a lo hi x : includes a lo hi=true ->bounded a x ->lo<=x<=hi.

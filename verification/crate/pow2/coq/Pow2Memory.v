@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith.
 From Machine Require Import Blocks MemoryTrace FlatMemory.
-Require Import Pow2ABI.
+From Ed25519Simd.Pow2 Require Import Pow2ABI.
 From Machine Require Export MemoryGeometry.
 Import ListNotations.
 Open Scope Z_scope.

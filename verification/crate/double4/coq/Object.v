@@ -1,7 +1,7 @@
 From Coq Require Import List ZArith.
 From Machine Require Import Blocks LayoutProofs ScalarRefinement.
-Require Import Program Double4ABI Double4Memory Double4Bytes Double4Spec.
-Require Audit Logical FrameProof ReadFootprint ObjectBytes Round.
+From Ed25519Simd.Double4 Require Import Program Double4ABI Double4Memory Double4Bytes Double4Spec.
+From Ed25519Simd.Double4 Require Audit Logical FrameProof ReadFootprint ObjectBytes Round.
 Definition object_bytes := ObjectBytes.symbol_bytes.
 Local Lemma logical_execution size initial pad : valid_double4_entry initial pad ->exists final,
  returns double4_program abi_layout initial final /\stack_restored initial final /\
