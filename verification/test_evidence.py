@@ -9,6 +9,8 @@ import json
 import os
 from pathlib import Path
 import sys
+import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -185,7 +187,8 @@ class ReleaseEvidenceTests(unittest.TestCase):
         for module, routine, namespace, generator in ((evidence, "pow2", "Pow2", "sources/coq_proof.py"),
                                             (double4_audit, "double4", "Double4", "sources/double4/audit.py"),
                                             (cached_add_audit, "add_cached", "CachedAdd", "sources/cached_add/audit.py"),
-                                            (scalar_audit, "reduce", "Scalar", "sources/scalar/audit.py")):
+                                            (scalar_audit, "reduce", "Scalar", "sources/scalar/audit.py"),
+                                            (evidence, "ladder_step", "LadderStep", "sources/ladder_step/audit.py")):
             with self.subTest(routine=routine):
                 self.check_manifest(module, routine, namespace, generator)
 
@@ -205,12 +208,20 @@ class ReleaseEvidenceTests(unittest.TestCase):
                 (work / name).parent.mkdir(parents=True, exist_ok=True)
                 (work / name).write_text(value)
             checks = {"assumptions": "Closed under the global context",
-                      "coqchk": {"command": ["coqchk", "-silent", f"Ed25519Simd.{namespace}.Object"], "exit_code": 0}}
+                      "coqchk": {"command": ["coqchk", "-silent", f"Ed25519Simd.{namespace}.Checked"], "exit_code": 0}}
             corpus = {"path": "conformance.jsonl", "count": 1, "export_seed": 42}
-            with patch.object(module, "tool_versions", return_value={"coqc": {"version": "test"}}):
-                module.write_evidence(work / "release.elf", 4096, b"\xc3", work, checks, corpus)
+            component = next(k for k, v in proof_build.COMPONENTS.items() if v == namespace)
+            theorem, contract = proof_build.public_statement(component)
+            checks["theorem"] = f"{theorem} : {contract}"
+            symbols = [(routine, 4096, b"\xc3")]
+            if component == "ladder_step":
+                symbols.extend([("double4", 8192, b"a"), ("add_cached", 12288, b"b")])
+            with patch.object(evidence, "tool_versions", return_value={"coqc": {"version": "test"}}):
+                evidence.write_evidence(work / "release.elf", work, component, checks, symbols, [],
+                                        proof_build.component_flags(component), corpus)
             manifest = json.loads((work / "manifest.json").read_text())
             self.assertEqual(manifest["proof_checks"], checks)
+            self.assertEqual([s["address"] for s in manifest["symbols"]], [s[1] for s in symbols])
             self.assertEqual(manifest["cases"], corpus)
             self.assertEqual(manifest["symbol"]["sha256"], hashlib.sha256(b"\xc3").hexdigest())
             self.assertEqual(manifest["elf"]["sha256"], evidence.sha256(work / "release.elf"))
@@ -235,6 +246,25 @@ class ReleaseEvidenceTests(unittest.TestCase):
 
 
 class SharedLibraryTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("coqc"), "requires Coq")
+    def test_closed_but_weakened_theorem_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            component = work / "Double4"
+            component.mkdir()
+            flags = ["-Q", "Double4", "Ed25519Simd.Double4"]
+            modules = {"ObjectBytes": "Definition symbol_bytes := 1.",
+                       "Audit": "Definition double4_contract (bytes : nat) := bytes = 1.",
+                       "Object": "From Ed25519Simd.Double4 Require Audit ObjectBytes.\n"
+                                 "Definition assembled_double4_correct : True := I."}
+            for name, source in modules.items():
+                path = component / (name + ".v")
+                path.write_text(source)
+                subprocess.run(["coqc", *flags, str(path)], cwd=work, check=True)
+            with self.assertRaises(subprocess.CalledProcessError) as rejected:
+                proof_build.check_object(work, flags, "double4")
+            self.assertEqual(rejected.exception.cmd[-1], "Double4/Checked.v")
+
     def test_reuse_checks_sources_objects_and_compiler(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -12,10 +12,11 @@ VERIFY = CRATE.parent
 sys.path.insert(0, str(CRATE / "pow2"))
 sys.path.insert(0, str(VERIFY))
 sys.path.insert(0, str(CRATE))
+from evidence import write_evidence
 from coq_proof import symbol_bytes
 from elf import symbol_extent
 from proof_build import (LADDER_PROJECTS, check_object, compile_libraries, component_flags,
-                         compile_object, write_project, write_symbol_bytes)
+                         compile_object, write_symbol_bytes)
 
 CALLEES = [("double4", "double4", "Double4"), ("cached_add", "add_cached", "CachedAdd")]
 MODULES = ["LinkedBytes", "Callees", "Schedule", "Audit", "Calls", "Execution", "Object"]
@@ -56,10 +57,15 @@ def audit(elf, work):
         shutil.copy(src, ladder)
     for module in MODULES[:-1]:
         subprocess.run(["coqc", *flags, "LadderStep/" + module + ".v"], cwd=work, check=True)
-    assumptions = subprocess.check_output(["coqc", *flags, "LadderStep/Object.v"], cwd=work, text=True)
+    subprocess.run(["coqc", *flags, "LadderStep/Object.v"], cwd=work, check=True)
     subprocess.run(["coqc", *flags, "LadderStep/EntryTests.v"], cwd=work, check=True)
-    write_project(work, flags, sorted(work.rglob("*.v")))
-    check_object(work, flags, assumptions, "ladder_step")
+    checks = check_object(work, flags, "ladder_step")
+    symbols = [("ed25519_simd_ladder_step_ifma", wrapper_pc, wrapper)]
+    sources = [VERIFY.parent / "src/wide/avx512ifma/ladder_step.S"]
+    for name, symbol, _ in CALLEES:
+        symbols.append((f"ed25519_simd_{symbol}_ifma", *callees[symbol]))
+        sources.append(import_module(f"{name}.listing").SOURCE)
+    write_evidence(elf, work, "ladder_step", checks, symbols, sources, flags)
     print("Checked Ed25519Simd.LadderStep.Object.assembled_ladder_step_correct against", elf)
 
 
