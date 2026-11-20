@@ -55,6 +55,20 @@ impl CanonicalScalar {
 /// Reduce eight 512-bit challenge hashes modulo the group order and recode
 /// them as signed radix-16 digits. Each input row is one word across all lanes.
 pub(crate) fn wide_words_to_radix16(words: &[[u64; LANES]; WIDE_WORDS]) -> [Radix16; LANES] {
+    #[cfg(all(
+        feature = "asm",
+        target_arch = "x86_64",
+        target_os = "linux",
+        target_pointer_width = "64"
+    ))]
+    return asm::wide_words_to_radix16(words);
+
+    #[cfg(not(all(
+        feature = "asm",
+        target_arch = "x86_64",
+        target_os = "linux",
+        target_pointer_width = "64"
+    )))]
     wide::wide_words_to_radix16(words)
 }
 
@@ -72,6 +86,23 @@ pub(crate) fn is_canonical(bytes: &[u8; 32]) -> bool {
     false
 }
 
+#[cfg(all(
+    feature = "asm",
+    target_arch = "x86_64",
+    target_os = "linux",
+    target_pointer_width = "64"
+))]
+mod asm;
+
+#[cfg(any(
+    test,
+    not(all(
+        feature = "asm",
+        target_arch = "x86_64",
+        target_os = "linux",
+        target_pointer_width = "64"
+    ))
+))]
 mod wide;
 
 #[cfg(test)]

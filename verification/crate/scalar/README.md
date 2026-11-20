@@ -18,18 +18,19 @@ Object.assembled_scalar_correct : Audit.scalar_contract ObjectBytes.symbol_bytes
    weight `2^(64*i)`, output weight `2^(52*i)`, scalar order, and exact
    equality to `H mod L`. This equality rules out a Montgomery-scaled result
    or a noncanonical representative. [Scalar specification](coq/ScalarSpec.v) · [Scalar order](../../curve25519/Scalar.v)
-2. Compare `concrete_entry` with `WideScalar52::from_wide_words`. RDI and
-   RSI designate distinct 320-byte output and 512-byte input buffers.
-   `output_initialized` must cover every byte used by `assume_init()` for
-   every unsigned input. The caller’s eight-byte return slot is the only
-   stack storage the routine needs. [Rust caller](../../../src/scalar/wide.rs) · [Concrete contract](coq/ScalarBytes.v) · [Memory permissions](coq/ScalarMemory.v)
+2. Compare `concrete_entry` with the call in `ed25519_simd_digest_to_radix16`.
+   RDI designates the first 320 bytes of the digit output and RSI designates
+   a disjoint 512-byte digest input. Check that `output_initialized` covers
+   all five limb rows the caller reads. The eight-byte return slot is the
+   only stack storage the reducer needs. [Assembly caller](../../../src/scalar/radix16.S) · [Concrete contract](coq/ScalarBytes.v) · [Memory permissions](coq/ScalarMemory.v)
 3. Check that the allowed placements include unaligned buffers and that
    the input premise admits the maximal 512-bit integer. The entry tests
    exercise all 64 buffer alignments and derive the maximal-input result
    from the public contract. [Entry witnesses](coq/EntryTests.v)
 
 Apply the [crate audit procedure](../README.md#what-to-audit) to this symbol.
-Hashing and subsequent scalar recoding are separate Rust operations.
+The certificate ends at the reducer's return. Hashing, signed-digit recoding,
+and final lane placement are outside its scope.
 
 ## Contract
 
