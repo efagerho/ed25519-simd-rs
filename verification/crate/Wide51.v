@@ -1,8 +1,13 @@
 From Coq Require Import List ZArith Lia Ring.
+From Machine Require Import memory.VectorBuffer.
 From Curve25519 Require Import Field Radix51 Edwards.
 Import ListNotations. Open Scope Z_scope.
 
 Definition cell (buf:nat -> Z) (i lane:nat) := buf (i*8+lane)%nat.
+Lemma cell_words_at m region i j : (j<8)%nat ->
+ cell (words_at m region) i j = m (vector_address region 0 i) j.
+Proof. apply words_at_lane. Qed.
+
 Definition field_at buf start lane := limbs (fun i=>cell buf (start+i)%nat lane).
 
 Definition word_coordinate words lane c := field_at words (5*c)%nat lane.

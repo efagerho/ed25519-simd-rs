@@ -1,4 +1,5 @@
 From Coq Require Import List ZArith Bool.
+From Machine Require Export memory.VectorBuffer.
 From Machine Require Import abi.SysV execution.Blocks.
 Open Scope Z_scope.
 
@@ -23,11 +24,7 @@ Definition initial_control (incoming:control) := Control (At 0)
  | 6%nat => Ptr (input_a,0) | 2%nat => Ptr (input_b,0) | _ => Blocks.gpr incoming r end)
  (zf incoming) (fun a => if ptr_eq a (stack,1928) then Some Caller else return_memory incoming a).
 
-Definition limb_address (region:nat) (base:Z) (i:nat) : pointer :=
- (region,base + 64*Z.of_nat i).
 
-Definition words_at (m:pointer -> vector) region k :=
- m (limb_address region 0 (k / 8)) (k mod 8)%nat.
 Definition entry_buffers (s:data) a b :=
  (forall k, (k<40)%nat -> words_at (memory s) input_a k = a k) /\
  (forall k, (k<40)%nat -> words_at (memory s) input_b k = b k).

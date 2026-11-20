@@ -4,10 +4,7 @@ From Ed25519Simd.Scalar Require Import Program ScalarABI ScalarSpec Lane Control
 Import ListNotations. Open Scope Z_scope.
 Lemma words_lane m region i j : (j<8)%nat ->
  words_at m region(8*i+j)%nat=m(region,64*Z.of_nat i)j.
-Proof.
- intro J;unfold words_at;replace(8*i+j)%nat with(j+i*8)%nat by lia.
- rewrite Nat.div_add,Nat.mod_add,Nat.div_small,Nat.mod_small by lia;now rewrite Nat.add_0_l.
-Qed.
+Proof. rewrite Nat.mul_comm; apply words_at_lane. Qed.
 Definition output_data d := effects scalar_program expected_path d.
 Theorem arithmetic_contract d : data_words d ->
  scalar_spec(words_at(memory d)input)(words_at(memory(output_data d))output).

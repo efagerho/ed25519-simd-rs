@@ -104,7 +104,7 @@ From Ed25519Simd.Double4 Require Object Audit ObjectBytes.
 Check Object.assembled_double4_correct : Audit.double4_contract ObjectBytes.symbol_bytes.
 ```
 
-Compare `Program.v` and `double4.expanded.S` with
+Compare `Double4/Program.v` and `double4.expanded.S` with
 `objdump -d -M intel --disassemble=ed25519_simd_double4_ifma "$elf"`.
 Both retained listings show symbol-relative instruction offsets; the assembly
 listing also shows the bytes. `manifest.json` binds the evidence to the ELF
@@ -141,7 +141,7 @@ python3 -B verification/machine/tests/run.py --backend all \
 | Files | Responsibility |
 | --- | --- |
 | [Shared Interval.v](../../arithmetic/Interval.v), [`FieldSymbolic.v`](../FieldSymbolic.v) | Sound signed interval evaluation and symbolic instruction execution. Subtraction keeps its `2^64` remainder unless both bounds prove no wrap. Relational square-input hints require proofs. |
-| `Kernels.v`, `KernelInterface.v` | Check addition/reduction, loose squaring, biased subtraction/reduction, paired multiplication and single multiplication against the actual generated instruction blocks. Reuse the proved field polynomial checker from pow2. |
+| `Kernels.v`, `KernelInterface.v` | Check addition/reduction, loose squaring, biased subtraction/reduction, paired multiplication and single multiplication against the actual generated instruction blocks. Use the shared checker in `Curve25519.FieldPolynomial`. |
 | `RoundArithmetic.v`, `Preparation.v`, `Finish.v` | Compose the kernel results with the actual register moves and scratch loads/stores into one doubling. |
 | `Round.v`, `Execution.v`, `Logical.v` | Check the actual caller path, including three early rounds and the final T-producing round, and lift lane arithmetic to the full machine state. |
 | `FrameProof.v`, `Double4Bytes.v`, `ReadFootprint.v` | Stack/ABI preservation, shared byte-memory agreement, complete output writes, and absence of incoming T reads. |

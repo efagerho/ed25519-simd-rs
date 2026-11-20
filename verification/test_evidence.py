@@ -180,21 +180,18 @@ class ReleaseEvidenceTests(unittest.TestCase):
             case_data.validate(row)
 
     def test_manifest_binds_proof_sources_checks_bytes_and_corpus(self):
-        for module, routine, generator in ((evidence, "pow2", "sources/coq_proof.py"),
-                                            (double4_audit, "double4", "sources/double4/audit.py"),
-                                            (cached_add_audit, "add_cached", "sources/cached_add/audit.py"),
-                                            (scalar_audit, "reduce", "sources/scalar/audit.py")):
+        for module, routine, namespace, generator in ((evidence, "pow2", "Pow2", "sources/coq_proof.py"),
+                                            (double4_audit, "double4", "Double4", "sources/double4/audit.py"),
+                                            (cached_add_audit, "add_cached", "CachedAdd", "sources/cached_add/audit.py"),
+                                            (scalar_audit, "reduce", "Scalar", "sources/scalar/audit.py")):
             with self.subTest(routine=routine):
-                self.check_manifest(module, routine, generator)
+                self.check_manifest(module, routine, namespace, generator)
 
-    def check_manifest(self, module, routine, generator):
+    def check_manifest(self, module, routine, namespace, generator):
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
-            (work / "machine/isa").mkdir(parents=True)
-            (work / "arithmetic").mkdir()
-            (work / "curve25519").mkdir()
-            (work / "crate").mkdir()
-            artifacts = {"Program.v": "Definition program := 0.\n", "Audit.v": "Definition contract := True.\n",
+            artifacts = {f"{namespace}/Program.v": "Definition program := 0.\n",
+                         f"{namespace}/Audit.v": "Definition contract := True.\n",
                          "curve25519/Field.v": "Definition prime := 31.\n",
                          "crate/Wide51.v": "Definition lanes := 8.\n", "machine/isa/X86.v": "Definition bits := 64.\n",
                          "machine/_CoqProject": "-Q . Machine\nisa/X86.v\n",
@@ -203,9 +200,10 @@ class ReleaseEvidenceTests(unittest.TestCase):
                          "assumptions.txt": "Closed under the global context\n", "coqchk.log": "",
                          "conformance.jsonl": '{"export_seed":42}\n', "release.elf": "example ELF"}
             for name, value in artifacts.items():
+                (work / name).parent.mkdir(parents=True, exist_ok=True)
                 (work / name).write_text(value)
             checks = {"assumptions": "Closed under the global context",
-                      "coqchk": {"command": ["coqchk", "-silent", "Object"], "exit_code": 0}}
+                      "coqchk": {"command": ["coqchk", "-silent", f"Ed25519Simd.{namespace}.Object"], "exit_code": 0}}
             corpus = {"path": "conformance.jsonl", "count": 1, "export_seed": 42}
             with patch.object(module, "tool_versions", return_value={"coqc": {"version": "test"}}):
                 module.write_evidence(work / "release.elf", 4096, b"\xc3", work, checks, corpus)
@@ -225,7 +223,11 @@ class ReleaseEvidenceTests(unittest.TestCase):
             self.assertIn("sources/proof_build.py", manifest["files"])
             self.assertIn("-Q arithmetic ProofArithmetic\n", (work / "_CoqProject").read_text())
             self.assertIn(generator, manifest["files"])
-            self.assertIn("Program.v\n", (work / "_CoqProject").read_text())
+            project = (work / "_CoqProject").read_text().splitlines()
+            self.assertIn(f"-Q {namespace} Ed25519Simd.{namespace}", project)
+            self.assertIn(f"{namespace}/Program.v", project)
+            self.assertIn(f"{namespace}/Audit.v", manifest["files"])
+            self.assertTrue(manifest["theorem"].startswith(f"Ed25519Simd.{namespace}.Object."))
             (work / "curve25519/Field.v").write_text("Definition prime := 17.\n")
             self.assertNotEqual(evidence.sha256(work / "curve25519/Field.v"), manifest["files"]["curve25519/Field.v"])
 
