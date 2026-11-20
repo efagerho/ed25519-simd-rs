@@ -40,6 +40,13 @@ aliasing, on a CPU and OS that enable the required instructions. Page faults,
 concurrent interference, and timing or side-channel behavior lie outside
 this execution model. [Pointers and permissions](machine/execution/MachineState.v) · [Address placement and writes](machine/memory/FlatMemory.v) · [Byte execution](machine/memory/ByteExecution.v) · [SysV contract](machine/abi/SysV.v)
 
+**Packed byte operations.** The digest wrapper uses a straight-line interpreter
+for one RDI-relative buffer. Check byte order within qwords, 128-bit unpack
+boundaries, shuffle immediates, and the EVEX element width. A row read uses
+the latest 64-byte store to the same row or the incoming flat memory.
+Coq proves that each in-bounds store writes precisely its 64 bytes in flat
+memory. The linked call and return use the shared stack semantics. [Packed interpreter](machine/execution/Packed.v) · [Row store proof](machine/memory/PackedMemory.v) · [Hardware probe](machine/tests/PackedRows.v)
+
 **Mask-dependent execution.** The torsion and small-order routines branch on values
 computed by all eight lanes. The functional model reconstructs EAX comparisons
 and the zero flag from a mask self-test. RIP-relative qwords and instruction

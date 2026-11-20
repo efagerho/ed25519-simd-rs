@@ -55,6 +55,7 @@ class Model:
     def block_probe(self, name, inputs=None):
         """Evaluate the complete block program and serialize the observed machine state."""
         module, report, defaults, columns = {
+            "packed": ("PackedRows", "packed_report", "seeds", 49),
             "mask": ("Mask", "mask_report", "seeds", 2),
             "filter": ("Filter", "filter_report", "seeds", 2),
             "control": ("Control", "probe_report", "counts", 4),

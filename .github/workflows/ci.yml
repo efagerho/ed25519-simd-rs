@@ -81,10 +81,10 @@ jobs:
           artifact=$(jq -r 'select(.target.name == "cold_profile_dalek" and .executable != null) | .executable' "$RUNNER_TEMP/pow2-build.json")
           test -x "$artifact"
           backend=xed
-          if grep -qw avx512ifma /proc/cpuinfo && grep -qw avx512dq /proc/cpuinfo && grep -qw avx512f /proc/cpuinfo; then
+          if grep -qw avx512ifma /proc/cpuinfo && grep -qw avx512dq /proc/cpuinfo && grep -qw avx512bw /proc/cpuinfo && grep -qw avx512f /proc/cpuinfo; then
             backend=all
           else
-            echo "Native comparison skipped on this runner (requires AVX-512F/DQ/IFMA)."
+            echo "Native comparison skipped on this runner (requires AVX-512F/BW/DQ/IFMA)."
           fi
           make -f .github/verification.mk -j4 --keep-going --output-sync=target verify \
             RELEASE_ELF="$artifact" MACHINE_BACKEND="$backend"
@@ -109,5 +109,6 @@ jobs:
             ${{ runner.temp }}/small-order-audit/
             ${{ runner.temp }}/scalar-cases.jsonl
             ${{ runner.temp }}/scalar-audit/
+            ${{ runner.temp }}/radix16-audit/
             ${{ runner.temp }}/scalar-mutations/
           if-no-files-found: ignore

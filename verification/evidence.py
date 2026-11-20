@@ -45,6 +45,8 @@ def write_evidence(binary, work, component, checks, symbols, sources, flags, cas
     dependencies = {component} if component == "small_order" else {"pow2", component}
     if component == "ladder_step":
         dependencies.update(("double4", "cached_add"))
+    if component == "radix16":
+        dependencies.add("scalar")
     for name in sorted(dependencies):
         directory = dest if component == "pow2" else dest / name
         directory.mkdir(exist_ok=True)

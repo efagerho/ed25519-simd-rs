@@ -46,3 +46,6 @@ execution/KnownRegisters.v
 execution/LinkedCalls.v
 abi/CallFrame.v
 tests/CallerSteps.v
+execution/Packed.v
+memory/PackedMemory.v
+tests/PackedRows.v

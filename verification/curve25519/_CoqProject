@@ -3,6 +3,7 @@
 Field.v
 Radix51.v
 Scalar.v
+SignedRadix16.v
 Edwards.v
 Torsion.v
 SmallOrderFilter.v

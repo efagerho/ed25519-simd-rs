@@ -9,7 +9,8 @@ The [Coq certificate](../../verification/crate/scalar/README.md)
 proves canonical reduction, ABI preservation, and concrete byte-memory safety
 for `ed25519_simd_scalar_reduce_ifma`. `verify-asm-scalar` enables `asm`,
 checks that proof during the build, and embeds the certified reducer bytes.
-The digit conversion and lane placement currently have differential and ABI tests.
+A post-link certificate covers the complete conversion, including digit range,
+lane placement and stack restoration. [Digest-to-digits theorem](../../verification/crate/radix16/README.md)
 
 The reducer takes disjoint input/output buffers of 512/320 bytes, without
 vector alignment requirements. Each input row contains one 64-bit word from

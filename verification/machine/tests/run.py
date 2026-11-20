@@ -19,7 +19,7 @@ from xed import backend as xed
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 PROBE_INPUTS = {"control": "input_rcx", "mixed": "seeds", "prologue": "seeds", "aligned": "seeds",
-                "mask": "seeds", "filter": "seeds"}
+                "mask": "seeds", "filter": "seeds", "packed": "seeds"}
 
 
 def jsonl(path):
@@ -112,6 +112,8 @@ def mismatch(path, info, case, stage, prediction, encoded, expected, observed):
 def check_probe(name, args, work, model, info):
     from native.backend import execute_probe
 
+    if name == "packed" and "avx512bw" not in cpu_info().get("flags", "").split():
+        raise ValueError("packed byte probe requires AVX-512BW")
     key = f"{name}_probe"
     field = PROBE_INPUTS[name]
     recorded = args.record.get(key, {})

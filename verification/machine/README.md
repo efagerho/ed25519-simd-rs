@@ -51,6 +51,7 @@ linked byte sequence before executing each program on the pinned CPU.
 | `aligned` | Eight seeds cover all four SysV stack padding cases and saved RBP values through `2^64−1`. Checks `push`/`pop rbp`, register copies, `and rsp,-64`, scratch-relative `lea` with zero and nonzero displacements, copies from RDX to RCX and RSP to R9, two nested calls, all ZMM registers, saved stack qwords, vector memory and guards. [Coq](tests/Aligned.v) · [Assembly](tests/native/aligned.S) |
 | `mask` | Broadcasts a linked RIP-relative qword, adds and subtracts memory operands, compares high ZMM registers into opmasks, branches on EAX, and combines two masks. The harness checks the complete image and the returned RAX for both branch outcomes and mixed lanes. [Coq](tests/Mask.v) · [Assembly](tests/native/mask.S) |
 | `filter` | Checks RIP-relative broadcast multiplication and unsigned comparison, unsigned minimum, mask self-test, both branch outcomes and the returned mask across the sign-bit boundary. [Coq](tests/Filter.v) · [Assembly](tests/native/filter.S) |
+| `packed` | Compares byte broadcast, wrapping subtraction, unpack and 128-bit block selection against hardware across six unaligned rows. Also observes a load after a store and the low and high register effects of VZEROUPPER. [Coq](tests/PackedRows.v) · [Assembly](tests/native/packed.S) |
 
 The aligned probe also covers `MOV rax, imm32` (`48 c7 c0`) with zero,
 one, the scalar reducer's constant, and `2^31-1`, observing each value through

@@ -18,6 +18,7 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 
 | File | Contents |
 | --- | --- |
+| [Packed.v](execution/Packed.v) | Encodes and executes unmasked qword and byte operations on registers and RDI-relative rows. Byte selection and the store overlay give the final flat-byte result. |
 | [ProgramLayout.v](isa/ProgramLayout.v) | Block bodies, terminators, shared vector fragments, and padding. `image` emits bytes. `valid_program` checks encodability, contiguous layout, and static control-flow targets. |
 | [LayoutProofs.v](execution/LayoutProofs.v) | Proves that successful layout validation locates block bytes in the image, gives unique fetches and non-overlapping blocks, resolves vector fragments, and establishes static targets. |
 | [Assembly.v](isa/Assembly.v) | Assembles addressed source blocks into a program. Collects vector fragments and computes call and jump displacements relative to the end of the instruction. |
@@ -35,6 +36,7 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 | [ExecutionProperties.v](execution/ExecutionProperties.v) | Proves memory preservation outside permitted writes and independence of the control trace and step failure from initial vector data. |
 | [MemoryTrace.v](memory/MemoryTrace.v) | Uses the common execution traversal to record vector effects and transfer events. Relates the trace to block execution and checks the order and addresses of live returns. |
 | [FlatMemory.v](memory/FlatMemory.v) | Replays vector stores and saved PCs in one little-endian byte memory. Proves agreement with tracked logical cells and preservation of every byte outside the write footprint. |
+| [PackedMemory.v](memory/PackedMemory.v) | Proves that each in-bounds packed row store implements a 64-byte flat-memory write, including a second store to the same row. |
 | [WordBounds.v](execution/WordBounds.v) | Unsigned qword invariants for scalar integer values, vector registers and memory. Proves preservation by instructions, blocks, executions and recorded vector-effect prefixes. |
 | [VectorBuffer.v](memory/VectorBuffer.v) | Qword indexing of logical vector memory and its eight-lane projection. |
 | [ByteMemory.v](memory/ByteMemory.v) | Little-endian byte decoding, exact word/vector read-write round trips, and construction of bounded logical data from bytes. Turns serialization agreement into exact reads and proves replay preserves byte bounds. |

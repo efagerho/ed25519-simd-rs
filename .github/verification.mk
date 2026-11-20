@@ -4,10 +4,10 @@ linked_checks := $(addsuffix -conformance,$(routines))
 timed = /usr/bin/time -f '$@ elapsed %E'
 export XED_KIT := $(RUNNER_TEMP)/xed-kit
 
-.PHONY: verify certificates ladder-mutations ladder torsion torsion-mutations small-order small-order-mutations pow2-z3 xed-kit fixed-conformance \
+.PHONY: radix16 radix16-mutations verify certificates ladder-mutations ladder torsion torsion-mutations small-order small-order-mutations pow2-z3 xed-kit fixed-conformance \
         $(routines) $(linked_checks) cached-add-mutations scalar-mutations
 
-verify: ladder-mutations certificates cached-add-mutations $(linked_checks) \
+verify: radix16-mutations ladder-mutations certificates cached-add-mutations $(linked_checks) \
         scalar-mutations torsion-mutations small-order-mutations fixed-conformance pow2-z3
 
 certificates:
@@ -62,3 +62,11 @@ fixed-conformance: xed-kit
 $(linked_checks): %-conformance: % xed-kit
 	$(timed) python3 -B verification/machine/tests/run.py --backend "$(MACHINE_BACKEND)" --cases "$(RUNNER_TEMP)/$*-cases.jsonl" \
 	  --report "$(RUNNER_TEMP)/$*-report.json" --failure "$(RUNNER_TEMP)/$*-failure.json"
+
+radix16:
+	$(timed) python3 -B verification/crate/radix16/audit.py "$(RELEASE_ELF)" \
+		--output "$(RUNNER_TEMP)/radix16-audit"
+
+radix16-mutations: radix16
+	$(timed) python3 -B verification/crate/radix16/mutations.py "$(RELEASE_ELF)" \
+		--audit "$(RUNNER_TEMP)/radix16-audit"

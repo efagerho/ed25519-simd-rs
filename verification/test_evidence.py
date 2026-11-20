@@ -189,7 +189,8 @@ class ReleaseEvidenceTests(unittest.TestCase):
                                             (double4_audit, "double4", "Double4", "sources/double4/audit.py"),
                                             (cached_add_audit, "add_cached", "CachedAdd", "sources/cached_add/audit.py"),
                                             (scalar_audit, "reduce", "Scalar", "sources/scalar/audit.py"),
-                                            (evidence, "ladder_step", "LadderStep", "sources/ladder_step/audit.py")):
+                                            (evidence, "ladder_step", "LadderStep", "sources/ladder_step/audit.py"),
+                                            (evidence, "digest_to_radix16", "Radix16", "sources/radix16/audit.py")):
             with self.subTest(routine=routine):
                 self.check_manifest(module, routine, namespace, generator)
 
@@ -217,6 +218,8 @@ class ReleaseEvidenceTests(unittest.TestCase):
             symbols = [(routine, 4096, b"\xc3")]
             if component == "ladder_step":
                 symbols.extend([("double4", 8192, b"a"), ("add_cached", 12288, b"b")])
+            elif component == "radix16":
+                symbols.append(("scalar_reduce", 8192, b"a"))
             with patch.object(evidence, "tool_versions", return_value={"coqc": {"version": "test"}}):
                 evidence.write_evidence(work / "release.elf", work, component, checks, symbols, [],
                                         proof_build.component_flags(component), corpus)
@@ -237,6 +240,9 @@ class ReleaseEvidenceTests(unittest.TestCase):
             self.assertIn("sources/proof_build.py", manifest["files"])
             self.assertIn("-Q arithmetic ProofArithmetic\n", (work / "_CoqProject").read_text())
             self.assertIn(generator, manifest["files"])
+            if component == "radix16":
+                self.assertIn("sources/scalar/listing.py", manifest["files"])
+                self.assertEqual((work / "scalar_reduce.bin").read_bytes(), b"a")
             project = (work / "_CoqProject").read_text().splitlines()
             self.assertIn(f"-Q {namespace} Ed25519Simd.{namespace}", project)
             self.assertIn(f"{namespace}/Program.v", project)
