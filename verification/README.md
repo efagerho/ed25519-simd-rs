@@ -27,7 +27,7 @@ The block model tracks the zero flag consumed by conditional jumps.
 `returns` requires a finite execution that reaches the caller, so a rejected
 access cannot count as success. [Vector semantics and encoding](machine/isa/Instructions.v) · [Scalar encoding and layout](machine/isa/ProgramLayout.v) · [Block execution](machine/execution/Blocks.v) · [Linked calls](machine/execution/LinkedCalls.v)
 
-**Memory and the ABI.** Leaf routines model pointers as a region plus a byte
+**Memory and the ABI.** Routines with output buffers model pointers as a region plus a byte
 offset. A placement maps them into one flat array of bytes valued 0 through
 255. The model uses region permissions for reads, writes, and stack slots.
 Check address calculations, 64-byte vector accesses, eight-byte saved words,
@@ -39,6 +39,18 @@ must supply accessible memory with the specified extents, alignment, and
 aliasing, on a CPU and OS that enable the required instructions. Page faults,
 concurrent interference, and timing or side-channel behavior lie outside
 this execution model. [Pointers and permissions](machine/execution/MachineState.v) · [Address placement and writes](machine/memory/FlatMemory.v) · [Byte execution](machine/memory/ByteExecution.v) · [SysV contract](machine/abi/SysV.v)
+
+**Mask-dependent execution.** The torsion routine branches on a value
+computed by all eight lanes. Its functional model reconstructs the EAX
+comparison from the opmask bits and reads RIP-relative qwords from the
+immutable symbol image. Check lane-to-bit order, mask width, both branch
+targets and the mapping of each input to its read-only qword view. Nested
+return addresses, saved RBP and vector spills share an aligned, tagged
+stack. Interpreting that stack as private caller memory disjoint from the
+inputs and code is an additional trust boundary. A flat-byte execution
+refinement for this model remains open. Coq proves that its lifted vector
+operations agree with the shared lane semantics. A native probe compares
+the mask-dependent instructions with the CPU. [Mask execution](machine/execution/MaskTrace.v) · [Lane refinement](machine/execution/CircuitFacts.v) · [Native probe](machine/tests/Mask.v)
 
 **Mathematical meaning.** Check the field prime, scalar order, radix and limb
 weights, Edwards curve and group law, and the predicates saying which point

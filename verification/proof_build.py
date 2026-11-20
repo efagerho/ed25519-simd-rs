@@ -13,10 +13,10 @@ HERE = Path(__file__).resolve().parent
 LIBRARIES = (("arithmetic", "ProofArithmetic"), ("machine", "Machine"),
              ("curve25519", "Curve25519"), ("crate", "Ed25519Simd"))
 SHARED_PROJECTS = ("arithmetic", "curve25519", "machine", "machine/symbolic", "crate")
-LADDER_PROJECTS = (*SHARED_PROJECTS, "curve25519/group")
+GROUP_PROJECTS = (*SHARED_PROJECTS, "curve25519/group")
 SHARED_ENV = "ED25519_SIMD_COQ_LIBRARIES"
 COMPONENTS = {"pow2": "Pow2", "double4": "Double4", "cached_add": "CachedAdd",
-              "scalar": "Scalar", "ladder_step": "LadderStep"}
+              "scalar": "Scalar", "ladder_step": "LadderStep", "torsion": "Torsion"}
 
 
 # The release statement is independent of the theorem implementation in Object.v.
@@ -26,6 +26,7 @@ PUBLIC_THEOREMS = {
     "cached_add": ("assembled_cached_add_correct", "cached_add_contract"),
     "scalar": ("assembled_scalar_correct", "scalar_contract"),
     "ladder_step": ("assembled_ladder_step_correct", "ladder_contract"),
+    "torsion": ("assembled_torsion_correct", "torsion_contract"),
 }
 
 
@@ -85,7 +86,7 @@ def prepare_shared_libraries(destination, jobs):
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=destination.parent) as tmp:
         work = Path(tmp) / "build"
-        inputs = stage_sources(HERE, work, LADDER_PROJECTS)
+        inputs = stage_sources(HERE, work, GROUP_PROJECTS)
         sources = [p for p in inputs if p.suffix == ".v"]
         write_project(work, library_flags(), [work / p for p in sources])
         subprocess.run(["coq_makefile", "-f", "_CoqProject", "-o", "Makefile"], cwd=work, check=True)
@@ -149,9 +150,9 @@ def compile_object(raw, work, modules, object_source, flags):
     subprocess.run(["coqc", *flags, object_source.name], cwd=work, check=True, stdout=subprocess.DEVNULL)
 
 
-def certify_modules(raw, work, modules, object_source):
+def certify_modules(raw, work, modules, object_source, projects=SHARED_PROJECTS):
     component = object_source.parent.parent.name
-    compile_libraries(work)
+    compile_libraries(work, projects=projects)
     dest = work / COMPONENTS[component]
     dest.mkdir()
     (work / "Program.v").rename(dest / "Program.v")

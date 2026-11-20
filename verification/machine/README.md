@@ -39,8 +39,8 @@ deterministic boundary sweep. Each backend uses the same inputs. [Fixed cases](t
   loads from unaligned private storage, compressed 8-bit displacement limits
   and both signed 32-bit displacement extremes. [Move and load vectors](tests/cases/move.jsonl)
 
-The default native run also compares four programs written in Coq's Intel
-notation with independently assembled `.S` files. It checks the entire
+The default native run also compares five programs modeled in Coq
+with independently assembled `.S` files. It checks the entire
 linked byte sequence before executing each program on the pinned CPU.
 
 | Probe | Observations |
@@ -49,6 +49,7 @@ linked byte sequence before executing each program on the pinned CPU.
 | `mixed` | Seven seeds drive one to three loop iterations across scalar and vector blocks. An unaligned load, wrapping addition, aliased IFMA and store feed the next iteration. A SIMD instruction separates `dec` from `jne`. The harness checks RCX, ZF, stack restoration, all 32 ZMM registers and the stored vector plus both adjacent cells. [Coq](tests/Mixed.v) · [Assembly](tests/native/mixed.S) |
 | `prologue` | Checks 32- and 64-bit immediates, broadcasts from RAX, stack adjustment in both directions, both `lea r8` encodings, vector loads and stores, and `vzeroupper`. Seven seeds exercise a private stack and three distinct unaligned buffers. The comparison covers RAX, RCX, R8 relative to the frame, restored RSP, all 32 ZMM registers, both inputs, output, stack scratch and guard cells. [Coq](tests/Prologue.v) · [Assembly](tests/native/prologue.S) |
 | `aligned` | Eight seeds cover all four SysV stack padding cases and saved RBP values through `2^64−1`. Checks `push`/`pop rbp`, register copies, `and rsp,-64`, scratch-relative `lea` with zero and nonzero displacements, copies from RDX to RCX and RSP to R9, two nested calls, all ZMM registers, saved stack qwords, vector memory and guards. [Coq](tests/Aligned.v) · [Assembly](tests/native/aligned.S) |
+| `mask` | Broadcasts a linked RIP-relative qword, adds and subtracts memory operands, compares high ZMM registers into opmasks, branches on EAX, and combines two masks. The harness checks the complete image and the returned RAX for both branch outcomes and mixed lanes. [Coq](tests/Mask.v) · [Assembly](tests/native/mask.S) |
 
 The aligned probe also covers `MOV rax, imm32` (`48 c7 c0`) with zero,
 one, the scalar reducer's constant, and `2^31-1`, observing each value through
@@ -91,6 +92,14 @@ returns the final lane value of each register. The caller supplies unsigned
 agree on selected output registers. It tracks which input registers and loads
 agree, including the case where self-XOR clears an arbitrary old value.
 [Register dependency lemmas](execution/Dependencies.v)
+
+For mask-dependent branches, `program_tree` follows actual byte addresses
+and builds both successor paths. `result` evaluates each comparison and
+chooses the branch using the eight lane bits packed in EAX. The supported
+memory operands read immutable input vectors or symbol bytes and spill to
+a private qword stack. A fetch into padding, an invalid stack reload, and
+an exhausted instruction budget all reject the path. The shared audit guide
+describes how this execution relates to the native caller. [Mask-dependent execution](execution/MaskTrace.v) · [Shared trust boundary](../README.md#shared-audit-surface)
 
 ## Basic blocks and machine state
 

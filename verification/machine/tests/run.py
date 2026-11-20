@@ -18,7 +18,8 @@ from xed import backend as xed
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-PROBE_INPUTS = {"control": "input_rcx", "mixed": "seeds", "prologue": "seeds", "aligned": "seeds"}
+PROBE_INPUTS = {"control": "input_rcx", "mixed": "seeds", "prologue": "seeds", "aligned": "seeds",
+                "mask": "seeds"}
 
 
 def jsonl(path):

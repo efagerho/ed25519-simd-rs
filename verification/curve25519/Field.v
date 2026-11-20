@@ -2,6 +2,8 @@ From Coq Require Import List ZArith Lia Ring.
 Import ListNotations. Open Scope Z_scope.
 
 Definition prime := 2^255-19.
+Definition sqrt_m1 : Z :=
+  19681161376707505956807079304988542015446066515923890162744021073123829784752.
 Definition represents (x y : Z) := exists k, x = y + k*prime.
 
 Lemma crefl x : represents x x.
