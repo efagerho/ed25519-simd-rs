@@ -31,9 +31,10 @@ formulas and reduced limb bounds.
    64-byte-aligned 3,520-byte buffer with projective Odd at offset 0, affine
    Base at 1,280, and projective Even at 2,240. RDX is the final T flag, zero
    or one. Check the stack allowance of up to 1,384 bytes below entry RSP,
-   the loose XYZ bounds, and the 52-bit cache limbs. Rust supplies the digit
-   selection, signs, and lane transposition before this theorem starts.
-   [Rust staging and call](../../../src/wide/avx512ifma/ladder_step.rs) · [Assembly ABI](../../../src/wide/avx512ifma/ladder_step.S) · [Entry witnesses](coq/EntryTests.v)
+   the loose XYZ bounds, and the 52-bit cache limbs. The assembly staging
+   routine selects signed entries and transposes their limbs before this
+   theorem starts. A separate differential test checks those operations.
+   [Table selection and staging](../../../src/wide/avx512ifma/stage_round.S) · [Rust caller](../../../src/wide/avx512ifma/ladder_step_asm.rs) · [Assembly ABI](../../../src/wide/avx512ifma/ladder_step.S) · [Entry witnesses](coq/EntryTests.v)
 3. **The schedule and group meaning.** Read `result_value` and `group_result`
    against `ladder_sum`. Four doublings precede the Odd addition and four more
    precede the Base addition, giving the weights 256, 16, 1, 1. The Odd

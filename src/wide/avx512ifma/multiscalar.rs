@@ -3,10 +3,7 @@ use super::field::WideFe;
 use super::point::WidePoint;
 use super::{LANES, mask_to_lanes};
 use crate::batch::R_ENCODING_LEN;
-use crate::edwards::{
-    BasepointTableEntries, POINT_ENCODING_LEN, PointTable, select_signed_affine_cached_ref,
-};
-use crate::scalar::Radix16;
+use crate::edwards::{BasepointTableEntries, POINT_ENCODING_LEN, PointTable};
 use crate::wide::PreparedChunk;
 
 /// Chunks whose final inversion is shared. Each doubling halves the
@@ -172,67 +169,10 @@ pub(super) fn mul_s_base_minus_k_public<const NEED_T: bool>(
     base_table: &BasepointTableEntries,
     prepared: &PreparedChunk<'_>,
 ) -> WidePoint {
-    let public_key_tables = &prepared.public_key_tables;
-    let s_digits = prepared.s_digits;
-    let k_digits = prepared.k_digits;
-
-    // Recover a projective point from the cached top digit; the next
-    // doubling does not need `T`.
-    let selected: [_; LANES] = core::array::from_fn(|lane| {
-        public_key_tables[lane].select_signed_cached_ref(-k_digits[lane][63])
-    });
-    let mut acc = WidePoint::from_cached_refs_without_t(&selected);
-
-    // Continue at digit 62; reduced scalars have no digit above 63.
-    acc.double_four_times_assign();
-    add_base_pair_digit(&mut acc, base_table, s_digits, 31);
-    subtract_public_key_digit_before_double(&mut acc, public_key_tables, k_digits, 62);
-
-    // Each radix-256 step consumes two public-key digits and one base pair.
-    // Only the final ZIP-215 result needs T; other results feed a doubling.
+    let select = super::ladder_step::round_selector(base_table, prepared);
+    let mut acc = select(31).start();
     for pair in (0..31).rev() {
-        let odd = core::array::from_fn(|lane| {
-            public_key_tables[lane].select_signed_cached_ref(-k_digits[lane][pair * 2 + 1])
-        });
-        let base = core::array::from_fn(|lane| {
-            select_signed_affine_cached_ref(base_table, base_pair_digit(&s_digits[lane], pair))
-        });
-        let even = core::array::from_fn(|lane| {
-            public_key_tables[lane].select_signed_cached_ref(-k_digits[lane][pair * 2])
-        });
-        acc.ladder_step_assign(&odd, &base, &even, NEED_T && pair == 0);
+        select(pair).step(&mut acc, NEED_T && pair == 0);
     }
     acc
-}
-
-#[inline]
-fn add_base_pair_digit(
-    acc: &mut WidePoint,
-    base_table: &BasepointTableEntries,
-    s_digits: &[Radix16; LANES],
-    pair: usize,
-) {
-    let selected: [_; LANES] = core::array::from_fn(|lane| {
-        select_signed_affine_cached_ref(base_table, base_pair_digit(&s_digits[lane], pair))
-    });
-    acc.add_affine_cached_refs_assign(&selected);
-}
-
-#[inline]
-fn subtract_public_key_digit_before_double(
-    acc: &mut WidePoint,
-    public_key_tables: &[&PointTable; LANES],
-    k_digits: &[Radix16; LANES],
-    index: usize,
-) {
-    let selected: [_; LANES] = core::array::from_fn(|lane| {
-        public_key_tables[lane].select_signed_cached_ref(-k_digits[lane][index])
-    });
-    acc.add_cached_refs_assign(&selected, false);
-}
-
-// Fold a radix-16 digit pair into a bounded radix-256 base-table digit.
-#[inline(always)]
-fn base_pair_digit(digits: &Radix16, pair: usize) -> i16 {
-    digits[pair * 2] as i16 + ((digits[pair * 2 + 1] as i16) << 4)
 }

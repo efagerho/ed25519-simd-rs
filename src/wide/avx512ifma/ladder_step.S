@@ -17,8 +17,8 @@
 //
 // Schedule: double4; add odd without T; double4; add base with T;
 // add even with the requested T mode. For consistent caches of curve points,
-// this represents [256]P + [16]Q_odd + Q_base + Q_even. Rust selects the
-// negated public-key digits; this wrapper does not negate cached operands.
+// this represents [256]P + [16]Q_odd + Q_base + Q_even. The staging routine selects
+// the negated public-key digits; this wrapper does not negate cached operands.
 // All output coordinates have limbs0,2,3,4 < 2^51 and limb1 < 2^52.
 // compute_t=0 writes literal zero to T. All output bytes are initialized.
 //

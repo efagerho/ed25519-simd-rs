@@ -54,6 +54,51 @@ fn reference_step(
     point.add_cached_refs_assign_rust(even, compute_t);
 }
 
+// Make one real signed selection reproduce the supplied independent operands.
+// This lets the arithmetic bounds tests and the selected-path benchmark use
+// the production entry point, including lookup and transposition.
+struct RoundFixture {
+    keys: [crate::edwards::PointTable; LANES],
+    base: Box<crate::edwards::BasepointTableEntries>,
+    s: [crate::scalar::Radix16; LANES],
+    k: [crate::scalar::Radix16; LANES],
+}
+
+impl RoundFixture {
+    fn new(
+        odd: &[&CachedPoint; LANES],
+        base: &[&AffineCachedPoint; LANES],
+        even: &[&CachedPoint; LANES],
+    ) -> Self {
+        use crate::edwards::{BASEPOINT_TABLE_SIZE, PointTable};
+        let keys = core::array::from_fn(|lane| {
+            let mut table = PointTable::identity();
+            table.set_multiple(1, odd[lane].clone(), even[lane].clone());
+            table
+        });
+        let mut entries = vec![AffineCachedPoint::identity(); 2 * BASEPOINT_TABLE_SIZE + 1];
+        for (dst, src) in entries[BASEPOINT_TABLE_SIZE..].iter_mut().zip(base) {
+            dst.clone_from(src);
+        }
+        Self {
+            keys,
+            base: entries.into_boxed_slice().try_into().unwrap(),
+            s: core::array::from_fn(|lane| {
+                core::array::from_fn(|i| if i % 2 == 0 { lane as i8 } else { 0 })
+            }),
+            k: [core::array::from_fn(|i| if i % 2 == 0 { 1 } else { -1 }); LANES],
+        }
+    }
+
+    fn prepared(&self) -> PreparedChunk<'_> {
+        PreparedChunk {
+            public_key_tables: self.keys.each_ref(),
+            s_digits: &self.s,
+            k_digits: &self.k,
+        }
+    }
+}
+
 #[test]
 fn ladder_step_matches_rust_at_loose_bounds() {
     let mut rng = StdRng::seed_from_u64(0x0256_1add_e700);
@@ -119,14 +164,15 @@ fn ladder_step_matches_rust_at_loose_bounds() {
         let odd = core::array::from_fn(|lane| &odd[index(lane)]);
         let base = core::array::from_fn(|lane| &base[index(lane)]);
         let even = core::array::from_fn(|lane| &even[index(lane)]);
+        let fixture = RoundFixture::new(&odd, &base, &even);
+        let prepared = fixture.prepared();
+        let select = super::super::ladder_step::round_selector(&fixture.base, &prepared);
         for compute_t in [false, true] {
             let mut actual = Guarded::new(input);
             let mut expected = input;
             // Reuse the result, including a missing T, to check the handoff.
             for _ in 0..2 {
-                actual
-                    .value
-                    .ladder_step_assign(&odd, &base, &even, compute_t);
+                select(0).step(&mut actual.value, compute_t);
                 reference_step(&mut expected, &odd, &base, &even, compute_t);
                 actual.check();
                 assert_output(&actual.value, &expected, compute_t);
@@ -280,8 +326,8 @@ fn ladder_step_preserves_sysv_registers_and_staged_operands() {
 }
 
 /// Run pinned to one core in release mode with asm (including pow2) enabled.
-/// ED25519_LADDER_PATH: selected (staging + wrapper), staged, or separate
-/// (Rust orchestration calling the same assembly arithmetic routines).
+/// ED25519_LADDER_PATH: stage (selection and transpose across all 32 pairs),
+/// selected (staging + wrapper), staged, or separate (Rust orchestration).
 /// ED25519_LADDER_ITERS sets the duration; ED25519_LADDER_T=1 retains T.
 #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
 #[test]
@@ -347,14 +393,30 @@ fn profile_ladder_step() {
         start.elapsed().as_secs_f64() * 1e9 / iterations as f64
     }
     let ns = match path.as_str() {
-        "selected" => measure(input, iterations, |p| {
-            p.ladder_step_assign(
-                black_box(&odd),
-                black_box(&base),
-                black_box(&even),
-                compute_t,
-            )
-        }),
+        "stage" => {
+            let mut fixture = RoundFixture::new(&odd, &base, &even);
+            let mut rng = StdRng::seed_from_u64(0x512);
+            for row in fixture.s.iter_mut().chain(&mut fixture.k) {
+                for digit in row {
+                    *digit = rng.gen_range(-8..=7);
+                }
+            }
+            let prepared = fixture.prepared();
+            let select = super::super::ladder_step::round_selector(&fixture.base, &prepared);
+            let mut pair = 31usize;
+            measure(input, iterations, |_| {
+                black_box(&select(pair));
+                pair = pair.wrapping_sub(1) & 31;
+            })
+        }
+        "selected" => {
+            let fixture = RoundFixture::new(&odd, &base, &even);
+            let prepared = fixture.prepared();
+            let select = super::super::ladder_step::round_selector(&fixture.base, &prepared);
+            measure(input, iterations, |p| {
+                select(black_box(0)).step(p, compute_t)
+            })
+        }
         "staged" => {
             unsafe extern "C" {
                 fn ed25519_simd_ladder_step_ifma(
@@ -380,7 +442,10 @@ fn profile_ladder_step() {
         }),
         _ => panic!("unknown ladder path: {path}"),
     };
-    eprintln!(
-        "{ns:.2} ns/ladder-step ({path}, compute_t={compute_t}, {iterations} calls, asm enabled)"
-    );
+    let unit = if path == "stage" {
+        "stage"
+    } else {
+        "ladder-step"
+    };
+    eprintln!("{ns:.2} ns/{unit} ({path}, compute_t={compute_t}, {iterations} calls, asm enabled)");
 }

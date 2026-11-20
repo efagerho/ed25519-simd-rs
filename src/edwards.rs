@@ -31,7 +31,7 @@ pub(crate) struct BasepointTable {
     entries: Box<BasepointTableEntries>,
 }
 
-// `base_pair_digit` folds two radix-16 digits into a radix-256 digit with
+// The ladder folds two radix-16 digits into a radix-256 digit with
 // maximum magnitude `8 + 8*16 = 136`.
 const POINT_TABLE_SIZE: usize = 8;
 const SIGNED_POINT_TABLE_SIZE: usize = 2 * POINT_TABLE_SIZE + 1;
@@ -53,12 +53,13 @@ pub(crate) type BasepointTableEntries = [AffineCachedPoint; SIGNED_BASEPOINT_TAB
 ///
 /// After a ladder selects `[3]P`, these four cached coordinates
 /// feed the extended-point addition without recomputing them from `P`.
+#[repr(C)]
 #[derive(Clone, Debug)]
 pub(crate) struct CachedPoint {
-    y_plus_x: Fe51,
     y_minus_x: Fe51,
-    z2: Fe51,
+    y_plus_x: Fe51,
     t2d: Fe51,
+    z2: Fe51,
 }
 
 impl CachedPoint {
@@ -91,12 +92,29 @@ impl CachedPoint {
 /// cached `2*Z` coordinate is the constant two and does not need to be stored.
 /// Selecting `[20]B` supplies three cached fields while the mixed
 /// addition doubles the accumulator's `Z` in place of loading a fourth field.
+#[repr(C)]
 #[derive(Clone, Debug)]
 pub(crate) struct AffineCachedPoint {
-    y_plus_x: Fe51,
     y_minus_x: Fe51,
+    y_plus_x: Fe51,
     t2d: Fe51,
 }
+
+// stage_round.S transposes consecutive words from these exact entry layouts.
+const _: () = {
+    use core::mem::{align_of, offset_of, size_of};
+    assert!(POINT_TABLE_SIZE == 8 && BASEPOINT_TABLE_SIZE == 136);
+    assert!(size_of::<Fe51>() == 40 && align_of::<Fe51>() == 8);
+    assert!(size_of::<CachedPoint>() == 160);
+    assert!(offset_of!(CachedPoint, y_minus_x) == 0);
+    assert!(offset_of!(CachedPoint, y_plus_x) == 40);
+    assert!(offset_of!(CachedPoint, t2d) == 80);
+    assert!(offset_of!(CachedPoint, z2) == 120);
+    assert!(size_of::<AffineCachedPoint>() == 120);
+    assert!(offset_of!(AffineCachedPoint, y_minus_x) == 0);
+    assert!(offset_of!(AffineCachedPoint, y_plus_x) == 40);
+    assert!(offset_of!(AffineCachedPoint, t2d) == 80);
+};
 
 impl AffineCachedPoint {
     pub(crate) fn identity() -> Self {
@@ -117,6 +135,10 @@ impl AffineCachedPoint {
         }
     }
 
+    #[cfg(any(
+        test,
+        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
+    ))]
     pub(crate) fn coords(&self) -> (&Fe51, &Fe51, &Fe51) {
         (&self.y_plus_x, &self.y_minus_x, &self.t2d)
     }
@@ -175,6 +197,14 @@ impl PointTable {
         }
     }
 
+    /// The contiguous entry array begins at [-8]P. The enclosing table also
+    /// carries debug-only initialization state outside the assembly ABI.
+    #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
+    pub(crate) fn entries_ptr(&self) -> *const CachedPoint {
+        self.debug_assert_fully_initialized();
+        self.entries.as_ptr().cast()
+    }
+
     /// Select the cached point for a signed digit in `-8..=8`.
     pub(crate) fn select_signed_cached_ref(&self, digit: i8) -> &CachedPoint {
         debug_assert!((-8..=8).contains(&digit));
@@ -231,6 +261,10 @@ impl BasepointTable {
     }
 }
 
+#[cfg(any(
+    test,
+    not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
+))]
 pub(crate) fn select_signed_affine_cached_ref(
     entries: &BasepointTableEntries,
     digit: i16,
@@ -238,7 +272,7 @@ pub(crate) fn select_signed_affine_cached_ref(
     debug_assert!(
         (-(BASEPOINT_TABLE_SIZE as i16)..=(BASEPOINT_TABLE_SIZE as i16)).contains(&digit)
     );
-    // SAFETY: `base_pair_digit` bounds `digit` to
+    // SAFETY: Folding two radix-16 digits bounds `digit` to
     // `-BASEPOINT_TABLE_SIZE..=BASEPOINT_TABLE_SIZE`.
     unsafe { entries.get_unchecked((digit + BASEPOINT_TABLE_SIZE as i16) as usize) }
 }

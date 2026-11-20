@@ -1,5 +1,9 @@
 mod decode;
 mod field;
+#[cfg_attr(
+    all(feature = "asm", target_os = "linux", target_pointer_width = "64"),
+    path = "ladder_step_asm.rs"
+)]
 mod ladder_step;
 mod multiscalar;
 mod point;
