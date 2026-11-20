@@ -18,7 +18,7 @@ MASK_PROJECTS = (*GROUP_PROJECTS, "crate/field51")
 SHARED_ENV = "ED25519_SIMD_COQ_LIBRARIES"
 COMPONENTS = {"pow2": "Pow2", "double4": "Double4", "cached_add": "CachedAdd",
               "scalar": "Scalar", "ladder_step": "LadderStep", "torsion": "Torsion",
-              "small_order": "SmallOrder", "radix16": "Radix16"}
+              "small_order": "SmallOrder", "radix16": "Radix16", "stage_round": "StageRound"}
 
 
 # The release statement is independent of the theorem implementation in Object.v.
@@ -27,6 +27,7 @@ PUBLIC_THEOREMS = {
     "double4": ("assembled_double4_correct", "double4_contract"),
     "cached_add": ("assembled_cached_add_correct", "cached_add_contract"),
     "scalar": ("assembled_scalar_correct", "scalar_contract"),
+    "stage_round": ("assembled_stage_round_correct", "stage_contract"),
     "radix16": ("assembled_digest_to_radix16_correct", "digest_contract"),
     "ladder_step": ("assembled_ladder_step_correct", "ladder_contract"),
     "small_order": ("assembled_small_order_correct", "small_order_contract"),

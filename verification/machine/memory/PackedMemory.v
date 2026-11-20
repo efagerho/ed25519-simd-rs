@@ -48,3 +48,22 @@ Proof.
  - rewrite write_at by lia;now rewrite Nat2Z.id.
  - rewrite write_outside by lia;symmetry;apply row_byte;assumption.
 Qed.
+
+(* VMOVDQA64 has the same byte effect at an aligned address. *)
+Corollary aligned_store_writes_bytes rows state s row r x :
+ (row<rows)%nat -> regs s 7%nat mod 64=0 ->
+ mem (finish rows (step state (StoreAligned row r)) s) x =
+ write_bytes (mem (finish rows state s)) (regs s 7%nat+64*Z.of_nat row) 64
+   (fun offset=>value s (byte (zmm state r) (Z.to_nat offset))) x.
+Proof. intros R _;exact (store_writes_bytes rows state s row r x R). Qed.
+
+Lemma upper_memory rows s x : mem (execute rows (Upper::nil) s) x=mem s x.
+Proof.
+ unfold execute,finish;cbn [List.fold_left step stores mem].
+ destruct (_ && _)%bool;reflexivity.
+Qed.
+Lemma upper_registers rows s r : regs (execute rows (Upper::nil) s) r=regs s r.
+Proof.
+ change ((if (r=?0)%nat then regs s 0%nat else regs s r)=regs s r).
+ destruct (Nat.eqb_spec r 0);congruence.
+Qed.

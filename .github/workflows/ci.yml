@@ -110,5 +110,6 @@ jobs:
             ${{ runner.temp }}/scalar-cases.jsonl
             ${{ runner.temp }}/scalar-audit/
             ${{ runner.temp }}/radix16-audit/
+            ${{ runner.temp }}/stage-round-audit/
             ${{ runner.temp }}/scalar-mutations/
           if-no-files-found: ignore

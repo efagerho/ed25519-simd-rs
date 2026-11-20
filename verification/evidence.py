@@ -42,7 +42,7 @@ def write_evidence(binary, work, component, checks, symbols, sources, flags, cas
         shutil.copyfile(path, dest / path.name)
     if component in ("torsion", "small_order"):
         shutil.copyfile(HERE / "mask_listing.py", dest / "mask_listing.py")
-    dependencies = {component} if component == "small_order" else {"pow2", component}
+    dependencies = {component} if component in ("small_order", "stage_round") else {"pow2", component}
     if component == "ladder_step":
         dependencies.update(("double4", "cached_add"))
     if component == "radix16":
