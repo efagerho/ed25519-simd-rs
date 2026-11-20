@@ -31,6 +31,6 @@ Proof.
  destruct(path 100 scalar_program abi_layout(initial_control incoming))as[[last es]|]eqn:P;[|discriminate].
  cbn [observe]in Check;injection Check as PC SP R3 R5 R12 R13 R14 R15 Ops;subst es.
  exists(last,output_data d);split;[exact(path_returns _ _ _ _ _ _ P d)|];split.
- - unfold stack_restored;cbn [fst];rewrite SP;reflexivity.
+ - unfold stack_restored, SysV.restores_rsp;cbn [fst];rewrite SP;reflexivity.
  - apply arithmetic_contract,Words.
 Qed.

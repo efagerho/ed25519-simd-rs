@@ -71,7 +71,7 @@ Proof.
  pose proof(control_checked incoming)as Control;rewrite P in Control;cbn [observe]in Control.
  injection Control as PC SP R3 R5 R12 R13 R14 R15 Ops.
  split.
- - unfold registers_preserved;cbn [fst];apply ext_in_map.
+ - unfold registers_preserved, SysV.preserves_sysv;cbn [fst];apply ext_in_map.
    change(map(gpr last)saved_registers=map(gpr incoming)saved_registers);cbn;congruence.
  - split.
    + exists 100%nat,es;split;[exact R|];split;[exact W|];split;[exact B|];now apply trace_frame.

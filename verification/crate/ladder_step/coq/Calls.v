@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Lia.
-From Machine Require Import Instructions Blocks FlatMemory ByteMemory WordBounds MemoryGeometry ScalarRefinement SysV LinkedCalls.
+From Machine Require Import Instructions Blocks FlatMemory ByteMemory WordBounds MemoryGeometry ScalarRefinement SysV LinkedCalls CallFrame.
 From Ed25519Simd.Double4 Require Double4Spec Double4Memory.
 From Ed25519Simd.CachedAdd Require CachedAddSpec CachedAddABI CachedAddMemory.
 From Ed25519Simd.LadderStep Require Import Callees Schedule LinkedBytes Audit.
@@ -55,20 +55,17 @@ Proof.
  assert (M:mem ci=store_word(mem s)(sp-8)(slide+(pc+5))).
  { unfold ci,push;rewrite SP,word_fits by exact SW;reflexivity. }
  assert (PC:read_word(mem ci)(regs ci 4%nat)=slide+(pc+5)).
- { rewrite M,RS;replace(scratch+1288+pad)with(sp-8)by(unfold sp;ring);now apply write_read_word. }
+ { now apply pushed_return_word. }
  assert (End:word64(regs ci 4%nat+8)) by (rewrite RS;geometry).
  assert (Point:forall i,(i<160)%nat ->buffer_words(mem ci)pt i=buffer_words(mem s)pt i).
  { intros;rewrite M;apply read_store_away;geometry. }
  assert (Finish:forall out,call_post scratch ci out ->
    well_formed out /\ regs out 4%nat=sp /\
    (forall r,In r sysv_saved ->regs out r=regs s r) /\ preserved protected (mem s)(mem out)).
- { intros out [W [Rsp [Reg Frame]]];split;[exact W|];split;[rewrite Rsp,RS;unfold sp;ring|].
-   split.
-   - intros r H;rewrite Reg by exact H;destruct H as[<-|[<-|[<-|[<-|[<-|[<-|[]]]]]]];reflexivity.
-   - intros x H;rewrite Frame.
-     + rewrite M;apply write_outside;unfold protected,sp in H;geometry.
-     + rewrite RS;change (~(regs s 7%nat<=x<regs s 7%nat+1280 \/ scratch-16<=x<scratch+1288+pad));rewrite Pt;
-       unfold protected,sp in H;geometry. }
+ { intros out F. rewrite <-SP. eapply resume_sysv_frame; [now rewrite SP| |exact F].
+   intros x H; unfold callee_writable; rewrite RS.
+   change (regs ci 7%nat) with (regs s 7%nat); rewrite Pt,SP.
+   unfold protected,sp in H; geometry. }
  destruct k as [|f a d].
  - pose proof(Code _ _ (or_intror(or_introl eq_refl))) as [Fits [PD [_ SD]]].
    assert (P:Double4Memory.valid_placement(call_loc scratch (slide+double4_pc) ci)dsize pad).

@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool.
-From Machine Require Import Blocks.
+From Machine Require Import SysV Blocks.
 Open Scope Z_scope.
 
 (* Region origins are the first byte of each ABI buffer and the bottom of the
@@ -41,5 +41,4 @@ Definition output_words (initial final:state) k :=
  | Ptr addr => memory (snd final) (Blocks.offset addr (64*Z.of_nat (k/8))) (k mod 8)%nat
  | _ => 0 end.
 
-Definition stack_restored (initial final:state) :=
- Some (Blocks.gpr (fst final) 4%nat) = option_map Ptr (pointer_at (fst initial) 4 8).
+Definition stack_restored := SysV.restores_rsp.

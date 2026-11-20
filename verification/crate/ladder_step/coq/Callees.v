@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith Lia.
 From Machine Require Import Instructions Blocks MemoryTrace FlatMemory ByteMemory
- ByteExecution WordBounds MemoryGeometry ScalarRefinement KnownRegisters SysV LinkedCalls.
+ ByteExecution WordBounds MemoryGeometry ScalarRefinement KnownRegisters SysV LinkedCalls CallFrame.
 From Ed25519Simd.Double4 Require Double4Bytes Double4ABI Double4Memory Double4Spec Object.
 From Ed25519Simd.CachedAdd Require CachedAddBytes CachedAddABI CachedAddMemory CachedAddSpec Object.
 Import ListNotations. Open Scope Z_scope.
@@ -28,11 +28,9 @@ Inductive dispatch dp ap scratch pad : Z -> cpu -> Z -> cpu -> Prop :=
  callee_returns Ed25519Simd.CachedAdd.Program.add_cached_program (CachedAddABI.abi_layout affine) loc entry (mem s) ret out ->
  dispatch dp ap scratch pad ap s ret out.
 
-Definition call_post scratch (s out:cpu) :=
- well_formed out /\ regs out 4%nat=regs s 4%nat+8 /\
- (forall r, In r saved -> regs out r=regs s r) /\
- preserved (fun x=>~(regs s 7%nat<=x<regs s 7%nat+1280 \/
-                      scratch-16<=x<regs s 4%nat)) (mem s) (mem out).
+Definition callee_writable scratch s x :=
+ regs s 7%nat <= x < regs s 7%nat + 1280 \/ scratch - 16 <= x < regs s 4%nat.
+Definition call_post scratch s := sysv_return (callee_writable scratch s) s.
 
 Definition point_words s := buffer_words (mem s) (regs s 7%nat).
 Definition dsize := Z.of_nat(length Ed25519Simd.Double4.Object.object_bytes).
@@ -52,14 +50,9 @@ Lemma project_return scratch pad pc s entry final after :
  call_post scratch s (export_state loc final after).
 Proof.
  intros loc Entry Words SP End Addr Stack Saved W Frame.
- split;[exact W|];split.
- - unfold restores_rsp in Stack;rewrite Addr in Stack;injection Stack as R.
-   unfold export_state;cbn [regs];rewrite R.
-   change(word(scratch+(1288+pad+8))=regs s 4%nat+8).
-   replace (scratch+(1288+pad+8)) with (regs s 4%nat+8) by lia;now apply word_fits.
- - split;[|rewrite SP;exact Frame].
-   intros r S;unfold export_state;cbn [regs];rewrite Saved by exact S.
-   unfold decode;rewrite Entry;apply word_fits,Words.
+ eapply project_sysv_return; try eassumption.
+ - change (scratch+(1288+pad+8)=regs s 4%nat+8); lia.
+ - unfold callee_writable; now rewrite SP.
 Qed.
 
 Ltac use_return R Bytes Entry :=
