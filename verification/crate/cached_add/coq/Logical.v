@@ -8,8 +8,10 @@ Lemma path_length full affine : length(expected_path full affine)=67%nat.
 Proof. destruct full,affine;reflexivity. Qed.
 Lemma complete_prefix j full affine s : prefix_state j full affine 67 s=lane_effects j(expected_path full affine)s.
 Proof. unfold prefix_state;rewrite firstn_all2;[reflexivity|rewrite path_length;lia]. Qed.
-Lemma bounds_checked j full affine : forallb(fun i=>includes
- (snd(prefix_bounds j full affine 67)(point,64*Z.of_nat i))0(Radix51.output_bound(i mod 5)))(seq 0 20)=true.
+Lemma bounds_checked j full affine :
+ let output := snd (prefix_bounds j full affine 67) in
+ forallb (fun i => includes (output (point,64*Z.of_nat i)) 0
+   (Radix51.output_bound (i mod 5))) (seq 0 20) = true.
 Proof. destruct full,affine;vm_compute;reflexivity. Qed.
 Lemma final_bounds j full affine s c i : lane_words s ->Bounds.input_bounds affine s ->
  (c<4)%nat ->(i<5)%nat ->0<=M j full affine 67 s point(5*c)i<=Radix51.output_bound i.

@@ -41,6 +41,7 @@ fn main() {
             println!("cargo:rerun-if-changed={path}");
         }
         println!("cargo:rerun-if-env-changed=LLVM_MC");
+        println!("cargo:rerun-if-env-changed=ED25519_SIMD_COQ_LIBRARIES");
         let status = Command::new("python3")
             .arg("-B")
             .arg(format!("verification/crate/{proof}/review.py"))

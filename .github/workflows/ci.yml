@@ -69,10 +69,15 @@ jobs:
           cargo build --locked --release --features asm --bench cold_profile_zip215 \
             --target x86_64-unknown-linux-gnu --message-format=json > "$RUNNER_TEMP/pow2-build.json"
 
-      - name: Check the build-time proof and the linked assembly-only release binary
+      - name: Build shared Coq libraries
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y python3-z3 coq llvm
+          python3 -B verification/proof_build.py "$RUNNER_TEMP/shared-coq" --jobs 4
+          echo "ED25519_SIMD_COQ_LIBRARIES=$RUNNER_TEMP/shared-coq" >> "$GITHUB_ENV"
+
+      - name: Check the build-time proof and the linked assembly-only release binary
+        run: |
           cargo build --locked --release --features verify-asm-pow2,verify-asm-double4,verify-asm-cached-add,verify-asm-scalar --lib --target x86_64-unknown-linux-gnu
           artifact=$(jq -r 'select(.target.name == "cold_profile_zip215" and .executable != null) | .executable' "$RUNNER_TEMP/pow2-build.json")
           /usr/bin/python3 verification/crate/pow2/check.py "$artifact"

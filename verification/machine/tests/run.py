@@ -149,10 +149,11 @@ def run(args, work):
     if not cases and not selected_probe:
         raise ValueError("no matching cases")
     cpu = cpu_info()
+    harness = [p for p in HERE.rglob("*") if p.is_file() and p.suffix in (".py", ".c", ".S", ".sh")]
+    harness.append(ROOT.parent / "proof_build.py")
     info = {"schema_version": 2, "backend": args.backend,
             "model_sha256": source_digest(ROOT, [ROOT / "_CoqProject", *ROOT.rglob("*.v")]),
-            "harness_sha256": source_digest(HERE, [p for p in HERE.rglob("*")
-                                                  if p.is_file() and p.suffix in (".py", ".c", ".S", ".sh")]),
+            "harness_sha256": source_digest(ROOT.parent, harness),
             "campaign_seeds": sorted({c["campaign_seed"] for c in cases if "campaign_seed" in c}),
             "export_seeds": sorted({c["export_seed"] for c in cases if "export_seed" in c}),
             "cpu": {k: cpu.get(k) for k in ("processor", "model name", "vendor_id", "microcode")},

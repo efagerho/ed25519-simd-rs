@@ -1,10 +1,13 @@
 """Evaluate batches with the installed Coq VM; keep compiler output out of the source tree."""
 from pathlib import Path
 import re
-import shutil
 import subprocess
+import sys
 
 from case_data import OPS
+
+sys.path.append(str(Path(__file__).resolve().parents[3]))
+from proof_build import compile_libraries
 
 
 def words(values):
@@ -23,15 +26,9 @@ def expression(case):
 
 class Model:
     def __init__(self, root, work):
-        self.work = work
+        compile_libraries(work, projects=(root.name,), source=root.parent)
+        self.work = work / root.name
         self.flags = ["-Q", ".", "Machine"]
-        for path in [root / "_CoqProject", *root.rglob("*.v")]:
-            dest = work / path.relative_to(root)
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(path, dest)
-        ordered = subprocess.check_output(["coqdep", "-sort", "-f", "_CoqProject"], cwd=work, text=True)
-        for path in ordered.split():
-            subprocess.run(["coqc", *self.flags, path], cwd=work, check=True)
 
     def predict(self, cases):
         header = ("From Coq Require Import ZArith List Strings.String.\n"
