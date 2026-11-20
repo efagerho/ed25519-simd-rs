@@ -31,7 +31,15 @@ Definition right_ok k m := forall i,(i<right_count k)%nat ->0<=m i<=right_bound 
 Definition load_base k := match k with PrepareAB=>7%nat | PrepareEH=>9%nat | _=>8%nat end.
 Local Opaque code check_kernel.
 Theorem all_kernels_checked k : check_kernel k=true.
-Proof. destruct k; first [exact PrepareAB_checked | exact PrepareFG_checked | exact PrepareEH_checked | exact Independent_checked | exact Pair_checked | exact Single_checked]. Qed.
+Proof.
+ destruct k.
+ - exact PrepareAB_checked.
+ - exact PrepareFG_checked.
+ - exact PrepareEH_checked.
+ - exact Independent_checked.
+ - exact Pair_checked.
+ - exact Single_checked.
+Qed.
 Lemma initial_models k r m : (forall i, word64 (r i)) -> operands k r ->
  forall i, models (env r m) (initial k i) (r i).
 Proof.

@@ -1,12 +1,19 @@
 """Compile shared Coq libraries and kernel-check a concrete object certificate."""
+import argparse
+import hashlib
+import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 
 HERE = Path(__file__).resolve().parent
 LIBRARIES = (("arithmetic", "ProofArithmetic"), ("machine", "Machine"),
              ("curve25519", "Curve25519"), ("crate", "Ed25519Simd"))
+SHARED_PROJECTS = ("arithmetic", "curve25519", "machine", "machine/symbolic", "crate")
+SHARED_ENV = "ED25519_SIMD_COQ_LIBRARIES"
 COMPONENTS = {"pow2": "Pow2", "double4": "Double4", "cached_add": "CachedAdd",
               "scalar": "Scalar", "ladder_step": "LadderStep"}
 
@@ -21,26 +28,78 @@ def component_flags(name, directory=None, prefix=Path(".")):
     return ["-Q", str(directory or namespace), "Ed25519Simd." + namespace, *library_flags(prefix)]
 
 
-def compile_library(source, dest):
-    dest.mkdir(parents=True, exist_ok=True)
-    project = source / "_CoqProject"
-    shutil.copyfile(project, dest / project.name)
-    flags = []
-    for line in project.read_text().splitlines():
-        if line.startswith("-Q "):
-            flags.extend(line.split())
-        elif line.endswith(".v"):
-            target = dest / line
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source / line, target)
+def stage_sources(source, work, projects):
+    files = []
+    for directory in projects:
+        project = Path(directory) / "_CoqProject"
+        files.append(project)
+        files.extend(project.parent / line for line in (source / project).read_text().splitlines()
+                     if line.endswith(".v"))
+    for path in files:
+        dest = work / path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source / path, dest)
+    return files
+
+
+def compile_project(dest):
+    flags = [arg for line in (dest / "_CoqProject").read_text().splitlines()
+             if line.startswith("-Q ") for arg in line.split()]
     ordered = subprocess.check_output(["coqdep", "-sort", "-f", "_CoqProject"], cwd=dest, text=True)
     for path in ordered.split():
         subprocess.run(["coqc", *flags, path], cwd=dest, check=True)
 
 
-def compile_libraries(work):
-    for directory in ("arithmetic", "curve25519", "machine", "machine/symbolic", "crate"):
-        compile_library(HERE / directory, work / directory)
+def compiler_version():
+    return subprocess.check_output(["coqc", "--version"], text=True).strip()
+
+
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def prepare_shared_libraries(destination, jobs):
+    """Publish a fresh job-local build only after every shared .vo is complete."""
+    if destination.exists():
+        raise FileExistsError(f"choose a new directory for shared libraries: {destination}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=destination.parent) as tmp:
+        work = Path(tmp) / "build"
+        inputs = stage_sources(HERE, work, SHARED_PROJECTS)
+        sources = [p for p in inputs if p.suffix == ".v"]
+        write_project(work, library_flags(), [work / p for p in sources])
+        subprocess.run(["coq_makefile", "-f", "_CoqProject", "-o", "Makefile"], cwd=work, check=True)
+        objects = [p.with_suffix(".vo") for p in sources]
+        subprocess.run(["make", "-j", str(jobs), *map(str, objects)], cwd=work, check=True)
+        manifest = {"coqc": compiler_version(),
+                    "files": {str(p): digest(work / p) for p in inputs + objects}}
+        (work / "shared.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
+        work.rename(destination)
+
+
+def compile_libraries(work, projects=SHARED_PROJECTS, source=HERE):
+    inputs = stage_sources(source, work, projects)
+    shared = os.environ.get(SHARED_ENV)
+    if not shared:
+        for directory in projects:
+            compile_project(work / directory)
+        return
+
+    prepared = Path(shared)
+    manifest = json.loads((prepared / "shared.json").read_text())
+    if compiler_version() != manifest["coqc"]:
+        raise ValueError("shared libraries were built with a different coqc")
+    # Keep the checkout's sources in each audit. Copy only their compiled objects,
+    # including when the caller is a mutation test with its own source tree.
+    for path in inputs:
+        if digest(work / path) != manifest["files"].get(str(path)):
+            raise ValueError(f"shared Coq build does not match source {path}")
+        if path.suffix == ".v":
+            obj = path.with_suffix(".vo")
+            data = (prepared / obj).read_bytes()
+            if hashlib.sha256(data).hexdigest() != manifest["files"].get(str(obj)):
+                raise ValueError(f"shared Coq object failed its digest check: {obj}")
+            (work / obj).write_bytes(data)
 
 
 def write_project(work, flags, sources):
@@ -92,3 +151,13 @@ def check_object(work, flags, assumptions, component):
         sys.stderr.write((work / "coqchk.log").read_text())
         result.check_returncode()
     return {"assumptions": assumptions.strip(), "coqchk": {"command": command, "exit_code": 0}}
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Build shared Coq libraries for one CI job.")
+    parser.add_argument("destination", type=Path, help="new directory for the compiled libraries")
+    parser.add_argument("--jobs", type=int, default=4, help="maximum parallel coqc processes")
+    args = parser.parse_args()
+    if args.jobs < 1:
+        parser.error("--jobs must be positive")
+    prepare_shared_libraries(args.destination.resolve(), args.jobs)

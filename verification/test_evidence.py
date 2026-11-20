@@ -6,6 +6,7 @@ import hashlib
 import io
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -18,6 +19,7 @@ import audit as double4_audit
 import case_data
 import coq_proof
 import evidence
+import proof_build
 import run
 
 
@@ -230,6 +232,47 @@ class ReleaseEvidenceTests(unittest.TestCase):
             self.assertTrue(manifest["theorem"].startswith(f"Ed25519Simd.{namespace}.Object."))
             (work / "curve25519/Field.v").write_text("Definition prime := 17.\n")
             self.assertNotEqual(evidence.sha256(work / "curve25519/Field.v"), manifest["files"]["curve25519/Field.v"])
+
+
+class SharedLibraryTests(unittest.TestCase):
+    def test_reuse_checks_sources_objects_and_compiler(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            checkout, prepared, audit = (root / name for name in ("checkout", "prepared", "audit"))
+            files = {"machine/_CoqProject": b"-Q . Machine\nProbe.v\n",
+                     "machine/Probe.v": b"Definition probe := 1.\n", "machine/Probe.vo": b"compiled"}
+            for path, data in files.items():
+                dest = (prepared if path.endswith(".vo") else checkout) / path
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(data)
+            manifest = {"coqc": "test", "files": {p: hashlib.sha256(b).hexdigest() for p, b in files.items()}}
+            (prepared / "shared.json").write_text(json.dumps(manifest))
+            with patch.dict(os.environ, {proof_build.SHARED_ENV: str(prepared)}), \
+                    patch.object(proof_build, "compiler_version", return_value="test") as version:
+                def reuse():
+                    proof_build.compile_libraries(audit, ("machine",), checkout)
+
+                reuse()
+                self.assertEqual({p: (audit / p).read_bytes() for p in files}, files)
+                for path, data in files.items():
+                    with self.subTest(path=path):
+                        dest = (prepared if path.endswith(".vo") else checkout) / path
+                        dest.write_bytes(data + b" ")
+                        with self.assertRaisesRegex(ValueError, path):
+                            reuse()
+                        self.assertEqual((audit / "machine/Probe.vo").read_bytes(), files["machine/Probe.vo"])
+                        dest.write_bytes(data)
+                version.return_value = "other"
+                with self.assertRaisesRegex(ValueError, "coqc"):
+                    reuse()
+
+    def test_failed_shared_build_can_be_retried(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "shared"
+            with patch.object(proof_build.subprocess, "run", side_effect=OSError("build failed")):
+                with self.assertRaisesRegex(OSError, "build failed"):
+                    proof_build.prepare_shared_libraries(output, jobs=2)
+            self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":

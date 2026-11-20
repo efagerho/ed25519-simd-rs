@@ -66,7 +66,18 @@ the machine model. `Machine.symbolic.Expressions` relates integer expressions
 to machine instructions. The shared crate interpreter `Ed25519Simd.FieldSymbolic`
 specializes its rules to the register and mask conventions of the field kernels.
 
-`proof_build.py` builds each shared library once per certificate. Standalone
-audits and composed audits import the same qualified component modules.
-The retained `_CoqProject` records the logical mappings and sources for replay.
-The drivers check closed assumptions and run `coqchk` on the public theorem's module.
+CI builds the shared libraries once per job with `coq_makefile` and GNU Make.
+The build-time proofs, linked audits, mutation tests, and machine conformance
+runs reuse those objects. For a local build, choose a fresh output directory.
+
+```sh
+python3 -B verification/proof_build.py "$PWD/target/shared-coq" --jobs 4
+export ED25519_SIMD_COQ_LIBRARIES="$PWD/target/shared-coq"
+```
+
+Use a directory built by the same job or local checkout. Each consumer checks
+the compiler version and the digests of its project files, sources, and compiled
+objects. With the variable unset, each consumer compiles its shared dependencies
+from source. Every certificate builds its own program modules, checks closed
+assumptions, and runs `coqchk` on the public theorem's module. Retained audits
+include their own sources and `_CoqProject` for independent replay.
