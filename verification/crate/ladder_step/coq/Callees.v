@@ -75,8 +75,13 @@ Proof.
  set(loc:=call_loc scratch dp s).
  assert(E:D.concrete_entry loc dsize pad (regs s)(vectors s)(mem s)) by
   (constructor;try assumption;try reflexivity;change(read_word(mem s)(scratch+1288+pad)=read_word(mem s)(regs s 4%nat));now rewrite SP).
- destruct Ed25519Simd.Double4.Object.assembled_double4_correct as [_ [_ [_ [_ [_ Cert]]]]].
- destruct(Cert loc pad _ _ (flag s) _ E)as[_[fin[after[R[Stack[Pres[_[Bytes Spec]]]]]]]].
+ pose proof (Ed25519Simd.Double4.Audit.run_concrete Ed25519Simd.Double4.Object.assembled_double4_correct) as Cert.
+ destruct(Cert loc pad _ _ (flag s) _ E)as[_[fin[after Result]]].
+ pose proof (SysV.did_return Result) as R.
+ pose proof (SysV.byte_guarantee Result) as Bytes.
+ pose proof (SysV.restored_stack Result) as Stack.
+ pose proof (SysV.saved_registers Result) as Pres.
+ pose proof (SysV.computed_output Result) as Spec.
  destruct(D.concrete_entry_representable _ _ _ _ _ (flag s) _ E)as[_[_[_ Entry]]].
  use_return R Bytes Entry.
  exists(export_state loc fin after);split;[constructor;exact Hrun|].
@@ -96,8 +101,13 @@ Proof.
  set(loc:=call_loc scratch ap s).
  assert(E:A.concrete_entry full affine loc asize pad (regs s)(vectors s)(mem s)) by
   (constructor;try assumption;try reflexivity;change(read_word(mem s)(scratch+1288+pad)=read_word(mem s)(regs s 4%nat));now rewrite SP).
- destruct Ed25519Simd.CachedAdd.Object.assembled_cached_add_correct as [_ [_ [_ [_ [_ Cert]]]]].
- destruct(Cert full affine loc pad _ _ (flag s) _ E)as[_[fin[after[R[Stack[Pres[_[Bytes Spec]]]]]]]].
+ pose proof (Ed25519Simd.CachedAdd.Audit.run_concrete Ed25519Simd.CachedAdd.Object.assembled_cached_add_correct) as Cert.
+ destruct(Cert full affine loc pad _ _ (flag s) _ E)as[_[fin[after Result]]].
+ pose proof (SysV.did_return Result) as R.
+ pose proof (SysV.byte_guarantee Result) as Bytes.
+ pose proof (SysV.restored_stack Result) as Stack.
+ pose proof (SysV.saved_registers Result) as Pres.
+ pose proof (SysV.computed_output Result) as Spec.
  destruct(A.concrete_entry_representable full affine _ _ _ _ _ (flag s) _ E)as[_[_[_ Entry]]].
  use_return R Bytes Entry.
  exists(export_state loc fin after);split;[eapply run_add;eassumption|].

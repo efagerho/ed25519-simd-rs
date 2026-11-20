@@ -74,10 +74,11 @@ Qed.
 Definition concrete_scalar_contract p size :=
  forall loc regs vectors flag before,concrete_entry loc size regs vectors before ->
  let initial:=entry_from_bytes loc regs vectors flag before in
- exists final after,returns p abi_layout initial final /\stack_restored initial final /\
- registers_preserved initial final /\output_initialized p initial final /\
- byte_result p loc initial final before after /\
- scalar_spec(buffer_words before(origin loc input))(buffer_words after(origin loc output)).
+ exists final after, SysV.call_result p abi_layout initial final
+   (output_initialized p initial final)
+   (byte_result p loc initial final before after)
+   (scalar_spec(buffer_words before(origin loc input))(buffer_words after(origin loc output))).
+
 Theorem concrete_contract_from_logical p size :
  (forall initial,valid_scalar_entry initial ->exists final,
  returns p abi_layout initial final /\stack_restored initial final /\
@@ -91,7 +92,7 @@ Proof.
  destruct(Logical _ E)as[final[R[SP[Regs[Mem[Init Spec]]]]]].
  destruct(memory_safe_bytes _ _ _ _ _ _(entry_placement _ _ _ _ _ Entry)
  W(entry_bytes _ _ _ _ _ Entry)A R Mem)as[after Result].
- exists final,after;split;[exact R|];split;[exact SP|];split;[exact Regs|];split;[exact Init|];split;[exact Result|].
+ exists final,after; constructor; [exact R|exact SP|exact Regs|exact Init|exact Result|].
  intros j J;specialize(Spec j J);unfold lane_input,lane_output in *.
  assert(Out:forall i,(i<5)%nat ->buffer_words after(origin loc output)(8*i+j)%nat=
  words_at(memory(snd final))output(8*i+j)%nat).

@@ -138,3 +138,11 @@ Proof.
  - destruct I as [Hit|I]; [discriminate|]. destruct (IH I) as [[<-|L]|[u P]]; eauto.
  - destruct I as [Hit|I]; [inversion Hit; subst; auto|]. destruct (IH I) as [L|[u P]]; eauto.
 Qed.
+
+(* Explicit loads inside a vector fragment are included in the read footprint. *)
+Definition read_addresses p e := match e with
+ | Read _ a=>[a]
+ | Evaluate id bases=>flat_map(fun bd=>
+   match find(fun entry=>Nat.eqb(fst entry)(fst bd))bases with
+   | Some(_,a)=>[offset a(snd bd)] | None=>[] end)(load_operands(fragment_code p id))
+ | _=>[] end.

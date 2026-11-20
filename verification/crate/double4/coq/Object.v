@@ -3,7 +3,7 @@ From Machine Require Import execution.Blocks execution.LayoutProofs execution.Sc
 From Ed25519Simd.Double4 Require Import Program Double4ABI Double4Memory Double4Bytes Double4Spec.
 From Ed25519Simd.Double4 Require Audit Logical FrameProof ReadFootprint ObjectBytes Round.
 Definition object_bytes := ObjectBytes.symbol_bytes.
-Local Lemma logical_execution size initial pad : valid_double4_entry initial pad ->exists final,
+Lemma logical_execution size initial pad : valid_double4_entry initial pad ->exists final,
  returns double4_program abi_layout initial final /\stack_restored initial final /\
  registers_preserved initial final /\memory_safe double4_program size pad initial final /\
  output_initialized double4_program initial final /\
@@ -15,12 +15,9 @@ Proof.
 Qed.
 Theorem assembled_double4_correct : Audit.double4_contract object_bytes.
 Proof.
- split;[vm_compute;reflexivity|];split;[exact Round.block_layout_checked|];
- split;[apply valid_program_sound;exact Round.block_layout_checked|];
- split;[apply scalar_model_refinement_checked|];split.
- - intros initial pad Entry;destruct(logical_execution (Z.of_nat(length object_bytes)) _ _ Entry)as[final[R[SP[Regs[Mem[Init Spec]]]]]].
-   exists final;split;[exact R|];split;[exact SP|];split;[exact Regs|];split;[exact Mem|];split;[exact Init|];split;
-   [eapply ReadFootprint.input_t_unread_correct;eassumption|exact Spec].
- - apply concrete_contract_from_logical,logical_execution.
+ constructor.
+ - vm_compute; reflexivity.
+ - exact Round.block_layout_checked.
+ - apply concrete_contract_from_logical; [apply logical_execution|apply ReadFootprint.input_t_unread_correct].
 Qed.
 Print Assumptions assembled_double4_correct.

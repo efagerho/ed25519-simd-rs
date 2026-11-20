@@ -7,7 +7,7 @@ From Ed25519Simd.Pow2 Require Audit Execution FrameProof ObjectBytes.
 
 Definition object_bytes := ObjectBytes.symbol_bytes.
 
-Local Lemma logical_execution size initial a b : valid_pow2_entry initial a b ->
+Lemma logical_execution size initial a b : valid_pow2_entry initial a b ->
  exists final, returns pow2_program abi_layout initial final /\
    stack_restored initial final /\ registers_preserved initial final /\
    memory_safe pow2_program size initial final /\ output_initialized pow2_program initial final /\
@@ -24,14 +24,10 @@ Qed.
     the bytes extracted from the linked function being checked. *)
 Theorem assembled_symbol_correct : Audit.pow2_contract object_bytes.
 Proof.
-  split.
-  - vm_compute. reflexivity.
-  - split.
-    + exact Execution.block_layout_checked.
-    + split; [apply valid_program_sound;exact Execution.block_layout_checked|].
-      split; [apply scalar_model_refinement_checked|].
-      split; [apply logical_execution|].
-      apply concrete_contract_from_logical, logical_execution.
+ constructor.
+ - vm_compute; reflexivity.
+ - exact Execution.block_layout_checked.
+ - apply concrete_contract_from_logical,logical_execution.
 Qed.
 
 Print Assumptions assembled_symbol_correct.

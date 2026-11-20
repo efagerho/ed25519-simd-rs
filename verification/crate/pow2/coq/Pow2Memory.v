@@ -1,3 +1,4 @@
+From Machine Require Import memory.ByteExecution.
 From Coq Require Import List ZArith.
 From Machine Require Import abi.SysV execution.Blocks memory.MemoryTrace memory.FlatMemory.
 From Ed25519Simd.Pow2 Require Import Pow2ABI.
@@ -37,21 +38,7 @@ Definition writable_byte loc x :=
 
 Definition flat_frame p code_size es (initial final : state) :=
  forall loc, valid_placement loc code_size ->
- (forall x, writes_at loc es x -> writable_byte loc x) /\
- forall before, agrees loc mapped (snd initial) (return_memory (fst initial)) before ->
- let after := replay p loc es (snd initial) before in
- agrees loc mapped (snd final) (return_memory (fst final)) after /\
- (forall x, ~ writable_byte loc x -> after x = before x) /\
- (* At every prefix, both memory views agree with the same byte array,
-    and all eight bytes of the incoming caller's return address are intact. *)
- (forall pre tail, es = pre ++ tail ->
-   agrees loc mapped (effects p (data_effects pre) (snd initial))
-     (fold_left update_slots pre (return_memory (fst initial))) (replay p loc pre (snd initial) before) /\
-   forall k, 0 <= k < 8 -> replay p loc pre (snd initial) before (entry_rsp loc+k) =
-                            before (entry_rsp loc+k)) /\
- (* The eight concrete stack bytes consumed by every RET encode its actual destination. *)
- (forall pre a t tail k, es = pre ++ Pop a t :: tail -> 0 <= k < 8 ->
-   replay p loc pre (snd initial) before (address_of loc a+k) = word_byte (pc_word loc t) k).
+ byte_frame p loc mapped (writable_byte loc) (entry_rsp loc) es initial final.
 
 Definition memory_safe p code_size (initial final : state) :=
  exists fuel es,

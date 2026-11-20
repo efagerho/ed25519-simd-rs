@@ -33,6 +33,8 @@ fn main() {
             "verification/curve25519".into(),
             "verification/crate/Wide51.v".into(),
             "verification/crate/FieldSymbolic.v".into(),
+            "verification/crate/FieldKernel.v".into(),
+            "verification/crate/PointFrame.v".into(),
             "verification/crate/_CoqProject".into(),
             "verification/proof_build.py".into(),
             "verification/elf.py".into(),

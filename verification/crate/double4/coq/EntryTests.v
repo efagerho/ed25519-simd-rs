@@ -19,8 +19,8 @@ Example concrete_entries_exist size pad : 0 <= size <= 8192 -> permitted_padding
  concrete_entry test_placement size pad (test_regs pad)
                 (fun _ _ => 2^64-1) (test_bytes pad).
 Proof.
- intros Size Pad; pose proof (FrameProof.padding_range _ Pad) as Range; constructor.
- - unfold valid_placement; split; [exact Pad|].
+ intros Size Pad; pose proof (PointFrame.padding_range _ Pad) as Range; constructor.
+ - unfold valid_placement, point_placement; split; [exact Pad|].
    unfold fits64,disjoint.
    cbv beta iota zeta delta [origin code_base caller_pc test_placement scratch point Nat.eqb].
    intuition lia.
@@ -38,21 +38,17 @@ Example wrong_caller_return_is_rejected :
  ~ concrete_entry test_placement 8192 0 (test_regs 0) (fun _ _ => 0) (fun _ => 0).
 Proof. intro E; pose proof (entry_return_word _ _ _ _ _ _ E) as H; discriminate. Qed.
 
-Definition maximal_word_entry : state :=
- (initial_control (Control Caller (fun _ => Int 0) None (fun _ => None)) 48 (2^64-1),
-  Data (fun _ _ => 2^64-1) (fun _ _ => 2^64-1)).
-
-(* Initialization and return must not depend on arithmetic input bounds. *)
-Example public_initialization_without_field_input_bound symbol_bytes :
+Example concrete_return_and_initialization symbol_bytes loc pad regs vectors flag before :
  Audit.double4_contract symbol_bytes ->
- exists final, returns Program.double4_program abi_layout maximal_word_entry final /\
-   output_initialized Program.double4_program maximal_word_entry final.
+ concrete_entry loc (Z.of_nat (length symbol_bytes)) pad regs vectors before ->
+ let initial := entry_from_bytes loc pad regs vectors flag before in
+ exists final, returns Program.double4_program abi_layout initial final /\
+   output_initialized Program.double4_program initial final.
 Proof.
- intros [_ [_ [_ [_ [Run _]]]]].
- assert (Entry : valid_double4_entry maximal_word_entry 48).
- { split; [unfold permitted_padding; cbn; auto|]. split.
-   - eexists; exists (2^64-1); split; [unfold word64; lia|reflexivity].
-   - split; intros; change (0 <= 2^64-1 < 2^64); lia. }
- destruct (Run _ _ Entry) as [final [R [_ [_ [_ [Init _]]]]]].
- exists final; auto.
+ intros Cert Entry initial.
+ pose proof (Audit.run_concrete Cert loc pad regs vectors flag before Entry) as Run.
+ destruct Run as [_ Run].
+ destruct Run as [final [after Result]]. exists final; split.
+ - exact (SysV.did_return Result).
+ - exact (proj1 (SysV.allowed_access Result)).
 Qed.
