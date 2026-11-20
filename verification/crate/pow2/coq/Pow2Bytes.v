@@ -64,25 +64,9 @@ Qed.
 
 (* The observable read relation is exact, rather than equality of truncated
    serializations. It therefore distinguishes every representable qword. *)
-Definition vector_reads loc d flat := forall a j,
- mapped (VectorCell a) -> (j<8)%nat ->
- read_word flat (address_of loc a+8*Z.of_nat j) = memory d a j.
-
-Definition byte_result p loc initial final before after :=
- (forall middle, reaches p abi_layout initial middle -> state_words middle) /\
- byte_memory after /\ vector_reads loc (snd final) after /\
- (forall x, ~ writable_byte loc x -> after x = before x) /\
- exists fuel es,
-   record_path fuel p abi_layout (fst initial) = Some (fst final,es) /\
-   after = replay p loc es (snd initial) before /\
-   (* Every trace prefix has representable data and exact concrete reads. *)
-   (forall pre tail, es = pre ++ tail ->
-     let d := effects p (data_effects pre) (snd initial) in
-     let flat := replay p loc pre (snd initial) before in
-     data_words d /\ byte_memory flat /\ vector_reads loc d flat) /\
-   (forall pre a t tail, es = pre ++ Pop a t :: tail ->
-     read_word (replay p loc pre (snd initial) before) (address_of loc a) =
-       pc_word loc t mod 2^64).
+Definition vector_reads loc := ByteExecution.vector_reads loc mapped.
+Definition byte_result p loc :=
+ ByteExecution.byte_execution p abi_layout loc mapped (writable_byte loc).
 
 Lemma memory_safe_bytes p size loc initial final before :
  valid_placement loc size -> state_words initial -> byte_memory before ->

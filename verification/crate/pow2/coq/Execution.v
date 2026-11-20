@@ -274,6 +274,6 @@ Proof.
  cbn [observe_path] in Check. injection Check as PC SP Ops. subst es.
  exists (last,effects pow2_program expected_path s). split.
  - apply (path_returns _ _ _ _ _ _ T).
- - split; [unfold stack_restored; cbn [fst]; rewrite SP; reflexivity|]. eapply spec_ext; [|apply linked_pow2_correct].
+ - split; [unfold stack_restored, SysV.restores_rsp; cbn [fst]; rewrite SP; reflexivity|]. eapply spec_ext; [|apply linked_pow2_correct].
    intros k K. apply (output_agrees s a b E k K).
 Qed.

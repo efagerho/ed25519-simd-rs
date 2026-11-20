@@ -126,7 +126,7 @@ Proof.
  destruct (record_path_sound _ _ _ _ _ _ R) as [P _].
  pose proof (path_returns _ _ _ _ _ _ P d) as Ends.
  pose proof (return_unique _ _ _ _ _ Returns Ends) as ->.
- split; [unfold registers_preserved; cbn [fst]; apply ext_in_map; exact Regs|]. split.
+ split; [unfold registers_preserved, SysV.preserves_sysv; cbn [fst]; apply ext_in_map; exact Regs|]. split.
  - exists 1024%nat,es. split; [exact R|]. split; [exact W|]. split; [exact B|]. now apply trace_frame.
  - exists (output,0),1024%nat,es. split; [reflexivity|]. split; [exact R|].
    pose proof (Execution.control_path_checked incoming) as Path.

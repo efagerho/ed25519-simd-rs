@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith.
-From Machine Require Import Blocks MemoryTrace FlatMemory.
+From Machine Require Import SysV Blocks MemoryTrace FlatMemory.
 From Ed25519Simd.Pow2 Require Import Pow2ABI.
 From Machine Require Export MemoryGeometry.
 Import ListNotations.
@@ -70,6 +70,5 @@ Definition output_initialized p (initial final : state) :=
 
 (* SysV AMD64 nonvolatile integer registers: RBX, RBP and R12 through R15.
    RSP has its own postcondition because RET consumes an eight-byte address. *)
-Definition saved_registers := [3;5;12;13;14;15]%nat.
-Definition registers_preserved (initial final : state) :=
- forall r, In r saved_registers -> Blocks.gpr (fst final) r = Blocks.gpr (fst initial) r.
+Definition saved_registers := SysV.sysv_saved.
+Definition registers_preserved := SysV.preserves_sysv.

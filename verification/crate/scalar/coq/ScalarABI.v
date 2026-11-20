@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool.
-From Machine Require Import Blocks WordBounds.
+From Machine Require Import SysV Blocks WordBounds.
 Import ListNotations. Open Scope Z_scope.
 Definition stack := 0%nat.
 Definition output := 1%nat.
@@ -14,8 +14,6 @@ Definition initial_control incoming := Control(At 0)
 Definition words_at(m:pointer->vector)region k := m(region,64*Z.of_nat(k/8))(k mod 8)%nat.
 Definition valid_scalar_entry(initial:state) :=
  (exists incoming,fst initial=initial_control incoming) /\data_words(snd initial).
-Definition saved_registers := [3;5;12;13;14;15]%nat.
-Definition registers_preserved(initial final:state) :=
- forall r,In r saved_registers ->gpr(fst final)r=gpr(fst initial)r.
-Definition stack_restored(initial final:state) :=
- Some(gpr(fst final)4%nat)=option_map Ptr(pointer_at(fst initial)4 8).
+Definition saved_registers := SysV.sysv_saved.
+Definition registers_preserved := SysV.preserves_sysv.
+Definition stack_restored := SysV.restores_rsp.
