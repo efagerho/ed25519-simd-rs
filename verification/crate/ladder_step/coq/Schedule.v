@@ -5,11 +5,6 @@ From Ed25519Simd.Double4 Require Import Double4Spec.
 From Ed25519Simd.CachedAdd Require CachedAddSpec.
 Open Scope Z_scope.
 
-Definition ladder_formula full q odd base even :=
- let first := add false (double_n 4 q) odd in
- let second := add true (double_n 4 first) base in
- add full second even.
-
 Lemma double_result w out q : has_value w q -> loose_xyz w ->
  double4_spec w out -> strict out /\ has_value out (fun j=>double_n 4 (q j)).
 Proof.

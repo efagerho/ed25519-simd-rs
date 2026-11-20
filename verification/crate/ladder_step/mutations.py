@@ -1,4 +1,4 @@
-"""Replay three negative controls against a successfully audited ladder ELF."""
+"""Replay negative controls against a successfully audited ladder ELF."""
 import argparse
 from pathlib import Path
 import subprocess
@@ -68,6 +68,8 @@ def test(elf, audit):
         raise ValueError("unexpected first call")
     cases = [
         ("original", raw, None, None),
+        ("swap-odd-and-base-in-group-result", raw,
+         ("ladder_sum P Odd Base Even", "ladder_sum P Base Odd Even"), "Object"),
         ("redirect-first-call", raw[:14] + call(add_pc) + raw[19:], None, "Object"),
         ("omit-base-t", replace_once(raw, bytes.fromhex("ba01000000b901000000"),
                                      bytes.fromhex("ba00000000b901000000")),

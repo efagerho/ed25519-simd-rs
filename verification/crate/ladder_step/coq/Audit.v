@@ -1,4 +1,5 @@
 From Ed25519Simd Require Import Wide51.
+From Curve25519 Require Import Edwards group.Representation.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions execution.Blocks abi.SysV execution.LinkedCalls memory.FlatMemory memory.ByteMemory
  execution.WordBounds memory.MemoryGeometry execution.ScalarRefinement.
@@ -54,6 +55,15 @@ Definition result_value full initial point cache j :=
   (cache_values false (buffer_words initial cache) j) (cache_values true (buffer_words initial (cache+1280)) j)
   (cache_values false (buffer_words initial (cache+2240)) j).
 
+Definition group_result full before after point cache :=
+ forall j P Odd Base Even, (j<8)%nat ->
+ represents_xyz (point_values (buffer_words before point) j) P ->
+ represents_cache (cache_values false (buffer_words before cache) j) Odd ->
+ represents_cache (cache_values true (buffer_words before (cache+1280)) j) Base ->
+ represents_cache (cache_values false (buffer_words before (cache+2240)) j) Even ->
+ represents_point full (point_values (buffer_words after point) j)
+   (ladder_sum P Odd Base Even).
+
 Definition separate_images :=
  disjoint wrapper_pc wrapper_size double4_pc dsize /\ disjoint wrapper_pc wrapper_size cached_pc asize /\
  disjoint double4_pc dsize cached_pc asize.
@@ -86,4 +96,5 @@ Definition ladder_contract :=
       strict (buffer_words (mem out) point) /\
       has_value (buffer_words (mem out) point) (result_value full (mem entry) point cache) /\
       (full = false -> forall i j, (i < 5)%nat -> (j < 8)%nat ->
-         Wide51.cell (buffer_words (mem out) point) (15+i)%nat j = 0).
+         Wide51.cell (buffer_words (mem out) point) (15+i)%nat j = 0) /\
+      group_result full (mem entry) (mem out) point cache.

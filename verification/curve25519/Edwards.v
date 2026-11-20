@@ -31,6 +31,11 @@ Definition add (full : bool) (p : coordinates) (q : cached_coordinates) :=
  let e := b-a in let f := d-c in let g := d+c in let h := b+a in
  Coordinates (e*f) (g*h) (f*g) (if full then e*h else 0).
 
+Definition ladder_formula full q odd base even :=
+ let first := add false (double_n 4 q) odd in
+ let second := add true (double_n 4 first) base in
+ add full second even.
+
 Definition equivalent (p q:coordinates) :=
  forall c,(c<4)%nat -> eqm prime (coordinate p c) (coordinate q c).
 Local Ltac congruent :=
