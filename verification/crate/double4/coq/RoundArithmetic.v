@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool Lia Ring.
-From Machine Require Import Blocks Instructions WordBounds Dependencies.
+From Machine Require Import execution.Blocks isa.Instructions execution.WordBounds execution.Dependencies.
 From Curve25519 Require Import Field Radix51.
 From Ed25519Simd Require Import Wide51.
 From Curve25519 Require Import FieldPolynomial.

@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool.
-From Machine Require Import Blocks WordBounds.
+From Machine Require Import execution.Blocks execution.WordBounds.
 Import ListNotations. Open Scope Z_scope.
 Definition scratch := 0%nat.
 Definition point := 1%nat.

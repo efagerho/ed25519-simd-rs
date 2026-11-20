@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith.
-From Machine Require Import Blocks.
+From Machine Require Import execution.Blocks.
 Import ListNotations.
 
 (* Integer callee-saved registers in the SysV AMD64 convention.

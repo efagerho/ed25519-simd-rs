@@ -1,7 +1,7 @@
 (* Export only the typed kernel rows. Python supplies the bytes from the ELF. *)
 From Coq Require Import List ZArith Strings.String Numbers.DecimalString.
-From Machine Require Import Instructions.
-From Machine Require ProgramLayout.
+From Machine Require Import isa.Instructions.
+From Machine Require isa.ProgramLayout.
 From Machine Require tests.CallerForms.
 From Ed25519Simd.Double4 Require Import Program.
 Import ListNotations.

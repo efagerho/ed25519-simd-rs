@@ -1,5 +1,5 @@
 From Coq Require Import List Bool ZArith Strings.String.
-From Machine Require Import Blocks IntelSyntax tests.model.Oracle.
+From Machine Require Import execution.Blocks isa.IntelSyntax tests.model.Oracle.
 Import ListNotations.
 Open Scope Z_scope.
 

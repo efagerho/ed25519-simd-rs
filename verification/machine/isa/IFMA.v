@@ -1,5 +1,5 @@
 From Coq Require Import ZArith.
-From Machine Require Import X86.
+From Machine Require Import isa.X86.
 Open Scope Z_scope.
 
 (* Both forms add the selected half of the unsigned 52-by-52 product to acc.

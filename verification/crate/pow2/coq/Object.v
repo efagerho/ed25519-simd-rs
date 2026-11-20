@@ -1,5 +1,5 @@
 From Coq Require Import ZArith List.
-From Machine Require Import Blocks LayoutProofs ScalarRefinement.
+From Machine Require Import execution.Blocks execution.LayoutProofs execution.ScalarRefinement.
 From Curve25519 Require Import Field Radix51.
 From Ed25519Simd Require Import Wide51.
 From Ed25519Simd.Pow2 Require Import Program Pow2ABI Pow2Memory Pow2Bytes Pow2Spec.

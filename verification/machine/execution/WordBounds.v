@@ -1,5 +1,5 @@
 From Coq Require Import ZArith List Bool Lia.
-From Machine Require Import Instructions Blocks MemoryTrace.
+From Machine Require Import isa.Instructions execution.Blocks memory.MemoryTrace.
 Import ListNotations.
 Open Scope Z_scope.
 

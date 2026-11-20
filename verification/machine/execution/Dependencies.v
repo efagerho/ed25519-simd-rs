@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith Bool.
-From Machine Require Import Instructions.
-From Machine Require Logic.
+From Machine Require Import isa.Instructions.
+From Machine Require isa.Logic.
 Import ListNotations.
 
 (* Track which register values two executions agree on. XOR of a register

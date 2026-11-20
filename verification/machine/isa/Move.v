@@ -1,5 +1,5 @@
 From Coq Require Import ZArith List Bool.
-From Machine Require Import X86.
+From Machine Require Import isa.X86.
 Import ListNotations.
 Open Scope Z_scope.
 

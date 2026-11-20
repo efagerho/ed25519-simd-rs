@@ -27,5 +27,5 @@ The cached-add bounds-only interpreter stores `Ranges.bounds` and uses
 exactly the same bounds as the numeric evaluator.
 
 Build and check these modules through any routine's certificate driver.
-The driver compiles `machine/` first and provides both namespace mappings;
-the retained audit bundle can be rebuilt using its `_CoqProject`.
+The retained audit bundle records the library mapping and its sources in
+`_CoqProject` so the same modules can be rebuilt independently.

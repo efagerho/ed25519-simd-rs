@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool Lia.
-From Machine Require Import Blocks MemoryTrace.
+From Machine Require Import execution.Blocks memory.MemoryTrace.
 From Ed25519Simd.Double4 Require Import Program Double4ABI Double4Memory Round FrameProof.
 Import ListNotations. Open Scope Z_scope.
 Definition point_reads_xyz a := negb(Nat.eqb(fst a)point) || ((0<=?snd a)&&(snd a+64<=?960)).

@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith.
-From Machine Require Import Blocks LayoutProofs ScalarRefinement.
+From Machine Require Import execution.Blocks execution.LayoutProofs execution.ScalarRefinement.
 From Ed25519Simd.Double4 Require Import Program Double4ABI Double4Memory Double4Bytes Double4Spec.
 From Ed25519Simd.Double4 Require Audit Logical FrameProof ReadFootprint ObjectBytes Round.
 Definition object_bytes := ObjectBytes.symbol_bytes.

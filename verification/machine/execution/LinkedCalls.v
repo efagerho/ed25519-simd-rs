@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool Lia.
-From Machine Require Import X86 Instructions Blocks MemoryTrace FlatMemory ByteMemory ByteExecution WordBounds ScalarRefinement KnownRegisters.
+From Machine Require Import isa.X86 isa.Instructions execution.Blocks memory.MemoryTrace memory.FlatMemory memory.ByteMemory memory.ByteExecution execution.WordBounds execution.ScalarRefinement execution.KnownRegisters.
 Import ListNotations. Open Scope Z_scope.
 
 (* Straight-line x86-64 callers. Call operands are symbol addresses in the

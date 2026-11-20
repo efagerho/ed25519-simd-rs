@@ -65,21 +65,28 @@ behavior have separate proof obligations. [Proof status](proofs/README.md)
 
 ## Model files
 
+The `isa/` modules define instructions, assembly and encoding. The
+`execution/` modules run instructions, blocks and linked calls. Concrete
+byte memory and address geometry live in `memory/`. The `abi/` modules
+prove register, stack and caller-memory preservation for SysV calls.
+The optional `symbolic/` module connects instruction semantics to the
+shared arithmetic library. [SysV call-frame theorem](abi/CallFrame.v)
+
 Each instruction family defines its lane operations and encoders, with links to
 the corresponding Intel Intrinsics Guide entries. The families share the EVEX
-encoding helpers in `X86.v`. [Moves](Move.v) · [Arithmetic](Arithmetic.v) · [Bitwise operations](Logic.v) · [Shifts](Shift.v) · [IFMA](IFMA.v) · [Encoding helpers](X86.v)
+encoding helpers in `X86.v`. [Moves](isa/Move.v) · [Arithmetic](isa/Arithmetic.v) · [Bitwise operations](isa/Logic.v) · [Shifts](isa/Shift.v) · [IFMA](isa/IFMA.v) · [Encoding helpers](isa/X86.v)
 
-`Machine.Instructions` exposes `encodable` to check operands, `encode` to
+`Machine.isa.Instructions` exposes `encodable` to check operands, `encode` to
 produce bytes, and `asm_of` to render Intel syntax. `run load code registers`
 returns the final lane value of each register. The caller supplies unsigned
 64-bit register values and a read-only memory view. For lane `j`,
 `load base disp` supplies the unsigned little-endian qword at
-`GPR[base] + disp + 8*j`. [Instruction interface](Instructions.v)
+`GPR[base] + disp + 8*j`. [Instruction interface](isa/Instructions.v)
 
 `agreement_sound` proves when two executions of a vector instruction list
 agree on selected output registers. It tracks which input registers and loads
 agree, including the case where self-XOR clears an arbitrary old value.
-[Register dependency lemmas](Dependencies.v)
+[Register dependency lemmas](execution/Dependencies.v)
 
 ## Basic blocks and machine state
 
@@ -87,26 +94,26 @@ A program contains addressed blocks, straight-line vector fragments and
 explicit padding. A block has a body and a terminator (`Next`, `CallRel32`,
 `JneRel8` or `Ret`). `image` encodes them in layout order. `valid_program`
 checks operand ranges, contiguous block addresses, and that every static
-target and fallthrough starts a block. [Program and encoder](ProgramLayout.v)
+target and fallthrough starts a block. [Program and encoder](isa/ProgramLayout.v)
 
 `IntelSyntax.v` lets a Coq program use Intel mnemonics and named registers.
 `ops[ ... ]` denotes a scalar block body, `vecs[ ... ]` a vector instruction
 list, and `ends[ ... ]` a terminator. A local label denotes a byte address.
 `assemble` resolves each call or conditional jump relative to the end of that
-instruction. The native control-flow probe uses this notation. [Intel notation](IntelSyntax.v) · [Assembler](Assembly.v) · [Control-flow probe](tests/Control.v)
+instruction. The native control-flow probe uses this notation. [Intel notation](isa/IntelSyntax.v) · [Assembler](isa/Assembly.v) · [Control-flow probe](tests/Control.v)
 
 `step` executes one block on the program counter, GPRs, zero flag, ZMM
 registers and memory. A call pushes a return PC to stack memory and a return
 pops it. `returns` means a finite sequence of these steps reaches the external
 caller. `path_returns` lets a proof compute the control path and effective
-addresses once for arbitrary vector values. [Execution semantics](Blocks.v)
+addresses once for arbitrary vector values. [Execution semantics](execution/Blocks.v)
 
 `step_sequential` proves that executing a fetched block gives the same
 optional machine state as stepping its instructions in order and then its
 terminator. Both executions return the same PC, flags, registers and memory
 on success, or both return `None`. The instruction sequence expands every
 vector fragment, checks each load when it executes and advances the PC by
-each instruction's encoded length. [Block theorems](BlockSequence.v) · [Vector instruction refinement](VectorSequence.v)
+each instruction's encoded length. [Block theorems](execution/BlockSequence.v) · [Vector instruction refinement](execution/VectorSequence.v)
 
 `block_singleton` covers one body instruction followed by fallthrough.
 `block_empty` covers a lone terminator. `block_cut` allows a cut at any
@@ -115,7 +122,7 @@ applies this law to program execution when the two blocks can be fetched
 at their respective addresses. The first falls through and the second
 retains the original terminator. `block_laws_suffice` proves by induction
 that the empty-body, singleton and split laws determine the result for
-every instruction list. [Statements and proofs](BlockSequence.v)
+every instruction list. [Statements and proofs](execution/BlockSequence.v)
 
 `execution_memory_frame` proves that every finite execution preserves each
 vector cell without write permission and each return-address slot outside
@@ -123,20 +130,20 @@ the layout's permitted slots. `control_trace_independent` proves that changing
 the initial ZMM values or vector memory preserves the entire sequence of
 control states when the program, layout and initial scalar control agree.
 `step_failure_independent` covers a rejected step under the same conditions.
-These properties concern the architectural model. [Execution properties](ExecutionProperties.v)
+These properties concern the architectural model. [Execution properties](execution/ExecutionProperties.v)
 
 `record_path_sound` relates an ordered trace of vector effects, calls and
 returns to the executed path. `replay_agrees` proves that the vector and
 return-slot views agree with one little-endian byte memory when they agree
 at entry and each writable cell is disjoint from every other tracked cell.
 `replay_frame` proves that every byte outside the trace's write footprint
-keeps its entry value. [Memory events](MemoryTrace.v) · [Byte memory](FlatMemory.v)
+keeps its entry value. [Memory events](memory/MemoryTrace.v) · [Byte memory](memory/FlatMemory.v)
 
 `state_words` requires unsigned 64-bit integer GPR values, all eight lanes of
 the vector registers, and the vector memory values. `step_preserves_words`
 and `execution_preserves_words` prove preservation; `recorded_prefix_words`
 covers the intermediate vector effects within blocks. Symbolic pointers and
-PCs retain their separate region/placement interpretation. [Word bounds](WordBounds.v)
+PCs retain their separate region/placement interpretation. [Word bounds](execution/WordBounds.v)
 
 `read_word` reconstructs a qword from eight little-endian bytes.
 `read_word_encoded` returns the encoded integer modulo `2^64`, while
@@ -144,7 +151,7 @@ PCs retain their separate region/placement interpretation. [Word bounds](WordBou
 therefore turns byte agreement into exact logical loads. The converse
 round trip constructs a matching logical data view directly from any valid
 byte array. Word/vector stores and saved return words have corresponding
-read-back lemmas, and replay preserves byte bounds. [Byte decoding proofs](ByteMemory.v)
+read-back lemmas, and replay preserves byte bounds. [Byte decoding proofs](memory/ByteMemory.v)
 Both certificates use these results to construct concrete entries and
 state their arithmetic results on output bytes. [Pow2 concrete ABI proof](../crate/pow2/coq/Pow2Bytes.v) · [Double4 concrete ABI proof](../crate/double4/coq/Double4Bytes.v)
 
@@ -153,7 +160,7 @@ address equals alignment of its relative offset when the region origin is
 64-byte aligned. Consumers of `AlignRsp64` must establish that placement
 condition. Double4 proves it for its stack frame, including all four SysV
 padding cases. `SavedWord` stack entries hold saved RBP qwords in the same
-memory as return addresses; they are never executable PCs. [Alignment](Alignment.v)
+memory as return addresses; they are never executable PCs. [Alignment](memory/Alignment.v)
 
 The model tracks relocatable byte offsets. The supplied memory layout
 distinguishes read-only vectors, writable vectors and individual return
@@ -161,7 +168,7 @@ qwords. Vector accesses must start at a 64-byte cell boundary relative to
 the region origin. Its physical base can be unaligned except for a region
 used by `AlignRsp64`. The scalar subset
 models the zero flag written by `DEC`. Stack-pointer arithmetic and alignment make ZF
-unknown, and executing `JNE` requires a known ZF. [State and permissions](MachineState.v) · [Intel instruction reference, Vol. 2](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html)
+unknown, and executing `JNE` requires a known ZF. [State and permissions](execution/MachineState.v) · [Intel instruction reference, Vol. 2](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html)
 
 ## Run the conformance suite
 
@@ -246,9 +253,9 @@ From this directory, with Coq and GNU Make installed, run
 ```sh
 coq_makefile -f _CoqProject -o Makefile
 make
-coqchk -Q . Machine Machine.BlockSequence Machine.ExecutionProperties Machine.Dependencies \
-  Machine.WordBounds Machine.ByteMemory
+coqchk -Q . Machine Machine.execution.BlockSequence Machine.execution.ExecutionProperties Machine.execution.Dependencies \
+  Machine.execution.WordBounds Machine.memory.ByteMemory
 ```
 
 A consumer maps the compiled directory with `-Q /path/to/model Machine` and
-imports the interfaces with `From Machine Require Import Instructions Blocks.`
+imports the interfaces with `From Machine Require Import isa.Instructions execution.Blocks.`

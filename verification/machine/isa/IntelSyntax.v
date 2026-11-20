@@ -1,8 +1,8 @@
-(* Intel syntax for the operand forms implemented by Machine.ProgramLayout and
-   Machine.Instructions. The notation expands to ordinary Coq terms. *)
+(* Intel syntax for the operand forms implemented by Machine.isa.ProgramLayout and
+   Machine.isa.Instructions. The notation expands to ordinary Coq terms. *)
 From Coq Require Import List ZArith.
-From Machine Require Import ProgramLayout Instructions.
-From Machine Require Assembly.
+From Machine Require Import isa.ProgramLayout isa.Instructions.
+From Machine Require isa.Assembly.
 Import ListNotations.
 Open Scope Z_scope.
 

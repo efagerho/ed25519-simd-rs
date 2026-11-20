@@ -1,6 +1,6 @@
 From ProofArithmetic Require Import Ranges.
 From Coq Require Import List ZArith Bool Lia Ring.
-From Machine Require Import Blocks Instructions WordBounds.
+From Machine Require Import execution.Blocks isa.Instructions execution.WordBounds.
 From Curve25519 Require Import Field Radix51.
 From Ed25519Simd Require Import Wide51.
 From Curve25519 Require Import FieldPolynomial.
@@ -59,7 +59,7 @@ Qed.
 Lemma prefix_next j full affine n s e : nth_error(expected_path full affine)n=Some e ->
  prefix_state j full affine(S n)s=lane_effect j(prefix_state j full affine n s)e.
 Proof.
- intro E;unfold prefix_state,lane_effects,Machine.Lane.lane_effects.
+ intro E;unfold prefix_state,lane_effects,Machine.execution.Lane.lane_effects.
  rewrite (firstn_succ _ _ _ E),fold_left_app;reflexivity.
 Qed.
 Theorem call_correct j full affine n s k bases start :

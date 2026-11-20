@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool.
-From Machine Require Import Instructions.
+From Machine Require Import isa.Instructions.
 Open Scope Z_scope.
 
 (* Addresses are byte offsets in disjoint, relocatable memory regions. Each

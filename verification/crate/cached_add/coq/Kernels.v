@@ -1,6 +1,6 @@
 From ProofArithmetic Require Import Interval.
 From Coq Require Import List ZArith Bool Lia.
-From Machine Require Import Blocks Instructions.
+From Machine Require Import execution.Blocks isa.Instructions.
 From Curve25519 Require Import Field Radix51.
 From Ed25519Simd Require Import Wide51.
 From Curve25519 Require Import FieldPolynomial.

@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool Lia.
-From Machine Require Import Blocks Instructions WordBounds.
+From Machine Require Import execution.Blocks isa.Instructions execution.WordBounds.
 From Ed25519Simd.Scalar Require Import Program ScalarSpec ScalarMath Product Reduction Montgomery Borrow.
 Import ListNotations. Open Scope Z_scope.
 Lemma mask_B x : Z.land x(B-1)=x mod B.

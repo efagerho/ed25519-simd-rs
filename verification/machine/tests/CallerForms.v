@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith Bool.
-From Machine Require Import ProgramLayout.
-From Machine Require Blocks.
+From Machine Require Import isa.ProgramLayout.
+From Machine Require execution.Blocks.
 From Machine Require tests.Control tests.Mixed tests.Prologue tests.Aligned.
 Import ListNotations.
 Open Scope Z_scope.

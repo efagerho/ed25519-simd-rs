@@ -190,14 +190,14 @@ class ReleaseEvidenceTests(unittest.TestCase):
     def check_manifest(self, module, routine, generator):
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
-            (work / "machine").mkdir()
+            (work / "machine/isa").mkdir(parents=True)
             (work / "arithmetic").mkdir()
             (work / "curve25519").mkdir()
             (work / "crate").mkdir()
             artifacts = {"Program.v": "Definition program := 0.\n", "Audit.v": "Definition contract := True.\n",
                          "curve25519/Field.v": "Definition prime := 31.\n",
-                         "crate/Wide51.v": "Definition lanes := 8.\n", "machine/X86.v": "Definition bits := 64.\n",
-                         "machine/_CoqProject": "-Q . Machine\nX86.v\n",
+                         "crate/Wide51.v": "Definition lanes := 8.\n", "machine/isa/X86.v": "Definition bits := 64.\n",
+                         "machine/_CoqProject": "-Q . Machine\nisa/X86.v\n",
                          "arithmetic/_CoqProject": "-Q . ProofArithmetic\nExpressions.v\n",
                          "arithmetic/Expressions.v": "Definition atom := 0.\n", f"{routine}.expanded.S": "ret\n",
                          "assumptions.txt": "Closed under the global context\n", "coqchk.log": "",
@@ -219,7 +219,7 @@ class ReleaseEvidenceTests(unittest.TestCase):
             self.assertIn("curve25519/Field.v", manifest["files"])
             self.assertIn("crate/Wide51.v", manifest["files"])
             self.assertIn("-Q crate Ed25519Simd\n", (work / "_CoqProject").read_text())
-            self.assertIn("machine/X86.v", manifest["files"])
+            self.assertIn("machine/isa/X86.v", manifest["files"])
             self.assertIn("arithmetic/Expressions.v", manifest["files"])
             self.assertIn("arithmetic/_CoqProject", manifest["files"])
             self.assertIn("sources/proof_build.py", manifest["files"])

@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Lia.
-From Machine Require Import Blocks WordBounds.
+From Machine Require Import execution.Blocks execution.WordBounds.
 From Curve25519 Require Import Field Radix51.
 From Ed25519Simd Require Import Wide51.
 From Ed25519Simd.Double4 Require Import Program Double4ABI Double4Memory Double4Spec Round KernelInterface Preparation Finish Execution RoundArithmetic.

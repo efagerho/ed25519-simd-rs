@@ -1,5 +1,5 @@
 From Coq Require Import ZArith List Bool Lia.
-From Machine Require Import Instructions.
+From Machine Require Import isa.Instructions.
 From Curve25519 Require Import Field Radix51.
 From Ed25519Simd Require Import Wide51.
 From Curve25519 Require Import FieldPolynomial.

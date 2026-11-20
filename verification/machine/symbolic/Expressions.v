@@ -1,5 +1,5 @@
 From Coq Require Import ZArith Lia.
-From Machine Require Import Instructions.
+From Machine Require Import isa.Instructions.
 From ProofArithmetic Require Export Expressions.
 Open Scope Z_scope.
 

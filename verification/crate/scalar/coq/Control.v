@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool.
-From Machine Require Import Blocks MemoryTrace.
+From Machine Require Import execution.Blocks memory.MemoryTrace.
 From Ed25519Simd.Scalar Require Import Program ScalarABI.
 Import ListNotations. Open Scope Z_scope.
 Definition dummy := Control Caller(fun _=>Unknown)None(fun _=>None).

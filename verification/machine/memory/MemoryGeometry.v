@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool Lia.
-From Machine Require Import Blocks FlatMemory.
+From Machine Require Import execution.Blocks memory.FlatMemory.
 Import ListNotations. Open Scope Z_scope.
 
 (* Alignment is relative to a region; its base need not be vector-aligned. *)

@@ -1,7 +1,7 @@
 From Coq Require Import List ZArith Bool Lia.
-From Machine Require Import Blocks MemoryTrace FlatMemory ExecutionProperties WordBounds Alignment.
+From Machine Require Import execution.Blocks memory.MemoryTrace memory.FlatMemory execution.ExecutionProperties execution.WordBounds memory.Alignment.
 From Ed25519Simd.CachedAdd Require Import Program CachedAddABI CachedAddMemory Control.
-From Machine Require Import MemoryCoverage ByteExecution.
+From Machine Require Import memory.MemoryCoverage memory.ByteExecution.
 Import ListNotations. Open Scope Z_scope.
 Section Mode.
 Variable full affine:bool.

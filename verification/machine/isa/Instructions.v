@@ -1,5 +1,5 @@
 From Coq Require Import ZArith List Bool Strings.String Numbers.DecimalString.
-From Machine Require Move Arithmetic Logic Shift IFMA.
+From Machine Require isa.Move isa.Arithmetic isa.Logic isa.Shift isa.IFMA.
 Import ListNotations.
 Open Scope Z_scope.
 

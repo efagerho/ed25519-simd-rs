@@ -1,6 +1,6 @@
 From ProofArithmetic Require Import Interval Polynomial.
 From Coq Require Import List ZArith Bool Lia Ring.
-From Machine Require Import Blocks Instructions WordBounds.
+From Machine Require Import execution.Blocks isa.Instructions execution.WordBounds.
 From Ed25519Simd.Scalar Require Import Program ScalarSpec Symbolic.
 Import ListNotations. Open Scope Z_scope.
 

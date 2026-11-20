@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool Strings.String.
-From Machine Require Import Instructions.
+From Machine Require Import isa.Instructions.
 Import ListNotations.
 Open Scope Z_scope.
 

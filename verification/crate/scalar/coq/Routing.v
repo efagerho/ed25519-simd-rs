@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool Lia.
-From Machine Require Import Blocks Instructions WordBounds Dependencies.
+From Machine Require Import execution.Blocks isa.Instructions execution.WordBounds execution.Dependencies.
 From Ed25519Simd.Scalar Require Import Program ScalarABI ScalarSpec ScalarMath Product Unpack Reduction Montgomery Finish Calculate Lane Control.
 Import ListNotations. Open Scope Z_scope.
 Definition no_memory(_:nat)(_:Z) := 0.
@@ -12,8 +12,8 @@ Local Opaque run fragment_code.
 Lemma prefix_registers j s i : registers(before_tail j s)i=
  setup(multiply 5 no_memory(run no_memory Unpack.code(put(loaded s)29%nat(B-1))))i.
 Proof.
- unfold before_tail,expected_path,lane_effects,Machine.Lane.lane_effects.
- cbn [firstn fold_left lane_effect Machine.Lane.lane_effect registers cells lane_load find fst snd Nat.eqb].
+ unfold before_tail,expected_path,lane_effects,Machine.execution.Lane.lane_effects.
+ cbn [firstn fold_left lane_effect Machine.execution.Lane.lane_effect registers cells lane_load find fst snd Nat.eqb].
  unfold setup,loaded,Unpack.code.
  cbn [multiply with_constants product_code Nat.add].
  cbv [lane_load find fst snd Nat.eqb].
@@ -47,7 +47,7 @@ Lemma full_split : expected_path=firstn 24 expected_path++skipn 24 expected_path
 Proof. symmetry;apply firstn_skipn. Qed.
 Lemma effects_split j s : lane_effects j expected_path s=
  lane_effects j(skipn 24 expected_path)(before_tail j s).
-Proof. unfold before_tail. unfold lane_effects,Machine.Lane.lane_effects. rewrite <-fold_left_app. rewrite firstn_skipn. reflexivity. Qed.
+Proof. unfold before_tail. unfold lane_effects,Machine.execution.Lane.lane_effects. rewrite <-fold_left_app. rewrite firstn_skipn. reflexivity. Qed.
 Local Transparent fragment_code.
 Lemma later_saved k i load r : (8<=k<12)%nat ->(i+8<=k)%nat ->
  run load(fragment_code scalar_program k)r i=r i.
@@ -62,9 +62,9 @@ Lemma tail_routing j s i : (i<5)%nat ->
  cells(lane_effects j(skipn 24 expected_path)s)(output,64*Z.of_nat i)=
  run no_memory tail_code(registers s)i.
 Proof.
- intro I;unfold lane_effects at 1;unfold Machine.Lane.lane_effects at 1.
+ intro I;unfold lane_effects at 1;unfold Machine.execution.Lane.lane_effects at 1.
  let es:=eval vm_compute in(skipn 24 expected_path)in change(skipn 24 expected_path)with es.
- cbn [fold_left lane_effect Machine.Lane.lane_effect cells registers].
+ cbn [fold_left lane_effect Machine.execution.Lane.lane_effect cells registers].
  cbv [lane_load find].
  unfold tail_code;rewrite !run_app.
  assert(Cases:i=0%nat \/i=1%nat \/i=2%nat \/i=3%nat \/i=4%nat)by lia.

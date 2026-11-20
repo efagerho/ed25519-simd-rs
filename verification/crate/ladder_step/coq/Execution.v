@@ -1,7 +1,7 @@
 From Ed25519Simd Require Import Wide51.
 From Coq Require Import List ZArith Bool Lia.
-From Machine Require Import Instructions Blocks FlatMemory ByteMemory WordBounds
- MemoryGeometry ScalarRefinement SysV LinkedCalls.
+From Machine Require Import isa.Instructions execution.Blocks memory.FlatMemory memory.ByteMemory execution.WordBounds
+ memory.MemoryGeometry execution.ScalarRefinement abi.SysV execution.LinkedCalls.
 From Ed25519Simd.Double4 Require Double4Spec Double4ABI.
 From Ed25519Simd.CachedAdd Require CachedAddSpec CachedAddABI.
 From Ed25519Simd.LadderStep Require Import LinkedBytes Callees Schedule Audit Calls.

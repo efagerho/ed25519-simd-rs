@@ -1,5 +1,5 @@
 From Coq Require Import ZArith List Bool.
-From Machine Require Import Blocks.
+From Machine Require Import execution.Blocks.
 Import ListNotations.
 
 (* The two memory views have different permissions. A store updates one

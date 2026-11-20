@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool Lia.
-From Machine Require Import Blocks Instructions Dependencies.
+From Machine Require Import execution.Blocks isa.Instructions execution.Dependencies.
 From Curve25519 Require Import Field Radix51.
 From Ed25519Simd Require Import Wide51.
 From Ed25519Simd.Pow2 Require Import Pow2Caller Linked Program Pow2Spec.
