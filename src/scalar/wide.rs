@@ -3,55 +3,13 @@ use super::{LANES, Radix16, WIDE_WORDS};
 /// Reduce eight 512-bit challenge hashes modulo the group order and recode
 /// them as signed radix-16 digits. Each input row is one word across all lanes.
 pub(super) fn wide_words_to_radix16(words: &[[u64; LANES]; WIDE_WORDS]) -> [Radix16; LANES] {
-    WideScalar52::from_wide_words(words).to_radix16()
+    WideScalar52::from_wide_words_rust(words).to_radix16()
 }
 
 // Five radix-2^52 limbs cover the scalar modulus.
 const LIMB_COUNT: usize = 5;
 
-#[cfg(any(
-    test,
-    not(all(
-        feature = "asm",
-        target_os = "linux",
-        target_arch = "x86_64",
-        target_pointer_width = "64"
-    ))
-))]
 mod rust;
-
-#[cfg(all(
-    feature = "asm",
-    not(feature = "verify-asm-scalar"),
-    target_os = "linux",
-    target_arch = "x86_64",
-    target_pointer_width = "64"
-))]
-core::arch::global_asm!(include_str!("reduce.S"), options(raw));
-
-#[cfg(all(
-    feature = "verify-asm-scalar",
-    target_os = "linux",
-    target_arch = "x86_64",
-    target_pointer_width = "64"
-))]
-core::arch::global_asm!(
-    include_str!(concat!(env!("OUT_DIR"), "/scalar-checked.S")),
-    options(raw)
-);
-
-#[cfg(all(
-    feature = "asm",
-    target_os = "linux",
-    target_arch = "x86_64",
-    target_pointer_width = "64"
-))]
-unsafe extern "C" {
-    /// Read 512 bytes of word-major input and write 320 bytes of canonical
-    /// radix-2^52 output. Buffers are disjoint; neither needs vector alignment.
-    /// See reduce.S for the full ABI and verification/crate/scalar for its Coq proof.
-    fn ed25519_simd_scalar_reduce_ifma(out: *mut u8, words: *const u8);
-}
 
 /// Eight scalars packed limbwise for parallel AVX-512 modular arithmetic.
 ///
@@ -67,6 +25,7 @@ const _: () = {
 };
 
 impl WideScalar52 {
+    #[cfg(test)]
     /// Reduces all 512 input bits to canonical radix-2^52 residues modulo L.
     fn from_wide_words(words: &[[u64; LANES]; WIDE_WORDS]) -> Self {
         #[cfg(all(
@@ -80,7 +39,10 @@ impl WideScalar52 {
             // The buffers are disjoint, and the assembly initializes all five
             // output vectors. Input words may be only eight-byte aligned.
             unsafe {
-                ed25519_simd_scalar_reduce_ifma(out.as_mut_ptr().cast(), words.as_ptr().cast());
+                super::asm::ed25519_simd_scalar_reduce_ifma(
+                    out.as_mut_ptr().cast(),
+                    words.as_ptr().cast(),
+                );
                 out.assume_init()
             }
         }
@@ -177,15 +139,6 @@ impl WideScalar52 {
     }
 }
 
-#[cfg(any(
-    test,
-    not(all(
-        feature = "asm",
-        target_os = "linux",
-        target_arch = "x86_64",
-        target_pointer_width = "64"
-    ))
-))]
 // Loads the eight `u64` lanes into a 512-bit SIMD vector without requiring alignment.
 #[inline(always)]
 fn loadu(values: [u64; LANES]) -> std::arch::x86_64::__m512i {

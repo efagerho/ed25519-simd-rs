@@ -1,7 +1,7 @@
 // Native ABI probe: seed every SysV callee-saved GPR, call the real symbol,
 // check the registers and caller stack, then restore the Rust caller's state.
 // RDX is an additional 0/16/32/48-byte stack offset, to exercise every
-// possible SysV stack alignment modulo a 64-byte vector.
+// possible SysV stack alignment modulo a 64-byte vector. RCX is the callee.
 .text
 .globl ed25519_simd_test_scalar_abi
 .hidden ed25519_simd_test_scalar_abi
@@ -25,7 +25,7 @@ ed25519_simd_test_scalar_abi:
     lea r13, [rax + 3]
     lea r14, [rax + 4]
     lea r15, [rax + 5]
-    call ed25519_simd_scalar_reduce_ifma
+    call rcx
     mov rdx, 0x123456789abcdef0
     mov eax, 1
     cmp rbp, rdx

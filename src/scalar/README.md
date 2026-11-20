@@ -1,18 +1,28 @@
-# Scalar reduction assembly
+# Scalar reduction and signed radix-16 assembly
 
-On x86-64 Linux, `asm` enables all assembly backends, including `reduce.S`
-for eight-lane 512-bit challenge reduction. The Rust reducer remains the default
-and the test reference. Radix-16 recoding stays in Rust.
+On x86-64 Linux, `asm` routes eight 512-bit challenge digests through
+`ed25519_simd_digest_to_radix16`. It calls the scalar reducer and returns
+eight arrays of 64 signed radix-16 digits. The Rust implementation serves
+as the default and the test reference. [Assembly entry point](radix16.S)
+
 The [Coq certificate](../../verification/crate/scalar/README.md)
 proves canonical reduction, ABI preservation, and concrete byte-memory safety
-for the linked assembly. `verify-asm-scalar` checks that proof during the build
-and embeds the certified bytes for this routine. It also enables `asm`.
+for `ed25519_simd_scalar_reduce_ifma`. `verify-asm-scalar` enables `asm`,
+checks that proof during the build, and embeds the certified reducer bytes.
+The digit conversion and lane placement currently have differential and ABI tests.
 
-The assembly takes disjoint input/output buffers of 512/320 bytes, without
+The reducer takes disjoint input/output buffers of 512/320 bytes, without
 vector alignment requirements. Each input row contains one 64-bit word from
 each lane; each output row contains one radix-2^52 limb. The output is the
 canonical residue modulo L, with all five limbs below 2^52. The routine has
 no calls, stack scratch, opmask operations, or data-dependent control flow.
+
+The digest entry point takes disjoint, possibly unaligned 512-byte buffers.
+It uses the first 320 output bytes for the reducer and loads all five limbs
+before overwriting them. Adding a repeated nibble 8 with carries biases the
+canonical residue. Subtracting 8 from each of the low 64 nibbles gives a
+digit in `-8..=7`. The final shuffle places digit `j` of lane `i` at byte
+`64*i+j`, with the least significant digit first.
 
 ## Arithmetic and optimization
 
@@ -45,6 +55,12 @@ using `2^252 = -(L-2^252) mod L` measured 29.17 ns/call. It used fewer IFMAs
 but lengthened the correction chain, so it was not retained. These isolated
 measurements do not establish a comparable whole-verifier speedup.
 
+The digit conversion packs biased limb pairs with addition. A carry bit
+above bit 51 contributes directly to its output word. This removes four
+limb masks and one carry propagation step. On the same EPYC 9555P core,
+nine alternating runs of five million eight-digest calls with `asm` enabled
+gave medians of 43.77 ns before the change and 41.56 ns after it.
+
 ## Validation and reproduction
 
 The tests compare exact limbs against the Rust reducer, canonical bytes
@@ -66,5 +82,14 @@ ED25519_SCALAR_PATH=rust taskset -c 4 cargo test --release \
   -- --exact --ignored --nocapture
 ```
 
-Set `ED25519_SCALAR_ITERS` to change the profiling duration. The ignored
-benchmark requires release mode and `asm`, including assembly pow2.
+Set `ED25519_SCALAR_ITERS` to change the profiling duration. Set
+`ED25519_SCALAR_PATH=digits` to time the complete digest-to-digits call.
+For instruction samples, use the release test executable Cargo prints
+when running `cargo test --release --features asm --lib --no-run`.
+
+```sh
+ED25519_SCALAR_PATH=digits ED25519_SCALAR_ITERS=20000000 \
+  perf record -e cycles:u -c 29989 -- taskset -c 4 "$test_executable" \
+  scalar::wide::tests::profile_scalar_reduce --exact --ignored --nocapture
+perf annotate --stdio -M intel ed25519_simd_digest_to_radix16
+```

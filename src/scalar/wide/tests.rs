@@ -77,7 +77,8 @@ fn full_width_reduction_matches_rust_and_independent_scalar() {
         );
         assert!(limbs.iter().flatten().all(|&limb| limb < 1 << 52));
         let bytes = actual.to_bytes_lanes();
-        let digits = actual.to_radix16();
+        let digits = crate::scalar::wide_words_to_radix16(&words);
+        assert_eq!(digits, wide_words_to_radix16(&words), "batch {batch}");
         for lane in 0..LANES {
             let input: [u8; 64] = core::array::from_fn(|i| words[i / 8][lane].to_le_bytes()[i % 8]);
             let expected = curve25519::scalar::Scalar::from_bytes_mod_order_wide(&input).to_bytes();
@@ -85,15 +86,36 @@ fn full_width_reduction_matches_rust_and_independent_scalar() {
             assert!(is_canonical(&bytes[lane]));
             assert_eq!(
                 digits[lane],
-                crate::scalar::CanonicalScalar::from_canonical_bytes(expected).to_radix16()
+                crate::scalar::CanonicalScalar::from_canonical_bytes(expected).to_radix16(),
+                "batch {batch}, lane {lane} recoding"
             );
         }
     }
 }
 
-/// Pin to one core and enable asm. ED25519_SCALAR_PATH=rust compares the
-/// reference; the default measures the selected backend. Set
-/// ED25519_SCALAR_ITERS for longer instruction-sampling runs.
+#[test]
+fn radix16_carries_across_limb_and_word_boundaries_in_each_lane() {
+    for start in 0..63 {
+        let mut words = [[0u64; LANES]; WIDE_WORDS];
+        let mut expected = [[0i8; 64]; LANES];
+        for (lane, digits) in expected.iter_mut().enumerate() {
+            let end = 63 - lane;
+            let first = (start + lane) % end;
+            // Nibble 8 starts a carry, each following 7 propagates it, and
+            // zero absorbs it. The top input nibble is zero, so H < L.
+            for digit in first..end {
+                let nibble = if digit == first { 8 } else { 7 };
+                words[digit / 16][lane] |= nibble << (4 * (digit % 16));
+            }
+            digits[first..end].fill(-8);
+            digits[end] = 1;
+        }
+        assert_eq!(crate::scalar::wide_words_to_radix16(&words), expected);
+    }
+}
+
+/// Pin to one core and enable asm. ED25519_SCALAR_PATH selects the reducer
+/// (selected or rust) or the complete digest-to-digits path (digits).
 #[test]
 #[ignore = "isolated eight-lane scalar reduction benchmark"]
 #[allow(clippy::assertions_on_constants)]
@@ -115,26 +137,27 @@ fn profile_scalar_reduce() {
     let path = std::env::var("ED25519_SCALAR_PATH").unwrap_or("selected".into());
     let mut rng = StdRng::seed_from_u64(0x5ca1_a252);
     let words = core::array::from_fn(|_| core::array::from_fn(|_| rng.next_u64()));
-    fn measure(
+    fn measure<T>(
         words: &[[u64; LANES]; WIDE_WORDS],
         iterations: usize,
-        reduce: impl Fn(&[[u64; LANES]; WIDE_WORDS]) -> WideScalar52,
+        run: impl Fn(&[[u64; LANES]; WIDE_WORDS]) -> T,
     ) -> f64 {
         for _ in 0..10_000 {
-            black_box(reduce(black_box(words)));
+            black_box(run(black_box(words)));
         }
         let start = Instant::now();
         for _ in 0..iterations {
-            black_box(reduce(black_box(words)));
+            black_box(run(black_box(words)));
         }
         start.elapsed().as_secs_f64() * 1e9 / iterations as f64
     }
     let ns = match path.as_str() {
         "rust" => measure(&words, iterations, WideScalar52::from_wide_words_rust),
         "selected" => measure(&words, iterations, WideScalar52::from_wide_words),
+        "digits" => measure(&words, iterations, crate::scalar::wide_words_to_radix16),
         _ => panic!("unknown scalar path: {path}"),
     };
-    eprintln!("{ns:.2} ns/scalar-reduce ({path}, eight lanes, {iterations} calls, asm enabled)");
+    eprintln!("{ns:.2} ns/call ({path}, eight lanes, {iterations} calls, asm enabled)");
 }
 
 #[test]
@@ -149,7 +172,7 @@ fn eight_lane_reduction_and_radix16_match_vectors() {
     });
     let wide = WideScalar52::from_wide_words(&words);
     let reduced = wide.to_bytes_lanes();
-    let digits = wide_words_to_radix16(&words);
+    let digits = crate::scalar::wide_words_to_radix16(&words);
 
     for lane in 0..LANES {
         let mut expected_reduced = [0u8; 32];
