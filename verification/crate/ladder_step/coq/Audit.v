@@ -32,7 +32,7 @@ Definition wrapper_size := Z.of_nat (length symbol_bytes).
 (* The aligned scratch origin and padding describe the space below the
    caller's RSP. All callee frames occupy the same reusable interval. *)
 Record placement_ok slide scratch pad point cache : Prop := {
- padding_ok : Double4ABI.permitted_padding pad;
+ padding_ok : PointFrame.permitted_padding pad;
  scratch_aligned : scratch mod 64=0;
  point_aligned : point mod 64=0;
  cache_aligned : cache mod 64=0;
@@ -68,13 +68,30 @@ Definition separate_images :=
  disjoint wrapper_pc wrapper_size double4_pc dsize /\ disjoint wrapper_pc wrapper_size cached_pc asize /\
  disjoint double4_pc dsize cached_pc asize.
 
-(* The byte equalities and separation of the linked symbols are conclusions.
-   A placement supplies only the runtime addresses, alignment and separation. *)
-Definition ladder_contract :=
-  assemble wrapper_pc program = Some symbol_bytes /\
-  Blocks.image Ed25519Simd.Double4.Program.double4_program = Ed25519Simd.Double4.Object.object_bytes /\
-  Blocks.image Ed25519Simd.CachedAdd.Program.add_cached_program = Ed25519Simd.CachedAdd.Object.object_bytes /\
-  separate_images /\
+Record ladder_result (execute : Z -> cpu -> Prop) caller scratch pad point cache full entry out : Prop := {
+ returned : execute caller out;
+ unique_return : forall ip other, execute ip other -> ip = caller /\ other = out;
+ restored_stack : regs out RSP = regs entry RSP + 8;
+ saved_registers : forall r, In r sysv_saved -> regs out r = regs entry r;
+ byte_frame : preserved (fun x => ~ writable scratch pad point x) (mem entry) (mem out);
+ reduced_output : strict (buffer_words (mem out) point);
+ coordinate_result : has_value (buffer_words (mem out) point) (result_value full (mem entry) point cache);
+ omitted_t_zero : full = false -> forall i j, (i < 5)%nat -> (j < 8)%nat ->
+   Wide51.cell (buffer_words (mem out) point) (15+i)%nat j = 0;
+ edwards_sum : group_result full (mem entry) (mem out) point cache
+}.
+
+Arguments returned {execute caller scratch pad point cache full entry out} _.
+
+(* The caller supplies runtime placement. All three byte bindings are conclusions. *)
+Record ladder_contract : Prop := {
+ wrapper_matches : assemble wrapper_pc program = Some symbol_bytes;
+ double_matches : Blocks.image Ed25519Simd.Double4.Program.double4_program =
+                  Ed25519Simd.Double4.Object.object_bytes;
+ cached_matches : Blocks.image Ed25519Simd.CachedAdd.Program.add_cached_program =
+                  Ed25519Simd.CachedAdd.Object.object_bytes;
+ images_disjoint : separate_images;
+ run_ladder :
   forall slide scratch pad point cache full entry,
     placement_ok slide scratch pad point cache -> well_formed entry ->
     regs entry RSP = scratch + 1320 + pad ->
@@ -87,14 +104,5 @@ Definition ladder_contract :=
     let execute := runs (dispatch (slide + double4_pc) (slide + cached_pc) scratch pad)
                         slide wrapper_pc program entry in
     let caller := read_word (mem entry) (regs entry RSP) in
-    exists out,
-      execute caller out /\
-      (forall ip other, execute ip other -> ip = caller /\ other = out) /\
-      regs out RSP = regs entry RSP + 8 /\
-      (forall r, In r sysv_saved -> regs out r = regs entry r) /\
-      preserved (fun x => ~ writable scratch pad point x) (mem entry) (mem out) /\
-      strict (buffer_words (mem out) point) /\
-      has_value (buffer_words (mem out) point) (result_value full (mem entry) point cache) /\
-      (full = false -> forall i j, (i < 5)%nat -> (j < 8)%nat ->
-         Wide51.cell (buffer_words (mem out) point) (15+i)%nat j = 0) /\
-      group_result full (mem entry) (mem out) point cache.
+    exists out, ladder_result execute caller scratch pad point cache full entry out
+}.

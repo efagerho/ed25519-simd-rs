@@ -22,18 +22,18 @@ Local Definition entry pad full := CPU
   | 6%nat => cache | 7%nat => point | _ => 2^64-1 end)
  (fun _ _=>2^64-1) None (fun _=>0).
 
-Local Lemma placed pad : Double4ABI.permitted_padding pad -> placement_ok slide scratch pad point cache.
+Local Lemma placed pad : PointFrame.permitted_padding pad -> placement_ok slide scratch pad point cache.
 Proof.
  intros P;constructor;try exact P;try reflexivity.
  all: try (intros pc size [E|[E|[E|[]]]];inversion E;subst;clear E).
  all: destruct P as [<-|[<-|[<-|[<-|[]]]]];vm_compute;intuition discriminate.
 Qed.
 
-Example all_entry_modes_execute pad full : Double4ABI.permitted_padding pad ->
+Example all_entry_modes_execute pad full : PointFrame.permitted_padding pad ->
  exists ip out, runs (dispatch (slide+double4_pc)(slide+cached_pc) scratch pad)
                      slide wrapper_pc program (entry pad full) ip out.
 Proof.
- intro Pad;destruct assembled_ladder_step_correct as [_[_[_[_ Run]]]].
+ intro Pad;pose proof (run_ladder assembled_ladder_step_correct) as Run.
  assert (W:well_formed (entry pad full)).
  { assert(0<=pad<=48) by (destruct Pad as[<-|[<-|[<-|[<-|[]]]]];lia).
    split;[|split];try (intros;unfold word64,scratch;cbn [entry vectors];lia).
@@ -46,8 +46,8 @@ Proof.
  assert (K:forall a addr,cache_bounds a (buffer_words(mem(entry pad full))addr)).
  { intros a addr i j I J;change(0<=0<2^52);lia. }
  destruct(Run _ _ _ _ _ _ _ (placed pad Pad) W eq_refl eq_refl eq_refl eq_refl
-   B (K _ _) (K _ _) (K _ _)) as [out [R _]].
- eexists;exists out;exact R.
+   B (K _ _) (K _ _) (K _ _)) as [out Result].
+ eexists;exists out;exact (returned Result).
 Qed.
 
 (* RFC 8032 section 5.1, table 1. *)

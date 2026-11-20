@@ -4,3 +4,5 @@
 -Q ../machine Machine
 Wide51.v
 FieldSymbolic.v
+PointFrame.v
+FieldKernel.v

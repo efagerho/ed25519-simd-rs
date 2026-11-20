@@ -7,17 +7,12 @@ Definition cache_reads_bounded affine a := negb(Nat.eqb(fst a)cached) ||
 Lemma read_footprint_checked full affine : forallb(cache_reads_bounded affine)
  (flat_map(read_addresses add_cached_program)(expected_path full affine))=true.
 Proof. destruct full,affine;vm_compute;reflexivity. Qed.
-Definition cache_contract affine initial final :=
- (forall off,memory(snd final)(cached,off)=memory(snd initial)(cached,off)) /\
- exists fuel es,record_path fuel add_cached_program(abi_layout affine)(fst initial)=Some(fst final,es) /\
- forall a,In a(flat_map(read_addresses add_cached_program)(data_effects es)) ->fst a=cached ->
- 0<=snd a /\ snd a+64<=cache_length affine.
 Theorem cache_correct initial pad full affine final : valid_cached_add_entry initial pad full affine ->
- returns add_cached_program(abi_layout affine)initial final ->cache_contract affine initial final.
+ returns add_cached_program(abi_layout affine)initial final ->cache_contract add_cached_program affine initial final.
 Proof.
  intros Entry Returns;split.
  - intro off;apply(proj1(execution_memory_frame _ _ _ _ (proj1 Returns)(cached,off))).
-   unfold vector_ok,access,abi_layout,cached,point,scratch;cbn [fst snd Nat.eqb andb].
+   unfold vector_ok,access,abi_layout,point_layout,cached,point,scratch;cbn [fst snd Nat.eqb andb].
    destruct ((0<=?off/64)&&(off/64<?cache_length affine/64));cbn;apply andb_false_r.
  - destruct initial as[c d];destruct Entry as[Pad[[incoming[bp[BP Init]]]_]];cbn [fst]in Init;subst c.
    pose proof(frame_checked full affine incoming pad bp Pad BP)as Frame.

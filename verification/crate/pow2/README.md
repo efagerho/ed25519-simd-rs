@@ -84,7 +84,7 @@ the assumption-check output (`assumptions.txt`) and `coqchk.log`.
 tool versions and successful proof checks, and hashes each retained source
 and evidence file. If `--cases` is supplied, the directory also retains
 an exact copy as `conformance.jsonl`, with its export seed and case count
-recorded in the manifest. [Evidence writer](evidence.py)
+recorded in the manifest. [Evidence writer](../../evidence.py)
 
 The retained `_CoqProject` lists all sources needed to rebuild the proof
 without the repository or assembler. In `pow2-audit`, run:

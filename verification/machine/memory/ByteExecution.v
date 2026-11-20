@@ -94,3 +94,19 @@ Proof.
  intros Reads M;unfold buffer_words;rewrite <-vector_word_address.
  apply Reads;[exact M|apply Nat.mod_upper_bound;lia].
 Qed.
+
+(* At every trace prefix the logical memory agrees with the replayed bytes,
+   and the caller's return word is intact. Every pop reads its own target. *)
+Definition byte_frame p loc tracked writable sp es (initial final : state) :=
+ (forall x, writes_at loc es x -> writable x) /\
+ forall before, agrees loc tracked (snd initial) (return_memory (fst initial)) before ->
+ let after := replay p loc es (snd initial) before in
+ agrees loc tracked (snd final) (return_memory (fst final)) after /\
+ (forall x, ~writable x -> after x = before x) /\
+ (forall pre tail, es = pre ++ tail ->
+   let flat := replay p loc pre (snd initial) before in
+   agrees loc tracked (effects p (data_effects pre) (snd initial))
+     (fold_left update_slots pre (return_memory (fst initial))) flat /\
+   forall k, 0 <= k < 8 -> flat (sp+k) = before (sp+k)) /\
+ (forall pre a t tail k, es = pre ++ Pop a t :: tail -> 0 <= k < 8 ->
+   replay p loc pre (snd initial) before (address_of loc a+k) = word_byte (pc_word loc t) k).

@@ -45,24 +45,22 @@ Proof. intro E; pose proof (entry_return_word _ _ _ _ _ E) as H; discriminate. Q
 
 (* The public initialization guarantee must remain available even when the
    arithmetic specification's 52-bit input precondition is false. *)
-Definition maximal_word_entry : state :=
- (initial_control (Control Caller (fun _ => Int 0) None (fun _ => None)),
-  Data (fun _ _ => 2^64-1) (fun _ _ => 2^64-1)).
-
 Example maximal_words_are_outside_the_field_input_bound :
  ~ (0 <= 2^64-1 < Radix51.split).
 Proof. unfold Radix51.split; vm_compute; intuition discriminate. Qed.
 
-Example public_initialization_without_field_input_bound symbol_bytes :
+Example concrete_return_and_initialization symbol_bytes loc regs vectors flag before :
  Audit.pow2_contract symbol_bytes ->
- exists final, returns Program.pow2_program abi_layout maximal_word_entry final /\
-   output_initialized Program.pow2_program maximal_word_entry final.
+ concrete_entry loc (Z.of_nat (length symbol_bytes)) regs vectors before ->
+ let initial := entry_from_bytes loc regs vectors flag before in
+ exists final, returns Program.pow2_program abi_layout initial final /\
+   output_initialized Program.pow2_program initial final.
 Proof.
- intros [_ [_ [_ [_ [Run _]]]]].
- assert (Entry : valid_pow2_entry maximal_word_entry (fun _ => 2^64-1) (fun _ => 2^64-1)).
- { split; [eexists; reflexivity|]. split; intros; reflexivity. }
- destruct (Run _ _ _ Entry) as [final [R [_ [_ [_ [Init _]]]]]].
- exists final; auto.
+ intros Cert Entry initial.
+ pose proof (Audit.run_concrete Cert loc regs vectors flag before Entry) as Run.
+ destruct Run as [final [after Result]]. exists final; split.
+ - exact (SysV.did_return Result).
+ - exact (SysV.allowed_access Result).
 Qed.
 
 (* Permitting output stores is insufficient: omitting the tenth store leaves

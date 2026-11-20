@@ -103,13 +103,12 @@ Qed.
 Definition concrete_pow2_contract p size :=
  forall loc regs vectors flag before, concrete_entry loc size regs vectors before ->
  let initial := entry_from_bytes loc regs vectors flag before in
- exists final after,
-   returns p abi_layout initial final /\ stack_restored initial final /\
-   registers_preserved initial final /\ output_initialized p initial final /\
-   byte_result p loc initial final before after /\
-   pow2_spec (buffer_words before (origin loc input_a))
+ exists final after, SysV.call_result p abi_layout initial final
+   (output_initialized p initial final)
+   (byte_result p loc initial final before after)
+   (pow2_spec (buffer_words before (origin loc input_a))
              (buffer_words before (origin loc input_b))
-             (buffer_words after (origin loc output)).
+             (buffer_words after (origin loc output))).
 
 Theorem concrete_contract_from_logical p size :
  (forall initial a b, valid_pow2_entry initial a b -> exists final,
@@ -124,8 +123,7 @@ Proof.
  destruct (Logical _ _ _ E) as [final [R [SP [Regs [Mem [Init Spec]]]]]].
  destruct (memory_safe_bytes _ _ _ _ _ _ (entry_placement _ _ _ _ _ Entry)
              W (entry_bytes _ _ _ _ _ Entry) A R Mem) as [after Result].
- exists final,after. split; [exact R|]. split; [exact SP|]. split; [exact Regs|].
- split; [exact Init|]. split; [exact Result|].
+ exists final,after; constructor; [exact R|exact SP|exact Regs|exact Init|exact Result|].
  assert (Out : forall k, (k<80)%nat -> buffer_words after (origin loc output) k = output_words initial final k).
  { apply output_bytes. exact (proj1 (proj2 (proj2 Result))). }
  intros Bound side j J. destruct (Spec Bound side j J) as [Bounds Value].

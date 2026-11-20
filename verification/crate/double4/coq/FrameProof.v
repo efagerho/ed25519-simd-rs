@@ -3,11 +3,9 @@ From Machine Require Import execution.Blocks memory.MemoryTrace memory.FlatMemor
 From Ed25519Simd.Double4 Require Import Program Double4ABI Double4Memory Round Logical.
 From Machine Require Import memory.MemoryCoverage memory.ByteExecution.
 Import ListNotations. Open Scope Z_scope.
-Lemma padding_range pad : permitted_padding pad -> 0<=pad<=48.
-Proof. intros[<- | [<- | [<- | [<- | []]]]];lia. Qed.
 Lemma mapped_vector pad a : mapped pad(VectorCell a) -> vector_in scratch 1280 a \/ vector_in point 1280 a.
 Proof.
- destruct a as[r n];unfold mapped,vector_ok,access,abi_layout,vector_in;cbn [fst snd].
+ destruct a as[r n];unfold mapped,vector_ok,access,abi_layout,point_layout,vector_in;cbn [fst snd].
  rewrite andb_true_iff;intros[A P];apply Z.eqb_eq in A.
  pose proof(Z.div_mod n 64 ltac:(lia)).
  destruct(Nat.eqb r scratch)eqn:S.
@@ -37,40 +35,6 @@ Proof.
  - cbn [mapped private_slots] in S;cbn [private_slots] in W.
    destruct W as[<- | [<- | [<- | []]]];destruct S as[[<- | [<- | [<- | []]]]| ->];
    first[left;reflexivity|right;unfold cell_address,address_of,saved_slot,caller_slot,disjoint;cbn [fst snd width];lia].
-Qed.
-Lemma permitted_bytes loc pad es x : permitted_padding pad -> writes_only(allowed_write pad)es ->
- writes_at loc es x -> writable_byte loc pad x.
-Proof.
- intros Pad W[e[s[I[E K]]]];pose proof(padding_range _ Pad)as PB.
- apply Forall_forall with(x:=e)in W;[|exact I];rewrite E in W;destruct s as[[r d]|a].
- - destruct W as[A|A];unfold vector_in in A;cbn [fst snd] in A;destruct A as[-> [L[U _]]];
-   unfold inside,cell_address,address_of in K;cbn [width fst snd] in K;unfold writable_byte,entry_rsp;lia.
- - cbn [allowed_write private_slots] in W;destruct W as[<- | [<- | [<- | []]]];
-   unfold inside,cell_address,address_of,saved_slot in K;cbn [width fst snd] in K;unfold writable_byte,entry_rsp;lia.
-Qed.
-Definition write_ok pad e := match destination e with
- | Some(VectorCell a)=>cell_inb point 1280 a || cell_inb scratch 1280 a
- | Some(ReturnSlot a)=>existsb(ptr_eq a)(private_slots pad) | None=>true end.
-Lemma write_ok_sound pad es : forallb(write_ok pad)es=true -> writes_only(allowed_write pad)es.
-Proof.
- rewrite forallb_forall;unfold writes_only;rewrite Forall_forall;intros H e I;specialize(H e I).
- unfold write_ok in H;destruct(destination e)as[[a|a]|];cbn [allowed_write];[| |exact Logic.I].
- - rewrite orb_true_iff,!cell_inb_spec in H;exact H.
- - apply existsb_exists in H as[b[B E]];apply ptr_eq_true in E;now subst.
-Qed.
-Lemma caller_byte_protected loc size pad k : valid_placement loc size pad ->0<=k<8 ->
- ~writable_byte loc pad(entry_rsp loc pad+k).
-Proof. intros[Pad[_[_[_[_[_[_[_[OS _]]]]]]]]]K;pose proof(padding_range _ Pad);unfold disjoint in OS;unfold writable_byte,entry_rsp in *;lia. Qed.
-Lemma stack_limit loc pad x : permitted_padding pad -> origin loc scratch-16<=x<entry_rsp loc pad ->
- entry_rsp loc pad-1352<=x<entry_rsp loc pad.
-Proof. intros P R;pose proof(padding_range _ P);unfold entry_rsp in *;lia. Qed.
-Lemma placement_alignment loc size pad : valid_placement loc size pad ->
- Z.land(entry_rsp loc pad-8)(-64)-1280=origin loc scratch.
-Proof.
- intros[Pad[_[_[_[Aligned _]]]]].
- unfold entry_rsp;replace(origin loc scratch+1288+pad-8)with(origin loc scratch+(1280+pad))by ring.
- rewrite aligned_region_and by exact Aligned.
- destruct Pad as[<- | [<- | [<- | [<- | []]]]];change(origin loc scratch+1280-1280=origin loc scratch);ring.
 Qed.
 Definition observe_frame pad(result:control*list event) := let '(c,es):=result in
  (map(Blocks.gpr c)saved_registers,forallb(write_ok pad)es && check_stack[(caller_slot pad,Caller)]es).

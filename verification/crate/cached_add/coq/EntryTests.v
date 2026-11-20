@@ -19,7 +19,7 @@ Example concrete_entries_exist full affine size pad : 0<=size<=8192 ->permitted_
  (fun _ _=>2^64-1)test_bytes.
 Proof.
  intros Size Pad;pose proof(padding_range _ Pad)as Range;constructor.
- - unfold valid_placement;split;[exact Pad|];unfold fits64,disjoint.
+ - unfold valid_placement, point_placement;unfold fits64,disjoint.
    destruct affine;cbv beta iota zeta delta[cache_length origin code_base caller_pc test_placement scratch point cached Nat.eqb];intuition lia.
  - intro;unfold test_bytes;lia.
  - intro r;do 8(destruct r as[|r];[unfold word64;cbn [test_regs];
@@ -39,17 +39,17 @@ Proof. unfold input_bounds,cache_bounds;split;intros;change(0<=0<split);unfold s
 Example wrong_return_rejected full affine :
  ~concrete_entry full affine test_placement 8192 0(test_regs 0 full affine)(fun _ _=>0)(fun _=>1).
 Proof. intro E;pose proof(entry_return_word _ _ _ _ _ _ _ _ E)as H;discriminate. Qed.
-Definition maximal_entry full affine : state :=
- (initial_control(Control Caller(fun _=>Int 0)None(fun _=>None))48(2^64-1)full affine,
- Data(fun _ _=>2^64-1)(fun _ _=>2^64-1)).
-Example initialization_without_field_bounds symbol_bytes full affine : Audit.cached_add_contract symbol_bytes ->
- exists final,returns Program.add_cached_program(abi_layout affine)(maximal_entry full affine)final /\
- output_initialized affine Program.add_cached_program(maximal_entry full affine)final.
+Example concrete_return_and_initialization symbol_bytes full affine loc pad regs vectors flag before :
+ Audit.cached_add_contract symbol_bytes ->
+ concrete_entry full affine loc (Z.of_nat (length symbol_bytes)) pad regs vectors before ->
+ let initial := entry_from_bytes full affine loc pad regs vectors flag before in
+ exists final, returns Program.add_cached_program (abi_layout affine) initial final /\
+   output_initialized affine Program.add_cached_program initial final.
 Proof.
- intros[_[_[_[_[Run _]]]]].
- assert(Entry:valid_cached_add_entry(maximal_entry full affine)48 full affine).
- { split;[unfold permitted_padding;cbn;auto|];split.
-   - eexists;exists(2^64-1);split;[unfold word64;lia|reflexivity].
-   - split;intros;change(0<=2^64-1<2^64);lia. }
- destruct(Run full affine _ _ Entry)as[final[R[_[_[_[Init _]]]]]];exists final;auto.
+ intros Cert Entry initial.
+ pose proof (Audit.run_concrete Cert full affine loc pad regs vectors flag before Entry) as Run.
+ destruct Run as [_ Run].
+ destruct Run as [final [after Result]]. exists final; split.
+ - exact (SysV.did_return Result).
+ - exact (proj1 (SysV.allowed_access Result)).
 Qed.

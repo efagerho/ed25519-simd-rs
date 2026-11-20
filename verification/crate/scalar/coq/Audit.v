@@ -1,28 +1,12 @@
-From Machine Require Import execution.LayoutProofs execution.ScalarRefinement.
 From Coq Require Import List ZArith.
 From Machine Require Import execution.Blocks.
-From Ed25519Simd.Scalar Require Import Program ScalarABI ScalarSpec ScalarMemory ScalarBytes.
+From Ed25519Simd.Scalar Require Import Program ScalarBytes.
 
-(* One complete public contract. The byte-memory clause constructs the
-   logical entry from actual pointer qwords, vector qwords and bytes. *)
-Definition scalar_contract (symbol_bytes : list Z) : Prop :=
-  (* The instruction model encodes exactly the linked function. *)
-  image scalar_program = symbol_bytes /\
-  valid_program scalar_program = true /\
-  program_layout scalar_program /\
-  (* Scalar operations refine qword semantics under explicit alignment and
-     stack-byte premises; this is not independent ISA refinement. *)
-  scalar_model_refinement scalar_program /\
-  (* Every unsigned 512-bit input is covered; there is no limb-bound premise. *)
-  (forall initial, valid_scalar_entry initial -> exists final,
-    returns scalar_program abi_layout initial final /\
-    stack_restored initial final /\
-    registers_preserved initial final /\
-    memory_safe scalar_program (Z.of_nat (length symbol_bytes)) initial final /\
-    output_initialized scalar_program initial final /\
-    scalar_spec
-      (words_at (memory (snd initial)) input)
-      (words_at (memory (snd final)) output)) /\
-  (* Actual byte reads agree at every prefix, all 320 output bytes are
-     written, and every byte outside output is preserved. *)
-  concrete_scalar_contract scalar_program (Z.of_nat (length symbol_bytes)).
+Record scalar_contract (symbol_bytes : list Z) : Prop := {
+ code_matches : image scalar_program = symbol_bytes;
+ code_valid : valid_program scalar_program = true;
+ run_concrete : concrete_scalar_contract scalar_program (Z.of_nat (length symbol_bytes))
+}.
+Arguments code_matches {symbol_bytes} _.
+Arguments code_valid {symbol_bytes} _.
+Arguments run_concrete {symbol_bytes} _.

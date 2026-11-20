@@ -3,7 +3,7 @@ From Machine Require Import execution.Blocks execution.LayoutProofs execution.Sc
 From Ed25519Simd.CachedAdd Require Import Program CachedAddABI CachedAddMemory CachedAddBytes CachedAddSpec.
 From Ed25519Simd.CachedAdd Require Audit Logical FrameProof ReadFootprint ObjectBytes Control.
 Definition object_bytes := ObjectBytes.symbol_bytes.
-Local Lemma logical_execution size full affine initial pad : valid_cached_add_entry initial pad full affine ->exists final,
+Lemma logical_execution size full affine initial pad : valid_cached_add_entry initial pad full affine ->exists final,
  returns add_cached_program(abi_layout affine)initial final /\stack_restored initial final /\
  registers_preserved initial final /\memory_safe affine add_cached_program size pad initial final /\
  output_initialized affine add_cached_program initial final /\
@@ -16,13 +16,11 @@ Proof.
 Qed.
 Theorem assembled_cached_add_correct : Audit.cached_add_contract object_bytes.
 Proof.
- split;[vm_compute;reflexivity|];split;[exact Control.block_layout_checked|];
- split;[apply valid_program_sound;exact Control.block_layout_checked|];
- split;[apply scalar_model_refinement_checked|];split.
- - intros full affine initial pad Entry.
-   destruct(logical_execution(Z.of_nat(length object_bytes)) full affine _ _ Entry)as[final[R[SP[Regs[Mem[Init Spec]]]]]].
-   exists final;split;[exact R|];split;[exact SP|];split;[exact Regs|];split;[exact Mem|];split;[exact Init|];split;
-   [eapply ReadFootprint.cache_correct;eassumption|exact Spec].
- - intros full affine;apply concrete_contract_from_logical,logical_execution.
+ constructor.
+ - vm_compute; reflexivity.
+ - exact Control.block_layout_checked.
+ - intros full affine; apply concrete_contract_from_logical.
+   + apply logical_execution.
+   + intros; eapply ReadFootprint.cache_correct; eassumption.
 Qed.
 Print Assumptions assembled_cached_add_correct.

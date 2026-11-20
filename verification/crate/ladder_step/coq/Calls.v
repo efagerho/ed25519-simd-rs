@@ -27,7 +27,7 @@ Definition protected x := ~(pt<=x<pt+1280 \/ scratch-16<=x<sp).
 Local Ltac geometry :=
  unfold fits64, disjoint,word64,sp in *;try lia.
 Lemma padding_bounds : 0<=pad<=48.
-Proof. destruct Place as [H _];cbn in H;unfold Ed25519Simd.Double4.Double4ABI.permitted_padding in H;
+Proof. destruct Place as [H _];cbn in H;unfold PointFrame.permitted_padding in H;
  destruct H as [<-|[<-|[<-|[<-|[]]]]];lia. Qed.
 
 (* All calls push into the same eight-byte slot. Convert the callee's
@@ -69,7 +69,7 @@ Proof.
  destruct k as [|f a d].
  - pose proof(Code _ _ (or_intror(or_introl eq_refl))) as [Fits [PD [_ SD]]].
    assert (P:Double4Memory.valid_placement(call_loc scratch (slide+double4_pc) ci)dsize pad).
-   { unfold Double4Memory.valid_placement,call_loc,layout_at;cbn [origin code_base caller_pc Double4ABI.scratch Double4ABI.point];rewrite PC.
+   { unfold Double4Memory.valid_placement,PointFrame.point_placement,call_loc,layout_at;cbn [origin code_base caller_pc PointFrame.scratch PointFrame.point];rewrite PC.
      change(regs ci 7%nat)with(regs s 7%nat);rewrite Pt;repeat apply conj;try assumption;geometry. }
    destruct(double_call _ (slide+cached_pc) _ _ _ Pushed RS End P)as[out [R [F Spec]]].
    exists out;split;[exact (eq_ind_r (fun ret=>dispatch _ _ _ _ _ ci ret out) R (eq_sym PC))|].
@@ -79,7 +79,7 @@ Proof.
  - destruct Args as [Cache [Full [Affine [Off [Len Al]]]]].
    pose proof(Code _ _ (or_intror(or_intror(or_introl eq_refl)))) as [Fits [PD [CD SD]]].
    assert (P:CachedAddMemory.valid_placement a (call_loc scratch (slide+cached_pc) ci)asize pad).
-   { unfold CachedAddMemory.valid_placement,call_loc,layout_at;cbn [origin caller_pc code_base CachedAddABI.scratch CachedAddABI.point CachedAddABI.cached];rewrite PC.
+   { unfold CachedAddMemory.valid_placement,PointFrame.point_placement,call_loc,layout_at;cbn [origin caller_pc code_base PointFrame.scratch PointFrame.point CachedAddABI.cached];rewrite PC.
      change(regs ci 7%nat)with(regs s 7%nat);change(regs ci 6%nat)with(regs s 6%nat);rewrite Pt,Cache.
      rewrite Z.add_mod,CA,Al by lia;repeat apply conj;try assumption;geometry;reflexivity. }
    destruct(add_call (slide+double4_pc) _ _ _ _ f a Pushed RS End Full Affine P)as[out [R [F Spec]]].

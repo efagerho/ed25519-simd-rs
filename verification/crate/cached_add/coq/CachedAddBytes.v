@@ -36,7 +36,7 @@ Theorem concrete_entry_representable loc size pad regs vectors flag before :
 Proof.
  intros[Place Bytes Regs Vec SP Point Cached Full Affine Ret]initial.
  assert(Entry:valid_cached_add_entry initial pad full affine).
- { split;[exact(proj1 Place)|];split;[eexists;exists(regs 5%nat);split;[apply Regs|reflexivity]|now apply data_from_bytes_words]. }
+ { split;[exact(proj1 (proj1 Place))|];split;[eexists;exists(regs 5%nat);split;[apply Regs|reflexivity]|now apply data_from_bytes_words]. }
  assert(Words:state_words initial).
  { split.
    - intro r;unfold initial,entry_from_bytes,initial_control;cbn [fst Blocks.gpr].
@@ -48,7 +48,7 @@ Proof.
    change((if ptr_eq a(caller_slot pad)then Some Caller else None)=Some t)in S.
    destruct(ptr_eq a(caller_slot pad))eqn:E;[|discriminate];apply ptr_eq_true in E;subst a;inversion S;subst t.
    split.
-   + destruct Place as(_&_&_&_&_&_&Bound&_);exact Bound.
+   + destruct Place as [(_&_&_&_&_&_&Bound&_) _];exact Bound.
    + change(read_word before(origin loc scratch+(1288+pad))=caller_pc loc).
      replace(origin loc scratch+(1288+pad))with(entry_rsp loc pad)by(unfold entry_rsp;ring);exact Ret.
  - intro r;unfold initial,entry_from_bytes,initial_control;cbn [fst Blocks.gpr].
@@ -79,7 +79,7 @@ Lemma output_bytes loc pad d after : vector_reads loc pad d after ->forall k,(k<
  buffer_words after(origin loc point)k=words_at(memory d)point k.
 Proof.
  intros Reads k K;unfold words_at;eapply read_buffer_vector;[exact Reads|].
- unfold mapped,vector_ok,access,vector_address,abi_layout,point,scratch;cbn [fst snd].
+ unfold mapped,vector_ok,access,vector_address,abi_layout,point_layout,point,scratch;cbn [fst snd].
    replace(64*Z.of_nat(k/8))with(Z.of_nat(k/8)*64)by ring.
    rewrite Z.mod_mul,Z.div_mul by lia;cbn [Z.eqb Nat.eqb andb].
    assert(C:((0<=?Z.of_nat(k/8))&&(Z.of_nat(k/8)<?20))=true).
@@ -91,26 +91,29 @@ Definition concrete_cached_add_contract p size :=
  forall loc pad regs vectors flag before,concrete_entry loc size pad regs vectors before ->
  let initial:=entry_from_bytes loc pad regs vectors flag before in
  Z.land(regs 4%nat-8)(-64)-1280=origin loc scratch /\
- exists final after,returns p (abi_layout affine) initial final /\stack_restored initial final /\
- registers_preserved initial final /\output_initialized affine p initial final /\
- byte_result p loc pad initial final before after /\
- cached_add_spec full affine(buffer_words before(origin loc point))(buffer_words before(origin loc cached))(buffer_words after(origin loc point)).
+ exists final after, SysV.call_result p (abi_layout affine) initial final
+   (output_initialized affine p initial final /\ cache_contract p affine initial final)
+   (byte_result p loc pad initial final before after)
+   (cached_add_spec full affine(buffer_words before(origin loc point))(buffer_words before(origin loc cached))(buffer_words after(origin loc point))).
+
 Theorem concrete_contract_from_logical p size :
  (forall initial pad,valid_cached_add_entry initial pad full affine ->exists final,
  returns p (abi_layout affine) initial final /\ stack_restored initial final /\
  registers_preserved initial final /\memory_safe affine p size pad initial final /\
  output_initialized affine p initial final /\
  cached_add_spec full affine(words_at(memory(snd initial))point)(words_at(memory(snd initial))cached)(words_at(memory(snd final))point)) ->
+ (forall initial pad final, valid_cached_add_entry initial pad full affine -> returns p (abi_layout affine) initial final ->
+   cache_contract p affine initial final) ->
  concrete_cached_add_contract p size.
 Proof.
- intros Logical loc pad regs vectors flag before Entry initial.
+ intros Logical Reads loc pad regs vectors flag before Entry initial.
  destruct(concrete_entry_representable _ _ _ _ _ flag _ Entry)as[E[W[A _]]].
  split.
- - rewrite(entry_stack_pointer _ _ _ _ _ _ Entry);apply(placement_alignment affine _ size);apply Entry.
+ - rewrite(entry_stack_pointer _ _ _ _ _ _ Entry);apply (placement_alignment _ size); exact (proj1 (entry_placement _ _ _ _ _ _ Entry)).
  - destruct(Logical _ _ E)as[final[R[SP[Regs[Mem[Init Spec]]]]]].
    destruct(memory_safe_bytes _ _ _ _ _ _ _(entry_placement _ _ _ _ _ _ Entry)
     W(entry_bytes _ _ _ _ _ _ Entry)A R Mem)as[after Result].
-   exists final,after;split;[exact R|];split;[exact SP|];split;[exact Regs|];split;[exact Init|];split;[exact Result|].
+   exists final,after; constructor; [exact R|exact SP|exact Regs|split; [exact Init|eapply Reads; eassumption]|exact Result|].
    eapply spec_ext;[| | |exact Spec].
    + intros k K;symmetry;apply decoded_buffer.
    + intros k K;symmetry;apply decoded_buffer.

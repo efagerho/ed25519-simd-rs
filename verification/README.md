@@ -50,12 +50,25 @@ the release audit instructions for [pow2](crate/pow2/README.md#check-the-release
 For the composed routine, run the [ladder-step audit](crate/ladder_step/README.md).
 
 `python3 -B verification/test_evidence.py` checks report replay, seed provenance
-and audit manifest integrity without requiring Coq, XED or AVX-512 hardware.
+and audit manifest integrity. With Coq on PATH it also checks that a weakened
+public theorem fails the expected-type check.
 
 ## Shared proof infrastructure
 
-The public contracts and `Object` theorems remain in their routine
-folders. Common execution proofs live in `machine/`: lane projection,
+Each standalone routine exposes one record in `Audit.v`. Its three fields bind
+the symbol bytes, check the program layout, and specify execution from a
+concrete ABI entry. The execution result names the return, stack, saved
+registers, access footprint, byte-memory guarantee, and arithmetic output.
+The ladder contract binds all three symbols and adds return uniqueness and
+the Edwards group result. The independent layout and scalar-refinement
+theorems are in `Machine.execution.LayoutProofs` and
+`Machine.execution.ScalarRefinement`.
+
+`Ed25519Simd.PointFrame` defines the point and private stack geometry shared
+by double4 and cached addition. `Ed25519Simd.FieldKernel` proves that a
+successful symbolic check implies the requested radix-51 bounds and congruence.
+Each routine specifies its own instruction blocks, input intervals and target
+formulas. Common execution proofs live in `machine/`: lane projection,
 aligned-cell separation, output-write coverage, trace frames, and lifting
 logical execution to concrete byte reads at every prefix. Each routine
 supplies its actual program, ABI layout, region permissions, and checked
