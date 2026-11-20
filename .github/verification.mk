@@ -1,0 +1,48 @@
+# Each audit uses the same release ELF and writes to its own directory.
+routines := pow2 double4 cached-add scalar
+linked_checks := $(addsuffix -conformance,$(routines))
+timed = /usr/bin/time -f '$@ elapsed %E'
+export XED_KIT := $(RUNNER_TEMP)/xed-kit
+
+.PHONY: verify certificates ladder-mutations ladder pow2-z3 xed-kit fixed-conformance \
+        $(routines) $(linked_checks) cached-add-mutations scalar-mutations
+
+verify: ladder-mutations certificates cached-add-mutations $(linked_checks) \
+        scalar-mutations fixed-conformance pow2-z3
+
+certificates:
+	$(timed) cargo build --locked --release \
+	  --features verify-asm-pow2,verify-asm-double4,verify-asm-cached-add,verify-asm-scalar \
+	  --lib --target x86_64-unknown-linux-gnu
+
+pow2-z3:
+	$(timed) /usr/bin/python3 -B verification/crate/pow2/check.py "$(RELEASE_ELF)"
+
+audit_driver := audit.py
+pow2: audit_driver := coq_proof.py
+$(routines):
+	$(timed) /usr/bin/python3 -B verification/crate/$(subst -,_,$@)/$(audit_driver) "$(RELEASE_ELF)" \
+	  --output "$(RUNNER_TEMP)/$@-audit" --cases "$(RUNNER_TEMP)/$@-cases.jsonl" --seed 42
+
+ladder:
+	$(timed) /usr/bin/python3 -B verification/crate/ladder_step/audit.py "$(RELEASE_ELF)" \
+	  --output "$(RUNNER_TEMP)/ladder-step-audit"
+
+ladder-mutations: ladder
+	$(timed) /usr/bin/python3 -B verification/crate/ladder_step/mutations.py "$(RELEASE_ELF)" \
+	  --audit "$(RUNNER_TEMP)/ladder-step-audit"
+
+cached-add-mutations scalar-mutations: %-mutations:
+	$(timed) python3 -B verification/crate/$(subst -,_,$*)/mutations.py \
+	  --output "$(RUNNER_TEMP)/$@" $(if $(filter all,$(MACHINE_BACKEND)),--native)
+
+xed-kit:
+	$(timed) verification/machine/tests/xed/build-kit.sh "$(XED_KIT)"
+
+fixed-conformance: xed-kit
+	$(timed) python3 -B verification/machine/tests/run.py --backend "$(MACHINE_BACKEND)" \
+	  --report "$(RUNNER_TEMP)/fixed-report.json" --failure "$(RUNNER_TEMP)/fixed-failure.json"
+
+$(linked_checks): %-conformance: % xed-kit
+	$(timed) python3 -B verification/machine/tests/run.py --backend "$(MACHINE_BACKEND)" --cases "$(RUNNER_TEMP)/$*-cases.jsonl" \
+	  --report "$(RUNNER_TEMP)/$*-report.json" --failure "$(RUNNER_TEMP)/$*-failure.json"
