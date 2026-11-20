@@ -87,9 +87,9 @@ Lemma output_bytes loc regs vectors flag before final after :
  output_words (entry_from_bytes loc regs vectors flag before) final k.
 Proof.
  intros Reads k K;change(buffer_words after(origin loc output)k=
- memory(snd final)(limb_address output 0(k/8))(k mod 8)%nat).
+ memory(snd final)(vector_address output 0(k/8))(k mod 8)%nat).
  eapply read_buffer_vector;[exact Reads|].
- unfold mapped,vector_ok,access,limb_address,abi_layout,output,stack; cbn [fst snd].
+ unfold mapped,vector_ok,access,vector_address,abi_layout,output,stack; cbn [fst snd].
    replace (64*Z.of_nat (k/8)) with (Z.of_nat (k/8)*64) by ring.
    rewrite Z.mod_mul,Z.div_mul by lia. cbn [Z.eqb andb].
    assert (C : ((0 <=? Z.of_nat (k/8)) && (Z.of_nat (k/8) <? 10))%bool = true).

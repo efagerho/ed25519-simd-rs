@@ -1,4 +1,5 @@
 From Coq Require Import List ZArith Bool.
+From Machine Require Export memory.VectorBuffer.
 From Machine Require Import execution.Blocks.
 Import ListNotations. Open Scope Z_scope.
 Definition scratch := 0%nat.
@@ -15,9 +16,6 @@ Definition initial_control incoming pad bp := Control (At 0)
  | 7%nat => Ptr (point,0) | _ => gpr incoming r end)
  (zf incoming) (fun a=>if ptr_eq a (scratch,1288+pad) then Some Caller else return_memory incoming a).
 Definition permitted_padding pad := In pad [0;16;32;48].
-Definition limb_address region i : pointer := (region,64*Z.of_nat i).
-Definition words_at (m:pointer -> vector) region k :=
- m (limb_address region (k/8)) (k mod 8)%nat.
 From Machine Require Import execution.WordBounds.
 Definition valid_double4_entry (initial:state) pad :=
  permitted_padding pad /\

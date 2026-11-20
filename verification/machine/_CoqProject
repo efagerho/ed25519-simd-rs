@@ -19,6 +19,7 @@ execution/ExecutionProperties.v
 memory/MemoryTrace.v
 memory/FlatMemory.v
 execution/WordBounds.v
+memory/VectorBuffer.v
 memory/ByteMemory.v
 memory/Alignment.v
 tests/Operands.v

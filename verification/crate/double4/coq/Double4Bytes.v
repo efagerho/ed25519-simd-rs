@@ -70,7 +70,7 @@ Lemma output_bytes loc pad d after : vector_reads loc pad d after ->forall k,(k<
  buffer_words after(origin loc point)k=words_at(memory d)point k.
 Proof.
  intros Reads k K;unfold words_at;eapply read_buffer_vector;[exact Reads|].
- unfold mapped,vector_ok,access,limb_address,abi_layout,point,scratch;cbn [fst snd].
+ unfold mapped,vector_ok,access,vector_address,abi_layout,point,scratch;cbn [fst snd].
    replace(64*Z.of_nat(k/8))with(Z.of_nat(k/8)*64)by ring.
    rewrite Z.mod_mul,Z.div_mul by lia;cbn [Z.eqb Nat.eqb andb].
    assert(C:((0<=?Z.of_nat(k/8))&&(Z.of_nat(k/8)<?20))=true).

@@ -7,9 +7,9 @@ From Ed25519Simd.Pow2 Require Export Pow2ABI.
 Import ListNotations.
 Open Scope Z_scope.
 
-Definition stores region base := map (fun i => Write i (limb_address region base i)) (seq 0 10).
+Definition stores region base := map (fun i => Write i (vector_address region base i)) (seq 0 10).
 Definition entry_effects := [Broadcast 28 19; Broadcast 29 (2^51-1)] ++
- map (fun i => Read i (limb_address (if Nat.ltb i 5 then input_a else input_b) 0 (i mod 5))) (seq 0 10).
+ map (fun i => Read i (vector_address (if Nat.ltb i 5 then input_a else input_b) 0 (i mod 5))) (seq 0 10).
 Definition action_effects op := match op with
  | Store slot => stores stack (640 * Z.of_nat slot)
  | Square => [Evaluate 0 []]
@@ -44,7 +44,7 @@ Definition matches (s:data) j (st:Pow2Caller.machine) :=
  (forall i, (i<10)%nat -> Blocks.zmm s j i = fst st i) /\
  Blocks.zmm s j 28%nat = 19 /\ Blocks.zmm s j 29%nat = 2^51-1 /\
  forall slot i, (i<10)%nat ->
- memory s (limb_address stack (640*Z.of_nat slot) i) j = snd st slot i.
+ memory s (vector_address stack (640*Z.of_nat slot) i) j = snd st slot i.
 
 Lemma fragment_agrees (sq:bool) s j x y bases :
  let code := if sq then square_code else multiply_code in
@@ -85,50 +85,50 @@ Proof. destruct a as [r n], b as [s m]. unfold ptr_eq; cbn.
 Qed.
 Definition recovered_index (a:pointer) base := Z.to_nat ((snd a-base)/64).
 Lemma recover_limb region base i :
- recovered_index (limb_address region base i) base = i.
-Proof. unfold recovered_index,limb_address; cbn [snd].
+ recovered_index (vector_address region base i) base = i.
+Proof. unfold recovered_index,vector_address; cbn [snd].
  replace (base+64*Z.of_nat i-base) with (Z.of_nat i*64) by ring.
  rewrite Z.div_mul by lia. apply Nat2Z.id. Qed.
 
 Lemma writes_registers p region base xs s :
- Blocks.zmm (effects p (map (fun i=>Write i (limb_address region base i)) xs) s) = Blocks.zmm s.
+ Blocks.zmm (effects p (map (fun i=>Write i (vector_address region base i)) xs) s) = Blocks.zmm s.
 Proof. revert s; induction xs as [|i xs IH]; intros s; [reflexivity|].
- transitivity (Blocks.zmm (apply_effect p s (Write i (limb_address region base i)))); [apply IH|reflexivity].
+ transitivity (Blocks.zmm (apply_effect p s (Write i (vector_address region base i)))); [apply IH|reflexivity].
 Qed.
 Lemma writes_memory p region base xs s k j :
- memory (effects p (map (fun i=>Write i (limb_address region base i)) xs) s) k j =
- if existsb (fun i=>ptr_eq k (limb_address region base i)) xs
+ memory (effects p (map (fun i=>Write i (vector_address region base i)) xs) s) k j =
+ if existsb (fun i=>ptr_eq k (vector_address region base i)) xs
  then Blocks.zmm s j (recovered_index k base) else memory s k j.
 Proof.
  revert s; induction xs as [|i xs IH]; intro s; [reflexivity|].
- change (memory (effects p (map (fun k=>Write k (limb_address region base k)) xs)
-   (apply_effect p s (Write i (limb_address region base i)))) k j =
-   if existsb (fun i=>ptr_eq k (limb_address region base i)) (i::xs)
+ change (memory (effects p (map (fun k=>Write k (vector_address region base k)) xs)
+   (apply_effect p s (Write i (vector_address region base i)))) k j =
+   if existsb (fun i=>ptr_eq k (vector_address region base i)) (i::xs)
    then Blocks.zmm s j (recovered_index k base) else memory s k j).
  cbn [existsb].
  rewrite IH. cbn [apply_effect memory Blocks.zmm].
- destruct (ptr_eq k (limb_address region base i)) eqn:E; cbn.
+ destruct (ptr_eq k (vector_address region base i)) eqn:E; cbn.
  - apply ptr_equal in E; subst k. rewrite recover_limb.
    destruct (existsb _ xs); reflexivity.
  - destruct (existsb _ xs); reflexivity.
 Qed.
 Lemma stored_limb p region base s i j : (i<10)%nat ->
- memory (effects p (stores region base) s) (limb_address region base i) j = Blocks.zmm s j i.
+ memory (effects p (stores region base) s) (vector_address region base i) j = Blocks.zmm s j i.
 Proof.
  intros I. unfold stores. rewrite writes_memory,recover_limb.
  destruct (existsb _ _) eqn:E; auto. exfalso.
- assert (existsb (fun k=>ptr_eq (limb_address region base i) (limb_address region base k))
+ assert (existsb (fun k=>ptr_eq (vector_address region base i) (vector_address region base k))
      (seq 0 10) = true).
  { apply existsb_exists; exists i; split; [apply in_seq;lia | apply ptr_equal;reflexivity]. }
  congruence.
 Qed.
 Lemma other_slot p s slot other i j : slot <> other -> (i<10)%nat ->
- memory (effects p (stores stack (640*Z.of_nat slot)) s) (limb_address stack (640*Z.of_nat other) i) j =
- memory s (limb_address stack (640*Z.of_nat other) i) j.
+ memory (effects p (stores stack (640*Z.of_nat slot)) s) (vector_address stack (640*Z.of_nat other) i) j =
+ memory s (vector_address stack (640*Z.of_nat other) i) j.
 Proof.
  intros N I; unfold stores; rewrite writes_memory.
  destruct (existsb _ _) eqn:E; auto. apply existsb_exists in E as [k [K E]].
- apply in_seq in K. apply ptr_equal in E. pose proof (f_equal (@snd nat Z) E) as D. unfold limb_address in D; cbn [snd] in D; lia.
+ apply in_seq in K. apply ptr_equal in E. pose proof (f_equal (@snd nat Z) E) as D. unfold vector_address in D; cbn [snd] in D; lia.
 Qed.
 
 Lemma square_step s j x slots : matches s j (x,slots) ->
@@ -161,7 +161,7 @@ Proof.
  assert (I:(i<10)%nat) by lia.
  change (memory s (stack,640*Z.of_nat slot+d) j = feed x (slots slot) (32+i)%nat).
  rewrite Disp at 1.
- change (memory s (limb_address stack (640*Z.of_nat slot) i) j = feed x (slots slot) (32+i)%nat).
+ change (memory s (vector_address stack (640*Z.of_nat slot) i) j = feed x (slots slot) (32+i)%nat).
  rewrite (S slot i I).
  unfold feed.
  assert (L:Nat.ltb (32+i) 10=false) by (apply Nat.ltb_ge;lia).
@@ -194,15 +194,7 @@ Proof.
  apply IH, action_step, H.
 Qed.
 
-Lemma read_words m region i j : (j<8)%nat ->
- words_at m region (i*8+j)%nat = m (limb_address region 0 i) j.
-Proof.
- intros J; unfold words_at.
- assert (D: ((i*8+j)/8=i)%nat) by (symmetry;apply Nat.div_unique with (r:=j);lia).
- assert (R: ((i*8+j) mod 8=j)%nat) by (symmetry;apply Nat.mod_unique with (q:=i);lia).
- now rewrite D,R.
-Qed.
-Definition scratch_of s j slot i := memory s (limb_address stack (640*Z.of_nat slot) i) j.
+Definition scratch_of s j slot i := memory s (vector_address stack (640*Z.of_nat slot) i) j.
 Lemma entry_matches s a b j : entry_buffers s a b -> (j<8)%nat ->
  matches (effects pow2_program entry_effects s) j
    (input_lane a b j,scratch_of s j).
@@ -210,14 +202,14 @@ Proof.
  intros [A B] J. split.
  - intros i I. change (Blocks.zmm (effects pow2_program entry_effects s) j i = input_lane a b j i).
    assert (Read: Blocks.zmm (effects pow2_program entry_effects s) j i =
-     memory s (limb_address (if Nat.ltb i 5 then input_a else input_b) 0 (i mod 5)) j).
+     memory s (vector_address (if Nat.ltb i 5 then input_a else input_b) 0 (i mod 5)) j).
    { do 10 (destruct i as [|i]; [reflexivity|]); lia. }
    rewrite Read. unfold input_lane. destruct (Nat.ltb i 5) eqn:E.
-   + apply Nat.ltb_lt in E. rewrite Nat.mod_small by lia. rewrite <- read_words by assumption.
+   + apply Nat.ltb_lt in E. rewrite Nat.mod_small by lia. rewrite <- words_at_lane by assumption.
      apply A;lia.
    + apply Nat.ltb_ge in E. assert (R:(i mod 5=i-5)%nat).
      { symmetry. apply Nat.mod_unique with (q:=1%nat);lia. }
-     rewrite R. rewrite <- read_words by assumption. apply B;lia.
+     rewrite R. rewrite <- words_at_lane by assumption. apply B;lia.
  - split; [reflexivity|split;reflexivity].
 Qed.
 
@@ -229,7 +221,7 @@ Lemma flush_output s k : (k<80)%nat ->
  Blocks.zmm s (k mod 8)%nat (k/8)%nat.
 Proof.
  intro K. rewrite effects_app.
- change (memory (effects pow2_program (stores output 0) s) (limb_address output 0 (k/8)) (k mod 8)%nat =
+ change (memory (effects pow2_program (stores output 0) s) (vector_address output 0 (k/8)) (k mod 8)%nat =
    Blocks.zmm s (k mod 8)%nat (k/8)%nat).
  apply stored_limb. pose proof (Nat.div_mod k 8 ltac:(lia));lia.
 Qed.

@@ -36,6 +36,7 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 | [MemoryTrace.v](memory/MemoryTrace.v) | Uses the common execution traversal to record vector effects and transfer events. Relates the trace to block execution and checks the order and addresses of live returns. |
 | [FlatMemory.v](memory/FlatMemory.v) | Replays vector stores and saved PCs in one little-endian byte memory. Proves agreement with tracked logical cells and preservation of every byte outside the write footprint. |
 | [WordBounds.v](execution/WordBounds.v) | Unsigned qword invariants for scalar integer values, vector registers and memory. Proves preservation by instructions, blocks, executions and recorded vector-effect prefixes. |
+| [VectorBuffer.v](memory/VectorBuffer.v) | Qword indexing of logical vector memory and its eight-lane projection. |
 | [ByteMemory.v](memory/ByteMemory.v) | Little-endian byte decoding, exact word/vector read-write round trips, and construction of bounded logical data from bytes. Turns serialization agreement into exact reads and proves replay preserves byte bounds. |
 | [Lane.v](execution/Lane.v) | Exact lane projection of vector effects and preservation of qword bounds, parameterized by the program. |
 | [MemoryGeometry.v](memory/MemoryGeometry.v) | Region-relative vector alignment, disjointness, and reflected region-membership checks. |

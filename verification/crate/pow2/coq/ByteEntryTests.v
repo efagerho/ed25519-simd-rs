@@ -68,7 +68,7 @@ Qed.
 (* Permitting output stores is insufficient: omitting the tenth store leaves
    the final byte unwritten, even though the first nine stores are present. *)
 Definition short_output_trace :=
- map (fun i => DataOp (Write i (limb_address output 0 i))) (seq 0 9).
+ map (fun i => DataOp (Write i (vector_address output 0 i))) (seq 0 9).
 
 Example missing_last_vector_leaves_output_uninitialized :
  ~ (forall loc k, 0 <= k < 640 -> writes_at loc short_output_trace (origin loc output+k)).
@@ -76,5 +76,5 @@ Proof.
  intro H. destruct (H (test_placement 0) 639 ltac:(lia)) as [e [s [Member [Dest Byte]]]].
  apply in_map_iff in Member as [i [<- I]]. apply in_seq in I.
  cbn [destination] in Dest. injection Dest as <-.
- unfold inside,cell_address,address_of,limb_address in Byte; cbn [fst snd width] in Byte. lia.
+ unfold inside,cell_address,address_of,vector_address in Byte; cbn [fst snd width] in Byte. lia.
 Qed.

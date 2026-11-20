@@ -20,13 +20,6 @@ Proof.
  rewrite Mod in Check.
  apply(includes_sound _ _ _ _ Check);apply(prefix_sound j full affine 67 s W B).
 Qed.
-Lemma read_words m region i j : (j<8)%nat ->cell(words_at m region)i j=m(limb_address region i)j.
-Proof.
- intro J;unfold cell,words_at.
- assert(D:((i*8+j)/8=i)%nat)by(symmetry;apply Nat.div_unique with(r:=j);lia).
- assert(R:((i*8+j)mod 8=j)%nat)by(symmetry;apply Nat.mod_unique with(q:=i);lia).
- now rewrite D,R.
-Qed.
 Lemma input_lane affine d j : (j<8)%nat ->
  CachedAddSpec.input_bounds affine(words_at(memory d)point)(words_at(memory d)cached) ->
  Bounds.input_bounds affine(view d j).
@@ -40,16 +33,16 @@ Proof.
  apply andb_true_iff in Point || apply andb_true_iff in Cache.
  - destruct Point as[R U];apply Nat.eqb_eq in R;subst r;apply Z.ltb_lt in U.
    specialize(P(Z.to_nat(off/64))j ltac:(assert(off/64<20)by(apply Z.div_lt_upper_bound;lia);cbn;lia)J).
-   rewrite read_words in P by exact J;rewrite D;exact P.
+   rewrite cell_words_at in P by exact J;rewrite D;exact P.
  - destruct Cache as[R U];apply Nat.eqb_eq in R;subst r;apply Z.ltb_lt in U.
    specialize(C(Z.to_nat(off/64))j ltac:(destruct affine;cbn [cache_length]in U;
     [assert(off/64<15)by(apply Z.div_lt_upper_bound;lia)|assert(off/64<20)by(apply Z.div_lt_upper_bound;lia)];lia)J).
-   rewrite read_words in C by exact J;rewrite D;exact C.
+   rewrite cell_words_at in C by exact J;rewrite D;exact C.
 Qed.
 Lemma input_values d j r c : (j<8)%nat ->
  word_coordinate(words_at(memory d)r)j c=lane_value(view d j)r c.
 Proof. intro J;unfold word_coordinate,field_at,limbs,lane_value,field,view;cbn [cells].
- repeat rewrite read_words by exact J;reflexivity. Qed.
+ repeat rewrite cell_words_at by exact J;reflexivity. Qed.
 Definition output_data full affine d := effects add_cached_program(expected_path full affine)d.
 Lemma output_view full affine d j : lane_models(output_data full affine d)j
  (prefix_state j full affine 67(view d j)).
@@ -57,7 +50,7 @@ Proof. rewrite complete_prefix;apply view_effects;split;reflexivity. Qed.
 Lemma output_limb full affine d j c i : (j<8)%nat ->
  cell(words_at(memory(output_data full affine d))point)(5*c+i)%nat j=
  M j full affine 67(view d j)point(5*c)i.
-Proof. intro J;rewrite read_words by exact J;apply(output_view full affine d j). Qed.
+Proof. intro J;rewrite cell_words_at by exact J;apply(output_view full affine d j). Qed.
 Lemma output_value full affine d j c : (j<8)%nat ->
  word_coordinate(words_at(memory(output_data full affine d))point)j c=
  limbs(M j full affine 67(view d j)point(5*c)).
