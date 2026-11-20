@@ -14,12 +14,12 @@ Object.assembled_cached_add_correct : Audit.cached_add_contract ObjectBytes.symb
 
 ## What to audit
 
-1. Compare the Rust staging arrays with `cache_values` and `concrete_entry`.
+1. Compare the staged operand layout with `cache_values` and `concrete_entry`.
    RDI points to the in-place accumulator, RSI to a separate read-only cache,
    RDX selects T, and RCX selects affine mode. Both flags must be zero or one.
    Check the field order `Y−X, Y+X, 2dT`, with `2Z` present only in the
-   projective cache. Rust selects and transposes the table entries before the
-   verified call. [Rust staging and caller](../../../src/wide/avx512ifma/point.rs) · [Cache decoding](../Wide51.v) · [Byte contract](coq/CachedAddBytes.v)
+   projective cache. The assembly ladder selects and transposes the table entries
+   before the verified call. [Table staging](../../../src/wide/avx512ifma/stage_round.S) · [Rust caller](../../../src/wide/avx512ifma/ladder_step_asm.rs) · [Cache decoding](../Wide51.v) · [Byte contract](coq/CachedAddBytes.v)
 2. Read `cached_add_spec` for all four flag combinations. The field result
    requires bounded point and cache limbs. The literal-zero T guarantee sits
    outside that implication. For the group interpretation, check that

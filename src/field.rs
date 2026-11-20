@@ -29,6 +29,7 @@ pub(crate) const SQRT_M1_LIMBS: [u64; LIMB_COUNT] = [
 ///
 /// Field multiplication can accumulate products limbwise, then
 /// fold an overflow of `2^255` back into the low limb as `19`.
+#[repr(transparent)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Fe51 {
     limbs: [u64; LIMB_COUNT],
