@@ -2,25 +2,36 @@
 
 The public theorem is `Ed25519Simd.LadderStep.Object.assembled_ladder_step_correct`. Read
 [`ladder_contract`](coq/Audit.v) for the statement and
-[`ladder_formula`](coq/Schedule.v) for the lane arithmetic. The theorem
+[`ladder_sum` and `ladder_represents`](../../curve25519/group/Representation.v)
+for its group-level meaning. The theorem
 binds the wrapper and both callees to the bytes of one linked x86-64 ELF.
 All three symbols may be relocated by the same load bias.
 
 Given a point, three staged cached operands, and their alignment and limb
-bounds, the wrapper executes this schedule in each of eight lanes.
+bounds, the wrapper executes this [coordinate schedule](../../curve25519/Edwards.v) in each of eight lanes.
 
 1. Double four times and add the odd projective operand, omitting T.
 2. Double four times and add the affine base operand, computing T.
 3. Add the even projective operand, computing T when requested.
 
-The result agrees coordinate by coordinate modulo 2²⁵⁵ − 19, satisfies
-the reduced limb bounds, and has literal zero T limbs when T is omitted.
+If a lane's inputs represent Edwards points `P`, `Odd`, `Base`, and `Even`,
+its output represents **`[256]P + [16]Odd + Base + Even`**. The input
+point needs only valid X, Y, Z. Each cache must encode its named point
+with one nonzero scale, equal to one for the affine base cache.
+The output has nonzero Z and the correct X/Z and Y/Z in both modes.
+Full mode also proves T/Z = (X/Z)(Y/Z). With T omitted, the assembly
+writes literal zero to all five T limbs.
+
+The proof uses the [affine Edwards addition law](../../curve25519/group/Affine.v)
+over the [concrete prime field](../../curve25519/group/PrimeField.v). It proves
+that both addition denominators are nonzero for all on-curve points, including
+torsion points. The coordinate congruences and reduced limb bounds also hold
+for bounded inputs with no curve interpretation.
 Every modeled run returns to the original return address with the same
 result. The SysV callee-saved registers are restored and every byte outside
 the point and the private stack is preserved, including the staged operands.
-The contract concerns the staged bytes. Curve-group interpretation, Rust
-digit selection, cache staging, and the outer ladder loop are separate
-verification targets.
+The contract starts at the staged bytes. Rust digit selection, cache staging,
+and the outer ladder loop remain separate verification targets.
 
 ## Check a release executable
 
@@ -38,11 +49,13 @@ two existing callee theorems in distinct Coq namespaces, compiles the
 ladder theorem, and runs `coqchk` on its dependency closure. The audit
 directory includes the generated sources, `LadderStep/LinkedBytes.v`, the two
 callee byte literals, `assumptions.txt`, and `coqchk.log`.
-The audit also instantiates the public theorem on concrete input memory for
-both T modes and all four supported stack alignments. The second command checks an unchanged control and three mutations in
-temporary directories. Two mutations change both the bytes and the modeled
-instructions so that the byte equality succeeds before the execution
-proof fails.
+The audit instantiates the public theorem on concrete input memory for
+both T modes and all four supported stack alignments. A separate base-point
+fixture checks the group interpretation in both modes. The second command checks
+an unchanged control and four mutations. One swaps the odd and base operands
+in the group claim while leaving the bytes and coordinate contract intact.
+Two others change both the bytes and the modeled instructions so that byte
+equality succeeds before the execution proof fails.
 
 ## Proof boundaries
 

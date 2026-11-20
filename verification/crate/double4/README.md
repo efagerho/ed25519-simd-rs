@@ -162,6 +162,10 @@ reads and alignment arithmetic. Tests do not replace an independent ISA
 refinement theorem; that theorem remains open.
 [`Machine model`](../../machine/README.md) · [`ISA obligation`](../../machine/proofs/README.md)
 
-This certificate proves the four coordinate formulas. It does not yet prove
-the group-theoretic statement `[16]P`, the surrounding Rust caller, constant
-time on physical hardware, or the complete Ed25519 verifier.
+The certificate proves the four coordinate formulas. Given valid X, Y, Z for
+an Edwards point P, the shared corollary `double_four_represents` proves
+that their output represents `[16]P` in extended coordinates. It accepts
+arbitrary incoming T. [Group interpretation](../../curve25519/group/Representation.v)
+
+The surrounding Rust caller, physical constant-time behavior, and the complete
+Ed25519 verifier remain separate verification targets.

@@ -127,9 +127,13 @@ bytes remain the trust boundary. Listing generation, interval checking and
 polynomial normalization produce claims rechecked by the kernel.
 [`Machine model`](../../machine/README.md) · [`ISA obligation`](../../machine/proofs/README.md)
 
-This certificate proves coordinate arithmetic in the model. It does not
-prove the group law, the Rust staging/dispatch code, physical constant-time
-behavior, or the complete Ed25519 verifier.
+The certificate proves coordinate arithmetic in the model. Given valid extended
+coordinates for P and a valid affine or projective cache for Q, the shared
+corollary `add_represents` proves that its output represents P + Q. The result
+covers XYZ in both modes and T when requested. [Group interpretation](../../curve25519/group/Representation.v)
+
+Rust staging and dispatch, physical constant-time behavior, and the complete
+Ed25519 verifier remain separate verification targets.
 
 ## Mutation checks
 

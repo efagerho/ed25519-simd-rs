@@ -13,6 +13,7 @@ HERE = Path(__file__).resolve().parent
 LIBRARIES = (("arithmetic", "ProofArithmetic"), ("machine", "Machine"),
              ("curve25519", "Curve25519"), ("crate", "Ed25519Simd"))
 SHARED_PROJECTS = ("arithmetic", "curve25519", "machine", "machine/symbolic", "crate")
+LADDER_PROJECTS = (*SHARED_PROJECTS, "curve25519/group")
 SHARED_ENV = "ED25519_SIMD_COQ_LIBRARIES"
 COMPONENTS = {"pow2": "Pow2", "double4": "Double4", "cached_add": "CachedAdd",
               "scalar": "Scalar", "ladder_step": "LadderStep"}
@@ -65,7 +66,7 @@ def prepare_shared_libraries(destination, jobs):
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=destination.parent) as tmp:
         work = Path(tmp) / "build"
-        inputs = stage_sources(HERE, work, SHARED_PROJECTS)
+        inputs = stage_sources(HERE, work, LADDER_PROJECTS)
         sources = [p for p in inputs if p.suffix == ".v"]
         write_project(work, library_flags(), [work / p for p in sources])
         subprocess.run(["coq_makefile", "-f", "_CoqProject", "-o", "Makefile"], cwd=work, check=True)

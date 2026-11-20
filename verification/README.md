@@ -10,7 +10,7 @@ to an x86 ISA specification remains open.
 
 - `machine/` defines the x86-64 instruction model and tests its encodings and execution against Intel XED and native hardware. [Machine model and tests](machine/README.md)
 - `arithmetic/` contains the shared integer-expression, polynomial, radix and interval proofs. [Shared arithmetic](arithmetic/README.md)
-- `curve25519/` defines field congruence, radix-51 limbs and bounds, Edwards point and cached-add formulas, and the scalar order. These definitions are independent of x86 and the crate's memory layout.
+- `curve25519/` defines field congruence, radix-51 limbs and bounds, Edwards coordinate formulas, and the scalar order. Its pure group proof connects doubling, cached addition and the ladder schedule to affine Edwards addition. [Group interpretation](curve25519/group/Representation.v)
 - `crate/` owns the eight-lane buffer representation and the component certificates in the Coq namespace `Ed25519Simd`. [Shared buffer layout](crate/Wide51.v)
 - `crate/pow2/` states the routine’s contract, proves it in the machine model, and explains how to check the proof against a linked executable. [Proof and audit instructions](crate/pow2/README.md)
 - `crate/double4/` proves the four doubling formulas, including loose inputs, biased subtraction, in-place writes and the aligned stack frame. [Proof and audit instructions](crate/double4/README.md)
@@ -40,6 +40,7 @@ Install the following tools on the host that checks the proof or audits a linked
 - LLVM MC (`llvm-mc`, or set `LLVM_MC` to its executable)
 - GNU binutils (`nm`, `objcopy`, `objdump`)
 - Coq with its standard library and the commands `coqdep`, `coqc`, and `coqchk`
+- Coqprime (`libcoq-coqprime` on Ubuntu) for the ladder group proof or the full shared-library build. The four standalone routine audits use the standard library.
 
 To verify the bytes in an already linked executable from either build, follow
 the release audit instructions for [pow2](crate/pow2/README.md#check-the-release-executable),

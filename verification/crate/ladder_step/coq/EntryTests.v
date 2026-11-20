@@ -1,4 +1,7 @@
 From Ed25519Simd Require Import Wide51.
+From Curve25519 Require Import Field Edwards.
+From Curve25519.group Require Import PrimeField Representation.
+From Curve25519.group Require Affine.
 From Coq Require Import List ZArith Lia.
 From Machine Require Import isa.Instructions memory.FlatMemory memory.ByteMemory execution.LinkedCalls memory.MemoryGeometry execution.WordBounds.
 From Ed25519Simd.Double4 Require Double4ABI Double4Spec.
@@ -45,4 +48,38 @@ Proof.
  destruct(Run _ _ _ _ _ _ _ (placed pad Pad) W eq_refl eq_refl eq_refl eq_refl
    B (K _ _) (K _ _) (K _ _)) as [out [R _]].
  eexists;exists out;exact R.
+Qed.
+
+(* RFC 8032 section 5.1, table 1. *)
+Local Definition base_x := 15112221349535400772501151409588531511454012693041857206046113283949847762202.
+Local Definition base_y := 46316835694926478169428394003475163141307993866256225615783033603165251855960.
+Local Definition curve_d := 37095705934669439343138083508754565189542113879843219016388785533085940283555.
+Local Definition B := Affine.Point (residue base_x) (residue base_y)
+  ltac:(apply GZnZ.zirr; vm_compute; reflexivity).
+Local Definition cache_fixture x y z zz := CachedCoordinates
+  (((y-x)*z) mod prime) (((y+x)*z) mod prime) ((2*curve_d*x*y*z) mod prime) zz.
+
+Local Ltac check_fixture :=
+ repeat apply conj; first [apply GZnZ.zirr; vm_compute; reflexivity | discriminate].
+
+(* The initial T is discarded. Odd is B with scale 3, Base is -B in
+   affine form, and Even is the identity with scale 5. *)
+Example base_point_ladder full :
+ represents_point full
+   (ladder_formula full (Coordinates base_x base_y 1 0)
+     (cache_fixture base_x base_y 3 (Some 6))
+     (cache_fixture (-base_x) base_y 1 None) (cache_fixture 0 1 5 (Some 10)))
+   (Affine.multiple 271 B).
+Proof.
+ assert (Sum : ladder_sum B B (Affine.negative B) Affine.identity = Affine.multiple 271 B).
+ { unfold ladder_sum. rewrite (Affine.plus_comm _ Affine.identity), Affine.plus_identity.
+   rewrite <-Affine.multiple_add.
+   change (Affine.plus (Affine.plus B (Affine.multiple 271 B)) (Affine.negative B) = Affine.multiple 271 B).
+   rewrite (Affine.plus_comm B (Affine.multiple 271 B)), Affine.plus_assoc, Affine.plus_negative.
+   now rewrite Affine.plus_comm, Affine.plus_identity. }
+ rewrite <-Sum. apply ladder_represents.
+ - unfold represents_xyz. check_fixture.
+ - exists (residue 3). check_fixture.
+ - exists (residue 1). check_fixture.
+ - exists (residue 5). check_fixture.
 Qed.

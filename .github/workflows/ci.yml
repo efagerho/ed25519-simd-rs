@@ -72,7 +72,7 @@ jobs:
       - name: Build shared Coq libraries
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y python3-z3 coq llvm
+          sudo apt-get install -y python3-z3 coq libcoq-coqprime llvm
           python3 -B verification/proof_build.py "$RUNNER_TEMP/shared-coq" --jobs 4
           echo "ED25519_SIMD_COQ_LIBRARIES=$RUNNER_TEMP/shared-coq" >> "$GITHUB_ENV"
 

@@ -1,4 +1,5 @@
 From Coq Require Import List ZArith Lia.
+From Curve25519.group Require Import Representation.
 From Machine Require Import memory.FlatMemory execution.LinkedCalls.
 From Ed25519Simd.LadderStep Require Import LinkedBytes Callees Schedule Audit Calls Execution.
 From Ed25519Simd.Double4 Require Object.
@@ -14,8 +15,14 @@ Proof.
  intros B Odd Base Even.
  destruct(execute _ _ _ _ _ _ _ Place W SP Pt Cache Mode B Odd Base Even)
    as [out [Run Post]].
- cbv zeta;exists out;rewrite SP;split;[exact Run|];split;[|exact Post].
- intros ip other Other;eapply runs_unique;[apply dispatch_unique|exact Other|exact Run].
- assert (double4_pc<>cached_pc) by (vm_compute;discriminate);lia.
+ destruct Post as [Stack [Saved [Frame [Bounds [Values T]]]]].
+ cbv zeta; exists out; rewrite SP; split; [exact Run|]; split.
+ - intros ip other Other; eapply runs_unique; [apply dispatch_unique|exact Other|exact Run].
+   assert (double4_pc<>cached_pc) by (vm_compute;discriminate);lia.
+ - split; [exact Stack|]; split; [exact Saved|]; split; [exact Frame|].
+   split; [exact Bounds|]; split; [exact Values|]; split; [exact T|].
+   intros j P O Bp E Lane Repr OddCache BaseCache EvenCache.
+   eapply represents_equivalent; [exact (Values j Lane)|].
+   now apply ladder_represents.
 Qed.
 Print Assumptions assembled_ladder_step_correct.
