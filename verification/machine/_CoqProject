@@ -34,8 +34,10 @@ execution/Lane.v
 memory/MemoryGeometry.v
 memory/MemoryCoverage.v
 memory/ByteExecution.v
+execution/WordSemantics.v
 execution/ScalarRefinement.v
 abi/SysV.v
 execution/KnownRegisters.v
 execution/LinkedCalls.v
 abi/CallFrame.v
+tests/CallerSteps.v

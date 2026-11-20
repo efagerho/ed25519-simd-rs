@@ -60,7 +60,9 @@ equality succeeds before the execution proof fails.
 ## Proof boundaries
 
 [`LinkedCalls.v`](../../machine/execution/LinkedCalls.v) gives the wrapper instructions
-their encoding and execution on word registers and flat byte memory. A
+their encoding and sequencing. The wrapper and leaf refinement execute overlapping
+register and stack instructions with the same [word and byte operations](../../machine/execution/WordSemantics.v).
+The caller agreement theorems cover the relocated PC, registers, flags and memory. A
 call pushes its actual continuation. [`Callees.v`](coq/Callees.v) admits
 a return only with an execution of the linked callee's block interpreter
 and a replay of its memory events. [`Calls.v`](coq/Calls.v) applies one

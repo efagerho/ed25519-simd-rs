@@ -59,31 +59,93 @@ Fixpoint assemble pc code : option (list Z) := match code with
 Record cpu := CPU { regs : nat->Z; vectors : nat->nat->Z; flag : option bool; mem : bytes }.
 Definition set_regs s rs := CPU rs (vectors s) (flag s) (mem s).
 Definition set s r v := set_regs s (put (regs s) r v).
-Definition store_word m a v := write_bytes m a 8 (word_byte v).
-Definition push s v := let a:=word (regs s 4%nat-8) in
- CPU (put (regs s) 4 a) (vectors s) (flag s) (store_word (mem s) a v).
-Definition pop s r := let a:=regs s 4%nat in
- set_regs s (put (put (regs s) 4 (word (a+8))) r (read_word (mem s) a)).
-Definition returning s := set s 4 (word (regs s 4%nat+8)).
+Definition with_words s rs flat := CPU rs (vectors s) (flag s) flat.
+Definition apply_stack s result := with_words s (result_regs result) (result_mem result).
+Definition push s v := let '(rs, flat) := push_words (regs s) (mem s) v in with_words s rs flat.
+Definition pop s r := apply_stack s (stack_step 0 0 (PopRegister r) (regs s) (mem s)).
+Definition returning s := apply_stack s (stack_step 0 0 NearReturn (regs s) (mem s)).
+Definition write_register s d src := set_regs s (register_write (regs s) d src).
 Definition well_formed s := (forall r,word64(regs s r)) /\
  (forall j r,(j<8)%nat -> word64(vectors s j r)) /\ byte_memory(mem s).
 
-(* Ordinary instructions advance by their encoded width. Invoke may resume
-   the list only when the callee actually returns to the next instruction. *)
+Definition caller_step slide pc op s :=
+ let next := next_pc pc op in
+ let transfer ins := let result := stack_step slide next ins (regs s) (mem s) in
+                     (target_ip result, apply_stack s result) in
+ let assign dst src := (word (slide+next), write_register s dst src) in
+ match op with
+ | Save r => transfer (PushRegister r)
+ | Restore r => transfer (PopRegister r)
+ | Copy d r => assign d (FromRegister r)
+ | Immediate d n => assign d (Unsigned32 n)
+ | LeaSIB d b n => assign d (EffectiveAddress b n)
+ | Invoke t =>
+   let disp := read_le 4 (fun i => nth (Z.to_nat i) (tl (encoding pc (Invoke t))) 0) 0 in
+   transfer (NearCall disp)
+ | Return => transfer NearReturn
+ end.
+
+Lemma well_formed_stack_top s : well_formed s ->
+ stack_top (regs s) (mem s) = read_word (mem s) (regs s 4%nat).
+Proof. intros [Words _]; unfold stack_top, word; now rewrite Z.mod_small by apply Words. Qed.
+
+(* Relate the actual caller step to the concrete step used by the leaf
+   refinement. Ordinary block operations leave word_pc at the block start;
+   the caller also reports its encoded fallthrough. *)
+Inductive overlapping_operation : command -> operation -> Prop :=
+| overlap_copy d r : overlapping_operation (Copy d r) (MovReg d r)
+| overlap_immediate d n : overlapping_operation (Immediate d n) (Mov32 d n)
+| overlap_lea n : overlapping_operation (LeaSIB 8 4 n) (LeaR8Rsp n).
+
+Definition scalar_view ip s zf := WordControl ip (regs s) zf.
+Theorem caller_operation_agrees slide pc cmd op s zf :
+ overlapping_operation cmd op ->
+ let '(ip,out) := caller_step slide pc cmd s in
+ ip = word (slide+next_pc pc cmd) /\
+ scalar_view pc out zf = word_operation op (scalar_view pc s zf) /\
+ mem out = mem s /\ flag out = flag s /\ vectors out = vectors s.
+Proof. intros H; destruct H; repeat split; reflexivity. Qed.
+
+Inductive overlapping_exit pc : command -> exit -> Prop :=
+| overlap_save : overlapping_exit pc (Save 5) PushRbp
+| overlap_restore : overlapping_exit pc (Restore 5) PopRbp
+| overlap_call target : overlapping_exit pc (Invoke target) (CallRel32 (target-(pc+5)))
+| overlap_return : overlapping_exit pc Return Ret.
+
+Theorem caller_transfer_agrees slide pc cmd e s zf :
+ overlapping_exit pc cmd e -> encodable pc cmd = true ->
+ let '(ip,out) := caller_step slide pc cmd s in
+ (scalar_view ip out zf, mem out) =
+ word_transfer (slide+next_pc pc cmd) e (scalar_view pc s zf) (mem s) /\
+ flag out = flag s /\ vectors out = vectors s.
+Proof.
+ intros H Valid; destruct H; try solve [repeat split; reflexivity].
+ split; [|split; reflexivity].
+ change ((scalar_view (word (slide+call_destination pc target))
+          (push s (slide+next_pc pc (Invoke target))) zf,
+          mem (push s (slide+next_pc pc (Invoke target)))) =
+         word_transfer (slide+next_pc pc (Invoke target)) (CallRel32 (target-(pc+5)))
+           (scalar_view pc s zf) (mem s)).
+ rewrite call_destination_correct by exact Valid.
+ cbn [word_transfer stack_step push_words apply_stack with_words scalar_view
+      word_pc word_zf word_gpr target_ip result_regs result_mem Z.add].
+ rewrite signed32_id by exact Valid.
+ replace (slide+next_pc pc (Invoke target)+(target-(pc+5))) with (slide+target)
+   by (change (next_pc pc (Invoke target)) with (pc+5); ring).
+ reflexivity.
+Qed.
+
+(* Invoke resumes only after its callee returns to the pushed continuation. *)
 Fixpoint runs (call:Z->cpu->Z->cpu->Prop) slide pc code s exit_ip out : Prop :=
  match code with
  | [] => False
- | op::tail => let next:=next_pc pc op in
-   let resume := runs call slide next tail in
+ | op::tail => let next := next_pc pc op in
+   let '(ip, state) := caller_step slide pc op s in
    match op with
-   | Save r => resume (push s (regs s r)) exit_ip out
-   | Restore r => resume (pop s r) exit_ip out
-   | Copy d r => resume (set s d (regs s r)) exit_ip out
-   | Immediate d n => resume (set s d (n mod 2^32)) exit_ip out
-   | LeaSIB d b n => resume (set s d (word(regs s b+n))) exit_ip out
-   | Invoke t => exists mid, call (slide+call_destination pc t) (push s (slide+next)) (slide+next) mid /\
-                         resume mid exit_ip out
-   | Return => exit_ip=read_word(mem s)(regs s 4%nat) /\ out=returning s
+   | Invoke _ => exists mid, call ip state (word (slide+next)) mid /\
+                             runs call slide next tail mid exit_ip out
+   | Return => exit_ip=ip /\ out=state
+   | _ => runs call slide next tail state exit_ip out
    end end.
 
 Definition scalar_value loc v := match v with
