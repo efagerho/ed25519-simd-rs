@@ -1,16 +1,37 @@
 # Cached point addition
 
-Start with the complete public theorem:
+Given bounded input limbs in all eight lanes, `ed25519_simd_add_cached_ifma`
+writes the cached-addition formulas in place for each lane. If the input represents P with a
+valid T and the staged cache represents Q, `add_represents` gives the group
+result **P + Q**. Both output modes give XYZ. Full mode also gives T, and
+omitted-T mode writes five zero vectors. [Arithmetic contract](coq/CachedAddSpec.v) · [Group interpretation](../../curve25519/group/Representation.v)
+
+Public theorem in `Ed25519Simd.CachedAdd`. [Statement](coq/Audit.v) · [Proof](coq/Object.v)
 
 ```coq
 Object.assembled_cached_add_correct : Audit.cached_add_contract ObjectBytes.symbol_bytes
 ```
 
-[`Audit.v`](coq/Audit.v) states the claim for `ed25519_simd_add_cached_ifma`.
-[`Object.v`](coq/Object.v) proves it without axioms and binds the modeled
-instructions to independently extracted linked symbol bytes. The arithmetic
-specification in [`CachedAddSpec.v`](coq/CachedAddSpec.v) is independent of the
-instruction listing and proof checker.
+## What to audit
+
+1. Compare the Rust staging arrays with `cache_values` and `concrete_entry`.
+   RDI points to the in-place accumulator, RSI to a separate read-only cache,
+   RDX selects T, and RCX selects affine mode. Both flags must be zero or one.
+   Check the field order `Y−X, Y+X, 2dT`, with `2Z` present only in the
+   projective cache. Rust selects and transposes the table entries before the
+   verified call. [Rust staging and caller](../../../src/wide/avx512ifma/point.rs) · [Cache decoding](../Wide51.v) · [Byte contract](coq/CachedAddBytes.v)
+2. Read `cached_add_spec` for all four flag combinations. The field result
+   requires bounded point and cache limbs. The literal-zero T guarantee sits
+   outside that implication. For the group interpretation, check that
+   `represents_cache` uses a common nonzero scale and fixes it to one for
+   affine input. [Field specification](coq/CachedAddSpec.v) · [Representation predicates](../../curve25519/group/Representation.v)
+3. Check that `cache_contract` preserves the cache and limits each cache
+   read to the selected extent, 960 or 1,280 bytes. Writes must fit in the
+   point or private stack, including the two nested return slots. Check
+   the concrete entries for both flags and each permitted stack alignment.
+   [Memory contract](coq/CachedAddMemory.v) · [Shared point frame](../PointFrame.v) · [Entry witnesses](coq/EntryTests.v)
+
+Apply the [crate audit procedure](../README.md#what-to-audit) to this symbol.
 
 ## Contract
 
@@ -91,7 +112,7 @@ cargo build --release --features verify-asm-pow2,verify-asm-double4,verify-asm-c
 the build. The proof features also enable `asm`; they certify only the named
 routines. Release auditing checks the final linked artifact from either build.
 
-## Proof structure and trust boundary
+## Proof structure
 
 | Files | Responsibility |
 | --- | --- |
@@ -102,8 +123,8 @@ routines. Release auditing checks the final linked artifact from either build.
 | `EntryTests.v` | Concrete witnesses with valid arithmetic inputs for every flag/alignment combination, rejection of wrong return bytes, and output initialization outside the arithmetic bounds. |
 | `Audit.v`, `Object.v` | State and prove the single complete byte-bound certificate. |
 
-The polynomial checker and signed symbolic interpreter are shared with pow2
-and double4. Cached addition adds IFMA memory operands to the machine model;
+Cached addition and double4 share the signed symbolic interpreter and
+field-kernel checker. Cached addition adds IFMA memory operands to the machine model;
 they reuse the existing IFMA arithmetic and common EVEX memory encoder.
 Read tracking, instruction/block equivalence, dependency tracking, word
 bounds and byte-memory proofs include those operands.
@@ -120,20 +141,8 @@ python3 -B verification/machine/tests/run.py --backend all \
   --report ./cached-add-report.json
 ```
 
-Tests compare Coq's encodings and execution with Intel XED and native hardware.
-An independent ISA refinement theorem remains open. Coq's kernel, the stated
-machine semantics and the auditor's identification/extraction of the linked
-bytes remain the trust boundary. Listing generation, interval checking and
-polynomial normalization produce claims rechecked by the kernel.
-[`Machine model`](../../machine/README.md) · [`ISA obligation`](../../machine/proofs/README.md)
-
-The certificate proves coordinate arithmetic in the model. Given valid extended
-coordinates for P and a valid affine or projective cache for Q, the shared
-corollary `add_represents` proves that its output represents P + Q. The result
-covers XYZ in both modes and T when requested. [Group interpretation](../../curve25519/group/Representation.v)
-
-Rust staging and dispatch, physical constant-time behavior, and the complete
-Ed25519 verifier remain separate verification targets.
+The [shared audit surface](../../README.md#shared-audit-surface) explains how
+to interpret the XED and hardware comparisons.
 
 ## Mutation checks
 
