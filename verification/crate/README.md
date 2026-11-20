@@ -10,6 +10,7 @@ README for its contract and release audit.
 | [double4/](double4/README.md) | Four in-place point doublings. |
 | [cached_add/](cached_add/README.md) | Cached point addition with affine or projective inputs and optional T output. |
 | [scalar/](scalar/README.md) | Canonical reduction of eight 512-bit inputs modulo the scalar order. |
+| [radix16/](radix16/README.md) | The linked reducer and digest wrapper produce 64 signed digits representing each input modulo the scalar order. |
 | [ladder_step/](ladder_step/README.md) | A radix-256 ladder step composed from the verified doubling and cached-addition routines. |
 | [torsion/](torsion/README.md) | The returned lane mask equals the full ZIP-215 cofactor check, including the all-lanes early return. |
 | [small_order/](small_order/README.md) | The returned mask selects precisely the valid projective points killed by the cofactor, including the all-lanes rejection path. |
@@ -28,6 +29,7 @@ separate review.
    retained symbol file. The extractor cross-checks the file offset from
    `.text` against the executable load segment. For the ladder, check the
    wrapper and both callees in the same ELF and the relative call targets.
+   For radix16, check the wrapper and its scalar reducer together.
    [ELF extraction](../elf.py) · [Manifest contents](../evidence.py)
 2. **Read the public statement.** Start in the routine’s `coq/Audit.v`. For a
    standalone routine with an output buffer follow `run_concrete` to its byte-level contract. Check
@@ -69,7 +71,7 @@ separate review.
 
 On x86-64 Linux, the `asm` feature enables all assembly backends. Each
 `verify-asm-*` feature also checks the named standalone routine during the
-build and embeds the bytes that passed. The ladder, torsion and small-order audits run after linking and certify
+build and embeds the bytes that passed. The radix16, ladder, torsion and small-order audits run after linking and certify
 the exact relative addresses in the release ELF.
 
 Run the build commands from the repository root.

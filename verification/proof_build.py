@@ -18,7 +18,7 @@ MASK_PROJECTS = (*GROUP_PROJECTS, "crate/field51")
 SHARED_ENV = "ED25519_SIMD_COQ_LIBRARIES"
 COMPONENTS = {"pow2": "Pow2", "double4": "Double4", "cached_add": "CachedAdd",
               "scalar": "Scalar", "ladder_step": "LadderStep", "torsion": "Torsion",
-              "small_order": "SmallOrder"}
+              "small_order": "SmallOrder", "radix16": "Radix16"}
 
 
 # The release statement is independent of the theorem implementation in Object.v.
@@ -27,6 +27,7 @@ PUBLIC_THEOREMS = {
     "double4": ("assembled_double4_correct", "double4_contract"),
     "cached_add": ("assembled_cached_add_correct", "cached_add_contract"),
     "scalar": ("assembled_scalar_correct", "scalar_contract"),
+    "radix16": ("assembled_digest_to_radix16_correct", "digest_contract"),
     "ladder_step": ("assembled_ladder_step_correct", "ladder_contract"),
     "small_order": ("assembled_small_order_correct", "small_order_contract"),
     "torsion": ("assembled_torsion_correct", "torsion_contract"),
@@ -40,6 +41,9 @@ def public_statement(component):
     if component == "small_order":
         for module in ("EntryBytes", "HelperBytes"):
             expected += f" {namespace}.{module}.address {namespace}.{module}.symbol_bytes"
+    elif component == "radix16":
+        expected += (f" {namespace}.LinkedBytes.wrapper_pc {namespace}.LinkedBytes.symbol_bytes"
+                     f" {namespace}.LinkedBytes.reducer_pc Ed25519Simd.Scalar.ObjectBytes.symbol_bytes")
     elif component != "ladder_step":
         expected += f" {namespace}.ObjectBytes.symbol_bytes"
     return f"{namespace}.Object.{theorem}", expected

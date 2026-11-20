@@ -29,8 +29,8 @@ Object.assembled_scalar_correct : Audit.scalar_contract ObjectBytes.symbol_bytes
    from the public contract. [Entry witnesses](coq/EntryTests.v)
 
 Apply the [crate audit procedure](../README.md#what-to-audit) to this symbol.
-The certificate ends at the reducer's return. Hashing, signed-digit recoding,
-and final lane placement are outside its scope.
+The digest wrapper consumes this result to prove signed-digit recoding and
+final lane placement for the linked caller. [Wrapper certificate](../radix16/README.md)
 
 ## Contract
 

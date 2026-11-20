@@ -9,6 +9,7 @@ and can be checked independently of the machine model.
 | [Field.v](Field.v), [FieldPolynomial.v](FieldPolynomial.v) | Field congruence modulo `2^255 - 19` and the polynomial checker specialized to that modulus. |
 | [Radix51.v](Radix51.v) | The value and bounds of a field element represented by five radix-51 limbs. |
 | [Scalar.v](Scalar.v) | The scalar order `L` and canonical reduction modulo `L`. |
+| [SignedRadix16.v](SignedRadix16.v) | Reconstructs a canonical scalar from 64 signed digits in `[-8,7]` after adding the radix-16 bias. |
 | [Edwards.v](Edwards.v) | The coordinate formulas for doubling, cached addition, and the ladder step. |
 | [Torsion.v](Torsion.v) | The determinant, mixed-subtraction numerators, and four field zero tests for one lane of the ZIP-215 equation check. |
 | [SmallOrderFilter.v](SmallOrderFilter.v) | Every exact small-order root passes the 64-bit rejection filter for bounded projective X and Y. |
