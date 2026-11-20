@@ -14,9 +14,12 @@ PROOF_MODULES = (
 )
 
 
-def certify(raw, work):
-    sources = [(HERE.parent / "pow2/coq" if module in ("FieldSpec", "Polynomial")
+def proof_sources():
+    return [(HERE.parent / "pow2/coq" if module in ("FieldSpec", "Polynomial")
                   else HERE.parent / "double4/coq" if module == "Symbolic"
                   else HERE / "coq") / (module + ".v")
                for module in PROOF_MODULES]
-    return certify_modules(raw, work, sources, HERE / "coq/Object.v")
+
+
+def certify(raw, work):
+    return certify_modules(raw, work, proof_sources(), HERE / "coq/Object.v")

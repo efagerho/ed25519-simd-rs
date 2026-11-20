@@ -1,9 +1,8 @@
 # Formal verification
 
 Coq proofs cover paired field exponentiation, four in-place point doublings,
-cached point addition, and scalar reduction modulo L enabled by the optional
-`asm` feature. The radix-256 ladder-step wrapper also enabled by `asm` is not
-yet formally verified.
+cached point addition, scalar reduction modulo L, and the radix-256 ladder
+step enabled by the optional `asm` feature.
 Each routine has one public contract binding its
 arithmetic, memory and ABI guarantees to the exact bytes of its linked
 symbol. These are proofs in the tested machine model; independent refinement
@@ -18,13 +17,16 @@ to an x86 ISA specification remains open.
 
 - `scalar/` proves canonical reduction of all eight 512-bit inputs modulo L, including optimized Montgomery carries, conditional subtraction, and byte-memory/ABI guarantees. [Proof and audit instructions](scalar/README.md)
 
+- `ladder_step/` proves the composition of five calls using the linked double4 and cached-add contracts. [Contract and linked audit](ladder_step/README.md)
+
 ## Build with or without the proof
 
 On x86-64 Linux, `asm` assembles all five backends with Rust's built-in
 assembler. Each `verify-asm-*` feature enables `asm`, checks the named
 routine's Coq proof, and embeds that routine's exact bytes that passed.
 Proof checking is off by default and can be selected independently for each
-of the four proved routines. These checks do not certify the ladder-step wrapper.
+of the four standalone routines. The ladder audit checks its relative call
+displacements after the linker has assigned all three symbol addresses.
 
 ```sh
 export RUSTFLAGS="-C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma"
@@ -45,13 +47,14 @@ the release audit instructions for [pow2](pow2/README.md#check-the-release-execu
 [double4](double4/README.md#check-the-release-executable),
 [cached addition](cached_add/README.md#check-the-release-executable), and
 [scalar reduction](scalar/README.md#replay-against-a-release-executable).
+For the composed routine, run the [ladder-step audit](ladder_step/README.md).
 
 `python3 -B verification/test_evidence.py` checks report replay, seed provenance
 and audit manifest integrity without requiring Coq, XED or AVX-512 hardware.
 
 ## Shared proof infrastructure
 
-The four public contracts and `Object` theorems remain in their routine
+The public contracts and `Object` theorems remain in their routine
 folders. Common execution proofs live in `machine/`: lane projection,
 aligned-cell separation, output-write coverage, trace frames, and lifting
 logical execution to concrete byte reads at every prefix. Each routine

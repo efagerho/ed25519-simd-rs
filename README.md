@@ -64,7 +64,7 @@ paired field exponentiation, four in-place point doublings, cached point
 addition, scalar reduction, and radix-256 ladder steps. Without it, these
 operations use Rust. The per-routine `verify-asm-*` features enable `asm`,
 check the selected Coq proofs at build time, and embed those routines' certified
-bytes. The ladder-step wrapper is not yet formally verified. See the
+bytes. The ladder-step proof checks the wrapper and both call targets after linking. See the
 [verification contracts and release audits](verification/README.md).
 
 ## Scope

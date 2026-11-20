@@ -85,6 +85,11 @@ jobs:
           /usr/bin/python3 verification/scalar/audit.py "$artifact" \
             --output "$RUNNER_TEMP/scalar-audit" --cases "$RUNNER_TEMP/scalar-cases.jsonl" --seed 42
 
+          /usr/bin/python3 -B verification/ladder_step/audit.py "$artifact" \
+            --output "$RUNNER_TEMP/ladder-step-audit"
+          /usr/bin/python3 -B verification/ladder_step/mutations.py "$artifact" \
+            --audit "$RUNNER_TEMP/ladder-step-audit"
+
       - name: Check cached-add and scalar proof mutation rejection
         run: |
           native=
@@ -132,6 +137,7 @@ jobs:
             ${{ runner.temp }}/cached-add-cases.jsonl
             ${{ runner.temp }}/cached-add-audit/
             ${{ runner.temp }}/cached-add-mutations/
+            ${{ runner.temp }}/ladder-step-audit/
             ${{ runner.temp }}/scalar-cases.jsonl
             ${{ runner.temp }}/scalar-audit/
             ${{ runner.temp }}/scalar-mutations/

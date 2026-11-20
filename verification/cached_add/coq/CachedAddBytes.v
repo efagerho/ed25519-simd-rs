@@ -58,19 +58,9 @@ Proof.
    + f_equal;symmetry;exact Cached.
    + f_equal;symmetry;exact Point.
 Qed.
-Definition vector_reads loc pad d flat := forall a j,mapped affine pad(VectorCell a) ->(j<8)%nat ->
- read_word flat(address_of loc a+8*Z.of_nat j)=memory d a j.
-Definition byte_result p loc pad initial final before after :=
- (forall middle,reaches p (abi_layout affine) initial middle ->state_words middle) /\
- byte_memory after /\ vector_reads loc pad(snd final)after /\
- (forall x,~writable_byte loc pad x ->after x=before x) /\
- exists fuel es,record_path fuel p (abi_layout affine)(fst initial)=Some(fst final,es) /\
- after=replay p loc es(snd initial)before /\
- (forall pre tail,es=pre++tail ->
- let d:=effects p(data_effects pre)(snd initial)in let flat:=replay p loc pre(snd initial)before in
- data_words d /\ byte_memory flat /\ vector_reads loc pad d flat) /\
- (forall pre a t tail,es=pre++Pop a t::tail ->
- read_word(replay p loc pre(snd initial)before)(address_of loc a)=pc_word loc t mod 2^64).
+Definition vector_reads loc pad := ByteExecution.vector_reads loc (mapped affine pad).
+Definition byte_result p loc pad :=
+ ByteExecution.byte_execution p (abi_layout affine) loc (mapped affine pad) (writable_byte loc pad).
 Lemma memory_safe_bytes p size loc pad initial final before :
  valid_placement affine loc size pad ->state_words initial ->byte_memory before ->
  agrees loc(mapped affine pad)(snd initial)(return_memory(fst initial))before ->
