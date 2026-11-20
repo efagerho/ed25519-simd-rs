@@ -19,6 +19,25 @@ COMPONENTS = {"pow2": "Pow2", "double4": "Double4", "cached_add": "CachedAdd",
               "scalar": "Scalar", "ladder_step": "LadderStep"}
 
 
+# The release statement is independent of the theorem implementation in Object.v.
+PUBLIC_THEOREMS = {
+    "pow2": ("assembled_symbol_correct", "pow2_contract"),
+    "double4": ("assembled_double4_correct", "double4_contract"),
+    "cached_add": ("assembled_cached_add_correct", "cached_add_contract"),
+    "scalar": ("assembled_scalar_correct", "scalar_contract"),
+    "ladder_step": ("assembled_ladder_step_correct", "ladder_contract"),
+}
+
+
+def public_statement(component):
+    namespace = "Ed25519Simd." + COMPONENTS[component]
+    theorem, contract = PUBLIC_THEOREMS[component]
+    expected = f"{namespace}.Audit.{contract}"
+    if component != "ladder_step":
+        expected += f" {namespace}.ObjectBytes.symbol_bytes"
+    return f"{namespace}.Object.{theorem}", expected
+
+
 def library_flags(prefix=Path(".")):
     return [arg for directory, namespace in LIBRARIES
             for arg in ("-Q", str(prefix / directory), namespace)]
@@ -127,7 +146,7 @@ def compile_object(raw, work, modules, object_source, flags):
     write_symbol_bytes(work / "ObjectBytes.v", raw)
     subprocess.run(["coqc", *flags, "ObjectBytes.v"], cwd=work, check=True)
     shutil.copyfile(object_source, work / object_source.name)
-    return subprocess.check_output(["coqc", *flags, object_source.name], cwd=work, text=True)
+    subprocess.run(["coqc", *flags, object_source.name], cwd=work, check=True, stdout=subprocess.DEVNULL)
 
 
 def certify_modules(raw, work, modules, object_source):
@@ -136,22 +155,28 @@ def certify_modules(raw, work, modules, object_source):
     dest = work / COMPONENTS[component]
     dest.mkdir()
     (work / "Program.v").rename(dest / "Program.v")
-    assumptions = compile_object(raw, dest, modules, object_source,
-                                 component_flags(component, ".", Path("..")))
-    return check_object(work, component_flags(component), assumptions, component)
+    compile_object(raw, dest, modules, object_source, component_flags(component, ".", Path("..")))
+    return check_object(work, component_flags(component), component)
 
 
-def check_object(work, flags, assumptions, component):
+def check_object(work, flags, component):
+    namespace = "Ed25519Simd." + COMPONENTS[component]
+    theorem, expected = public_statement(component)
+    checked = Path(COMPONENTS[component]) / "Checked.v"
+    (work / checked).write_text(f"Require {namespace}.Object.\n"
+                                f"Definition checked : {expected} := {theorem}.\n"
+                                "Print Assumptions checked.\n")
+    assumptions = subprocess.check_output(["coqc", *flags, str(checked)], cwd=work, text=True)
     (work / "assumptions.txt").write_text(assumptions)
     if assumptions.strip() != "Closed under the global context":
         raise ValueError(f"unexpected proof assumptions: {assumptions}")
-    command = ["coqchk", *flags, "-silent", f"Ed25519Simd.{COMPONENTS[component]}.Object"]
+    command = ["coqchk", *flags, "-silent", f"{namespace}.Checked"]
     with (work / "coqchk.log").open("w") as log:
         result = subprocess.run(command, cwd=work, stdout=log, stderr=subprocess.STDOUT)
     if result.returncode:
         sys.stderr.write((work / "coqchk.log").read_text())
         result.check_returncode()
-    return {"assumptions": assumptions.strip(), "coqchk": {"command": command, "exit_code": 0}}
+    return {"theorem": f"{theorem} : {expected}", "assumptions": assumptions.strip(), "coqchk": {"command": command, "exit_code": 0}}
 
 
 if __name__ == "__main__":

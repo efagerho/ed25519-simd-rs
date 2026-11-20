@@ -12,7 +12,7 @@ import tempfile
 from certify import certify
 from proof_build import COMPONENTS, component_flags
 from evidence import write_evidence
-from elf import require, symbol_extent
+from elf import SYMBOL, require, symbol_extent
 from generate_listing import generate
 
 
@@ -88,7 +88,9 @@ def replay(binary, work, cases=None, seed=1):
         if cases.resolve() != retained.resolve():
             shutil.copyfile(cases, retained)
         corpus = {"path": retained.name, "count": count, "export_seed": seed}
-    write_evidence(binary, address, raw, work, checks, corpus)
+    source = Path(__file__).resolve().parents[3] / "src/wide/avx512ifma/pow2.S"
+    write_evidence(binary, work, "pow2", checks, [(SYMBOL, address, raw)], [source],
+                   component_flags("pow2"), corpus)
     print(f"Coq kernel replay passed for ed25519_simd_pow2_ifma, SHA-256 {hashlib.sha256(raw).hexdigest()}")
 
 

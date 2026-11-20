@@ -29,9 +29,6 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: Check verification report and audit evidence regressions
-        run: python3 -B verification/test_evidence.py
-
       - name: Compile all targets
         run: >-
           cargo check --workspace --all-targets --locked
@@ -75,6 +72,9 @@ jobs:
           sudo apt-get install -y python3-z3 coq libcoq-coqprime llvm
           python3 -B verification/proof_build.py "$RUNNER_TEMP/shared-coq" --jobs 4
           echo "ED25519_SIMD_COQ_LIBRARIES=$RUNNER_TEMP/shared-coq" >> "$GITHUB_ENV"
+
+      - name: Check verification report and audit evidence regressions
+        run: python3 -B verification/test_evidence.py
 
       - name: Check the build-time proof and the linked assembly-only release binary
         run: |

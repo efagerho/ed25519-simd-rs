@@ -80,5 +80,7 @@ Use a directory built by the same job or local checkout. Each consumer checks
 the compiler version and the digests of its project files, sources, and compiled
 objects. With the variable unset, each consumer compiles its shared dependencies
 from source. Every certificate builds its own program modules, checks closed
-assumptions, and runs `coqchk` on the public theorem's module. Retained audits
+assumptions, and runs `coqchk` on `Checked.v`, which assigns the named public theorem to its
+expected contract. The manifest records that declaration and the linked symbol
+addresses, sizes, and digests. Retained audits
 include their own sources and `_CoqProject` for independent replay.

@@ -1,50 +1,19 @@
 """Replay the complete double4 certificate against a linked ELF symbol."""
 import argparse
 import hashlib
-import json
 from pathlib import Path
 import shutil
-import sys
 import tempfile
 
 from certificate import certify
 from listing import SYMBOL, SOURCE, generate
 from coq_proof import export_cases, symbol_bytes
 from elf import symbol_extent
-from evidence import sha256, tool_versions
+from evidence import write_evidence
 
-from proof_build import component_flags, write_project
+from proof_build import component_flags
 
 HERE = Path(__file__).resolve().parent
-
-
-def write_evidence(binary, address, raw, work, checks, cases):
-    (work / "symbol.bin").write_bytes(raw)
-    sources = work / "sources"
-    sources.mkdir()
-    shutil.copyfile(SOURCE, sources / SOURCE.name)
-    for name, directory in (("double4", HERE), ("pow2", HERE.parent / "pow2")):
-        (sources / name).mkdir()
-        for path in sorted(directory.glob("*.py")):
-            shutil.copyfile(path, sources / name / path.name)
-    shutil.copyfile(HERE.parents[1] / "proof_build.py", sources / "proof_build.py")
-    coq_sources = sorted(work.rglob("*.v"))
-    write_project(work, component_flags("double4"), coq_sources)
-    retained = [*coq_sources, *(p for p in sources.rglob("*") if p.is_file()),
-                *work.rglob("_CoqProject"), work / "double4.expanded.S",
-                work / "symbol.bin", work / "assumptions.txt", work / "coqchk.log"]
-    if cases:
-        retained.append(work / cases["path"])
-    manifest = {
-        "schema_version": 1,
-        "theorem": "Ed25519Simd.Double4.Object.assembled_double4_correct : Ed25519Simd.Double4.Audit.double4_contract Ed25519Simd.Double4.ObjectBytes.symbol_bytes",
-        "elf": {"name": binary.name, "sha256": sha256(binary)},
-        "symbol": {"name": SYMBOL, "address": address, "size": len(raw),
-                   "sha256": hashlib.sha256(raw).hexdigest()},
-        "proof_checks": checks, "tools": tool_versions(), "cases": cases,
-        "files": {str(path.relative_to(work)): sha256(path) for path in sorted(retained)},
-    }
-    (work / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
 
 
 def replay(binary, work, cases=None, seed=1):
@@ -66,7 +35,8 @@ def replay(binary, work, cases=None, seed=1):
         if cases.resolve() != retained.resolve():
             shutil.copyfile(cases, retained)
         corpus = {"path": retained.name, "count": count, "export_seed": seed}
-    write_evidence(binary, address, raw, work, checks, corpus)
+    write_evidence(binary, work, "double4", checks, [(SYMBOL, address, raw)], [SOURCE],
+                   component_flags("double4"), corpus)
     print(f"Coq kernel replay passed for {SYMBOL}, SHA-256 {hashlib.sha256(raw).hexdigest()}")
 
 
