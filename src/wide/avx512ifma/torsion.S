@@ -4,7 +4,7 @@
 // For valid extended coordinates, bit j says [8](P[j]-R[j]) is the identity.
 // X/Y/Z/T begin at byte offsets 0/320/640/960. The nested call uses at
 // most 1032 stack bytes below entry RSP including alignment and saved RBP.
-// All writes are private to the stack. This routine is not formally verified.
+// All writes are private to the stack. The linked return-mask proof is in verification/crate/torsion.
 .text
 .p2align 4
 .globl ed25519_simd_check_8_torsion_ifma

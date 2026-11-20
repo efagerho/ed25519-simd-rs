@@ -39,6 +39,11 @@ Add Field fp_field : (GZnZ.FZpZ p modulus_prime).
 
 Lemma residue_eq x y : eqm p x y -> residue x = residue y.
 Proof. apply GZnZ.zirr. Qed.
+Lemma residue_zero a : (a mod Field.prime = 0)%Z <-> residue a = 0.
+Proof.
+ split; intro H; [apply GZnZ.zirr; exact H | exact (f_equal (GZnZ.val Field.prime) H)].
+Qed.
+
 Lemma residue_add x y : residue (x+y)%Z = residue x + residue y.
 Proof. apply GZnZ.zirr, Zplus_mod. Qed.
 Lemma residue_sub x y : residue (x-y)%Z = residue x - residue y.
@@ -62,6 +67,17 @@ Proof.
  intros X Y H. apply Y. transitivity ((x*y)/x); [field; exact X|].
  rewrite H. field; exact X.
 Qed.
+
+Lemma product_zero (a b:fp) : a*b = 0 <-> a = 0 \/ b = 0.
+Proof.
+ split.
+ - intro H. destruct (fp_eq_dec a 0) as [A|A], (fp_eq_dec b 0) as [B|B]; auto.
+   exfalso; exact (mul_nonzero a b A B H).
+ - intros [-> | ->]; ring.
+Qed.
+
+Lemma sqrt_m1_square : residue Field.sqrt_m1 * residue Field.sqrt_m1 = 0-1.
+Proof. apply GZnZ.zirr; reflexivity. Qed.
 
 Definition d := (- residue 121665) / residue 121666.
 Local Opaque phi.

@@ -2,3 +2,4 @@
 PrimeField.v
 Affine.v
 Representation.v
+Cofactor.v

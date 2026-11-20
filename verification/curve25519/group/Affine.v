@@ -40,11 +40,10 @@ Proof.
    - assert (B : y*y+k*u*u = 0).
      { destruct (fp_eq_dec (y*y+k*u*u) 0) as [Zero|Nonzero]; [exact Zero|].
        exfalso; exact (mul_nonzero _ _ A Nonzero factor). }
-     set (i := residue 19681161376707505956807079304988542015446066515923890162744021073123829784752).
-     assert (I : i*i = 0-1) by (apply GZnZ.zirr; reflexivity).
+     set (i := residue Field.sqrt_m1).
      apply (d_nonsquare (i*y/(x*y*u))).
      unfold k in B. apply square_ratio; [repeat apply mul_nonzero; assumption|].
-     replace ((i*y)*(i*y)) with ((i*i)*(y*y)) by ring; rewrite I.
+     replace ((i*y)*(i*y)) with ((i*i)*(y*y)) by ring; rewrite (sqrt_m1_square : i*i = 0-1).
      replace ((0-1)*(y*y)) with
        (d*((x*y*u)*(x*y*u)) - (y*y + d*x*x*y*y*u*u)) by ring.
      rewrite B; ring.

@@ -14,7 +14,7 @@ sys.path.insert(0, str(VERIFY))
 sys.path.insert(0, str(CRATE))
 from evidence import write_evidence
 from elf import symbol_bytes, symbol_extent
-from proof_build import (LADDER_PROJECTS, check_object, compile_libraries, component_flags,
+from proof_build import (GROUP_PROJECTS, check_object, compile_libraries, component_flags,
                          compile_object, write_symbol_bytes)
 
 CALLEES = [("double4", "double4", "Double4"), ("cached_add", "add_cached", "CachedAdd")]
@@ -30,7 +30,7 @@ def audit(elf, work):
     wrapper_pc, wrapper = read_symbol(elf, "ladder_step")
     callees = {symbol: read_symbol(elf, symbol) for _, symbol, _ in CALLEES}
     work.mkdir(parents=True, exist_ok=False)
-    compile_libraries(work, projects=LADDER_PROJECTS)
+    compile_libraries(work, projects=GROUP_PROJECTS)
     flags = component_flags("ladder_step")
     for name, symbol, namespace in CALLEES:
         dest = work / namespace

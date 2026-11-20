@@ -7,6 +7,8 @@ isa/Move.v
 isa/Shift.v
 isa/Instructions.v
 isa/ProgramLayout.v
+execution/MaskTrace.v
+execution/CircuitFacts.v
 execution/LayoutProofs.v
 execution/MachineState.v
 isa/Assembly.v
@@ -26,6 +28,7 @@ tests/Operands.v
 tests/Representation.v
 tests/model/Oracle.v
 tests/Control.v
+tests/Mask.v
 tests/Mixed.v
 tests/Prologue.v
 tests/Aligned.v

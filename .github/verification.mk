@@ -4,11 +4,11 @@ linked_checks := $(addsuffix -conformance,$(routines))
 timed = /usr/bin/time -f '$@ elapsed %E'
 export XED_KIT := $(RUNNER_TEMP)/xed-kit
 
-.PHONY: verify certificates ladder-mutations ladder pow2-z3 xed-kit fixed-conformance \
+.PHONY: verify certificates ladder-mutations ladder torsion torsion-mutations pow2-z3 xed-kit fixed-conformance \
         $(routines) $(linked_checks) cached-add-mutations scalar-mutations
 
 verify: ladder-mutations certificates cached-add-mutations $(linked_checks) \
-        scalar-mutations fixed-conformance pow2-z3
+        scalar-mutations torsion-mutations fixed-conformance pow2-z3
 
 certificates:
 	$(timed) cargo build --locked --release \
@@ -31,6 +31,14 @@ ladder:
 ladder-mutations: ladder
 	$(timed) /usr/bin/python3 -B verification/crate/ladder_step/mutations.py "$(RELEASE_ELF)" \
 	  --audit "$(RUNNER_TEMP)/ladder-step-audit"
+
+torsion:
+	$(timed) python3 -B verification/crate/torsion/audit.py "$(RELEASE_ELF)" \
+	  --output "$(RUNNER_TEMP)/torsion-audit"
+
+torsion-mutations: torsion
+	$(timed) python3 -B verification/crate/torsion/mutations.py "$(RELEASE_ELF)" \
+	  --audit "$(RUNNER_TEMP)/torsion-audit"
 
 cached-add-mutations scalar-mutations: %-mutations:
 	$(timed) python3 -B verification/crate/$(subst -,_,$*)/mutations.py \

@@ -1,7 +1,7 @@
 # Assembly proofs
 
-Each routine has one public theorem that binds its arithmetic, memory, and
-ABI guarantees to the bytes of its linked symbol. Start with the routine’s
+Each routine has one public theorem binding its result to the bytes of its
+linked symbol. Start with the routine’s
 README for its contract and release audit.
 
 | Routine | What the theorem covers |
@@ -11,6 +11,7 @@ README for its contract and release audit.
 | [cached_add/](cached_add/README.md) | Cached point addition with affine or projective inputs and optional T output. |
 | [scalar/](scalar/README.md) | Canonical reduction of eight 512-bit inputs modulo the scalar order. |
 | [ladder_step/](ladder_step/README.md) | A radix-256 ladder step composed from the verified doubling and cached-addition routines. |
+| [torsion/](torsion/README.md) | The returned lane mask equals the full ZIP-215 cofactor check, including the all-lanes early return. |
 
 ## What to audit
 
@@ -28,11 +29,13 @@ separate review.
    wrapper and both callees in the same ELF and the relative call targets.
    [ELF extraction](../elf.py) · [Manifest contents](../evidence.py)
 2. **Read the public statement.** Start in the routine’s `coq/Audit.v`. For a
-   standalone routine follow `run_concrete` to its byte-level contract. Check
+   standalone routine with an output buffer follow `run_concrete` to its byte-level contract. Check
    the byte binding, layout check, input predicates, and the access, byte-memory,
    and arithmetic predicates supplied to `SysV.call_result`. They describe
    the same returning execution. For the ladder, read `run_ladder` and the
-   fields of `ladder_result`, including `edwards_sum`.
+   fields of `ladder_result`, including `edwards_sum`. For torsion, read
+   `run_correct` and `lane_result` for the mask, point premises and group
+   equation. Its machine uses a tagged private stack.
    [Common call result](../machine/abi/SysV.v) · [Ladder contract](ladder_step/coq/Audit.v)
 3. **Match the caller.** Compare register arguments, Rust layout, buffer
    lengths, aliasing, stack space, and numeric or point-representation premises
@@ -61,10 +64,10 @@ separate review.
 
 ## Build and audit
 
-On x86-64 Linux, the `asm` feature enables all five assembly backends. Each
+On x86-64 Linux, the `asm` feature enables all assembly backends. Each
 `verify-asm-*` feature also checks the named standalone routine during the
-build and embeds the bytes that passed. The ladder audit runs after linking,
-when the wrapper’s relative call displacements are known.
+build and embeds the bytes that passed. The ladder and torsion audits run after linking and certify
+the exact relative addresses in the release ELF.
 
 Run the build commands from the repository root.
 
@@ -76,7 +79,7 @@ cargo build --release --features verify-asm-pow2,verify-asm-double4,verify-asm-c
 
 The proof and audit tools require Python 3.8 or later, LLVM MC (`llvm-mc`
 or `LLVM_MC`), GNU binutils (`nm`, `objcopy`, `objdump`), and Coq with its
-standard library (`coqdep`, `coqc`, `coqchk`). The ladder group proof and
+standard library (`coqdep`, `coqc`, `coqchk`). The ladder and torsion group proofs and
 the full shared-library build additionally require Coqprime
 (`libcoq-coqprime` on Ubuntu).
 

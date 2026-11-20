@@ -105,6 +105,7 @@ jobs:
             ${{ runner.temp }}/cached-add-audit/
             ${{ runner.temp }}/cached-add-mutations/
             ${{ runner.temp }}/ladder-step-audit/
+            ${{ runner.temp }}/torsion-audit/
             ${{ runner.temp }}/scalar-cases.jsonl
             ${{ runner.temp }}/scalar-audit/
             ${{ runner.temp }}/scalar-mutations/
