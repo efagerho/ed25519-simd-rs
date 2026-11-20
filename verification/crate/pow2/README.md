@@ -75,7 +75,7 @@ The `verify-asm-pow2` build embeds the pow2 bytes that Coq checked. For a releas
 audit, the checker extracts the linked symbol into `pow2-audit/Pow2/ObjectBytes.v`.
 Coq proves that encoding the generated program produces those exact bytes,
 including alignment padding. The checker rejects axioms, runs `coqchk`, and
-prints the verified symbol's SHA-256. [Rust build](review.py) · [ELF byte extraction](coq_proof.py) · [Certificate](coq/Object.v)
+prints the verified symbol's SHA-256. [Rust build](review.py) · [ELF byte extraction](../../elf.py) · [Certificate](coq/Object.v)
 
 The output directory retains every generated and handwritten Coq source,
 the assembly and checker sources, the raw symbol bytes (`symbol.bin`),

@@ -35,7 +35,8 @@ fn main() {
             "verification/crate/FieldSymbolic.v".into(),
             "verification/crate/_CoqProject".into(),
             "verification/proof_build.py".into(),
-            // The component drivers share the listing and ELF tools in pow2.
+            "verification/elf.py".into(),
+            // The component drivers share the listing tools in pow2.
             "verification/crate/pow2".into(),
         ] {
             println!("cargo:rerun-if-changed={path}");

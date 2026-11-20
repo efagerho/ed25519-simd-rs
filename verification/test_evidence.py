@@ -21,6 +21,7 @@ import audit as double4_audit
 import case_data
 import coq_proof
 import evidence
+import elf
 import proof_build
 import run
 
@@ -243,6 +244,32 @@ class ReleaseEvidenceTests(unittest.TestCase):
             self.assertTrue(manifest["theorem"].startswith(f"Ed25519Simd.{namespace}.Object."))
             (work / "curve25519/Field.v").write_text("Definition prime := 17.\n")
             self.assertNotEqual(evidence.sha256(work / "curve25519/Field.v"), manifest["files"]["curve25519/Field.v"])
+
+
+class LinkedElfTests(unittest.TestCase):
+    def test_release_mapping(self):
+        # One text section with an independently supplied program-header mapping.
+        ident = b"\x7fELF\x02\x01" + bytes(10)
+        data = b"abcd"
+        segment = (1, 5, 256, 4096, 0, 4, 4, 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "fixture"
+            def check(segments, section_offset=256, kind=3):
+                header = elf.ELF_HEADER.pack(ident, kind, 62, 1, 0, 64, 0, 0, 64,
+                                             56, len(segments), 0, 0, 0)
+                headers = b"".join(elf.PROGRAM_HEADER.pack(*s) for s in segments)
+                path.write_bytes((header+headers).ljust(256, b"\0") + data)
+                section = f"  0 .text 00000004 00001000 00001000 {section_offset:x}"
+                with patch.object(elf.subprocess, "check_output", return_value=section):
+                    return elf.symbol_bytes(path, 4097, 3)
+            self.assertEqual(check([segment]), b"bcd")
+            self.assertEqual(check([segment], kind=2), b"bcd")
+            for args in [([segment], 255), ([segment, segment],),
+                         ([(1, 4, 256, 4096, 0, 4, 4, 1)],),
+                         ([(1, 5, 256, 4096, 0, 3, 4, 1)],),
+                         ([(1, 5, 256, 4096, 0, 5, 5, 1)],), ([segment], 256, 1)]:
+                with self.subTest(args=args), self.assertRaises(ValueError):
+                    check(*args)
 
 
 class SharedLibraryTests(unittest.TestCase):

@@ -8,7 +8,7 @@ import z3
 
 from spec import EXPONENT, INPUT_MAX, OUTPUT_MAX, P, RADIX, integer
 
-from elf import address, disassemble, require
+from disassembly import address, disassemble, require
 
 
 @dataclass(frozen=True)

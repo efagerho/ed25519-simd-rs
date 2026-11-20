@@ -13,8 +13,7 @@ sys.path.insert(0, str(CRATE / "pow2"))
 sys.path.insert(0, str(VERIFY))
 sys.path.insert(0, str(CRATE))
 from evidence import write_evidence
-from coq_proof import symbol_bytes
-from elf import symbol_extent
+from elf import symbol_bytes, symbol_extent
 from proof_build import (LADDER_PROJECTS, check_object, compile_libraries, component_flags,
                          compile_object, write_symbol_bytes)
 

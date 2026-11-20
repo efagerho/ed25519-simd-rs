@@ -37,7 +37,7 @@ def write_evidence(binary, work, component, checks, symbols, sources, flags, cas
     dest.mkdir()
     for path in sources:
         shutil.copyfile(path, dest / path.name)
-    for path in [HERE / "proof_build.py", Path(__file__)]:
+    for path in [HERE / "proof_build.py", HERE / "elf.py", Path(__file__)]:
         shutil.copyfile(path, dest / path.name)
     dependencies = {"pow2", component}
     if component == "ladder_step":

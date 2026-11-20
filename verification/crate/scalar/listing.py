@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "pow2"))
-from elf import disassemble, require
+from disassembly import disassemble, require
 from generate_listing import assemble, mc
 
 SYMBOL = "ed25519_simd_scalar_reduce_ifma"
