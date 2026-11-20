@@ -59,6 +59,6 @@ bytes and then fail a specified prerequisite of the public theorem. [Release evi
 | Files | What Coq checks |
 | --- | --- |
 | [Schedule.v](coq/Schedule.v) | Both paths through the instructions and nested calls, plus twelve field values and their limb bounds. |
-| [Arithmetic.v](coq/Arithmetic.v), [Check.v](coq/Check.v) | The field identities at each checkpoint follow from the word operations, including wrapping subtraction, unsigned carries, and IFMA's 52-bit operands. |
-| [Zero.v](coq/Zero.v), [Masks.v](coq/Masks.v) | For the positive loose representatives produced here, the limbwise bit test detects exactly zero modulo the field prime. The actual comparisons and mask unions use those results. |
+| [Arithmetic.v](../field51/Arithmetic.v), [Check.v](../field51/Check.v) | The field identities at each checkpoint follow from the word operations, including wrapping subtraction, unsigned carries, and IFMA's 52-bit operands. |
+| [Zero.v](../field51/Zero.v), [Masks.v](coq/Masks.v) | For the positive loose representatives produced here, the limbwise bit test detects exactly zero modulo the field prime. The actual comparisons and mask unions use those results. |
 | [Lane.v](coq/Lane.v), [Object.v](coq/Object.v) | The determinant and full-check paths give the specified decision in each lane, including when a different lane controls the branch. |

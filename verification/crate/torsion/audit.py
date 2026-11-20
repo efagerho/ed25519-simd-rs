@@ -9,14 +9,14 @@ import tempfile
 from listing import SYMBOL, program
 from elf import symbol_extent
 from evidence import write_evidence
-from proof_build import GROUP_PROJECTS, certify_modules, component_flags
+from proof_build import MASK_PROJECTS, certify_modules, component_flags
 
 HERE = Path(__file__).resolve().parent
 sys.path.append(str(HERE.parent / "pow2"))
 from generate_listing import assemble
 
 SOURCE = HERE.parents[2] / "src/wide/avx512ifma/torsion.S"
-MODULES = ("Zero", "Arithmetic", "Check", "Schedule", "Masks", "Audit", "Lane")
+MODULES = ("Schedule", "Masks", "Audit", "Lane")
 
 
 def matches_source(raw, work):
@@ -51,7 +51,7 @@ def replay(binary, work):
         if not matches_source(raw, Path(temp)):
             raise ValueError("linked torsion symbol differs from the assembled source")
     checks = certify_modules(raw, work, [HERE / "coq" / (m + ".v") for m in MODULES],
-                             HERE / "coq/Object.v", projects=GROUP_PROJECTS)
+                             HERE / "coq/Object.v", projects=MASK_PROJECTS)
     addr, _ = symbol_extent(binary, SYMBOL)
     write_evidence(binary, work, "torsion", checks, [(SYMBOL, addr, raw)], [SOURCE],
                    component_flags("torsion"))

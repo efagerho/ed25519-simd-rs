@@ -63,7 +63,7 @@ jobs:
 
       - name: Build all assembly backends
         run: |
-          cargo build --locked --release --features asm --bench cold_profile_zip215 \
+          cargo build --locked --release --features asm --bench cold_profile_dalek \
             --target x86_64-unknown-linux-gnu --message-format=json > "$RUNNER_TEMP/pow2-build.json"
 
       - name: Build shared Coq libraries
@@ -78,7 +78,7 @@ jobs:
 
       - name: Verify release proofs, mutation rejection and machine conformance
         run: |
-          artifact=$(jq -r 'select(.target.name == "cold_profile_zip215" and .executable != null) | .executable' "$RUNNER_TEMP/pow2-build.json")
+          artifact=$(jq -r 'select(.target.name == "cold_profile_dalek" and .executable != null) | .executable' "$RUNNER_TEMP/pow2-build.json")
           test -x "$artifact"
           backend=xed
           if grep -qw avx512ifma /proc/cpuinfo && grep -qw avx512dq /proc/cpuinfo && grep -qw avx512f /proc/cpuinfo; then
@@ -106,6 +106,7 @@ jobs:
             ${{ runner.temp }}/cached-add-mutations/
             ${{ runner.temp }}/ladder-step-audit/
             ${{ runner.temp }}/torsion-audit/
+            ${{ runner.temp }}/small-order-audit/
             ${{ runner.temp }}/scalar-cases.jsonl
             ${{ runner.temp }}/scalar-audit/
             ${{ runner.temp }}/scalar-mutations/

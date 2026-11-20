@@ -12,6 +12,7 @@ README for its contract and release audit.
 | [scalar/](scalar/README.md) | Canonical reduction of eight 512-bit inputs modulo the scalar order. |
 | [ladder_step/](ladder_step/README.md) | A radix-256 ladder step composed from the verified doubling and cached-addition routines. |
 | [torsion/](torsion/README.md) | The returned lane mask equals the full ZIP-215 cofactor check, including the all-lanes early return. |
+| [small_order/](small_order/README.md) | The returned mask selects precisely the valid projective points killed by the cofactor, including the all-lanes rejection path. |
 
 ## What to audit
 
@@ -35,7 +36,8 @@ separate review.
    the same returning execution. For the ladder, read `run_ladder` and the
    fields of `ladder_result`, including `edwards_sum`. For torsion, read
    `run_correct` and `lane_result` for the mask, point premises and group
-   equation. Its machine uses a tagged private stack.
+   equation. For small order, check the two byte bindings and the group result
+   for valid XYZ points. Both mask routines use a tagged private stack.
    [Common call result](../machine/abi/SysV.v) · [Ladder contract](ladder_step/coq/Audit.v)
 3. **Match the caller.** Compare register arguments, Rust layout, buffer
    lengths, aliasing, stack space, and numeric or point-representation premises
@@ -61,12 +63,13 @@ separate review.
 | [Wide51.v](Wide51.v) | `cell` selects qword `8*i + lane`. Trace `field_at`, `point_values`, and `cache_values` to the Rust field order. Check which coordinates each bound covers. |
 | [PointFrame.v](PointFrame.v) | For double4 and cached addition, check the 1,280-byte scratch area, alignment padding, saved RBP, caller and nested return slots, and the writable byte interval. An overly broad interval weakens caller-memory preservation. |
 | [FieldSymbolic.v](FieldSymbolic.v), [FieldKernel.v](FieldKernel.v) | The shared checker for double4 and cached addition takes the decoded instructions, input intervals, output bounds, and target field expressions. Its soundness theorem requires the mask register, loads, initial values, and refinement hints to satisfy their specifications. Coq checks those obligations at each use. |
+| [field51/](field51/README.md) | The shared radix-51 circuit checker proves field congruence, limb bounds and positive representatives at the supplied cuts. Both mask routines use its [zero and mask lemmas](field51/RootMasks.v). |
 
 ## Build and audit
 
 On x86-64 Linux, the `asm` feature enables all assembly backends. Each
 `verify-asm-*` feature also checks the named standalone routine during the
-build and embeds the bytes that passed. The ladder and torsion audits run after linking and certify
+build and embeds the bytes that passed. The ladder, torsion and small-order audits run after linking and certify
 the exact relative addresses in the release ELF.
 
 Run the build commands from the repository root.

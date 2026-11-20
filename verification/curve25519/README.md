@@ -14,7 +14,7 @@ and can be checked independently of the machine model.
 | [SmallOrderFilter.v](SmallOrderFilter.v) | Every exact small-order root passes the 64-bit rejection filter for bounded projective X and Y. |
 | [PrimeField.v](group/PrimeField.v), [Affine.v](group/Affine.v) | The prime field and the affine Edwards group law. |
 | [Representation.v](group/Representation.v) | How XYZ, extended, and cached coordinates represent group elements. |
-| [Cofactor.v](group/Cofactor.v) | The meaning of the determinant shortcut and the full torsion check in the Edwards group. |
+| [Cofactor.v](group/Cofactor.v) | The Edwards group meaning of the projective small-order check, mixed-subtraction torsion check and determinant shortcut. |
 
 The theorem `ladder_represents` connects the coordinate schedule to the group
 sum `[256]P + [16]Odd + Base + Even`. When the routine omits T, the result

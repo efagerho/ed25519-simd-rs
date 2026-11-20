@@ -40,17 +40,18 @@ aliasing, on a CPU and OS that enable the required instructions. Page faults,
 concurrent interference, and timing or side-channel behavior lie outside
 this execution model. [Pointers and permissions](machine/execution/MachineState.v) · [Address placement and writes](machine/memory/FlatMemory.v) · [Byte execution](machine/memory/ByteExecution.v) · [SysV contract](machine/abi/SysV.v)
 
-**Mask-dependent execution.** The torsion routine branches on a value
-computed by all eight lanes. Its functional model reconstructs the EAX
-comparison from the opmask bits and reads RIP-relative qwords from the
-immutable symbol image. Check lane-to-bit order, mask width, both branch
-targets and the mapping of each input to its read-only qword view. Nested
+**Mask-dependent execution.** The torsion and small-order routines branch on values
+computed by all eight lanes. The functional model reconstructs EAX comparisons
+and the zero flag from a mask self-test. RIP-relative qwords and instruction
+fetches use the immutable symbol images at their linked addresses. A native
+load must preserve their relative placement. Check lane-to-bit order, mask
+width, both branch targets and the mapping of each input to its read-only qword view. Nested
 return addresses, saved RBP and vector spills share an aligned, tagged
 stack. Interpreting that stack as private caller memory disjoint from the
 inputs and code is an additional trust boundary. A flat-byte execution
 refinement for this model remains open. Coq proves that its lifted vector
-operations agree with the shared lane semantics. A native probe compares
-the mask-dependent instructions with the CPU. [Mask execution](machine/execution/MaskTrace.v) · [Lane refinement](machine/execution/CircuitFacts.v) · [Native probe](machine/tests/Mask.v)
+operations agree with the shared lane semantics. Native probes compare
+the mask-dependent instructions with the CPU. [Mask execution](machine/execution/MaskTrace.v) · [Lane refinement](machine/execution/CircuitFacts.v) · [EAX probe](machine/tests/Mask.v) · [Filter probe](machine/tests/Filter.v)
 
 **Mathematical meaning.** Check the field prime, scalar order, radix and limb
 weights, Edwards curve and group law, and the predicates saying which point

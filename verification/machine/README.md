@@ -50,6 +50,7 @@ linked byte sequence before executing each program on the pinned CPU.
 | `prologue` | Checks 32- and 64-bit immediates, broadcasts from RAX, stack adjustment in both directions, both `lea r8` encodings, vector loads and stores, and `vzeroupper`. Seven seeds exercise a private stack and three distinct unaligned buffers. The comparison covers RAX, RCX, R8 relative to the frame, restored RSP, all 32 ZMM registers, both inputs, output, stack scratch and guard cells. [Coq](tests/Prologue.v) · [Assembly](tests/native/prologue.S) |
 | `aligned` | Eight seeds cover all four SysV stack padding cases and saved RBP values through `2^64−1`. Checks `push`/`pop rbp`, register copies, `and rsp,-64`, scratch-relative `lea` with zero and nonzero displacements, copies from RDX to RCX and RSP to R9, two nested calls, all ZMM registers, saved stack qwords, vector memory and guards. [Coq](tests/Aligned.v) · [Assembly](tests/native/aligned.S) |
 | `mask` | Broadcasts a linked RIP-relative qword, adds and subtracts memory operands, compares high ZMM registers into opmasks, branches on EAX, and combines two masks. The harness checks the complete image and the returned RAX for both branch outcomes and mixed lanes. [Coq](tests/Mask.v) · [Assembly](tests/native/mask.S) |
+| `filter` | Checks RIP-relative broadcast multiplication and unsigned comparison, unsigned minimum, mask self-test, both branch outcomes and the returned mask across the sign-bit boundary. [Coq](tests/Filter.v) · [Assembly](tests/native/filter.S) |
 
 The aligned probe also covers `MOV rax, imm32` (`48 c7 c0`) with zero,
 one, the scalar reducer's constant, and `2^31-1`, observing each value through
@@ -95,7 +96,8 @@ agree, including the case where self-XOR clears an arbitrary old value.
 
 For mask-dependent branches, `program_tree` follows actual byte addresses
 and builds both successor paths. `result` evaluates each comparison and
-chooses the branch using the eight lane bits packed in EAX. The supported
+chooses the branch using the eight lane bits tested in an opmask or copied to EAX.
+`linked_tree` follows relative calls, jumps and literal loads across two linked symbol ranges. The supported
 memory operands read immutable input vectors or symbol bytes and spill to
 a private qword stack. A fetch into padding, an invalid stack reload, and
 an exhausted instruction budget all reject the path. The shared audit guide

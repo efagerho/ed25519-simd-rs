@@ -8,13 +8,17 @@ Inductive arg := Lit (n:Z) | Input (base row:nat) | Initial (reg:nat) | Wire (id
 Inductive gate :=
 | AddQ (a b:arg) | SubQ (a b:arg) | MulQ (a b:arg) | AndQ (a b:arg)
 | ShiftQ (a:arg) (n:nat) | MaddQ (high:bool) (acc a b:arg)
-| EqQ (a b:arg) | OrK (a b:arg).
+| EqQ (a b:arg) | OrK (a b:arg)
+| LeftQ (a:arg) (n:nat) | MinUQ (a b:arg) | LessUQ (a b:arg).
 Fixpoint operand (lane:nat) (input:nat->nat->Z) (initial wire:nat->Z) a := match a with
  | Lit n=>n | Input b i=>input b i | Initial r=>initial r | Wire i=>wire i | UpperCleared p=>if Nat.ltb lane 2 then operand lane input initial wire p else 0 end.
 Definition denote (v:arg->Z) g := match g with
  | AddQ a b=>Arithmetic.vpaddq (v a) (v b) | SubQ a b=>Arithmetic.vpsubq (v a) (v b)
  | MulQ a b=>Arithmetic.vpmullq (v a) (v b) | AndQ a b=>Logic.vpandq (v a) (v b)
  | ShiftQ a n=>Shift.vpsrlq (v a) n | MaddQ h acc a b=>IFMA.madd52 h (v acc) (v a) (v b)
+ | LeftQ a n=>Shift.vpsllq (v a) n
+ | MinUQ a b=>Z.min (low64 (v a)) (low64 (v b))
+ | LessUQ a b=>if low64 (v a) <? low64 (v b) then 1 else 0
  | EqQ a b=>if v a =? v b then 1 else 0 | OrK a b=>Z.lor (v a) (v b) end.
 Definition circuit := list gate.
 Fixpoint evaluate lane gs n input initial (w:nat->Z) := match gs with
@@ -32,11 +36,19 @@ Inductive ins :=
 | MemALU (sub:bool) (dst src base:nat) (disp:Z)
 | RipBroadcast (dst:nat) (disp:Z) | CompareQ (k a b:nat)
 | OrMask (k a b:nat) | KmovEax (k:nat) | CmpEax (imm:Z) | Je (disp:Z)
+| RipMul (dst src:nat) (disp:Z) | MinUnsigned (dst a b:nat)
+| RipLessUnsigned (k src:nat) (disp:Z) | TestMask (k:nat) | Jne8 (disp:Z)
+| Jump (disp:Z) | ZeroEax
 | PushBP | SetBP | AlignSP | SubSP (size:Z) | RestoreSP | PopBP | Call (disp:Z) | Return | VZeroUpper.
 Definition encoding i := match i with
  | Vector v=>encode v | Store s b d=>Move.encode_store s (Z.of_nat b) d
  | MemALU sub r v b d=>rm_memory 1 1 (if sub then 0xfb else 0xd4) r v (Z.of_nat b) d
  | RipBroadcast r d=>prefix 2 1 (Z.of_nat r) 0 5 ++ [0x59;modrm 0 (Z.of_nat r) 5] ++ le32 d
+ | RipMul r a d=>rip_bcst 2 1 0x40 r a d
+ | RipLessUnsigned k a d=>rip_bcst 3 1 0x1e k a d ++ [1]
+ | MinUnsigned r a b=>rr 2 1 0x3b r a b
+ | TestMask k=>[0xc5;0xf8;0x98;modrm 3 (Z.of_nat k) (Z.of_nat k)]
+ | Jne8 d=>[0x75;d mod 256] | Jump d=>0xe9::le32 d | ZeroEax=>[0x31;0xc0]
  | CompareQ k a b=>rr 2 1 0x29 k a b
  | OrMask k a b=>[0xc5;0x84 + 8*(15-Z.of_nat a);0x45;modrm 3 (Z.of_nat k) (Z.of_nat b)]
  | KmovEax k=>[0xc5;0xf8;0x93;modrm 3 0 (Z.of_nat k)]
@@ -53,6 +65,10 @@ Definition legal i := match i with
  | RipBroadcast r d=>Nat.ltb r 32 && signed 32 d
  | CompareQ k a b=>Nat.ltb k 8 && Nat.ltb a 32 && Nat.ltb b 32
  | OrMask k a b=>Nat.ltb k 8 && Nat.ltb a 8 && Nat.ltb b 8 | KmovEax k=>Nat.ltb k 8
+ | RipMul r a d=>Nat.ltb r 32 && Nat.ltb a 32 && signed 32 d
+ | RipLessUnsigned k a d=>Nat.ltb k 8 && Nat.ltb a 32 && signed 32 d
+ | MinUnsigned r a b=>Nat.ltb r 32 && Nat.ltb a 32 && Nat.ltb b 32
+ | TestMask k=>Nat.ltb k 8 | Jne8 d=>signed 8 d | Jump d=>signed 32 d
  | CmpEax n=>unsigned 32 n | Call d | Je d | SubSP d=>signed 32 d | _=>true end.
 Inductive part := Op (i:ins) | Literal (bytes:list Z).
 Definition bytes p := flat_map (fun s=>match s with Op i=>encoding i|Literal bs=>bs end) p.
@@ -79,8 +95,8 @@ Definition read_vec f a := match stack f a with
  | Some (LaneWord v O)=>if forallb (fun j=>match stack f (a+8*Z.of_nat j) with
    | Some(LaneWord w k)=>Nat.eqb j k && (if arg_dec v w then true else false)
    | _=>false end) (seq 0 8) then Some v else None | _=>None end.
-Definition load (rows : nat) f (base : nat) d := match base with
- | 7%nat | 6%nat=>if (0<=?d)&&(d <? 64 * Z.of_nat rows)&&(d mod 64=?0)
+Definition load (rows : nat -> nat) f (base : nat) d := match base with
+ | 7%nat | 6%nat=>if (0<=?d)&&(d <? 64 * Z.of_nat (rows base))&&(d mod 64=?0)
     then Some(Input base (Z.to_nat (d/64))) else None
  | 4%nat=>read_vec f (sp f+d) | _=>None end.
 Fixpoint little bs := match bs with []=>0 | b::t=>b+256*little t end.
@@ -108,6 +124,7 @@ Definition lower_vector (read : nat -> Z -> option arg) (v : nat -> arg) dst op 
   | Sub a b => Some (Compute (SubQ (v a) (v b)))
   | Mul a b => Some (Compute (MulQ (v a) (v b)))
   | And a b => Some (Compute (AndQ (v a) (v b)))
+  | Shl a n => Some (Compute (LeftQ (v a) n))
   | Shr a n => Some (Compute (ShiftQ (v a) n))
   | Madd high a b => Some (Compute (MaddQ high (v dst) (v a) (v b)))
   | _ => None
@@ -128,7 +145,7 @@ Inductive tree :=
 (* Translate both sides of a conditional jump before choosing a path. Only
    result below inspects lane values. Fetching literal data, accessing an
    unknown slot or exhausting the instruction budget cannot produce Exit. *)
-Fixpoint walk fuel rows code image bottom entry pc f s :=
+Fixpoint walk fuel rows code literal_at bottom entry pc f s :=
   match fuel with
   | O => Fault
   | S n =>
@@ -136,7 +153,7 @@ Fixpoint walk fuel rows code image bottom entry pc f s :=
       match find (fun row => fst row =? pc) code with
       | None => Fault
       | Some (_, (next, i)) =>
-        let go := fun pc f s => walk n rows code image bottom entry pc f s in
+        let go := fun pc f s => walk n rows code literal_at bottom entry pc f s in
         let continue := fun state => match state with
           | Some s' => go next f s' | None => Fault end in
         match i with
@@ -147,7 +164,22 @@ Fixpoint walk fuel rows code image bottom entry pc f s :=
               (if sub then SubQ (regs s src) v else AddQ (regs s src) v))
           | None => Fault end
         | RipBroadcast dst disp =>
-          continue (option_map (fun z => assign s dst (Lit z)) (read_literal image (next+disp)))
+          continue (option_map (fun z => assign s dst (Lit z)) (literal_at (next+disp)))
+        | RipMul dst src disp =>
+          continue (option_map (fun z => emit s dst (MulQ (regs s src) (Lit z))) (literal_at (next+disp)))
+        | RipLessUnsigned dst src disp =>
+          continue (option_map (fun z => emit_mask s dst (LessUQ (regs s src) (Lit z))) (literal_at (next+disp)))
+        | MinUnsigned dst a b => go next f (emit s dst (MinUQ (regs s a) (regs s b)))
+        | TestMask k =>
+          match masks s k with
+          | Some a => go next f (Data (regs s) (masks s) (eax s) (Some (a,0)) (count s) (reversed s))
+          | None => Fault end
+        | Jne8 disp =>
+          match cmp s with
+          | Some (a,imm) => Branch (rev (reversed s)) a imm (go next f s) (go (next+disp) f s)
+          | None => Fault end
+        | Jump disp => go (next+disp) f s
+        | ZeroEax => go next f (Data (regs s) (masks s) (Some (Lit 0)) (Some (Lit 0,0)) (count s) (reversed s))
         | Store src base disp =>
           let addr := sp f + disp in
           if Nat.eqb base 4 && (sp f <=? addr) && (addr+64 <=? entry) && (addr mod 8 =? 0)
@@ -199,7 +231,19 @@ Fixpoint walk fuel rows code image bottom entry pc f s :=
 
 Definition program_tree fuel depth rows p pad :=
   let entry := 8 + 16 * Z.of_nat pad in
-  walk fuel rows (layout p 0) (bytes p) (entry-depth) entry 0 (initial_frame entry) initial_data.
+  walk fuel (fun _ => rows) (layout p 0) (read_literal (bytes p)) (entry-depth) entry 0 (initial_frame entry) initial_data.
+
+(* Calls, jumps and RIP-relative qword loads can cross either symbol boundary.
+   Both regions use the same linked PC space. No instruction or qword can be
+   fetched from a gap. The caller checks disjointness and the 64-bit extent. *)
+Definition linked_tree fuel depth rows pad start code other helper :=
+  let entry := 8 + 16 * Z.of_nat pad in
+  let main_literal := read_literal (bytes code) in
+  let other_literal := read_literal (bytes helper) in
+  let read pc := match main_literal (pc-start) with
+    | Some z => Some z | None => other_literal (pc-other) end in
+  walk fuel rows (layout code start ++ layout helper other) read
+       (entry-depth) entry start (initial_frame entry) initial_data.
 
 Definition mask_value gs a (input : nat -> nat -> nat -> Z) (initial : nat -> nat -> Z) :=
   mask_word 8 (fun j => value j gs (input j) (initial j) a).

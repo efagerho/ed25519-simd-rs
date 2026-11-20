@@ -272,7 +272,7 @@ ed25519_simd_check_8_torsion_ifma:
 // are read (640 bytes); each input limb must be below 2^52. For a valid
 // projective point, EAX bit j is set iff [8]P[j] is the identity.
 // The only stack writes are saved RBP and two nested return addresses.
-// The linked ZIP-215 certificate covers the preceding symbol.
+// The linked proof for this entry and its shared code is in verification/crate/small_order.
 .pushsection .text.ed25519_simd_small_order_ifma,"ax",@progbits
 .p2align 4
 .globl ed25519_simd_small_order_ifma

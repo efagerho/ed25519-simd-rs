@@ -127,6 +127,22 @@ Proof.
    split; field; assumption.
 Qed.
 
+(* All four root tests are invariant under a common nonzero scale. *)
+Local Lemma scaled_roots xx yy P s : s <> 0 ->
+ residue xx = x P*s -> residue yy = y P*s ->
+ (torsion_roots xx yy <-> multiple 8 P = identity).
+Proof.
+ intros NZ X Y. rewrite torsion_roots_iff, eight_identity_iff, X, Y.
+ replace (x P*s*(y P*s)*(x P*s*(x P*s)+y P*s*(y P*s))) with
+    ((x P*y P*(x P*x P+y P*y P))*(s*s*s*s)) by ring.
+ rewrite product_zero. assert (s*s*s*s <> 0) by (repeat first [assumption | apply mul_nonzero]).
+ tauto.
+Qed.
+
+Theorem projective_small_order q P : represents_xyz q P ->
+  (torsion_roots (cx q) (cy q) <-> multiple 8 P = identity).
+Proof. intros [NZ [X Y]]. eapply scaled_roots; eassumption. Qed.
+
 (* The full per-lane predicate works both after a missed shortcut and in
    lanes where the shortcut held but another lane required the full check. *)
 Theorem torsion_check_correct q r P R :
@@ -137,12 +153,7 @@ Proof.
  pose proof (torsion_numerators_represent q r P R Q A AffineR) as Scaled.
  unfold torsion_check. destruct (torsion_numerators q r) as [xx yy].
  destruct Scaled as [s [NZ [X Y]]].
- rewrite torsion_roots_iff, eight_identity_iff, X, Y.
- set (a := x (plus P (negative R))); set (b := y (plus P (negative R))).
- replace (a*s*(b*s)*(a*s*(a*s)+b*s*(b*s))) with
-     ((a*b*(a*a+b*b))*(s*s*s*s)) by ring.
- rewrite (product_zero (a*b*(a*a+b*b))).
- assert (s*s*s*s <> 0) by (repeat first [assumption | apply mul_nonzero]). tauto.
+ eapply scaled_roots; eassumption.
 Qed.
 
 Corollary torsion_shortcut q r P R :

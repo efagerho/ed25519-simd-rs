@@ -1,9 +1,12 @@
-From Coq Require Import List ZArith Lia.
+From Coq Require Import List ZArith Lia Bool.
 From ProofArithmetic Require Import Interval.
 From Curve25519 Require Import Field.
 From Machine Require Import execution.MaskTrace execution.CircuitFacts.
-From Ed25519Simd.Torsion Require Import Program Check.
+From Ed25519Simd.Torsion Require Import Program.
+From Ed25519Simd.field51 Require Import Check.
 Import ListNotations. Local Open Scope Z_scope.
+
+Definition input_used b i := (Nat.eqb b 7 || (Nat.eqb b 6 && (Nat.ltb i 10 || Nat.leb 15 i))) && Nat.ltb i 20.
 
 Definition paths := Eval vm_compute in program_tree 1500 1032 20 code 0.
 Definition long := Eval vm_compute in match paths with Branch _ _ _ _ (Exit gs _)=>gs | _=>[] end.
@@ -38,5 +41,5 @@ Definition plan : list stage := [
  (92%nat,Cut 746 (Times (C sqrt_m1) yy) FirstPositive);
  (43%nat,Cut 789 (Plus iy xx) (FromCarry 765 768 777));
  (15%nat,Cut 804 (minus iy xx) FirstPositive)].
-Lemma scheduled_arithmetic : verify plan long O (fun _=>None)=true.
+Lemma scheduled_arithmetic : verify input_used plan long O (fun _=>None)=true.
 Proof. vm_compute; reflexivity. Qed.

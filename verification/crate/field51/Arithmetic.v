@@ -2,7 +2,7 @@ From Coq Require Import List ZArith Bool Lia Ring Znumtheory.
 From ProofArithmetic Require Import Interval Polynomial.
 From Machine Require Import isa.Instructions execution.MaskTrace execution.CircuitFacts.
 From Curve25519 Require Import Field Radix51.
-From Ed25519Simd.Torsion Require Import Zero.
+From Ed25519Simd.field51 Require Import Zero.
 Import ListNotations. Local Open Scope Z_scope.
 
 (* Keep a signed integer representative across word adds, subtracts and low
@@ -11,8 +11,8 @@ Import ListNotations. Local Open Scope Z_scope.
 Definition W := 2^64.
 Definition triple {A} (a b c:A) (i:nat) := match i with O=>a|S O=>b|_=>c end.
 Definition shape g := match g with
- | AddQ a b | SubQ a b | MulQ a b | AndQ a b | EqQ a b | OrK a b=>triple a b (Lit 0)
- | ShiftQ a _=>triple a (Lit 0) (Lit 0) | MaddQ _ a b c=>triple a b c end.
+ | AddQ a b | SubQ a b | MulQ a b | AndQ a b | EqQ a b | OrK a b | MinUQ a b | LessUQ a b=>triple a b (Lit 0)
+ | ShiftQ a _ | LeftQ a _=>triple a (Lit 0) (Lit 0) | MaddQ _ a b c=>triple a b c end.
 Definition formula g := match g with
  | AddQ _ _=>Some(Plus (V 0)(V 1)) | SubQ _ _=>Some(Plus (V 0)(Times (C (-1))(V 1)))
  | MulQ _ _=>Some(Times (V 0)(V 1))
@@ -67,7 +67,8 @@ Qed.
 Definition atom a := match a with
  | Lit z=>C z | Wire i=>V (64+i) | Input b i=>V ((if Nat.eqb b 7 then 0 else 32)+i)
  | _=>C 0 end.
-Definition input_used b i := (Nat.eqb b 7 || (Nat.eqb b 6 && (Nat.ltb i 10 || Nat.leb 15 i))) && Nat.ltb i 20.
+Section Inputs.
+Variable input_used : nat -> nat -> bool.
 Definition supported_arg a := match a with Lit n=>(0<=?n)&&(n<?W) | Wire _=>true
  | Input b i=>input_used b i | _=>false end.
 Definition source_ok env v :=
@@ -112,3 +113,4 @@ Proof.
  unfold word_models; fold s; rewrite Eq; split; [exact Bound|].
  apply formula_sound; [exact F|intro i;exact(proj2(R i))|exact(proj2(proj2 Src))].
 Qed.
+End Inputs.
