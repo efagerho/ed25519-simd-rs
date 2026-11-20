@@ -53,7 +53,7 @@ Proof.
  assert (RS:regs ci 4%nat=scratch+1288+pad).
  { change (word(regs s 4%nat-8)=scratch+1288+pad);rewrite SP,word_fits by exact SW;unfold sp;ring. }
  assert (M:mem ci=store_word(mem s)(sp-8)(slide+(pc+5))).
- { unfold ci,push;rewrite SP,word_fits by exact SW;reflexivity. }
+ { unfold ci,push,push_words;rewrite SP,word_fits by exact SW;reflexivity. }
  assert (PC:read_word(mem ci)(regs ci 4%nat)=slide+(pc+5)).
  { now apply pushed_return_word. }
  assert (End:word64(regs ci 4%nat+8)) by (rewrite RS;geometry).

@@ -3,9 +3,7 @@ From Machine Require Import isa.Instructions execution.Blocks memory.FlatMemory 
 Import ListNotations.
 Open Scope Z_scope.
 
-Definition word n := n mod 2^64.
-Definition signed_value half n := let u:=n mod (2*half) in
- if u <? half then u else u-2*half.
+From Machine Require Export execution.WordSemantics.
 Lemma signed_value_id half n : 0<half -> -half<=n<half -> signed_value half n=n.
 Proof.
  intros Positive Bounds;unfold signed_value;destruct(Z_le_dec 0 n).
@@ -81,14 +79,14 @@ Definition operation_placement loc c op := match op with
 Definition word_operation op w :=
  let regs:=word_gpr w in let ip:=word_pc w in let flag:=word_zf w in
  match op with
- | Mov32 d n => word_set w d (word(n mod 2^32))
+ | Mov32 d n => WordControl ip (register_write regs d (Unsigned32 n)) flag
  | MovAbsRax n => word_set w 0 (word n)
  | MovRaxImm32 n => word_set w 0 (word(signed_value (2^31) n))
- | MovReg d s => word_set w d (regs s)
+ | MovReg d s => WordControl ip (register_write regs d (FromRegister s)) flag
  | AdjustRsp sub n => let v:=word(regs 4%nat+(if sub then -signed_value (2^31) n else signed_value (2^31) n)) in
    WordControl ip (put regs 4 v) (v=?0)
- | LeaR8Rsp n => word_set w 8 (word(regs 4%nat+signed_value (2^31) n))
- | LeaR8Rsi n => word_set w 8 (word(regs 6%nat+signed_value (2^31) n))
+ | LeaR8Rsp n => WordControl ip (register_write regs 8 (EffectiveAddress 4 n)) flag
+ | LeaR8Rsi n => WordControl ip (register_write regs 8 (EffectiveAddress 6 n)) flag
  | DecEcx => let v:=(regs 1%nat-1) mod 2^32 in WordControl ip (put regs 1 (word v)) (v=?0)
  | AlignRsp64 => let v:=word(Z.land (regs 4%nat) (-64)) in WordControl ip (put regs 4 v) (v=?0)
  | _ => w end.
@@ -100,7 +98,7 @@ Theorem operation_refines p l loc c op mid es w :
 Proof.
  intros Valid Placement Exec Rep.
  destruct Rep as[PC[Regs Flags]].
- destruct op;cbn [exec_op] in Exec;cbn [word_operation].
+ destruct op;cbn [exec_op] in Exec;cbn [word_operation]; try unfold register_write.
  - injection Exec as <- <-;apply control_put;[repeat split;assumption|reflexivity].
  - injection Exec as <- <-;apply control_put;[repeat split;assumption|].
    cbn [scalar_represents];symmetry;apply word_idempotent.
@@ -153,16 +151,15 @@ Definition stack_access loc flat e := match e with
 Definition word_transfer next e w flat : word_control * bytes :=
  let regs:=word_gpr w in let flag:=word_zf w in
  let finish ip regs flat := (WordControl (word ip) regs flag,flat) in
+ let stack op := let result := stack_step 0 next op regs flat in
+   (WordControl (target_ip result) (result_regs result) flag, result_mem result) in
  match e with
  | Next => finish next regs flat
  | JneRel8 d => finish (if flag then next else next+signed_value (2^7) d) regs flat
- | CallRel32 d => let sp:=word(regs 4%nat-8) in
-   finish (next+signed_value (2^31) d) (put regs 4 sp)
-     (write_bytes flat sp 8 (word_byte next))
- | PushRbp => let sp:=word(regs 4%nat-8) in
-   finish next (put regs 4 sp) (write_bytes flat sp 8 (word_byte(regs 5%nat)))
- | PopRbp => finish next (put (put regs 4 (word(regs 4%nat+8))) 5 (read_word flat(word(regs 4%nat)))) flat
- | Ret => finish (read_word flat(word(regs 4%nat))) (put regs 4 (word(regs 4%nat+8))) flat
+ | CallRel32 d => stack (NearCall d)
+ | PushRbp => stack (PushRegister 5)
+ | PopRbp => stack (PopRegister 5)
+ | Ret => stack NearReturn
  end.
 Lemma pointer_zero loc regs words a : registers_represent loc regs words ->
  (match regs 4%nat with Ptr p=>Some(offset p 0) | _=>None end)=Some a ->
@@ -183,7 +180,7 @@ Theorem transfer_refines p l loc c next e last es w d flat :
  control_represents loc last(fst result) /\ snd result=replay p loc es d flat.
 Proof.
  intros Encoding Exec Access [PC[Regs Flags]].
- destruct e;cbn [transfer_recorded] in Exec;cbn [word_transfer].
+ destruct e;cbn [transfer_recorded] in Exec;cbn [word_transfer stack_step push_words target_ip result_regs result_mem advance_rsp stack_top Z.add].
  - injection Exec as <- <-;split;[repeat split;try assumption;reflexivity|reflexivity].
  - destruct(pointer_at c 4 (-8))as[a|]eqn:A;[destruct(return_ok l a)eqn:Permission|];try discriminate.
    injection Exec as <- <-;inversion Access as[|? ? Fits _];subst.
@@ -203,7 +200,7 @@ Proof.
  - destruct(pointer_at c 4 0)as[a|]eqn:A;[destruct(return_ok l a)eqn:Permission|];try discriminate.
    destruct(return_memory c a)as[t|]eqn:Saved;[|discriminate];injection Exec as <- <-.
    inversion Access as[|? ? Safe _];subst;destruct Safe as[Fits Read].
-   rewrite(pointer_zero _ _ _ _ Regs A),(address_fits_word loc a 8 ltac:(lia) Fits),Read,word_idempotent.
+   unfold stack_top; rewrite(pointer_zero _ _ _ _ Regs A),(address_fits_word loc a 8 ltac:(lia) Fits),Read,word_idempotent.
    split;[|reflexivity];split;[reflexivity|];split;[|exact Flags].
    apply registers_put;[exact Regs|exact(pointer_increment _ _ _ _ Regs A)].
  - destruct(pointer_at c 4 (-8))as[a|]eqn:A;[|discriminate].
@@ -218,7 +215,7 @@ Proof.
  - destruct(pointer_at c 4 0)as[a|]eqn:A;[destruct(return_ok l a)eqn:Permission|];try discriminate.
    destruct(return_memory c a)as[t|]eqn:Saved;[destruct t|];try discriminate;injection Exec as <- <-.
    inversion Access as[|? ? Safe _];subst;destruct Safe as[Fits Read].
-   rewrite(pointer_zero _ _ _ _ Regs A),(address_fits_word loc a 8 ltac:(lia) Fits),Read.
+   unfold stack_top; rewrite(pointer_zero _ _ _ _ Regs A),(address_fits_word loc a 8 ltac:(lia) Fits),Read.
    split;[|reflexivity];split;[reflexivity|];split;[|exact Flags].
    apply registers_put;[apply registers_put;[exact Regs|exact(pointer_increment _ _ _ _ Regs A)]|].
    cbn [scalar_represents pc_word];change(word bits=word(word bits));symmetry;apply word_idempotent.
@@ -231,16 +228,17 @@ Definition word_control_well_formed w :=
 Lemma word_operation_well_formed op w : word_control_well_formed w ->
  word_control_well_formed(word_operation op w).
 Proof.
- intros[PC Regs];destruct op;split;cbn [word_operation word_set word_pc word_gpr];try exact PC;
- intro r;unfold put;repeat destruct(Nat.eqb _ r);auto using word_bound.
+ intros[PC Regs];destruct op;split;cbn [word_operation register_write word_set word_pc word_gpr];try exact PC;
+ intro r;unfold register_write, advance_rsp, put;repeat destruct(Nat.eqb _ r);auto using word_bound.
 Qed.
 Lemma word_transfer_well_formed next e w flat :
  word_control_well_formed w -> byte_memory flat ->
  word_control_well_formed(fst(word_transfer next e w flat)).
 Proof.
- intros[PC Regs]Bytes;destruct e;split;cbn [word_transfer word_pc word_gpr fst];
- try apply word_bound;intro r;unfold put;repeat destruct(Nat.eqb _ r);
+ intros[PC Regs]Bytes;destruct e;split;cbn [word_transfer stack_step push_words target_ip result_regs result_mem advance_rsp stack_top word_pc word_gpr fst];
+ try apply word_bound;intro r;unfold register_write, advance_rsp, put;repeat destruct(Nat.eqb _ r);
  auto using word_bound,read_word_bound.
+ unfold stack_top; now apply read_word_bound.
 Qed.
 
 (* No second interpreter is used to check alignment requirements. This

@@ -50,6 +50,6 @@ Proof.
    + intros r H; rewrite Reg by exact H.
      destruct H as [<-|[<-|[<-|[<-|[<-|[<-|[]]]]]]]; reflexivity.
    + intros x H; destruct (Disjoint x H) as [Outside Slot].
-     rewrite Frame by exact Outside; unfold push; cbn [mem].
+     rewrite Frame by exact Outside; unfold push, push_words; cbn [with_words mem].
      rewrite word_fits by exact SP; apply write_outside; lia.
 Qed.

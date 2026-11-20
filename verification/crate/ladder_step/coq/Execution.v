@@ -36,7 +36,8 @@ Record invariant s : Prop := {
  inv_frame : preserved outside (mem initial)(mem s)
 }.
 
-Local Ltac reg_simpl := cbn [copies set set_regs push pop returning regs mem put Nat.eqb].
+Local Ltac reg_simpl := cbn [copies set set_regs push pop returning push_words apply_stack stack_step target_ip result_regs result_mem
+ with_words advance_rsp stack_top regs mem put Nat.eqb].
 Local Ltac addresses :=
  pose proof(stack_fits _ _ _ _ _ place);pose proof(padding_bounds _ _ _ _ _ place);
  unfold fits64,word64,sp,top in *;lia.
@@ -91,12 +92,22 @@ Proof.
 Qed.
 Lemma invoke_ok k pc s : invariant s -> wrapper_pc<=pc -> pc+5<wrapper_pc+wrapper_size ->
  parameters k s pt cache ->
- exists out,dispatch (slide+double4_pc)(slide+cached_pc) sc pad (slide+target k)
- (push s (slide+(pc+5))) (slide+(pc+5)) out /\ invariant out /\
+ exists out,dispatch (slide+double4_pc)(slide+cached_pc) sc pad (word (slide+target k))
+ (push s (slide+(pc+5))) (word (slide+(pc+5))) out /\ invariant out /\
  operation_spec k (mem s)(mem out) pt cache.
 Proof.
  intros Inv L H P;destruct(call_once _ _ _ _ _ place k pc s L H
    (inv_wf _ Inv)(inv_sp _ Inv) P) as [out[R[W[S[G[F Spec]]]]]].
+ assert (Target : word64 (slide+target k)).
+ { destruct k; cbn [target];
+   [destruct (code_regions _ _ _ _ _ place _ _ (or_intror (or_introl eq_refl))) as [Fits _]
+   |destruct (code_regions _ _ _ _ _ place _ _ (or_intror (or_intror (or_introl eq_refl)))) as [Fits _]];
+   unfold word64, fits64 in *; [assert (0<dsize) by (vm_compute; reflexivity)
+                               |assert (0<asize) by (vm_compute; reflexivity)]; lia. }
+ assert (Next : word64 (slide+(pc+5))).
+ { destruct (code_regions _ _ _ _ _ place _ _ (or_introl eq_refl)) as [Fits _].
+   unfold word64, fits64 in *; lia. }
+ rewrite (word_fits _ Target), (word_fits _ Next).
  exists out;split;[exact R|];split;[|exact Spec];constructor;auto.
  - intros;rewrite G by assumption;apply(inv_regs _ Inv);assumption.
  - eapply slot_frame;[apply(inv_slots _ Inv)|exact F].
@@ -140,11 +151,20 @@ Proof.
  assert(E1:word(sp+8)=sp+8)by(apply word_fits;addresses).
  assert(E2:word(sp+8+8)=sp+16)by(replace(sp+8+8)with(sp+16)by ring;apply word_fits;addresses).
  assert(E3:word(sp+16+8)=top)by(replace(sp+16+8)with top by(unfold sp,top;ring);apply word_fits;addresses).
- unfold epilogue,restored;cbn [runs];reg_simpl;rewrite (inv_sp _ I),E1,E2,E3,Ret;
- repeat split;try reflexivity;try(apply word_fits;addresses).
- intros r G;destruct G as[<-|[<-|[<-|[<-|[<-|[<-|[]]]]]]];reg_simpl;
- rewrite ?(inv_sp _ I),?E1,?E2,?E3,?R13,?R12,?R3;
- try reflexivity;rewrite (inv_regs _ I) by (cbn;tauto);reflexivity.
+ assert (ReturnWord : word caller = caller) by
+   (apply word_fits, read_word_bound; exact (proj2 (proj2 initial_wf))).
+ split.
+ - unfold epilogue; cbn [runs]; split; [|reflexivity].
+   reg_simpl; unfold stack_top, advance_rsp; reg_simpl.
+   rewrite (inv_sp _ I),E1,E2,E3,(word_fits top),Ret,ReturnWord by addresses. reflexivity.
+ - split.
+   + unfold restored; reg_simpl. rewrite (inv_sp _ I),E1,E2,E3. apply word_fits; addresses.
+   + intros r G; destruct G as [<-|[<-|[<-|[<-|[<-|[<-|[]]]]]]];
+     unfold restored; reg_simpl; try unfold advance_rsp, stack_top; reg_simpl;
+     rewrite ?(inv_sp _ I),?E1,?E2,?E3;
+     rewrite ?(word_fits sp),?(word_fits (sp+8)),?(word_fits (sp+16)) by addresses;
+     rewrite ?R13,?R12,?R3; try reflexivity;
+     rewrite (inv_regs _ I) by (cbn;tauto); reflexivity.
 Qed.
 
 (* A staged operand is read from the entry memory, even after earlier
