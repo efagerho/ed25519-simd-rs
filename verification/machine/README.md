@@ -8,6 +8,10 @@ stack memory, direct calls, conditional jumps and returns. [File-by-file guide](
 
 ## How the model is checked
 
+The [release exporter](tests/ExportCases.v) walks every operation of each block.
+Its two coverage theorems preserve instruction order and multiplicity and locate
+each vector fragment instruction at the byte offset of its encoded prefix.
+
 The vector corpus combines fixed cases for each vector instruction family with a
 deterministic boundary sweep. Each backend uses the same inputs. [Fixed cases](tests/cases) · [Boundary sweep](tests/overflow.py)
 

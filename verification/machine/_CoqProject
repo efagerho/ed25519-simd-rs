@@ -30,6 +30,7 @@ tests/Mixed.v
 tests/Prologue.v
 tests/Aligned.v
 tests/CallerForms.v
+tests/ExportCases.v
 execution/Lane.v
 memory/MemoryGeometry.v
 memory/MemoryCoverage.v
