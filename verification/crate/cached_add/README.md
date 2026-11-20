@@ -19,7 +19,7 @@ Object.assembled_cached_add_correct : Audit.cached_add_contract ObjectBytes.symb
    RDX selects T, and RCX selects affine mode. Both flags must be zero or one.
    Check the field order `Y−X, Y+X, 2dT`, with `2Z` present only in the
    projective cache. The assembly ladder selects and transposes the table entries
-   before the verified call. [Staging theorem](../stage_round/README.md) · [Rust caller](../../../src/wide/avx512ifma/ladder_step_asm.rs) · [Cache decoding](../Wide51.v) · [Byte contract](coq/CachedAddBytes.v)
+   before the verified call. [Staging theorem](../stage_round/README.md) · [Full ladder caller](../../../src/wide/avx512ifma/mul_s_base_minus_k_public.S) · [Ladder step](../../../src/wide/avx512ifma/ladder_step.S) · [Cache decoding](../Wide51.v) · [Byte contract](coq/CachedAddBytes.v)
 2. Read `cached_add_spec` for all four flag combinations. The field result
    requires bounded point and cache limbs. The literal-zero T guarantee sits
    outside that implication. For the group interpretation, check that

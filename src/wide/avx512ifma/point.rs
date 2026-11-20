@@ -51,7 +51,12 @@ core::arch::global_asm!(include_str!("double4.S"), options(raw));
 ))]
 core::arch::global_asm!(include_str!(concat!(env!("OUT_DIR"), "/double4-checked.S")));
 
-#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
+#[cfg(all(
+    test,
+    feature = "asm",
+    target_os = "linux",
+    target_pointer_width = "64"
+))]
 unsafe extern "C" {
     /// SysV: RDI points to one exclusive, initialized `WidePoint`.
     ///
@@ -83,7 +88,12 @@ core::arch::global_asm!(include_str!(concat!(
     "/cached-add-checked.S"
 )));
 
-#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
+#[cfg(all(
+    test,
+    feature = "asm",
+    target_os = "linux",
+    target_pointer_width = "64"
+))]
 unsafe extern "C" {
     /// In-place addition with staged (Y-X), (Y+X), 2dT, and optional 2Z.
     /// `affine` and `compute_t` are 0 or 1. Every input limb is < 2^52.
@@ -187,22 +197,12 @@ impl WidePoint {
         let field = |pick: fn(&CachedPoint) -> &Fe51| {
             WideFe::from_field_refs(&core::array::from_fn(|lane| pick(points[lane])))
         };
-        Self::from_cached_fields_without_t(
-            &field(|p| p.coords().1),
-            &field(|p| p.coords().0),
-            field(|p| p.coords().2),
-        )
-    }
-
-    pub(super) fn from_cached_fields_without_t(
-        y_minus_x: &WideFe,
-        y_plus_x: &WideFe,
-        z2: WideFe,
-    ) -> Self {
+        let y_minus_x = field(|p| p.coords().1);
+        let y_plus_x = field(|p| p.coords().0);
         Self {
-            x: y_plus_x.subtract(y_minus_x),
-            y: y_plus_x.add_loose(y_minus_x),
-            z: z2,
+            x: y_plus_x.subtract(&y_minus_x),
+            y: y_plus_x.add_loose(&y_minus_x),
+            z: field(|p| p.coords().2),
             t: WideFe::zero(),
         }
     }
@@ -362,13 +362,14 @@ impl WidePoint {
 }
 
 impl WidePoint {
-    #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
+    #[cfg(all(
+        test,
+        feature = "asm",
+        target_os = "linux",
+        target_pointer_width = "64"
+    ))]
     #[inline(always)]
-    pub(super) fn add_staged_cached_assign<const N: usize>(
-        &mut self,
-        fields: &[WideFe; N],
-        compute_t: bool,
-    ) {
+    fn add_staged_cached_assign<const N: usize>(&mut self, fields: &[WideFe; N], compute_t: bool) {
         const {
             assert!(N == 3 || N == 4);
         }
@@ -540,6 +541,10 @@ impl WidePoint {
         self.double_impl::<false, false>()
     }
 
+    #[cfg(any(
+        test,
+        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
+    ))]
     /// In place so `acc = acc.double_four_times()`'s 1280-byte return
     /// copy never happens; the last double writes straight into `self`.
     #[inline(never)]

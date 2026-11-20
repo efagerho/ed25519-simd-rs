@@ -52,3 +52,16 @@ impl SelectedRound<'_> {
         acc.add_cached_refs_assign(&self.even, compute_t);
     }
 }
+
+// Only ZIP-215's final torsion subtraction needs T.
+pub(super) fn mul_s_base_minus_k_public<const NEED_T: bool>(
+    base_table: &BasepointTableEntries,
+    prepared: &PreparedChunk<'_>,
+) -> WidePoint {
+    let select = round_selector(base_table, prepared);
+    let mut acc = select(31).start();
+    for pair in (0..31).rev() {
+        select(pair).step(&mut acc, NEED_T && pair == 0);
+    }
+    acc
+}

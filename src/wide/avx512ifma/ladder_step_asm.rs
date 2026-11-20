@@ -8,6 +8,7 @@ use core::mem::MaybeUninit;
 
 core::arch::global_asm!(include_str!("stage_round.S"), options(raw));
 core::arch::global_asm!(include_str!("ladder_step.S"), options(raw));
+core::arch::global_asm!(include_str!("mul_s_base_minus_k_public.S"), options(raw));
 
 /// The operand layout consumed by the linked ladder_step.S.
 #[repr(C)]
@@ -28,6 +29,15 @@ const _: () = {
 };
 
 unsafe extern "C" {
+    fn ed25519_simd_mul_s_base_minus_k_public(
+        out: *mut u8,
+        keys: *const *const CachedPoint,
+        base: *const AffineCachedPoint,
+        s: *const Radix16,
+        k: *const Radix16,
+        compute_t: u64,
+    );
+    #[cfg(test)]
     fn ed25519_simd_stage_round(
         out: *mut u8,
         keys: *const *const CachedPoint,
@@ -36,9 +46,33 @@ unsafe extern "C" {
         k: *const Radix16,
         pair: usize,
     );
+    #[cfg(test)]
     fn ed25519_simd_ladder_step_ifma(point: *mut u8, operands: *const u8, compute_t: u64);
 }
 
+pub(super) fn mul_s_base_minus_k_public<const NEED_T: bool>(
+    base: &BasepointTableEntries,
+    prepared: &PreparedChunk<'_>,
+) -> WidePoint {
+    let keys = prepared.public_key_tables.map(PointTable::entries_ptr);
+    let mut out = MaybeUninit::<WidePoint>::uninit();
+    // SAFETY: the borrowed arrays provide all eight initialized key tables,
+    // the affine table and both lane-major digit buffers for the entire call.
+    // The exclusive, aligned output is fully written, including T in both modes.
+    unsafe {
+        ed25519_simd_mul_s_base_minus_k_public(
+            out.as_mut_ptr().cast(),
+            keys.as_ptr(),
+            base.as_ptr(),
+            prepared.s_digits.as_ptr(),
+            prepared.k_digits.as_ptr(),
+            u64::from(NEED_T),
+        );
+        out.assume_init()
+    }
+}
+
+#[cfg(test)]
 /// Borrow the tables for the entire ladder and resolve their entry-array
 /// addresses once. Each invocation materializes only the requested pair.
 pub(super) fn round_selector<'a>(
@@ -67,18 +101,8 @@ pub(super) fn round_selector<'a>(
     }
 }
 
+#[cfg(test)]
 impl StagedLadderStep {
-    /// Pair 31 seeds XYZ from the odd cached point. The first doubling
-    /// ignores T. The base addition supplies T for the even addition.
-    pub(super) fn start(&self) -> WidePoint {
-        let [ymx, ypx, _, z2] = &self.odd;
-        let mut acc = WidePoint::from_cached_fields_without_t(ymx, ypx, *z2);
-        acc.double_four_times_assign();
-        acc.add_staged_cached_assign(&self.base, true);
-        acc.add_staged_cached_assign(&self.even, false);
-        acc
-    }
-
     #[inline]
     pub(super) fn step(&self, point: &mut WidePoint, compute_t: bool) {
         #[cfg(debug_assertions)]

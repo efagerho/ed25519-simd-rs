@@ -1,6 +1,6 @@
 use super::decode::decompress_points_wide;
 use super::field::{WideFe, loadu, storeu};
-use super::multiscalar::mul_s_base_minus_k_public;
+use super::ladder_step::mul_s_base_minus_k_public;
 use super::point::WidePoint;
 use super::*;
 use crate::edwards::{

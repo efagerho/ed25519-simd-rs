@@ -5,28 +5,29 @@ From Ed25519Simd Require Import Wide51.
 From Curve25519 Require Import FieldPolynomial.
 From Ed25519Simd.Double4 Require Import Program Double4ABI Kernels KernelInterface.
 Import ListNotations. Open Scope Z_scope.
-Definition kernel_id k := match k with AddReduce=>2%nat | SquarePair=>7%nat |
- SubtractReduce=>4%nat | MultiplyPair=>8%nat | MultiplySingle=>9%nat end.
+Definition kernel_id k := match k with AddReduce=>4%nat | SquarePair=>9%nat |
+ SubtractReduce=>6%nat | MultiplyPair=>10%nat | MultiplySingle=>11%nat end.
 Lemma kernel_link k : fragment_code double4_program (kernel_id k)=code k.
 Proof. destruct k;vm_compute;reflexivity. Qed.
 Definition save region coord reg := map (fun i=>Write (reg+i)%nat (region,64*Z.of_nat(coord+i))) (seq 0 5).
 Definition kernel_effect k base := Evaluate (kernel_id k)
  (match k with AddReduce | SquarePair=>[] | _=>[(load_base k,base)] end).
-Definition stage0 := [Evaluate 1 [(7%nat,(point,0))]].
+Definition stage0 := [Evaluate 3 [(7%nat,(point,0))]].
 Definition stage1 := save scratch 15 10.
 Definition stage2 := save scratch 0 0 ++ save scratch 5 5 ++
- [Evaluate 3 [(7%nat,(point,0));(6%nat,(scratch,0))]].
+ [Evaluate 5 [(7%nat,(point,0));(6%nat,(scratch,0))]].
 Definition stage3 := [Broadcast 30 (bias 0);Broadcast 31 (bias 1)].
 Definition stage4 := save scratch 0 0 ++ save scratch 5 10 ++ save scratch 10 15 ++
- save scratch 15 5 ++ [Evaluate 5 []].
+ save scratch 15 5 ++ [Evaluate 7 []].
 Definition stage5 (full:bool) := save point 0 0 ++ save point 10 5 ++
- [Evaluate 6 [(6%nat,(scratch,0))]] ++ if full then [Evaluate 0 [(6%nat,(scratch,0))]] else [].
-Definition stage6 (full:bool) := save point 5 0 ++ if full then save point 15 5 else [].
+ [Evaluate 8 [(6%nat,(scratch,0))]] ++ if full then [Evaluate 2 [(6%nat,(scratch,0))]] else [].
+Definition stage6 (full:bool) := if full then save point 5 0 ++ save point 15 5 else [Evaluate 1 []].
 Definition round_effects (full:bool) := stage0 ++ [kernel_effect AddReduce (scratch,0)] ++ stage1 ++
  [kernel_effect SquarePair (scratch,0)] ++ stage2 ++ [kernel_effect SquarePair (scratch,0)] ++ stage3 ++
  [kernel_effect SubtractReduce (scratch,0)] ++ stage4 ++ [kernel_effect MultiplyPair (scratch,640)] ++
  stage5 full ++ [kernel_effect (if full then MultiplyPair else MultiplySingle) (scratch,960)] ++ stage6 full.
-Definition expected_path := [Broadcast 28 19;Broadcast 29 (radix-1)] ++
+Definition entry_effects := [Broadcast 28 19;Broadcast 29 (radix-1);Evaluate 0 [(7%nat,(point,0))]].
+Definition expected_path := entry_effects ++
  round_effects false ++ round_effects false ++ round_effects false ++ round_effects true ++ [ClearUpper].
 Definition observe_path (result:option(control * list effect)) := match result with
  | Some(c,es)=>Some(rip c,Blocks.gpr c 4%nat,es) | _=>None end.
@@ -55,6 +56,15 @@ Proof. apply (Machine.execution.Lane.lane_effects_words double4_program). Qed.
 Definition constants s := registers s 28%nat=19 /\ registers s 29%nat=radix-1.
 Definition field s region coord := fun i=>cells s (region,64*Z.of_nat(coord+i)).
 Definition rfield s reg := get (registers s) reg.
+(* Only the final round writes Y to memory. Between rounds ZMM5..9 hold Y. *)
+Definition round_field (y_in_memory:bool) s coord :=
+ if y_in_memory then field s point (5*coord)
+ else match coord with 1%nat=>rfield s 5 | _=>field s point (5*coord) end.
+Lemma round_field_memory y_in_memory s c : c <> 1%nat -> round_field y_in_memory s c=field s point (5*c).
+Proof.
+ intros H;destruct y_in_memory;[reflexivity|].
+ destruct c as [|[|c]];try reflexivity;contradiction.
+Qed.
 Definition shuffle j es s := lane_effects j es s.
 Definition call (j:nat) k base s := Lane
  (run (lane_load s (match k with AddReduce | SquarePair=>[] | _=>[(load_base k,base)] end)) (code k) (registers s)) (cells s).
@@ -75,7 +85,7 @@ Qed.
 Ltac five := intros i I;do 5 (destruct i as [|i];[reflexivity|]);lia.
 Lemma stage0_x j s : forall i,(i<5)%nat -> rfield (shuffle j stage0 s) 0 i=field s point 0 i.
 Proof. five. Qed.
-Lemma stage0_y j s : forall i,(i<5)%nat -> rfield (shuffle j stage0 s) 5 i=field s point 5 i.
+Lemma stage0_y j s : forall i,(i<5)%nat -> rfield (shuffle j stage0 s) 5 i=rfield s 5 i.
 Proof. five. Qed.
 Lemma stage1_xy j s : forall i,(i<10)%nat -> registers (shuffle j stage1 s) i=registers s i.
 Proof. intros;reflexivity. Qed.
@@ -113,7 +123,7 @@ Lemma stage5_x j full s : forall i,(i<5)%nat -> field (shuffle j (stage5 full) s
 Proof. destruct full;five. Qed.
 Lemma stage5_z j full s : forall i,(i<5)%nat -> field (shuffle j (stage5 full) s) point 10 i=rfield s 5 i.
 Proof. destruct full;five. Qed.
-Lemma stage6_y j full s : forall i,(i<5)%nat -> field (shuffle j (stage6 full) s) point 5 i=rfield s 0 i.
+Lemma stage6_y j full s : forall i,(i<5)%nat -> round_field full (shuffle j (stage6 full) s) 1 i=rfield s 0 i.
 Proof. destruct full;five. Qed.
 Lemma stage6_t j s : forall i,(i<5)%nat -> field (shuffle j (stage6 true) s) point 15 i=rfield s 5 i.
 Proof. five. Qed.

@@ -12,8 +12,8 @@ Definition prepare j s :=
  let cd:=call j SquarePair (scratch,0)(shuffle j(stage 2 false)ab) in
  let sub:=call j SubtractReduce (scratch,0)(shuffle j(stage 3 false)cd) in
  shuffle j(stage 4 false)sub.
-Definition lane_coordinates s := Coordinates (limbs(field s point 0)) (limbs(field s point 5))
- (limbs(field s point 10)) (limbs(field s point 15)).
+Definition lane_coordinates y_in_memory s := Coordinates (limbs(round_field y_in_memory s 0))
+ (limbs(round_field y_in_memory s 1)) (limbs(round_field y_in_memory s 2)) (limbs(round_field y_in_memory s 3)).
 Definition preparation_value q coord :=
  let a:=cx q*cx q in let b:=cy q*cy q in let c:=cz q*cz q in
  let d:=(cx q+cy q)*(cx q+cy q) in
@@ -21,11 +21,11 @@ Definition preparation_value q coord :=
 Definition prepared s out :=
  lane_words out /\ constants out /\
  (forall coord,In coord [0%nat;5%nat;10%nat;15%nat] ->
- ready(field out scratch coord) /\ represents(limbs(field out scratch coord))(preparation_value(lane_coordinates s)coord)) /\
+ ready(field out scratch coord) /\ represents(limbs(field out scratch coord))(preparation_value(lane_coordinates false s)coord)) /\
  (forall i,(i<5)%nat -> rfield out 0 i=field out scratch 0 i /\ rfield out 5 i=field out scratch 5 i) /\
  (forall coord i, field out point coord i=field s point coord i).
 Lemma prepare_correct j s : lane_words s -> constants s ->
- loose(field s point 0) -> loose(field s point 5) -> loose(field s point 10) ->
+ loose(field s point 0) -> loose(rfield s 5) -> loose(field s point 10) ->
  prepared s (prepare j s).
 Proof.
  intros W C X Y Zb.
@@ -35,7 +35,7 @@ Proof.
  assert(Xxy:loose(rfield xy 0)) by(eapply loose_ext;[intros;symmetry;apply stage0_x;assumption|exact X]).
  assert(Yxy:loose(rfield xy 5)) by(eapply loose_ext;[intros;symmetry;apply stage0_y;assumption|exact Y]).
  assert(XY0:limbs(rfield xy 0)=limbs(field s point 0))by(apply limbs_ext,stage0_x).
- assert(XY5:limbs(rfield xy 5)=limbs(field s point 5))by(apply limbs_ext,stage0_y).
+ assert(XY5:limbs(rfield xy 5)=limbs(rfield s 5))by(apply limbs_ext,stage0_y).
  set(plus:=call j AddReduce (scratch,0)xy).
  destruct(call_add j xy Wxy Cxy Xxy Yxy)as[Sum SumV].
  change(ready(rfield plus 10))in Sum.
@@ -107,7 +107,7 @@ Proof.
  (* The four small polynomial identities below compose the proved kernels. *)
  assert(SubMath:forall start,In start [0%nat;5%nat;10%nat;15%nat] ->
  ready(rfield sub start) /\ represents(limbs(rfield sub start))
- (preparation_value(lane_coordinates s)(if Nat.eqb start 5 then 15 else if Nat.eqb start 10 then 5 else if Nat.eqb start 15 then 10 else 0))).
+ (preparation_value(lane_coordinates false s)(if Nat.eqb start 5 then 15 else if Nat.eqb start 10 then 5 else if Nat.eqb start 15 then 10 else 0))).
  { intros start Member;destruct(Sub start Member)as[Bounds V];split;[exact Bounds|].
    assert(MA:pack(fun i=>cells sub_in(scratch,64*Z.of_nat i))0=limbs(rfield ab 0))by(apply limbs_ext,SA).
    assert(MB:pack(fun i=>cells sub_in(scratch,64*Z.of_nat i))5=limbs(rfield ab 5))by(apply limbs_ext,SB).

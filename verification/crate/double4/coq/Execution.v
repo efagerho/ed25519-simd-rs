@@ -12,11 +12,11 @@ Proof.
  rewrite !call_is_effect. reflexivity.
 Qed.
 Theorem round_correct j full s : lane_words s -> constants s ->
- loose(field s point 0) -> loose(field s point 5) -> loose(field s point 10) ->
+ loose(field s point 0) -> loose(rfield s 5) -> loose(field s point 10) ->
  round_result full s (round j full s).
 Proof. intros;rewrite round_split;apply finish_correct,prepare_correct;assumption. Qed.
 Local Opaque round.
-Lemma lane_coordinate s c : (c<4)%nat -> coordinate(lane_coordinates s)c=limbs(field s point(5*c)).
+Lemma lane_coordinate y_in_memory s c : (c<4)%nat -> coordinate(lane_coordinates y_in_memory s)c=limbs(round_field y_in_memory s c).
 Proof. intros C;do 4(destruct c as[|c];[reflexivity|]);lia. Qed.
 Lemma doubling_congruent q r :
  represents(cx q)(cx r) -> represents(cy q)(cy r) -> represents(cz q)(cz r) ->
@@ -27,12 +27,12 @@ Proof.
  repeat first[assumption|apply ctimes|apply cplus|apply cminus|apply cneg|apply crefl]|]);lia.
 Qed.
 Local Opaque doubling.
-Definition xyz_bounds s := forall c,(c<3)%nat -> loose(field s point(5*c)).
-Definition xyz_rep s q := forall c,(c<3)%nat -> represents(limbs(field s point(5*c)))(coordinate q c).
+Definition xyz_bounds y_in_memory s := forall c,(c<3)%nat -> loose(round_field y_in_memory s c).
+Definition xyz_rep s q := forall c,(c<3)%nat -> represents(limbs(round_field false s c))(coordinate q c).
 Fixpoint early_rounds j n s := match n with O=>s | S n=>round j false(early_rounds j n s) end.
-Theorem early_rounds_correct j n s q : lane_words s -> constants s -> xyz_bounds s -> xyz_rep s q ->
+Theorem early_rounds_correct j n s q : lane_words s -> constants s -> xyz_bounds false s -> xyz_rep s q ->
  let out:=early_rounds j n s in
- lane_words out /\ constants out /\ xyz_bounds out /\ xyz_rep out(double_n n q).
+ lane_words out /\ constants out /\ xyz_bounds false out /\ xyz_rep out(double_n n q).
 Proof.
  intros W C Bounds Rep;induction n as[|n [Wn[Cn[Bn Rn]]]];[exact(conj W(conj C(conj Bounds Rep)))|].
  pose proof(round_correct j false (early_rounds j n s) Wn Cn
@@ -47,15 +47,15 @@ Proof.
 Qed.
 Local Opaque early_rounds.
 Definition four_rounds j s := round j true(early_rounds j 3 s).
-Theorem four_rounds_correct j s : lane_words s -> constants s -> xyz_bounds s ->
+Theorem four_rounds_correct j s : lane_words s -> constants s -> xyz_bounds false s ->
  let out:=four_rounds j s in lane_words out /\ constants out /\
  forall c,(c<4)%nat -> reduced(field out point(5*c)) /\
- represents(limbs(field out point(5*c)))(coordinate(double_n 4(lane_coordinates s))c).
+ represents(limbs(field out point(5*c)))(coordinate(double_n 4(lane_coordinates false s))c).
 Proof.
  intros W C B.
- assert(Rep:xyz_rep s (lane_coordinates s)).
+ assert(Rep:xyz_rep s (lane_coordinates false s)).
  { intros c H;rewrite lane_coordinate by lia;apply crefl. }
- destruct(early_rounds_correct j 3 s (lane_coordinates s) W C B Rep)as[W3[C3[B3 R3]]].
+ destruct(early_rounds_correct j 3 s (lane_coordinates false s) W C B Rep)as[W3[C3[B3 R3]]].
  destruct(round_correct j true (early_rounds j 3 s) W3 C3
  (B3 0%nat ltac:(lia))(B3 1%nat ltac:(lia))(B3 2%nat ltac:(lia)))as[Wo[Co Ro]].
  split;[exact Wo|]. split;[exact Co|]. intros c H;destruct(Ro c H)as[Bound V].
@@ -64,15 +64,22 @@ Proof.
  - exact(R3 1%nat ltac:(lia)).
  - exact(R3 2%nat ltac:(lia)).
 Qed.
-Definition initialize j s := lane_effects j [Broadcast 28 19;Broadcast 29(radix-1)] s.
+Definition initialize j s := lane_effects j entry_effects s.
 Lemma initialize_words j s : lane_words s -> lane_words(initialize j s).
 Proof. apply lane_effects_words;repeat constructor;unfold effect_words,word64,radix;lia. Qed.
 Lemma initialize_constants j s : constants(initialize j s).
 Proof. split;reflexivity. Qed.
-Lemma initialize_field j s region coord i : field(initialize j s)region coord i=field s region coord i.
-Proof. reflexivity. Qed.
-Lemma initialize_coordinates j s : lane_coordinates(initialize j s)=lane_coordinates s.
-Proof. reflexivity. Qed.
+Lemma initialize_field j s c i : (i<5)%nat ->
+ round_field false (initialize j s) c i=round_field true s c i.
+Proof. destruct c as [|[|c]];try reflexivity.
+ intro I;do 5(destruct i as[|i];[reflexivity|]);lia. Qed.
+Lemma initialize_bounds j s : xyz_bounds true s -> xyz_bounds false (initialize j s).
+Proof.
+ intros B c C;eapply loose_ext;[|apply B;exact C].
+ intros i I;symmetry;apply initialize_field;exact I.
+Qed.
+Lemma initialize_coordinates j s : lane_coordinates false (initialize j s)=lane_coordinates true s.
+Proof. unfold lane_coordinates;f_equal;apply limbs_ext,initialize_field. Qed.
 Local Transparent round early_rounds.
 Lemma path_lanes j s : lane_effects j expected_path s=
  lane_effect j (four_rounds j (initialize j s)) ClearUpper.
@@ -97,16 +104,16 @@ Proof.
  - apply(field_bound_ext _ (field s point(5*c)));[intros;symmetry;apply E;assumption|exact B].
  - rewrite(limbs_ext _ _ E);exact V.
 Qed.
-Lemma lane_path_correct j s : lane_words s -> xyz_bounds s ->
- lane_spec(lane_coordinates s)(lane_effects j expected_path s).
+Lemma lane_path_correct j s : lane_words s -> xyz_bounds true s ->
+ lane_spec(lane_coordinates true s)(lane_effects j expected_path s).
 Proof.
  intros W B;rewrite path_lanes;apply clear_spec.
  pose proof(four_rounds_correct j (initialize j s) (initialize_words j s W)
- (initialize_constants j s) B) as[_[_ Result]].
+ (initialize_constants j s) (initialize_bounds j s B)) as[_[_ Result]].
  rewrite initialize_coordinates in Result;exact Result.
 Qed.
 Theorem arithmetic_path_correct d j : data_words d -> (j<8)%nat ->
- xyz_bounds(view d j) -> memory_spec(lane_coordinates(view d j))(effects double4_program expected_path d)j.
+ xyz_bounds true (view d j) -> memory_spec(lane_coordinates true (view d j))(effects double4_program expected_path d)j.
 Proof.
  intros[W M] J B.
  apply(lane_to_memory _ _ (lane_effects j expected_path(view d j))).

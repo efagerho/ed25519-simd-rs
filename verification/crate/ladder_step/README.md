@@ -26,7 +26,7 @@ formulas and reduced limb bounds.
    check that each permitted target requires an execution of that callee
    and replays its writes into the caller’s memory. The three symbols use a
    common load bias. [Wrapper and contract](coq/Audit.v) · [Callee dispatch](coq/Callees.v) · [Linked audit](audit.py)
-2. **The caller and staging.** Compare `placement_ok` with the Rust call.
+2. **The caller and staging.** Compare `placement_ok` with the call in the outer assembly loop.
    RDI points to the in-place 1,280-byte point. RSI points to a separate,
    64-byte-aligned 3,520-byte buffer with projective Odd at offset 0, affine
    Base at 1,280, and projective Even at 2,240. RDX is the final T flag, zero
@@ -34,8 +34,9 @@ formulas and reduced limb bounds.
    the loose XYZ bounds, and the 52-bit cache limbs. The assembly staging
    routine selects signed entries and transposes their limbs before this
    theorem starts. The staging theorem proves which source word occupies each
-   row and lane of those three operands.
-   [Staging theorem](../stage_round/README.md) · [Rust caller](../../../src/wide/avx512ifma/ladder_step_asm.rs) · [Assembly ABI](../../../src/wide/avx512ifma/ladder_step.S) · [Entry witnesses](coq/EntryTests.v)
+   row and lane of those three operands. The full 32-round caller still
+   requires its own proof.
+   [Staging theorem](../stage_round/README.md) · [Full ladder caller](../../../src/wide/avx512ifma/mul_s_base_minus_k_public.S) · [Assembly ABI](../../../src/wide/avx512ifma/ladder_step.S) · [Entry witnesses](coq/EntryTests.v)
 3. **The schedule and group meaning.** Read `result_value` and `group_result`
    against `ladder_sum`. Four doublings precede the Odd addition and four more
    precede the Base addition, giving the weights 256, 16, 1, 1. The Odd
