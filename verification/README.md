@@ -1,99 +1,58 @@
 # Formal verification
 
-Coq proofs cover paired field exponentiation, four in-place point doublings,
-cached point addition, scalar reduction modulo L, and the radix-256 ladder
-step enabled by the optional `asm` feature.
-Each routine has one public contract binding its
-arithmetic, memory and ABI guarantees to the exact bytes of its linked
-symbol. These are proofs in the tested machine model; independent refinement
-to an x86 ISA specification remains open.
+This directory contains the Coq proofs for the crate’s x86-64 assembly routines.
 
-- `machine/` defines the x86-64 instruction model and tests its encodings and execution against Intel XED and native hardware. [Machine model and tests](machine/README.md)
-- `arithmetic/` contains the shared integer-expression, polynomial, radix and interval proofs. [Shared arithmetic](arithmetic/README.md)
-- `curve25519/` defines field congruence, radix-51 limbs and bounds, Edwards coordinate formulas, and the scalar order. Its pure group proof connects doubling, cached addition and the ladder schedule to affine Edwards addition. [Group interpretation](curve25519/group/Representation.v)
-- `crate/` owns the eight-lane buffer representation and the component certificates in the Coq namespace `Ed25519Simd`. [Shared buffer layout](crate/Wide51.v)
-- `crate/pow2/` states the routine’s contract, proves it in the machine model, and explains how to check the proof against a linked executable. [Proof and audit instructions](crate/pow2/README.md)
-- `crate/double4/` proves the four doubling formulas, including loose inputs, biased subtraction, in-place writes and the aligned stack frame. [Proof and audit instructions](crate/double4/README.md)
-- `crate/cached_add/` proves cached addition with projective or affine operands, optional T, read-only staged inputs, and the aligned stack frame. [Proof and audit instructions](crate/cached_add/README.md)
-- `crate/scalar/` proves canonical reduction of all eight 512-bit inputs modulo L, including optimized Montgomery carries, conditional subtraction, and byte-memory/ABI guarantees. [Proof and audit instructions](crate/scalar/README.md)
-- `crate/ladder_step/` proves the composition of five calls using the linked double4 and cached-add contracts. [Contract and linked audit](crate/ladder_step/README.md)
+| Folder | Contents |
+| --- | --- |
+| [machine/](machine/README.md) | The x86-64 instruction model, memory and calling conventions, and tests against native hardware and Intel XED. |
+| [arithmetic/](arithmetic/README.md) | General proofs about integer expressions, polynomial identities, bounds, and radix representations. |
+| [curve25519/](curve25519/README.md) | Field and scalar arithmetic, Edwards point formulas, and their relationship to the group law. |
+| [crate/](crate/README.md) | Shared SIMD representations, the public theorem for each assembly routine, and instructions for auditing a linked executable. |
 
-## Build with or without the proof
+## Shared audit surface
 
-On x86-64 Linux, `asm` assembles all five backends with Rust's built-in
-assembler. Each `verify-asm-*` feature enables `asm`, checks the named
-routine's Coq proof, and embeds that routine's exact bytes that passed.
-Proof checking is off by default and can be selected independently for each
-of the four standalone routines. The ladder audit checks its relative call
-displacements after the linker has assigned all three symbol addresses.
+Coq checks a statement about a program in this repository’s machine model.
+For a native release, the auditor checks that the CPU executes the certified
+bytes, that the model describes their effects, and that the theorem supplies
+the guarantees the Rust caller needs.
 
-```sh
-export RUSTFLAGS="-C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma"
-cargo build --release --features asm            # All assembly, no build-time proof checking
-cargo build --release --features verify-asm-pow2 # All assembly, with the pow2 proof checked
-cargo build --release --features verify-asm-pow2,verify-asm-double4,verify-asm-cached-add,verify-asm-scalar  # All four proofs
-```
+**Instructions and control flow.** The encoder and interpreter are handwritten.
+Check that the bytes select the same opcode, registers, operand order, widths,
+and effective addresses that the interpreter uses. For example, IFMA consumes
+the low 52 bits of both operands and adds the selected half of the product to
+the old destination modulo `2^64`. For scalar instructions, check the flags
+consumed by branches, signed displacements, stack adjustments, and the return
+address pushed by a call. Instruction fetch uses an immutable code image.
+The block model tracks the zero flag consumed by conditional jumps.
+`returns` requires a finite execution that reaches the caller, so a rejected
+access cannot count as success. [Vector semantics and encoding](machine/isa/Instructions.v) · [Scalar encoding and layout](machine/isa/ProgramLayout.v) · [Block execution](machine/execution/Blocks.v) · [Linked calls](machine/execution/LinkedCalls.v)
 
-Install the following tools on the host that checks the proof or audits a linked executable.
+**Memory and the ABI.** Leaf routines model pointers as a region plus a byte
+offset. A placement maps them into one flat array of bytes valued 0 through
+255. The model uses region permissions for reads, writes, and stack slots.
+Check address calculations, 64-byte vector accesses, eight-byte saved words,
+little-endian qwords, lane order, and the SysV saved-register set. These definitions give “preserved” and
+“returned” their meaning. Coq then proves that, under the routine’s placement
+conditions, vector data and stack slots agree with **one byte memory** as
+execution proceeds, including the word consumed by a return. Real callers
+must supply accessible memory with the specified extents, alignment, and
+aliasing, on a CPU and OS that enable the required instructions. Page faults,
+concurrent interference, and timing or side-channel behavior lie outside
+this execution model. [Pointers and permissions](machine/execution/MachineState.v) · [Address placement and writes](machine/memory/FlatMemory.v) · [Byte execution](machine/memory/ByteExecution.v) · [SysV contract](machine/abi/SysV.v)
 
-- Python 3.8 or later (`python3`, standard library)
-- LLVM MC (`llvm-mc`, or set `LLVM_MC` to its executable)
-- GNU binutils (`nm`, `objcopy`, `objdump`)
-- Coq with its standard library and the commands `coqdep`, `coqc`, and `coqchk`
-- Coqprime (`libcoq-coqprime` on Ubuntu) for the ladder group proof or the full shared-library build. The four standalone routine audits use the standard library.
+**Mathematical meaning.** Check the field prime, scalar order, radix and limb
+weights, Edwards curve and group law, and the predicates saying which point
+an XYZ, extended, or cached representation denotes. An incorrect modulus or
+coordinate convention changes the meaning of every theorem that uses it.
+The soundness of the polynomial and interval checkers, the primality proof,
+and the connection from coordinate formulas to the group law are themselves
+kernel-checked results. [Arithmetic library](arithmetic/README.md) · [Curve definitions and representation theorems](curve25519/README.md)
 
-To verify the bytes in an already linked executable from either build, follow
-the release audit instructions for [pow2](crate/pow2/README.md#check-the-release-executable),
-[double4](crate/double4/README.md#check-the-release-executable),
-[cached addition](crate/cached_add/README.md#check-the-release-executable), and
-[scalar reduction](crate/scalar/README.md#replay-against-a-release-executable).
-For the composed routine, run the [ladder-step audit](crate/ladder_step/README.md).
-
-`python3 -B verification/test_evidence.py` checks report replay, seed provenance
-and audit manifest integrity. With Coq on PATH it also checks that a weakened
-public theorem fails the expected-type check.
-
-## Shared proof infrastructure
-
-Each standalone routine exposes one record in `Audit.v`. Its three fields bind
-the symbol bytes, check the program layout, and specify execution from a
-concrete ABI entry. The execution result names the return, stack, saved
-registers, access footprint, byte-memory guarantee, and arithmetic output.
-The ladder contract binds all three symbols and adds return uniqueness and
-the Edwards group result. The independent layout and scalar-refinement
-theorems are in `Machine.execution.LayoutProofs` and
-`Machine.execution.ScalarRefinement`.
-
-`Ed25519Simd.PointFrame` defines the point and private stack geometry shared
-by double4 and cached addition. `Ed25519Simd.FieldKernel` proves that a
-successful symbolic check implies the requested radix-51 bounds and congruence.
-Each routine specifies its own instruction blocks, input intervals and target
-formulas. Common execution proofs live in `machine/`: lane projection,
-aligned-cell separation, output-write coverage, trace frames, and lifting
-logical execution to concrete byte reads at every prefix. Each routine
-supplies its actual program, ABI layout, region permissions, and checked
-instruction trace; its entry construction and mathematical specification
-remain explicit.
-
-The pure libraries `ProofArithmetic` and `Curve25519` can be compiled without
-the machine model. `Machine.symbolic.Expressions` relates integer expressions
-to machine instructions. The shared crate interpreter `Ed25519Simd.FieldSymbolic`
-specializes its rules to the register and mask conventions of the field kernels.
-
-CI builds the shared libraries once per job with `coq_makefile` and GNU Make.
-The build-time proofs, linked audits, mutation tests, and machine conformance
-runs reuse those objects. For a local build, choose a fresh output directory.
-
-```sh
-python3 -B verification/proof_build.py "$PWD/target/shared-coq" --jobs 4
-export ED25519_SIMD_COQ_LIBRARIES="$PWD/target/shared-coq"
-```
-
-Use a directory built by the same job or local checkout. Each consumer checks
-the compiler version and the digests of its project files, sources, and compiled
-objects. With the variable unset, each consumer compiles its shared dependencies
-from source. Every certificate builds its own program modules, checks closed
-assumptions, and runs `coqchk` on `Checked.v`, which assigns the named public theorem to its
-expected contract. The manifest records that declaration and the linked symbol
-addresses, sizes, and digests. Retained audits
-include their own sources and `_CoqProject` for independent replay.
+**Proof and release evidence.** Trust rests on Coq’s kernel and a working proof
+checking toolchain. A closed theorem establishes its stated contract in the
+model. The listing generator must produce a program whose encoding equals the
+supplied bytes. Identifying those bytes in the intended executable is an
+external check. The scalar refinement theorem relates two internal views of
+execution under explicit address and stack premises. Intel XED checks decoding
+and native comparisons check execution on concrete cases. Refinement to an independent x86 ISA
+specification remains open. [Hardware conformance](machine/README.md#how-the-model-is-checked) · [ISA refinement obligation](machine/proofs/README.md) · [Release audit procedure](crate/README.md#what-to-audit)

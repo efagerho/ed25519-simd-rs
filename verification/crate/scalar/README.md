@@ -1,17 +1,35 @@
 # Scalar reduction certificate
 
-The public theorem is
-[`Ed25519Simd.Scalar.Object.assembled_scalar_correct`](coq/Object.v), with the complete statement
-in [`Audit.scalar_contract`](coq/Audit.v). It binds every modeled instruction
-to the linked bytes of `ed25519_simd_scalar_reduce_ifma` and proves canonical
-reduction of all eight independent 512-bit inputs modulo
-`L = 2^252 + 27742317777372353535851937790883648493`.
+For each of eight unsigned 512-bit inputs H, `ed25519_simd_scalar_reduce_ifma`
+writes the canonical integer **`H mod L`** in five base-`2^52` limbs, where
+`L = 2^252 + 27742317777372353535851937790883648493`. All 512 input bits
+are covered.
 
-Start an audit with [`ScalarSpec.v`](coq/ScalarSpec.v), then the public contract,
-[`ScalarABI.v`](coq/ScalarABI.v), and the concrete entry and byte-result
-conditions in [`ScalarBytes.v`](coq/ScalarBytes.v). The specification is
-independent of the assembly listing and the proof checker. Its result is
-`H mod L`, not merely a congruent or Montgomery-scaled value.
+Public theorem in `Ed25519Simd.Scalar`. [Statement](coq/Audit.v) · [Proof](coq/Object.v)
+
+```coq
+Object.assembled_scalar_correct : Audit.scalar_contract ObjectBytes.symbol_bytes
+```
+
+## What to audit
+
+1. Compare `lane_input` and `lane_output` with Rust’s word-major buffers.
+   Index `8*i+j` selects word or limb `i` of lane `j`. Check the input
+   weight `2^(64*i)`, output weight `2^(52*i)`, scalar order, and exact
+   equality to `H mod L`. This equality rules out a Montgomery-scaled result
+   or a noncanonical representative. [Scalar specification](coq/ScalarSpec.v) · [Scalar order](../../curve25519/Scalar.v)
+2. Compare `concrete_entry` with `WideScalar52::from_wide_words`. RDI and
+   RSI designate distinct 320-byte output and 512-byte input buffers.
+   `output_initialized` must cover every byte used by `assume_init()` for
+   every unsigned input. The caller’s eight-byte return slot is the only
+   stack storage the routine needs. [Rust caller](../../../src/scalar/wide.rs) · [Concrete contract](coq/ScalarBytes.v) · [Memory permissions](coq/ScalarMemory.v)
+3. Check that the allowed placements include unaligned buffers and that
+   the input premise admits the maximal 512-bit integer. The entry tests
+   exercise all 64 buffer alignments and derive the maximal-input result
+   from the public contract. [Entry witnesses](coq/EntryTests.v)
+
+Apply the [crate audit procedure](../README.md#what-to-audit) to this symbol.
+Hashing and subsequent scalar recoding are separate Rust operations.
 
 ## Contract
 
@@ -89,7 +107,7 @@ justify IFMA and carry operations are proved from arbitrary input qwords.
 The large constants and the Bezout witness for Montgomery cancellation
 are checked by Coq as integer identities.
 
-## Machine model and trust boundary
+## Instruction coverage
 
 No new vector instruction semantics are needed. The scalar encoding addition
 is `48 c7 c0 imm32` (`MOV rax, imm32`), restricted to nonnegative 31-bit
@@ -105,16 +123,8 @@ python3 -B verification/machine/tests/run.py --backend all \
   --report ./scalar-report.json
 ```
 
-These tests compare Coq encodings and execution with Intel XED and hardware.
-An independent ISA refinement theorem remains open. Coq's kernel, the stated
-machine semantics, and identification/extraction of the linked bytes remain
-the trust boundary. Python generation and the executable proof checkers do
-not add axioms: their results are checked by the kernel.
-
-The certificate covers this assembly routine in the model. It does not prove
-Rust dispatch or recoding, SHA-512, physical constant-time behavior, or the
-complete Ed25519 verifier. [Machine model](../../machine/README.md) ·
-[ISA refinement obligation](../../machine/proofs/README.md)
+The [shared audit surface](../../README.md#shared-audit-surface) explains how
+to interpret the XED and hardware comparisons.
 
 ## Fault injection
 

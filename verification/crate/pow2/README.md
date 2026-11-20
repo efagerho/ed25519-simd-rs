@@ -1,57 +1,39 @@
 # Paired field exponentiation
 
-**Audit one statement.** `pow2_contract symbol_bytes` is the complete public
-claim for `ed25519_simd_pow2_ifma`. Its only parameter is the byte sequence
-of the linked symbol. [Read the statement in Audit.v](coq/Audit.v)
+In each of eight lanes, `ed25519_simd_pow2_ifma` raises each of two field
+elements to `2^252 − 3` modulo `2^255 − 19`. The field result requires
+input limbs below `2^52`. Every valid ABI call returns and initializes both
+outputs, including calls with limbs outside that bound.
 
-1. **Field result.** `pow2_spec a b out` applies when every input limb is
-   below `2^52`. For each of eight lanes, the two halves of `out` represent
-   the corresponding inputs raised to `2^252 − 3` modulo `2^255 − 19`.
-   Each input and each output half occupies 320 bytes. Limb `i` of lane `j`
-   is the little-endian qword at byte offset `64*i + 8*j` and has weight
-   `2^(51*i)`. Output limbs 0, 2, 3 and 4 are below `2^51`. Limb 1 is at
-   most `2^51 + 511`. [Field specification](coq/Pow2Spec.v)
-2. **Code.** Encoding `pow2_program` produces exactly those bytes, including
-   padding. The return and field guarantees apply to this same program.
-   Its operands, block layout, and static control-flow targets pass
-   the machine model's validity check.
-   [Assembly source](../../../src/wide/avx512ifma/pow2.S) · [Encoding and validity](../../machine/isa/ProgramLayout.v)
-3. **Registers and return.** From every valid ABI entry, execution returns
-   with RBX, RBP and R12–R15 equal to their entry values and RSP advanced
-   by eight bytes. The result is read at the output pointer supplied in RDI.
-   [Entry, layout, and output definitions](coq/Pow2ABI.v) · [Execution and return](../../machine/execution/Blocks.v)
-4. **Output initialization.** Every one of the 640 bytes at the entry RDI
-   pointer is written before return, regardless of the input limb bounds or
-   previous output contents. This definite-write guarantee justifies the
-   Rust caller's `assume_init()` independently of the conditional field result.
-   [Initialization contract](coq/Pow2Memory.v) · [Trace coverage proof](coq/FrameProof.v)
-5. **Writes and saved addresses.** Let `S` be entry RSP. Every vector store
-   fits entirely in the 640-byte output or the stack scratch area
-   `[S−1928, S−8)`. An internal call writes its eight-byte return address
-   at `S−1936` and can reuse that slot only after the matching return.
-   Every return reads its expected address from the same byte memory as the
-   vector stores. The caller's eight bytes at `S` stay intact throughout.
-   These guarantees hold independently of the arithmetic limb bound.
-   [Memory and register contract](coq/Pow2Memory.v) · [Proof](coq/FrameProof.v)
-6. **Concrete bytes and word bounds.** A `concrete_entry` supplies one byte
-   array, unsigned register values, the ABI pointers and the caller's saved
-   return address. `entry_from_bytes` constructs the logical memory views;
-   their initial agreement is proved. Every integer register value and vector
-   qword remains in `[0, 2^64)` during modeled execution. At every memory-event
-   prefix, reading eight little-endian bytes reconstructs the exact logical
-   vector qword. The final output, read directly from bytes, satisfies
-   `pow2_spec`. Identical and partially overlapping read-only inputs use the
-   same underlying bytes. [Concrete entry and result](coq/Pow2Bytes.v) ·
-   [Word bounds](../../machine/execution/WordBounds.v) · [Byte round trips](../../machine/memory/ByteMemory.v)
+Public theorem in `Ed25519Simd.Pow2`. [Statement](coq/Audit.v) · [Proof](coq/Object.v)
 
-The byte proof covers every non-wrapping placement satisfying `valid_placement`.
-The output and stack must be disjoint from each other, the inputs and the
-symbol. The read-only inputs may overlap if their bytes agree. Native use
-requires accessible buffers, a SysV-aligned stack with 1,936 bytes available
-below RSP, a valid caller return address, and AVX-512F/DQ/IFMA instruction
-behavior matching the model. The Rust caller supplies the limb bound. The
-certificate covers the paired-exponentiation backend enabled by `asm`.
-[Instruction semantics and model assumptions](machine-semantics.md) · [Rust call boundary](../../../src/wide/avx512ifma/field.rs)
+```coq
+Object.assembled_symbol_correct : Audit.pow2_contract ObjectBytes.symbol_bytes
+```
+
+## What to audit
+
+1. **Exponent and output order.** Read `pow2_spec`. It decodes five little-endian
+   qwords per lane from each input, with limb weights `2^(51*i)`. The first 320 output bytes must
+   correspond to input A and the next 320 to B. Output limb 1 may reach
+   `2^51 + 511`. The other four must be below `2^51`.
+   [Field specification](coq/Pow2Spec.v)
+2. **Pointers and initialization.** Compare `concrete_entry` and
+   `concrete_pow2_contract` with the Rust call. RDI supplies a distinct
+   640-byte output, RSI and RDX supply 320-byte inputs that may coincide or
+   partially overlap. Both inputs are decoded from the same bytes. Check that
+   `output_initialized` covers the whole Rust `[WideFe; 2]` before
+   `assume_init()`, independently of the limb premise.
+   [Byte contract](coq/Pow2Bytes.v) · [Rust caller](../../../src/wide/avx512ifma/field.rs) · [Aliasing and coverage witnesses](coq/ByteEntryTests.v)
+3. **Stack and return.** For entry RSP `S`, check the writable vector scratch
+   range `[S−1928, S−8)`, the internal call slot at `S−1936`, and the caller’s
+   return word at `S`. The stack and output need the separations in
+   `valid_placement`. The return advances RSP by eight and preserves the SysV
+   saved registers. [Permissions and write footprint](coq/Pow2Memory.v) · [Entry layout](coq/Pow2ABI.v)
+
+Apply the [crate audit procedure](../README.md#what-to-audit) to this symbol.
+The [instruction notes](machine-semantics.md) illustrate the shared model on
+this implementation.
 
 ## Check the release executable
 

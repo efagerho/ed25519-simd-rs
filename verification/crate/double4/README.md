@@ -1,16 +1,35 @@
 # Four in-place doublings
 
-Start with one theorem:
+For each of eight lanes with bounded X, Y, and Z, `ed25519_simd_double4_ifma`
+writes four successive Edwards doublings in place. If XYZ represents a point
+P, the shared theorem `double_four_represents` gives the group interpretation
+**[16]P** in extended coordinates. Incoming T is arbitrary.
+[Coordinate contract](coq/Double4Spec.v) · [Group interpretation](../../curve25519/group/Representation.v)
+
+Public theorem in `Ed25519Simd.Double4`. [Statement](coq/Audit.v) · [Proof](coq/Object.v)
 
 ```coq
 Object.assembled_double4_correct : Audit.double4_contract ObjectBytes.symbol_bytes
 ```
 
-[`Audit.double4_contract`](coq/Audit.v) is the complete public claim for
-`ed25519_simd_double4_ifma`. Its only parameter is the linked symbol's bytes.
-[`Object.v`](coq/Object.v) proves it without axioms. The independently stated
-arithmetic specification is in [`Double4Spec.v`](coq/Double4Spec.v), with
-limb bounds in [`Radix51.v`](../../curve25519/Radix51.v).
+## What to audit
+
+1. In `double4_spec`, check that `loose_xyz` covers X, Y, and Z in every lane,
+   including the carry from limb 0 into limb 1. The conclusion compares
+   **all four** output coordinates with `double_n 4` and bounds their limbs.
+   [Field bounds](../../curve25519/Radix51.v) · [Doubling formula](../../curve25519/Edwards.v)
+2. Compare RDI and the four field offsets in `WidePoint` with
+   `concrete_double4_contract`. In `input_t_unread`, each 64-byte point
+   read ends at or before offset 960. Check separately that
+   `output_initialized` covers all 1,280 bytes, including the replacement T.
+   Both access guarantees hold for every valid ABI entry.
+   [Rust layout and caller](../../../src/wide/avx512ifma/point.rs) · [Byte contract](coq/Double4Bytes.v) · [Read and write footprints](coq/Double4Memory.v)
+3. Compare the actual prologue, nested calls, and epilogue with the frame.
+   Its scratch base must equal `((entry_rsp − 8) & −64) − 1280`. Account for
+   saved RBP, the two private return slots, and all four permitted padding
+   values. [Assembly](../../../src/wide/avx512ifma/double4.S) · [Shared point frame](../PointFrame.v) · [Entry witnesses](coq/EntryTests.v)
+
+Apply the [crate audit procedure](../README.md#what-to-audit) to this symbol.
 
 ## What the theorem guarantees
 
@@ -62,8 +81,8 @@ The same theorem also guarantees:
 Memory/ABI safety and output initialization hold independently of the
 arithmetic input bounds. Placements must not wrap the 64-bit address space;
 the point, stack and code regions must be disjoint. Native callers must
-supply accessible storage, a SysV-aligned stack, a valid return address and
-AVX-512F/DQ/IFMA support. These requirements are explicit in
+supply accessible storage, the required CPU features, and a valid return
+address. The formal entry and placement predicates are in
 [`Double4ABI.v`](coq/Double4ABI.v), [`Double4Memory.v`](coq/Double4Memory.v) and
 [`Double4Bytes.v`](coq/Double4Bytes.v).
 
@@ -136,7 +155,7 @@ python3 -B verification/machine/tests/run.py --backend all \
   --report ./double4-report.json
 ```
 
-## Proof structure and trust boundary
+## Proof structure
 
 | Files | Responsibility |
 | --- | --- |
@@ -148,24 +167,6 @@ python3 -B verification/machine/tests/run.py --backend all \
 | `EntryTests.v` | Concrete witnesses for all four stack alignments, rejection of a wrong return address, and unconditional initialization even for limbs outside the arithmetic bound. |
 | `Audit.v`, `Object.v` | The public contract and its proof bound to independently supplied symbol bytes. |
 
-Generators, interval checks and polynomial normalization do not supply
-unchecked correctness claims: their results are justified by Coq proofs and
-rechecked by the kernel. Byte extraction and the auditor's identification of
-the release ELF remain part of the evidence process.
-
-The instruction semantics, encodings and abstraction of pointers are a
-remaining trust boundary. Subtraction has native/XED boundary and aliasing
-tests. The aligned-frame probe tests saved RBP, both nested return slots,
-all four padding cases, memory guards and register contents. Shared lemmas
-prove instruction/block agreement, word bounds, memory frames, exact byte
-reads and alignment arithmetic. Tests do not replace an independent ISA
-refinement theorem; that theorem remains open.
-[`Machine model`](../../machine/README.md) · [`ISA obligation`](../../machine/proofs/README.md)
-
-The certificate proves the four coordinate formulas. Given valid X, Y, Z for
-an Edwards point P, the shared corollary `double_four_represents` proves
-that their output represents `[16]P` in extended coordinates. It accepts
-arbitrary incoming T. [Group interpretation](../../curve25519/group/Representation.v)
-
-The surrounding Rust caller, physical constant-time behavior, and the complete
-Ed25519 verifier remain separate verification targets.
+The aligned-frame probe exercises saved RBP, nested return slots, memory
+guards, and all four padding cases. See the [shared audit surface](../../README.md#shared-audit-surface)
+for the scope of this hardware comparison.

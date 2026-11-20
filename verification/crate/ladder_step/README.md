@@ -1,42 +1,57 @@
 # Linked radix-256 ladder step
 
-The public theorem is `Ed25519Simd.LadderStep.Object.assembled_ladder_step_correct`. Read
-[`ladder_contract`](coq/Audit.v) for the statement and
-[`ladder_sum` and `ladder_represents`](../../curve25519/group/Representation.v)
-for its group-level meaning. The theorem
-binds the wrapper and both callees to the bytes of one linked x86-64 ELF.
-All three symbols may be relocated by the same load bias.
+For each of eight lanes, the linked `ed25519_simd_ladder_step_ifma` wrapper
+computes **`[256]P + [16]Odd + Base + Even`** when its inputs satisfy the limb
+bounds and represent the named Edwards points. The result represents that
+sum in XYZ in both modes. Full mode also produces a valid extended T.
+Omitted-T mode writes zero to all five T vectors.
 
-Given a point, three staged cached operands, and their alignment and limb
-bounds, the wrapper executes this [coordinate schedule](../../curve25519/Edwards.v) in each of eight lanes.
+Public theorem in `Ed25519Simd.LadderStep`. [Statement](coq/Audit.v) · [Proof](coq/Object.v)
 
-1. Double four times and add the odd projective operand, omitting T.
-2. Double four times and add the affine base operand, computing T.
-3. Add the even projective operand, computing T when requested.
+```coq
+Object.assembled_ladder_step_correct : Audit.ladder_contract
+```
 
-If a lane's inputs represent Edwards points `P`, `Odd`, `Base`, and `Even`,
-its output represents **`[256]P + [16]Odd + Base + Even`**. The input
-point needs only valid X, Y, Z. Each cache must encode its named point
-with one nonzero scale, equal to one for the affine base cache.
-The output has nonzero Z and the correct X/Z and Y/Z in both modes.
-Full mode also proves T/Z = (X/Z)(Y/Z). With T omitted, the assembly
-writes literal zero to all five T limbs.
+The theorem binds the wrapper and both callees to a single linked executable.
+It proves a unique modeled return to the original caller with RSP advanced
+by eight, SysV saved registers restored, and bytes outside the point and
+private stack preserved. Bounded inputs alone suffice for the coordinate
+formulas and reduced limb bounds.
 
-The proof uses the [affine Edwards addition law](../../curve25519/group/Affine.v)
-over the [concrete prime field](../../curve25519/group/PrimeField.v). It proves
-that both addition denominators are nonzero for all on-curve points, including
-torsion points. The coordinate congruences and reduced limb bounds also hold
-for bounded inputs with no curve interpretation.
-Every modeled run returns to the original return address with the same
-result. The SysV callee-saved registers are restored and every byte outside
-the point and the private stack is preserved, including the staged operands.
-The contract starts at the staged bytes. Rust digit selection, cache staging,
-and the outer ladder loop remain separate verification targets.
+## What to audit
+
+1. **The call targets.** In the retained `LadderStep/LinkedBytes.v` and
+   manifest, match the wrapper, double4, and cached-add addresses and bytes to
+   the same ELF. In `program`, follow all five calls in order. In `dispatch`,
+   check that each permitted target requires an execution of that callee
+   and replays its writes into the caller’s memory. The three symbols use a
+   common load bias. [Wrapper and contract](coq/Audit.v) · [Callee dispatch](coq/Callees.v) · [Linked audit](audit.py)
+2. **The caller and staging.** Compare `placement_ok` with the Rust call.
+   RDI points to the in-place 1,280-byte point. RSI points to a separate,
+   64-byte-aligned 3,520-byte buffer with projective Odd at offset 0, affine
+   Base at 1,280, and projective Even at 2,240. RDX is the final T flag, zero
+   or one. Check the stack allowance of up to 1,384 bytes below entry RSP,
+   the loose XYZ bounds, and the 52-bit cache limbs. Rust supplies the digit
+   selection, signs, and lane transposition before this theorem starts.
+   [Rust staging and call](../../../src/wide/avx512ifma/ladder_step.rs) · [Assembly ABI](../../../src/wide/avx512ifma/ladder_step.S) · [Entry witnesses](coq/EntryTests.v)
+3. **The schedule and group meaning.** Read `result_value` and `group_result`
+   against `ladder_sum`. Four doublings precede the Odd addition and four more
+   precede the Base addition, giving the weights 256, 16, 1, 1. The Odd
+   addition may omit T because the next doubling uses only XYZ. The Base
+   addition must produce T for the Even addition. Check that the initial XYZ
+   represents P with nonzero Z and that each cache represents its named point
+   with one nonzero scale, equal to one for the affine Base.
+   [Coordinate schedule](../../curve25519/Edwards.v) · [Group interpretation](../../curve25519/group/Representation.v) · [Composition of limb bounds](coq/Schedule.v)
+
+Apply the [crate audit procedure](../README.md#what-to-audit) to all three
+symbols. The [doubling](../double4/README.md#what-to-audit) and
+[cached-addition](../cached_add/README.md#what-to-audit) guides cover the two
+callee contracts used here.
 
 ## Check a release executable
 
 Use an unstripped release executable built with `--features asm` and the
-[verification toolchain](../../README.md#build-with-or-without-the-proof).
+[verification toolchain](../README.md#build-and-audit).
 The output directory must be new.
 
 ```sh
@@ -70,8 +85,6 @@ frame rule at all five call sites. [`Execution.v`](coq/Execution.v)
 tracks the live registers, saved stack slots, and original staged memory.
 The field kernels are proved in the callee theorems.
 
-The trusted interpretation includes extraction of bytes and symbol addresses
-from the ELF and the machine model's correspondence to x86. Instruction
-images are immutable and separate from data memory. The hardware comparison
-includes the ladder differential and SysV ABI tests. Independent ISA
-refinement for this instruction subset remains open.
+The hardware comparison includes the ladder differential and SysV ABI tests.
+The [shared audit surface](../../README.md#shared-audit-surface) describes the
+assumptions for applying the linked theorem to native execution.
