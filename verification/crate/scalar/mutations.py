@@ -14,14 +14,14 @@ import shutil
 import subprocess
 import sys
 
-import certificate
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.append(str(ROOT / "verification"))
 from proof_build import component_flags
 from listing import SOURCE, SYMBOL
 from generate_listing import assemble
 from coq_proof import symbol_bytes
 from elf import symbol_extent
 
-ROOT = Path(__file__).resolve().parents[3]
 MUTATIONS = {
     "remove-carry-rounding": (r"    sr_rrr vpaddq, 24, \i, 26" + "\n", "", False),
     "omit-modulus-product": (r"    sr_mod_product \i, 4, 27" + "\n", "", False),
@@ -108,7 +108,7 @@ def run_case(name, old, new, passes, output, native):
     address, size = symbol_extent(binary, SYMBOL)
     raw = symbol_bytes(binary, address, size)
     (audit / "MutationBinding.v").write_text(
-        "From Coq Require Import List ZArith.\nFrom Machine Require Import Blocks.\n"
+        "From Coq Require Import List ZArith.\nFrom Machine Require Import execution.Blocks.\n"
         "From Ed25519Simd.Scalar Require Import Program.\nImport ListNotations. Open Scope Z_scope.\n"
         "Example exact_bytes : image scalar_program = [" + ";".join(map(str, raw)) +
         "].\nProof. vm_compute;reflexivity. Qed.\n"

@@ -1,7 +1,7 @@
 From Coq Require Import List ZArith Bool Lia.
-From Machine Require Import Blocks MemoryTrace FlatMemory ExecutionProperties WordBounds.
+From Machine Require Import execution.Blocks memory.MemoryTrace memory.FlatMemory execution.ExecutionProperties execution.WordBounds.
 From Ed25519Simd.Scalar Require Import Program ScalarABI ScalarMemory Control.
-From Machine Require Import MemoryCoverage ByteExecution.
+From Machine Require Import memory.MemoryCoverage memory.ByteExecution.
 Import ListNotations. Open Scope Z_scope.
 Lemma placement_separates loc size : valid_placement loc size ->separated loc allowed_write mapped.
 Proof.

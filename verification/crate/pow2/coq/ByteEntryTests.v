@@ -1,5 +1,5 @@
 From Coq Require Import ZArith List Lia.
-From Machine Require Import Blocks MemoryTrace FlatMemory WordBounds ByteMemory.
+From Machine Require Import execution.Blocks memory.MemoryTrace memory.FlatMemory execution.WordBounds memory.ByteMemory.
 From Ed25519Simd.Pow2 Require Import Pow2ABI Pow2Memory Pow2Bytes.
 From Curve25519 Require Field Radix51.
 From Ed25519Simd Require Wide51.

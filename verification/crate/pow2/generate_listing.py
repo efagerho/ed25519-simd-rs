@@ -82,7 +82,7 @@ def block_listing(code, rows, labels, padding):
                 for name, pc in labels.items() if pc in target_names]
     return ("(* Generated from pow2.S. Offsets are relative to the symbol. *)\n"
             "From Coq Require Import List ZArith.\n"
-            "From Machine Require Import IntelSyntax.\n"
+            "From Machine Require Import isa.IntelSyntax.\n"
             "Import ListNotations. Open Scope Z_scope.\n\n"
             + "\n".join(bindings) + "\n\nDefinition pow2_program := assemble [\n  "
             + ";\n  ".join(sections) + "].\n")

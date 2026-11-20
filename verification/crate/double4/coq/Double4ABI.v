@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool.
-From Machine Require Import Blocks.
+From Machine Require Import execution.Blocks.
 Import ListNotations. Open Scope Z_scope.
 Definition scratch := 0%nat.
 Definition point := 1%nat.
@@ -18,7 +18,7 @@ Definition permitted_padding pad := In pad [0;16;32;48].
 Definition limb_address region i : pointer := (region,64*Z.of_nat i).
 Definition words_at (m:pointer -> vector) region k :=
  m (limb_address region (k/8)) (k mod 8)%nat.
-From Machine Require Import WordBounds.
+From Machine Require Import execution.WordBounds.
 Definition valid_double4_entry (initial:state) pad :=
  permitted_padding pad /\
  (exists incoming bp,word64 bp /\ fst initial=initial_control incoming pad bp) /\

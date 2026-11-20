@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool.
-From Machine Require Import Instructions Blocks.
+From Machine Require Import isa.Instructions execution.Blocks.
 
 (* Calling a verified block routine from a concrete word machine requires
    concrete final GPRs. No successful instruction manufactures Unknown. *)

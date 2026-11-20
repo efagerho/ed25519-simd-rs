@@ -1,5 +1,5 @@
 From Coq Require Import ZArith List Lia.
-From Machine Require Import Blocks FlatMemory WordBounds ByteMemory Shift.
+From Machine Require Import execution.Blocks memory.FlatMemory execution.WordBounds memory.ByteMemory isa.Shift.
 Import ListNotations.
 Open Scope Z_scope.
 

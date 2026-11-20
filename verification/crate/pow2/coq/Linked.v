@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith.
-From Machine Require Blocks.
+From Machine Require execution.Blocks.
 From Ed25519Simd.Pow2 Require Import Pow2Caller.
 From Curve25519 Require Import Field Radix51.
 From Ed25519Simd Require Import Wide51.

@@ -1,10 +1,10 @@
 From Coq Require Import List ZArith Bool.
-From Machine Require Import Instructions.
-From Machine Require ProgramLayout MachineState.
+From Machine Require Import isa.Instructions.
+From Machine Require isa.ProgramLayout execution.MachineState.
 Import ListNotations.
 Open Scope Z_scope.
 
-(* Keep the layout and state definitions available through Machine.Blocks. *)
+(* Keep the layout and state definitions available through Machine.execution.Blocks. *)
 Include ProgramLayout.
 Include MachineState.
 

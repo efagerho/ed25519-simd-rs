@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool Lia.
-From Machine Require Import Blocks Instructions WordBounds Dependencies.
+From Machine Require Import execution.Blocks isa.Instructions execution.WordBounds execution.Dependencies.
 From Curve25519 Require Import Field Radix51.
 From Ed25519Simd Require Import Wide51.
 From Curve25519 Require Import FieldPolynomial.
@@ -39,19 +39,19 @@ Proof.
  intros [<- | [<- | [<- | [<- | []]]]]; vm_compute;reflexivity.
 Qed.
 
-From Machine Require Export Lane.
-Definition lane_effect := Machine.Lane.lane_effect double4_program.
-Definition lane_effects := Machine.Lane.lane_effects double4_program.
+From Machine Require Export execution.Lane.
+Definition lane_effect := Machine.execution.Lane.lane_effect double4_program.
+Definition lane_effects := Machine.execution.Lane.lane_effects double4_program.
 Lemma view_effect d j s e : lane_models d j s ->
  lane_models (apply_effect double4_program d e) j (lane_effect j s e).
-Proof. apply (Machine.Lane.view_effect double4_program). Qed.
+Proof. apply (Machine.execution.Lane.view_effect double4_program). Qed.
 Lemma view_effects d j s es : lane_models d j s ->
  lane_models (effects double4_program es d) j (lane_effects j es s).
-Proof. apply (Machine.Lane.view_effects double4_program). Qed.
+Proof. apply (Machine.execution.Lane.view_effects double4_program). Qed.
 Lemma lane_effect_words j s e : effect_words e -> lane_words s -> lane_words (lane_effect j s e).
-Proof. apply (Machine.Lane.lane_effect_words double4_program). Qed.
+Proof. apply (Machine.execution.Lane.lane_effect_words double4_program). Qed.
 Lemma lane_effects_words j es s : Forall effect_words es -> lane_words s -> lane_words (lane_effects j es s).
-Proof. apply (Machine.Lane.lane_effects_words double4_program). Qed.
+Proof. apply (Machine.execution.Lane.lane_effects_words double4_program). Qed.
 Definition constants s := registers s 28%nat=19 /\ registers s 29%nat=radix-1.
 Definition field s region coord := fun i=>cells s (region,64*Z.of_nat(coord+i)).
 Definition rfield s reg := get (registers s) reg.
@@ -59,7 +59,7 @@ Definition shuffle j es s := lane_effects j es s.
 Definition call (j:nat) k base s := Lane
  (run (lane_load s (match k with AddReduce | SquarePair=>[] | _=>[(load_base k,base)] end)) (code k) (registers s)) (cells s).
 Lemma call_is_effect j k base s : lane_effect j s (kernel_effect k base)=call j k base s.
-Proof. unfold call,kernel_effect;cbn [lane_effect Machine.Lane.lane_effect];rewrite kernel_link;reflexivity. Qed.
+Proof. unfold call,kernel_effect;cbn [lane_effect Machine.execution.Lane.lane_effect];rewrite kernel_link;reflexivity. Qed.
 Definition round j full s := lane_effects j (round_effects full) s.
 Local Opaque code.
 Lemma call_registers j k base s : registers (call j k base s)=

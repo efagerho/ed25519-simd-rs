@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Lia.
-From Machine Require Import Instructions Blocks VectorSequence.
+From Machine Require Import isa.Instructions execution.Blocks execution.VectorSequence.
 Import ListNotations.
 Open Scope Z_scope.
 

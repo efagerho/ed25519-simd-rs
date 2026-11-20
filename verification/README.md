@@ -14,11 +14,8 @@ to an x86 ISA specification remains open.
 - `crate/` owns the eight-lane buffer representation and the component certificates in the Coq namespace `Ed25519Simd`. [Shared buffer layout](crate/Wide51.v)
 - `crate/pow2/` states the routine’s contract, proves it in the machine model, and explains how to check the proof against a linked executable. [Proof and audit instructions](crate/pow2/README.md)
 - `crate/double4/` proves the four doubling formulas, including loose inputs, biased subtraction, in-place writes and the aligned stack frame. [Proof and audit instructions](crate/double4/README.md)
-
 - `crate/cached_add/` proves cached addition with projective or affine operands, optional T, read-only staged inputs, and the aligned stack frame. [Proof and audit instructions](crate/cached_add/README.md)
-
 - `crate/scalar/` proves canonical reduction of all eight 512-bit inputs modulo L, including optimized Montgomery carries, conditional subtraction, and byte-memory/ABI guarantees. [Proof and audit instructions](crate/scalar/README.md)
-
 - `crate/ladder_step/` proves the composition of five calls using the linked double4 and cached-add contracts. [Contract and linked audit](crate/ladder_step/README.md)
 
 ## Build with or without the proof

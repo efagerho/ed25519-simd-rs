@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool Lia.
-From Machine Require Import Blocks Instructions WordBounds.
+From Machine Require Import execution.Blocks isa.Instructions execution.WordBounds.
 Import ListNotations. Open Scope Z_scope.
 (* A lane projection is exact. It introduces no second arithmetic model. *)
 Record lane := Lane { registers:nat->Z; cells:pointer->Z }.

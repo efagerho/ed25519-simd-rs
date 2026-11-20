@@ -1,5 +1,5 @@
 From Coq Require Import ZArith List Lia.
-From Machine Require Import Blocks MemoryTrace FlatMemory WordBounds ByteMemory.
+From Machine Require Import execution.Blocks memory.MemoryTrace memory.FlatMemory execution.WordBounds memory.ByteMemory.
 From Ed25519Simd.Double4 Require Import Double4ABI Double4Memory Double4Bytes Double4Spec.
 From Ed25519Simd.Double4 Require Audit Program.
 Import ListNotations. Open Scope Z_scope.

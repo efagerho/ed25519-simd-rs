@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Lia.
-From Machine Require Import ScalarRefinement Blocks FlatMemory WordBounds ByteMemory SysV LinkedCalls.
+From Machine Require Import execution.ScalarRefinement execution.Blocks memory.FlatMemory execution.WordBounds memory.ByteMemory abi.SysV execution.LinkedCalls.
 Open Scope Z_scope.
 
 (* At callee entry, RSP points at the return address pushed by the caller. *)

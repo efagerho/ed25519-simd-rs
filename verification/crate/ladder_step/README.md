@@ -46,7 +46,7 @@ proof fails.
 
 ## Proof boundaries
 
-[`LinkedCalls.v`](../../machine/LinkedCalls.v) gives the wrapper instructions
+[`LinkedCalls.v`](../../machine/execution/LinkedCalls.v) gives the wrapper instructions
 their encoding and execution on word registers and flat byte memory. A
 call pushes its actual continuation. [`Callees.v`](coq/Callees.v) admits
 a return only with an execution of the linked callee's block interpreter

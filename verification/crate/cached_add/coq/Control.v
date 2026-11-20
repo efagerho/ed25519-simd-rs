@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool.
-From Machine Require Import Blocks Instructions.
+From Machine Require Import execution.Blocks isa.Instructions.
 From Ed25519Simd.CachedAdd Require Import Program CachedAddABI.
 Import ListNotations. Open Scope Z_scope.
 Definition dummy := Control Caller (fun _=>Unknown) None (fun _=>None).

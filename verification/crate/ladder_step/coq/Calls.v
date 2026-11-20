@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Lia.
-From Machine Require Import Instructions Blocks FlatMemory ByteMemory WordBounds MemoryGeometry ScalarRefinement SysV LinkedCalls CallFrame.
+From Machine Require Import isa.Instructions execution.Blocks memory.FlatMemory memory.ByteMemory execution.WordBounds memory.MemoryGeometry execution.ScalarRefinement abi.SysV execution.LinkedCalls abi.CallFrame.
 From Ed25519Simd.Double4 Require Double4Spec Double4Memory.
 From Ed25519Simd.CachedAdd Require CachedAddSpec CachedAddABI CachedAddMemory.
 From Ed25519Simd.LadderStep Require Import Callees Schedule LinkedBytes Audit.

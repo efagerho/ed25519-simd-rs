@@ -86,7 +86,7 @@ def generate(work):
                 for name, offset in labels.items() if name.startswith(".L")]
     (work / "Program.v").write_text(
         "(* Generated from reduce.S; checked against the linked symbol bytes. *)\n"
-        "From Coq Require Import List ZArith.\nFrom Machine Require Import IntelSyntax.\n"
+        "From Coq Require Import List ZArith.\nFrom Machine Require Import isa.IntelSyntax.\n"
         "Import ListNotations. Open Scope Z_scope.\n" + "\n".join(bindings) +
         "\nDefinition scalar_program := Eval vm_compute in assemble [\n  " + ";\n  ".join(sections) + "].\n\n")
     return raw

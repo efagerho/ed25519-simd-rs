@@ -1,7 +1,7 @@
 From Coq Require Import List ZArith.
-From Machine Require Import Blocks MemoryTrace FlatMemory.
+From Machine Require Import execution.Blocks memory.MemoryTrace memory.FlatMemory.
 From Ed25519Simd.Scalar Require Import ScalarABI.
-From Machine Require Export MemoryGeometry.
+From Machine Require Export memory.MemoryGeometry.
 Import ListNotations. Open Scope Z_scope.
 Definition caller_slot : pointer := (stack,0).
 Definition allowed_write c := match c with VectorCell a=>vector_in output 320 a | ReturnSlot _=>False end.

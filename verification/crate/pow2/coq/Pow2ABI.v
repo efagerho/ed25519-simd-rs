@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool.
-From Machine Require Import SysV Blocks.
+From Machine Require Import abi.SysV execution.Blocks.
 Open Scope Z_scope.
 
 (* Region origins are the first byte of each ABI buffer and the bottom of the

@@ -1,5 +1,5 @@
 From Coq Require Import ZArith List Bool Lia Ring Znumtheory.
-From Machine Require Import Instructions Blocks FlatMemory ByteMemory Alignment WordBounds MemoryGeometry.
+From Machine Require Import isa.Instructions execution.Blocks memory.FlatMemory memory.ByteMemory memory.Alignment execution.WordBounds memory.MemoryGeometry.
 Import ListNotations.
 Open Scope Z_scope.
 

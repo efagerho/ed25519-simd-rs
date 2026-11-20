@@ -35,7 +35,7 @@ class Model:
 
     def predict(self, cases):
         header = ("From Coq Require Import ZArith List Strings.String.\n"
-                  "From Machine Require Import Instructions tests.model.Oracle.\n"
+                  "From Machine Require Import isa.Instructions tests.model.Oracle.\n"
                   "Import ListNotations. Open Scope Z_scope. Set Printing Width 10000.\n")
         # Bound Coq's live syntax tree even for long hardware campaigns.
         for i in range(0, len(cases), 32):

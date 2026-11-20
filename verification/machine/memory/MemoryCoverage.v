@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool Lia.
-From Machine Require Import Blocks MemoryTrace FlatMemory ExecutionProperties.
+From Machine Require Import execution.Blocks memory.MemoryTrace memory.FlatMemory execution.ExecutionProperties.
 Import ListNotations. Open Scope Z_scope.
 
 Definition written_vectors es :=

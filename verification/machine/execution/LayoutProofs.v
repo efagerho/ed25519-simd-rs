@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool Lia.
-From Machine Require Import Instructions ProgramLayout.
+From Machine Require Import isa.Instructions isa.ProgramLayout.
 Import ListNotations.
 Open Scope Z_scope.
 

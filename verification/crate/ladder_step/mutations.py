@@ -40,7 +40,7 @@ def run_case(directory, audit, name, raw, edit, expect):
     if edit:
         # A wrong semantic result must be rejected even when the byte binding succeeds.
         (ladder / "Binding.v").write_text(
-            "From Machine Require Import LinkedCalls. From Ed25519Simd.LadderStep Require Import Audit LinkedBytes.\n"
+            "From Machine Require Import execution.LinkedCalls. From Ed25519Simd.LadderStep Require Import Audit LinkedBytes.\n"
             "Example binds : assemble wrapper_pc program=Some symbol_bytes.\n"
             "Proof. vm_compute. reflexivity. Qed.\n")
         modules.insert(2, "Binding")

@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool.
-From Machine Require Import SysV Blocks WordBounds.
+From Machine Require Import abi.SysV execution.Blocks execution.WordBounds.
 Import ListNotations. Open Scope Z_scope.
 Definition stack := 0%nat.
 Definition output := 1%nat.

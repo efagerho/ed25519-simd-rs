@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Lia.
-From Machine Require Import FlatMemory LinkedCalls.
+From Machine Require Import memory.FlatMemory execution.LinkedCalls.
 From Ed25519Simd.LadderStep Require Import LinkedBytes Callees Schedule Audit Calls Execution.
 From Ed25519Simd.Double4 Require Object.
 From Ed25519Simd.CachedAdd Require Object.

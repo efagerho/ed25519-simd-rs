@@ -6,43 +6,43 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 
 | File | Contents |
 | --- | --- |
-| [X86.v](X86.v) | Shared 64-bit truncation, EVEX prefixes, ModR/M fields, register encodings, and little-endian 32-bit fields. |
-| [Move.v](Move.v) | Lane copy and encodings for register moves, loads, and stores, including SIB bytes and compressed displacements. |
-| [Arithmetic.v](Arithmetic.v) | Wrapping qword addition, subtraction and multiplication for `vpaddq`, `vpsubq` and `vpmullq`, with their encoders. |
-| [Logic.v](Logic.v) | Lane operations and encodings for `vpxorq` and `vpandq`. |
-| [Shift.v](Shift.v) | Immediate left and logical right qword shifts and their encodings. |
-| [IFMA.v](IFMA.v) | Low and high 52-bit multiply-add operations, accumulator wraparound, and register/memory encodings. |
-| [Instructions.v](Instructions.v) | Typed vector operands and opcodes, operand validation, per-lane execution (`bits`, `run`), byte encoding (`encode`), and Intel text rendering (`asm_of`). |
+| [X86.v](isa/X86.v) | Shared 64-bit truncation, EVEX prefixes, ModR/M fields, register encodings, and little-endian 32-bit fields. |
+| [Move.v](isa/Move.v) | Lane copy and encodings for register moves, loads, and stores, including SIB bytes and compressed displacements. |
+| [Arithmetic.v](isa/Arithmetic.v) | Wrapping qword addition, subtraction and multiplication for `vpaddq`, `vpsubq` and `vpmullq`, with their encoders. |
+| [Logic.v](isa/Logic.v) | Lane operations and encodings for `vpxorq` and `vpandq`. |
+| [Shift.v](isa/Shift.v) | Immediate left and logical right qword shifts and their encodings. |
+| [IFMA.v](isa/IFMA.v) | Low and high 52-bit multiply-add operations, accumulator wraparound, and register/memory encodings. |
+| [Instructions.v](isa/Instructions.v) | Typed vector operands and opcodes, operand validation, per-lane execution (`bits`, `run`), byte encoding (`encode`), and Intel text rendering (`asm_of`). |
 
 ## Programs and execution
 
 | File | Contents |
 | --- | --- |
-| [ProgramLayout.v](ProgramLayout.v) | Block bodies, terminators, shared vector fragments, and padding. `image` emits bytes. `valid_program` checks encodability, contiguous layout, and static control-flow targets. |
-| [LayoutProofs.v](LayoutProofs.v) | Proves that successful layout validation locates block bytes in the image, gives unique fetches and non-overlapping blocks, resolves vector fragments, and establishes static targets. |
-| [Assembly.v](Assembly.v) | Assembles addressed source blocks into a program. Collects vector fragments and computes call and jump displacements relative to the end of the instruction. |
-| [IntelSyntax.v](IntelSyntax.v) | Coq notation for register names, memory operands, scalar and vector instructions, and named branch targets. Exposes `assemble` to listings that import the notation. |
-| [MachineState.v](MachineState.v) | Region-relative pointers, vector-cell and return-slot permissions, PC, GPRs, ZF, ZMM registers, and memory. Defines the control and data components of `state` and their accessors. |
-| [Blocks.v](Blocks.v) | Executes block bodies and terminators, produces stack events with each transfer, applies vector and memory effects, and defines `step`, `reaches`, and `returns`. Proves that a successful `path` witnesses a return and that the returned state is unique. Also exposes the layout and state definitions through `Machine.Blocks`. |
+| [ProgramLayout.v](isa/ProgramLayout.v) | Block bodies, terminators, shared vector fragments, and padding. `image` emits bytes. `valid_program` checks encodability, contiguous layout, and static control-flow targets. |
+| [LayoutProofs.v](execution/LayoutProofs.v) | Proves that successful layout validation locates block bytes in the image, gives unique fetches and non-overlapping blocks, resolves vector fragments, and establishes static targets. |
+| [Assembly.v](isa/Assembly.v) | Assembles addressed source blocks into a program. Collects vector fragments and computes call and jump displacements relative to the end of the instruction. |
+| [IntelSyntax.v](isa/IntelSyntax.v) | Coq notation for register names, memory operands, scalar and vector instructions, and named branch targets. Exposes `assemble` to listings that import the notation. |
+| [MachineState.v](execution/MachineState.v) | Region-relative pointers, vector-cell and return-slot permissions, PC, GPRs, ZF, ZMM registers, and memory. Defines the control and data components of `state` and their accessors. |
+| [Blocks.v](execution/Blocks.v) | Executes block bodies and terminators, produces stack events with each transfer, applies vector and memory effects, and defines `step`, `reaches`, and `returns`. Proves that a successful `path` witnesses a return and that the returned state is unique. Also exposes the layout and state definitions through `Machine.execution.Blocks`. |
 
 ## Execution proofs
 
 | File | Contents |
 | --- | --- |
-| [Dependencies.v](Dependencies.v) | Tracks which registers and loads can influence a vector result. Proves agreement on selected outputs and preservation of untouched registers. |
-| [VectorSequence.v](VectorSequence.v) | Defines a single SIMD step with direct memory reads. Proves that stepping a fragment instruction by instruction agrees with its batched evaluation, including failed access checks. |
-| [BlockSequence.v](BlockSequence.v) | Defines instruction-by-instruction execution with PC advancement. Proves equivalence to a fetched block step and the empty, singleton, and split-block laws. |
-| [ExecutionProperties.v](ExecutionProperties.v) | Proves memory preservation outside permitted writes and independence of the control trace and step failure from initial vector data. |
-| [MemoryTrace.v](MemoryTrace.v) | Uses the common execution traversal to record vector effects and transfer events. Relates the trace to block execution and checks the order and addresses of live returns. |
-| [FlatMemory.v](FlatMemory.v) | Replays vector stores and saved PCs in one little-endian byte memory. Proves agreement with tracked logical cells and preservation of every byte outside the write footprint. |
-| [WordBounds.v](WordBounds.v) | Unsigned qword invariants for scalar integer values, vector registers and memory. Proves preservation by instructions, blocks, executions and recorded vector-effect prefixes. |
-| [ByteMemory.v](ByteMemory.v) | Little-endian byte decoding, exact word/vector read-write round trips, and construction of bounded logical data from bytes. Turns serialization agreement into exact reads and proves replay preserves byte bounds. |
-| [Lane.v](Lane.v) | Exact lane projection of vector effects and preservation of qword bounds, parameterized by the program. |
-| [MemoryGeometry.v](MemoryGeometry.v) | Region-relative vector alignment, disjointness, and reflected region-membership checks. |
-| [MemoryCoverage.v](MemoryCoverage.v) | Checked vector-write coverage implies initialization of every byte in the output region. |
-| [ByteExecution.v](ByteExecution.v) | Shared trace-frame and concrete-memory lifting proofs, including prefix reads, caller-byte preservation, and every stack pop. |
-| [ScalarRefinement.v](ScalarRefinement.v) | Concrete qword scalar effects and stack transfers, their representation relation, operation/body/block refinement with explicit placement and byte-read premises, and preservation of concrete word bounds. |
-| [Alignment.v](Alignment.v) | Relates clearing six low address bits to relative pointer alignment at a 64-byte-aligned region origin. |
+| [Dependencies.v](execution/Dependencies.v) | Tracks which registers and loads can influence a vector result. Proves agreement on selected outputs and preservation of untouched registers. |
+| [VectorSequence.v](execution/VectorSequence.v) | Defines a single SIMD step with direct memory reads. Proves that stepping a fragment instruction by instruction agrees with its batched evaluation, including failed access checks. |
+| [BlockSequence.v](execution/BlockSequence.v) | Defines instruction-by-instruction execution with PC advancement. Proves equivalence to a fetched block step and the empty, singleton, and split-block laws. |
+| [ExecutionProperties.v](execution/ExecutionProperties.v) | Proves memory preservation outside permitted writes and independence of the control trace and step failure from initial vector data. |
+| [MemoryTrace.v](memory/MemoryTrace.v) | Uses the common execution traversal to record vector effects and transfer events. Relates the trace to block execution and checks the order and addresses of live returns. |
+| [FlatMemory.v](memory/FlatMemory.v) | Replays vector stores and saved PCs in one little-endian byte memory. Proves agreement with tracked logical cells and preservation of every byte outside the write footprint. |
+| [WordBounds.v](execution/WordBounds.v) | Unsigned qword invariants for scalar integer values, vector registers and memory. Proves preservation by instructions, blocks, executions and recorded vector-effect prefixes. |
+| [ByteMemory.v](memory/ByteMemory.v) | Little-endian byte decoding, exact word/vector read-write round trips, and construction of bounded logical data from bytes. Turns serialization agreement into exact reads and proves replay preserves byte bounds. |
+| [Lane.v](execution/Lane.v) | Exact lane projection of vector effects and preservation of qword bounds, parameterized by the program. |
+| [MemoryGeometry.v](memory/MemoryGeometry.v) | Region-relative vector alignment, disjointness, and reflected region-membership checks. |
+| [MemoryCoverage.v](memory/MemoryCoverage.v) | Checked vector-write coverage implies initialization of every byte in the output region. |
+| [ByteExecution.v](memory/ByteExecution.v) | Shared trace-frame and concrete-memory lifting proofs, including prefix reads, caller-byte preservation, and every stack pop. |
+| [ScalarRefinement.v](execution/ScalarRefinement.v) | Concrete qword scalar effects and stack transfers, their representation relation, operation/body/block refinement with explicit placement and byte-read premises, and preservation of concrete word bounds. |
+| [Alignment.v](memory/Alignment.v) | Relates clearing six low address bits to relative pointer alignment at a 64-byte-aligned region origin. |
 | [proofs/README.md](proofs/README.md) | States the open obligation to decode the model's bytes with an independent x86 ISA specification and prove agreement on register and memory effects. |
 
 ## Conformance tests
@@ -93,4 +93,6 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 | [README.md](README.md) | Model scope, theorem summaries, conformance coverage, and commands for building, testing, and replaying a case. |
 | [CODE_LAYOUT.md](CODE_LAYOUT.md) | This file index. |
 
-`LinkedCalls.v` executes straight-line linked callers on concrete registers and byte memory. It decodes relative call displacements and connects return states to the callee block interpreter and its recorded memory events. `KnownRegisters.v` proves that successful block execution preserves concrete GPR values when all entry GPRs have a value. `SysV.v` defines the callee-saved GPR set and stack restoration rule.
+[LinkedCalls.v](execution/LinkedCalls.v) executes straight-line linked callers on concrete registers and byte memory. It decodes relative call displacements and connects return states to the block interpreter and its recorded writes. [KnownRegisters.v](execution/KnownRegisters.v) proves that successful block execution preserves representability of the entry registers.
+
+[SysV.v](abi/SysV.v) defines the callee-saved GPRs and stack restoration. [CallFrame.v](abi/CallFrame.v) projects these guarantees to concrete registers and proves which caller bytes survive a call, including the write made by pushing its return address.

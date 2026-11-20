@@ -15,11 +15,11 @@ of the linked symbol. [Read the statement in Audit.v](coq/Audit.v)
    padding. The return and field guarantees apply to this same program.
    Its operands, block layout, and static control-flow targets pass
    the machine model's validity check.
-   [Assembly source](../../../src/wide/avx512ifma/pow2.S) · [Encoding and validity](../../machine/ProgramLayout.v)
+   [Assembly source](../../../src/wide/avx512ifma/pow2.S) · [Encoding and validity](../../machine/isa/ProgramLayout.v)
 3. **Registers and return.** From every valid ABI entry, execution returns
    with RBX, RBP and R12–R15 equal to their entry values and RSP advanced
    by eight bytes. The result is read at the output pointer supplied in RDI.
-   [Entry, layout, and output definitions](coq/Pow2ABI.v) · [Execution and return](../../machine/Blocks.v)
+   [Entry, layout, and output definitions](coq/Pow2ABI.v) · [Execution and return](../../machine/execution/Blocks.v)
 4. **Output initialization.** Every one of the 640 bytes at the entry RDI
    pointer is written before return, regardless of the input limb bounds or
    previous output contents. This definite-write guarantee justifies the
@@ -42,7 +42,7 @@ of the linked symbol. [Read the statement in Audit.v](coq/Audit.v)
    vector qword. The final output, read directly from bytes, satisfies
    `pow2_spec`. Identical and partially overlapping read-only inputs use the
    same underlying bytes. [Concrete entry and result](coq/Pow2Bytes.v) ·
-   [Word bounds](../../machine/WordBounds.v) · [Byte round trips](../../machine/ByteMemory.v)
+   [Word bounds](../../machine/execution/WordBounds.v) · [Byte round trips](../../machine/memory/ByteMemory.v)
 
 The byte proof covers every non-wrapping placement satisfying `valid_placement`.
 The output and stack must be disjoint from each other, the inputs and the
@@ -105,7 +105,7 @@ To inspect the instructions, open `pow2-audit/Pow2/Program.v` next to
 The assembly listing includes the instruction bytes, and each mnemonic in
 `Program.v` is Coq notation for a typed instruction. To compare with the
 linked bytes, disassemble the same ELF.
-[Intel notation](../../machine/IntelSyntax.v)
+[Intel notation](../../machine/isa/IntelSyntax.v)
 
 ```bash
 objdump -d -M intel --disassemble=ed25519_simd_pow2_ifma "$elf"

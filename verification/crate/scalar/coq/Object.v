@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith.
-From Machine Require Import Blocks LayoutProofs ScalarRefinement.
+From Machine Require Import execution.Blocks execution.LayoutProofs execution.ScalarRefinement.
 From Ed25519Simd.Scalar Require Import Program ScalarABI ScalarSpec ScalarMemory ScalarBytes.
 From Ed25519Simd.Scalar Require Audit Logical FrameProof ObjectBytes Control.
 Definition object_bytes := ObjectBytes.symbol_bytes.

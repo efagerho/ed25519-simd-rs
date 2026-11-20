@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith Bool.
-From Machine Require Import Instructions X86.
-From Machine Require Move.
+From Machine Require Import isa.Instructions isa.X86.
+From Machine Require isa.Move.
 Import ListNotations.
 Open Scope Z_scope.
 
@@ -30,7 +30,7 @@ Lemma lookup_fragment_code p id code : lookup_fragment p id = Some code ->
 Proof. intro H; unfold fragment_code; now rewrite H. Qed.
 (* Scalar encodings: Intel SDM vol. 2, MOV, LEA, ADD/SUB, DEC.
    https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html
-   The vector moves use the encoders in Machine.Move. VPBROADCASTQ and VZEROUPPER:
+   The vector moves use the encoders in Machine.isa.Move. VPBROADCASTQ and VZEROUPPER:
    https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#text=_mm512_set1_epi64
    https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#text=_mm256_zeroupper *)
 Definition op_bytes p op := match op with

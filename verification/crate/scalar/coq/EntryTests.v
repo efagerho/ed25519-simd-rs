@@ -1,5 +1,5 @@
 From Coq Require Import ZArith List Lia.
-From Machine Require Import Blocks MemoryTrace FlatMemory WordBounds ByteMemory.
+From Machine Require Import execution.Blocks memory.MemoryTrace memory.FlatMemory execution.WordBounds memory.ByteMemory.
 From Ed25519Simd.Scalar Require Import ScalarABI ScalarMemory ScalarBytes ScalarSpec FrameProof.
 From Ed25519Simd.Scalar Require Audit Program.
 Import ListNotations. Open Scope Z_scope.

@@ -88,7 +88,7 @@ def generate(work):
                  for name, offset in labels.items() if name.startswith(".Ld4_")]
     (work / "Program.v").write_text(
         "(* Generated from double4.S; checked against the linked symbol bytes. *)\n"
-        "From Coq Require Import List ZArith.\nFrom Machine Require Import IntelSyntax.\n"
+        "From Coq Require Import List ZArith.\nFrom Machine Require Import isa.IntelSyntax.\n"
         "Import ListNotations. Open Scope Z_scope.\n" + "\n".join(bindings) +
         "\nDefinition double4_program := assemble [\n  " + ";\n  ".join(sections) + "].\n" +
         "\n".join(constants) + "\n")
