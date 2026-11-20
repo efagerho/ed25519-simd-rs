@@ -11,6 +11,7 @@ README for its contract and release audit.
 | [cached_add/](cached_add/README.md) | Cached point addition with affine or projective inputs and optional T output. |
 | [scalar/](scalar/README.md) | Canonical reduction of eight 512-bit inputs modulo the scalar order. |
 | [radix16/](radix16/README.md) | The linked reducer and digest wrapper produce 64 signed digits representing each input modulo the scalar order. |
+| [stage_round/](stage_round/README.md) | Signed key lookup, base-digit folding and exact limb placement in the 55-row ladder input. |
 | [ladder_step/](ladder_step/README.md) | A radix-256 ladder step composed from the verified doubling and cached-addition routines. |
 | [torsion/](torsion/README.md) | The returned lane mask equals the full ZIP-215 cofactor check, including the all-lanes early return. |
 | [small_order/](small_order/README.md) | The returned mask selects precisely the valid projective points killed by the cofactor, including the all-lanes rejection path. |
@@ -40,6 +41,7 @@ separate review.
    `run_correct` and `lane_result` for the mask, point premises and group
    equation. For small order, check the two byte bindings and the group result
    for valid XYZ points. Both mask routines use a tagged private stack.
+   For staging, check the signed entry index, source extents and every output row in `stage_contract`.
    [Common call result](../machine/abi/SysV.v) · [Ladder contract](ladder_step/coq/Audit.v)
 3. **Match the caller.** Compare register arguments, Rust layout, buffer
    lengths, aliasing, stack space, and numeric or point-representation premises
@@ -71,8 +73,8 @@ separate review.
 
 On x86-64 Linux, the `asm` feature enables all assembly backends. Each
 `verify-asm-*` feature also checks the named standalone routine during the
-build and embeds the bytes that passed. The radix16, ladder, torsion and small-order audits run after linking and certify
-the exact relative addresses in the release ELF.
+build and embeds the bytes that passed. Staging, radix16, ladder, torsion and
+small-order audits check the linked symbols in the release ELF.
 
 Run the build commands from the repository root.
 

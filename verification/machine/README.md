@@ -39,7 +39,7 @@ deterministic boundary sweep. Each backend uses the same inputs. [Fixed cases](t
   loads from unaligned private storage, compressed 8-bit displacement limits
   and both signed 32-bit displacement extremes. [Move and load vectors](tests/cases/move.jsonl)
 
-The default native run also compares five programs modeled in Coq
+The default native run also compares the following programs modeled in Coq
 with independently assembled `.S` files. It checks the entire
 linked byte sequence before executing each program on the pinned CPU.
 
@@ -52,6 +52,7 @@ linked byte sequence before executing each program on the pinned CPU.
 | `mask` | Broadcasts a linked RIP-relative qword, adds and subtracts memory operands, compares high ZMM registers into opmasks, branches on EAX, and combines two masks. The harness checks the complete image and the returned RAX for both branch outcomes and mixed lanes. [Coq](tests/Mask.v) · [Assembly](tests/native/mask.S) |
 | `filter` | Checks RIP-relative broadcast multiplication and unsigned comparison, unsigned minimum, mask self-test, both branch outcomes and the returned mask across the sign-bit boundary. [Coq](tests/Filter.v) · [Assembly](tests/native/filter.S) |
 | `packed` | Compares byte broadcast, wrapping subtraction, unpack and 128-bit block selection against hardware across six unaligned rows. Also observes a load after a store and the low and high register effects of VZEROUPPER. [Coq](tests/PackedRows.v) · [Assembly](tests/native/packed.S) |
+| `indexed` | Checks scalar index arithmetic and zero extension through the selected load addresses, VEX upper-half clearing, both half-insertion selectors, low and high qword unpacks, and aligned stores. [Coq](tests/Indexed.v) · [Assembly](tests/native/indexed.S) |
 
 The aligned probe also covers `MOV rax, imm32` (`48 c7 c0`) with zero,
 one, the scalar reducer's constant, and `2^31-1`, observing each value through

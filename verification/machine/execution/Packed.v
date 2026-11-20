@@ -5,7 +5,7 @@ Import ListNotations. Local Open Scope Z_scope.
 
 (* Unmasked EVEX.512 integer operations on one RDI-relative row buffer.
    Expressions delay arithmetic while register moves and byte routing execute.
-   Each memory operand denotes an entire, possibly unaligned, 64-byte row. *)
+   Memory operands denote 64-byte rows. StoreAligned requires an aligned base. *)
 Inductive expr :=
 | Lit (v:Z) | Acc | Initial (r lane:nat) | Load (row lane:nat)
 | Add (a b:expr) | LeftQ (a:expr) (n:nat) | RightQ (a:expr) (n:nat)
@@ -32,7 +32,8 @@ Inductive op :=
 | Imm (wide:bool) (n:Z) | Broadcast (octets:bool) (d:nat)
 | AddRow (d a row:nat) | AddQ (d a b:nat) | ShiftQ (left:bool) (d a n:nat)
 | And (d a b:nat) | Sub (d a b:nat) | Unpack (high:bool) (d a b:nat)
-| Shuffle (d a b imm:nat) | Store (row a:nat) | Upper.
+| UnpackQ (high:bool) (d a b:nat)
+| Shuffle (d a b imm:nat) | Store (row a:nat) | StoreAligned (row a:nat) | Upper.
 (* Byte operations use EVEX.W=0; the shared qword encoders use W=1. *)
 Definition rr_w0 map pp opcode d a b :=
  match rr map pp opcode d a b with x::y::w::rest => x::y::(w-128)::rest | _=>[] end.
@@ -44,20 +45,26 @@ Definition encode op := match op with
 | ShiftQ to_left d a n => if to_left then encode_vpsllq d a n else encode_vpsrlq d a n
 | And d a b => encode_vpandq d a b | Sub d a b => rr_w0 1 1 0xf8 d a b
 | Unpack high d a b => rr_w0 1 1 (if high then 0x68 else 0x60) d a b
+| UnpackQ high d a b => rr 1 1 (if high then 0x6d else 0x6c) d a b
 | Shuffle d a b imm => rr 3 1 0x43 d a b ++ [Z.of_nat imm]
 | Store row a => encode_store a 7 (64*Z.of_nat row)
+| StoreAligned row a => rm_memory 1 1 0x7f a 0 7 (64*Z.of_nat row)
 | Upper => op_bytes (Program [] []) ZeroUpper end.
 
-Definition valid rows op := match op with
+Definition valid_with_alignment aligned rows op := match op with
 | Imm wide n => unsigned (if wide then 64 else 32) n
 | Broadcast _ d => (d <? 32)%nat
 | AddRow d a row => (d <? 32)%nat && (a <? 32)%nat && (row <? rows)%nat && signed 32 (64*Z.of_nat row)
 | Store row a => (a <? 32)%nat && (row <? rows)%nat && signed 32 (64*Z.of_nat row)
+| StoreAligned row a => aligned && (a <? 32)%nat && (row <? rows)%nat && signed 32 (64*Z.of_nat row)
 | ShiftQ _ d a n => (d <? 32)%nat && (a <? 32)%nat && (n <? 256)%nat
 | Shuffle d a b i => forallb (fun r=>(r <?32)%nat) [d;a;b] && (i <? 256)%nat
-| And d a b | Sub d a b | Unpack _ d a b | AddQ d a b =>
+| And d a b | Sub d a b | Unpack _ d a b | UnpackQ _ d a b | AddQ d a b =>
     forallb (fun r=>(r <?32)%nat) [d;a;b]
 | Upper => true end.
+
+(* Use the stronger validator only with a proof of 64-byte RDI alignment. *)
+Definition valid := valid_with_alignment false.
 
 Record symbolic := State { acc:expr; zmm:nat->vec; stores:nat->option vec }.
 Definition initial := State Acc (fun r=>Words (Initial r)) (fun _=>None).
@@ -78,11 +85,14 @@ Definition step s op :=
  | Unpack high d a c => putv s d (Bytes(fun i=>
      let src := (16*(i/16) + (if high then 8 else 0) + i mod 16 / 2)%nat in
      if Nat.even i then b a src else b c src))
+ | UnpackQ high d a c => putv s d (Bytes(fun i=>
+     let src := (16*(i/16) + (if high then 8 else 0) + i mod 8)%nat in
+     if Nat.even (i/8) then b a src else b c src))
  | Shuffle d a c imm => putv s d (Bytes(fun i=>
      let block := (i/16)%nat in
      let src := (16*(imm / 4^block mod 4) + i mod 16)%nat in
      if (block <? 2)%nat then b a src else b c src))
- | Store row a => State (acc s) (zmm s) (update (stores s) row (Some (zmm s a)))
+ | Store row a | StoreAligned row a => State (acc s) (zmm s) (update (stores s) row (Some (zmm s a)))
  | Upper => State (acc s) (fun r=>if (r <? 16)%nat then
      Words(fun j=>if (j <? 2)%nat then q r j else Lit 0) else zmm s r) (stores s)
  end.

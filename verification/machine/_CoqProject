@@ -49,3 +49,6 @@ tests/CallerSteps.v
 execution/Packed.v
 memory/PackedMemory.v
 tests/PackedRows.v
+isa/IndexedLoad.v
+execution/IndexedLoads.v
+tests/Indexed.v

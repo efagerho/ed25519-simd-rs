@@ -27,8 +27,8 @@ The block model tracks the zero flag consumed by conditional jumps.
 `returns` requires a finite execution that reaches the caller, so a rejected
 access cannot count as success. [Vector semantics and encoding](machine/isa/Instructions.v) · [Scalar encoding and layout](machine/isa/ProgramLayout.v) · [Block execution](machine/execution/Blocks.v) · [Linked calls](machine/execution/LinkedCalls.v)
 
-**Memory and the ABI.** Routines with output buffers model pointers as a region plus a byte
-offset. A placement maps them into one flat array of bytes valued 0 through
+**Memory and the ABI.** Field kernels and scalar reduction model pointers as a
+region plus a byte offset. A placement maps them into one flat array of bytes valued 0 through
 255. The model uses region permissions for reads, writes, and stack slots.
 Check address calculations, 64-byte vector accesses, eight-byte saved words,
 little-endian qwords, lane order, and the SysV saved-register set. These definitions give “preserved” and
@@ -40,12 +40,19 @@ aliasing, on a CPU and OS that enable the required instructions. Page faults,
 concurrent interference, and timing or side-channel behavior lie outside
 this execution model. [Pointers and permissions](machine/execution/MachineState.v) · [Address placement and writes](machine/memory/FlatMemory.v) · [Byte execution](machine/memory/ByteExecution.v) · [SysV contract](machine/abi/SysV.v)
 
-**Packed byte operations.** The digest wrapper uses a straight-line interpreter
+**Packed byte operations.** Digest conversion and table staging use a straight-line interpreter
 for one RDI-relative buffer. Check byte order within qwords, 128-bit unpack
 boundaries, shuffle immediates, and the EVEX element width. A row read uses
 the latest 64-byte store to the same row or the incoming flat memory.
 Coq proves that each in-bounds store writes precisely its 64 bytes in flat
 memory. The linked call and return use the shared stack semantics. [Packed interpreter](machine/execution/Packed.v) · [Row store proof](machine/memory/PackedMemory.v) · [Hardware probe](machine/tests/PackedRows.v)
+
+**Indexed loads.** Staging executes each register-and-load block against its
+incoming flat memory. Check 32-bit zero extension, 64-bit effective addresses,
+SIB and scaled displacements, vector upper halves and the width recorded for
+each memory operand. The contract checks those read extents and the alignment
+of the destination for the packed stores. The model relies on the caller to
+map the stated buffers and code. [Indexed encoder](machine/isa/IndexedLoad.v) · [Block semantics](machine/execution/IndexedLoads.v) · [Hardware probe](machine/tests/Indexed.v)
 
 **Mask-dependent execution.** The torsion and small-order routines branch on values
 computed by all eight lanes. The functional model reconstructs EAX comparisons
