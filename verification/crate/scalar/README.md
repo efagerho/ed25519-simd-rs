@@ -39,7 +39,7 @@ checks that the maximal 512-bit input is covered.
 With Coq 8.20, Python, LLVM MC, and GNU binutils on PATH:
 
 ```sh
-python3 -B verification/scalar/audit.py /path/to/unstripped-release-elf \
+python3 -B verification/crate/scalar/audit.py /path/to/unstripped-release-elf \
   --output ./scalar-audit --cases ./scalar-cases.jsonl --seed 42
 ```
 
@@ -78,7 +78,7 @@ Release auditing checks the final linked artifact from either build.
 | `Unpack.v`, `Product.v` | Exact 64-to-52-bit unpacking and both constant products; actual IFMA operand and accumulator bounds. |
 | `ScalarMath.v`, `Reduction.v`, `Montgomery.v` | Cancellation of each low column, the optimized ceiling carry including zero low limbs, all five Montgomery steps, normalization, and the bound that makes one subtraction sufficient. |
 | `Borrow.v`, `Finish.v` | Borrow propagation through five limbs, wrapped subtraction, and bitwise selection of the canonical result. |
-| [Shared arithmetic](../arithmetic/README.md), `Symbolic.v`, `Calculate.v` | Sound interval/exact-polynomial checking, scalar instruction conditions, and composition into `H mod L`. |
+| [Shared arithmetic](../../arithmetic/README.md), `Symbolic.v`, `Calculate.v` | Sound interval/exact-polynomial checking, scalar instruction conditions, and composition into `H mod L`. |
 | `Control.v`, `Lane.v`, `Routing.v`, `Logical.v` | Actual control path, broadcasts, register and memory routing, stores, and all eight lanes. |
 | `ScalarMemory.v`, `FrameProof.v`, `ScalarBytes.v` | ABI, complete writes, concrete byte memory, read consistency, and preservation outside output. |
 | `Audit.v`, `Object.v`, `EntryTests.v` | Complete public certificate, byte binding, and concrete non-vacuity witnesses. |
@@ -114,13 +114,13 @@ not add axioms: their results are checked by the kernel.
 
 The certificate covers this assembly routine in the model. It does not prove
 Rust dispatch or recoding, SHA-512, physical constant-time behavior, or the
-complete Ed25519 verifier. [Machine model](../machine/README.md) ·
-[ISA refinement obligation](../machine/proofs/README.md)
+complete Ed25519 verifier. [Machine model](../../machine/README.md) ·
+[ISA refinement obligation](../../machine/proofs/README.md)
 
 ## Fault injection
 
 ```sh
-python3 -B verification/scalar/mutations.py \
+python3 -B verification/crate/scalar/mutations.py \
   --output ./scalar-mutations --native
 ```
 

@@ -1,4 +1,4 @@
-"""Expand add_cached.S into readable, byte-bound executable Coq instructions."""
+"""Expand reduce.S into readable, byte-bound executable Coq instructions."""
 import re
 import sys
 import tempfile
@@ -8,8 +8,8 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "pow2"))
 from elf import disassemble, require
 from generate_listing import assemble, mc
 
-SYMBOL = "ed25519_simd_add_cached_ifma"
-SOURCE = Path(__file__).resolve().parents[2] / "src/wide/avx512ifma/add_cached.S"
+SYMBOL = "ed25519_simd_scalar_reduce_ifma"
+SOURCE = Path(__file__).resolve().parents[3] / "src/scalar/reduce.S"
 
 
 def generate(work):
@@ -40,8 +40,8 @@ def generate(work):
                 pc = code[pc][0]
             lines.append(f"    {asm:<52} // +{start:04x} {raw[start:pc].hex(' ')}" if start < pc else asm)
         require(pc == len(raw), "expansion does not span symbol")
-        (work / "add_cached.expanded.S").write_text("\n".join(lines)+"\n")
-        require(assemble(work / "add_cached.expanded.S", objects, "expanded", SYMBOL) == raw,
+        (work / "reduce.expanded.S").write_text("\n".join(lines)+"\n")
+        require(assemble(work / "reduce.expanded.S", objects, "expanded", SYMBOL) == raw,
                 "macro expansion changed symbol bytes")
 
     leaders = set(labels.values())
@@ -84,14 +84,11 @@ def generate(work):
         sections.append(f"{kind} 0x{start:04x} {ops} {ending}")
     bindings = [f'Local Notation "\'{name}\'" := (0x{offset:04x}%Z) (in custom intel_label at level 0).'
                 for name, offset in labels.items() if name.startswith(".L")]
-    constants = [f"Definition {name[len('.Lca_'):]}_pc := 0x{offset:04x}%Z."
-                 for name, offset in labels.items() if name.startswith(".Lca_")]
     (work / "Program.v").write_text(
-        "(* Generated from add_cached.S; checked against the linked symbol bytes. *)\n"
+        "(* Generated from reduce.S; checked against the linked symbol bytes. *)\n"
         "From Coq Require Import List ZArith.\nFrom Machine Require Import IntelSyntax.\n"
         "Import ListNotations. Open Scope Z_scope.\n" + "\n".join(bindings) +
-        "\nDefinition add_cached_program := Eval vm_compute in assemble [\n  " + ";\n  ".join(sections) + "].\n" +
-        "\n".join(constants) + "\n")
+        "\nDefinition scalar_program := Eval vm_compute in assemble [\n  " + ";\n  ".join(sections) + "].\n\n")
     return raw
 
 

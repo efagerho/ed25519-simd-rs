@@ -1,4 +1,4 @@
-"""Expand reduce.S into readable, byte-bound executable Coq instructions."""
+"""Expand double4.S into readable, byte-bound executable Coq instructions."""
 import re
 import sys
 import tempfile
@@ -8,8 +8,8 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "pow2"))
 from elf import disassemble, require
 from generate_listing import assemble, mc
 
-SYMBOL = "ed25519_simd_scalar_reduce_ifma"
-SOURCE = Path(__file__).resolve().parents[2] / "src/scalar/reduce.S"
+SYMBOL = "ed25519_simd_double4_ifma"
+SOURCE = Path(__file__).resolve().parents[3] / "src/wide/avx512ifma/double4.S"
 
 
 def generate(work):
@@ -40,8 +40,8 @@ def generate(work):
                 pc = code[pc][0]
             lines.append(f"    {asm:<52} // +{start:04x} {raw[start:pc].hex(' ')}" if start < pc else asm)
         require(pc == len(raw), "expansion does not span symbol")
-        (work / "reduce.expanded.S").write_text("\n".join(lines)+"\n")
-        require(assemble(work / "reduce.expanded.S", objects, "expanded", SYMBOL) == raw,
+        (work / "double4.expanded.S").write_text("\n".join(lines)+"\n")
+        require(assemble(work / "double4.expanded.S", objects, "expanded", SYMBOL) == raw,
                 "macro expansion changed symbol bytes")
 
     leaders = set(labels.values())
@@ -84,11 +84,14 @@ def generate(work):
         sections.append(f"{kind} 0x{start:04x} {ops} {ending}")
     bindings = [f'Local Notation "\'{name}\'" := (0x{offset:04x}%Z) (in custom intel_label at level 0).'
                 for name, offset in labels.items() if name.startswith(".L")]
+    constants = [f"Definition {name[len('.Ld4_'):]}_pc := 0x{offset:04x}%Z."
+                 for name, offset in labels.items() if name.startswith(".Ld4_")]
     (work / "Program.v").write_text(
-        "(* Generated from reduce.S; checked against the linked symbol bytes. *)\n"
+        "(* Generated from double4.S; checked against the linked symbol bytes. *)\n"
         "From Coq Require Import List ZArith.\nFrom Machine Require Import IntelSyntax.\n"
         "Import ListNotations. Open Scope Z_scope.\n" + "\n".join(bindings) +
-        "\nDefinition scalar_program := Eval vm_compute in assemble [\n  " + ";\n  ".join(sections) + "].\n\n")
+        "\nDefinition double4_program := assemble [\n  " + ";\n  ".join(sections) + "].\n" +
+        "\n".join(constants) + "\n")
     return raw
 
 

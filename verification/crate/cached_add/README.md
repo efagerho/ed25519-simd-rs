@@ -60,7 +60,7 @@ With Python 3.8+, LLVM MC, GNU binutils and Coq (`coqdep`, `coqc`, `coqchk`)
 on PATH, run from the repository root:
 
 ```sh
-python3 -B verification/cached_add/audit.py /path/to/unstripped-release-elf \
+python3 -B verification/crate/cached_add/audit.py /path/to/unstripped-release-elf \
   --output ./cached-add-audit --cases ./cached-add-cases.jsonl --seed 42
 ```
 
@@ -126,7 +126,7 @@ An independent ISA refinement theorem remains open. Coq's kernel, the stated
 machine semantics and the auditor's identification/extraction of the linked
 bytes remain the trust boundary. Listing generation, interval checking and
 polynomial normalization produce claims rechecked by the kernel.
-[`Machine model`](../machine/README.md) · [`ISA obligation`](../machine/proofs/README.md)
+[`Machine model`](../../machine/README.md) · [`ISA obligation`](../../machine/proofs/README.md)
 
 This certificate proves coordinate arithmetic in the model. It does not
 prove the group law, the Rust staging/dispatch code, physical constant-time
@@ -135,7 +135,7 @@ behavior, or the complete Ed25519 verifier.
 ## Mutation checks
 
 ```sh
-python3 -B verification/cached_add/mutations.py \
+python3 -B verification/crate/cached_add/mutations.py \
   --output ./cached-add-mutations --native
 ```
 

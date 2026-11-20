@@ -20,7 +20,7 @@ from generate_listing import assemble
 from coq_proof import symbol_bytes
 from elf import symbol_extent
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 MUTATIONS = {
     "remove-input-reduction": ("    ca_reduce 0\n", "", False),
     "reuse-wrong-cached-operand": (r"%(64*\j + 320*\stream)", r"%(64*\j)", False),
@@ -104,7 +104,7 @@ def run_case(name, old, new, passes, output, native):
                     work / "assembly.o", "-o", binary], check=True)
     audit = work / "audit"
     with (work / "audit.log").open("w") as log:
-        status = subprocess.run([sys.executable, "-B", repo / "verification/cached_add/audit.py",
+        status = subprocess.run([sys.executable, "-B", repo / "verification/crate/cached_add/audit.py",
                                  binary, "--output", audit], stdout=log, stderr=subprocess.STDOUT).returncode
     log = (work / "audit.log").read_text()
     if passes != (status == 0):

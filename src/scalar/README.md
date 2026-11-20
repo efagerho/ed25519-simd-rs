@@ -3,7 +3,7 @@
 On x86-64 Linux, `asm` enables all assembly backends, including `reduce.S`
 for eight-lane 512-bit challenge reduction. The Rust reducer remains the default
 and the test reference. Radix-16 recoding stays in Rust.
-The [Coq certificate](../../verification/scalar/README.md)
+The [Coq certificate](../../verification/crate/scalar/README.md)
 proves canonical reduction, ABI preservation, and concrete byte-memory safety
 for the linked assembly. `verify-asm-scalar` checks that proof during the build
 and embeds the certified bytes for this routine. It also enables `asm`.

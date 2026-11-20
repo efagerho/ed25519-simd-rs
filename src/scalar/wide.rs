@@ -49,7 +49,7 @@ core::arch::global_asm!(
 unsafe extern "C" {
     /// Read 512 bytes of word-major input and write 320 bytes of canonical
     /// radix-2^52 output. Buffers are disjoint; neither needs vector alignment.
-    /// See reduce.S for the full ABI and verification/scalar for its Coq proof.
+    /// See reduce.S for the full ABI and verification/crate/scalar for its Coq proof.
     fn ed25519_simd_scalar_reduce_ifma(out: *mut u8, words: *const u8);
 }
 

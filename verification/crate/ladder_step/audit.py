@@ -7,9 +7,11 @@ import subprocess
 import sys
 
 HERE = Path(__file__).resolve().parent
-VERIFY = HERE.parent
-sys.path.insert(0, str(VERIFY / "pow2"))
+CRATE = HERE.parent
+VERIFY = CRATE.parent
+sys.path.insert(0, str(CRATE / "pow2"))
 sys.path.insert(0, str(VERIFY))
+sys.path.insert(0, str(CRATE))
 from coq_proof import symbol_bytes
 from elf import symbol_extent
 from proof_build import (LOAD_PATH, check_object, compile_library, compile_machine,
@@ -42,7 +44,7 @@ def audit(elf, work):
         # Each callee imports modules named Program, Audit and Object.
         callee_flags = ["-R", ".", namespace, "-Q", "../machine", "Machine",
                         "-Q", "../arithmetic", "ProofArithmetic"]
-        compile_object(raw, dest, sources, VERIFY / name / "coq/Object.v", callee_flags)
+        compile_object(raw, dest, sources, CRATE / name / "coq/Object.v", callee_flags)
         flags.extend(["-Q", namespace, namespace])
 
     linked = work / "LinkedBytes.v"

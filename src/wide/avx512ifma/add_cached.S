@@ -1,5 +1,5 @@
 // Cached point addition, independently in eight lanes modulo p = 2^255-19.
-// Coq certificate: verification/cached_add, Object.assembled_cached_add_correct.
+// Coq certificate: verification/crate/cached_add, Object.assembled_cached_add_correct.
 // The verify-asm-cached-add feature emits only bytes certified by that theorem.
 //
 // SysV AMD64 arguments:

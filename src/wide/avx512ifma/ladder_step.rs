@@ -126,7 +126,7 @@ mod assembly {
 
     unsafe extern "C" {
         /// See ladder_step.S for bounds, layout, aliasing and stack requirements.
-        /// The linked wrapper's contract is in verification/ladder_step/coq/Audit.v.
+        /// The linked wrapper's contract is in verification/crate/ladder_step/coq/Audit.v.
         fn ed25519_simd_ladder_step_ifma(point: *mut u8, operands: *const u8, compute_t: u64);
     }
 

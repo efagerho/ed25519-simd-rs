@@ -34,10 +34,10 @@ def write_evidence(binary, address, raw, work, checks, cases):
     # Preserve the generator/checker sources as well as the generated Coq terms.
     sources = work / "sources"
     sources.mkdir()
-    shutil.copyfile(HERE.parents[1] / "src/wide/avx512ifma/pow2.S", sources / "pow2.S")
+    shutil.copyfile(HERE.parents[2] / "src/wide/avx512ifma/pow2.S", sources / "pow2.S")
     for path in sorted(HERE.glob("*.py")):
         shutil.copyfile(path, sources / path.name)
-    shutil.copyfile(HERE.parent / "proof_build.py", sources / "proof_build.py")
+    shutil.copyfile(HERE.parents[1] / "proof_build.py", sources / "proof_build.py")
     coq_sources = sorted(work.rglob("*.v"))
     (work / "_CoqProject").write_text("-Q machine Machine\n-Q arithmetic ProofArithmetic\n" + "".join(
         str(path.relative_to(work)) + "\n" for path in coq_sources))

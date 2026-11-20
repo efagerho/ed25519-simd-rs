@@ -1,5 +1,5 @@
 // Four doublings, independently in each of eight lanes, modulo p = 2^255-19.
-// Coq contract: verification/double4/coq/Audit.v, double4_contract.
+// Coq contract: verification/crate/double4/coq/Audit.v, double4_contract.
 // Use verify-asm-double4 to check the proof and embed the certified bytes.
 //
 // SysV AMD64: RDI points to an exclusive, 64-byte-aligned 1280-byte WidePoint.

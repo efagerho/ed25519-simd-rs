@@ -10,14 +10,14 @@ to an x86 ISA specification remains open.
 
 - `machine/` defines the x86-64 instruction model and tests its encodings and execution against Intel XED and native hardware. [Machine model and tests](machine/README.md)
 - `arithmetic/` contains the shared integer-expression, polynomial, interval and symbolic-instruction proofs. [Shared arithmetic](arithmetic/README.md)
-- `pow2/` states the routine’s contract, proves it in the machine model, and explains how to check the proof against a linked executable. [Proof and audit instructions](pow2/README.md)
-- `double4/` proves the four doubling formulas, including loose inputs, biased subtraction, in-place writes and the aligned stack frame. [Proof and audit instructions](double4/README.md)
+- `crate/pow2/` states the routine’s contract, proves it in the machine model, and explains how to check the proof against a linked executable. [Proof and audit instructions](crate/pow2/README.md)
+- `crate/double4/` proves the four doubling formulas, including loose inputs, biased subtraction, in-place writes and the aligned stack frame. [Proof and audit instructions](crate/double4/README.md)
 
-- `cached_add/` proves cached addition with projective or affine operands, optional T, read-only staged inputs, and the aligned stack frame. [Proof and audit instructions](cached_add/README.md)
+- `crate/cached_add/` proves cached addition with projective or affine operands, optional T, read-only staged inputs, and the aligned stack frame. [Proof and audit instructions](crate/cached_add/README.md)
 
-- `scalar/` proves canonical reduction of all eight 512-bit inputs modulo L, including optimized Montgomery carries, conditional subtraction, and byte-memory/ABI guarantees. [Proof and audit instructions](scalar/README.md)
+- `crate/scalar/` proves canonical reduction of all eight 512-bit inputs modulo L, including optimized Montgomery carries, conditional subtraction, and byte-memory/ABI guarantees. [Proof and audit instructions](crate/scalar/README.md)
 
-- `ladder_step/` proves the composition of five calls using the linked double4 and cached-add contracts. [Contract and linked audit](ladder_step/README.md)
+- `crate/ladder_step/` proves the composition of five calls using the linked double4 and cached-add contracts. [Contract and linked audit](crate/ladder_step/README.md)
 
 ## Build with or without the proof
 
@@ -43,11 +43,11 @@ Install the following tools on the host that checks the proof or audits a linked
 - Coq with its standard library and the commands `coqdep`, `coqc`, and `coqchk`
 
 To verify the bytes in an already linked executable from either build, follow
-the release audit instructions for [pow2](pow2/README.md#check-the-release-executable),
-[double4](double4/README.md#check-the-release-executable),
-[cached addition](cached_add/README.md#check-the-release-executable), and
-[scalar reduction](scalar/README.md#replay-against-a-release-executable).
-For the composed routine, run the [ladder-step audit](ladder_step/README.md).
+the release audit instructions for [pow2](crate/pow2/README.md#check-the-release-executable),
+[double4](crate/double4/README.md#check-the-release-executable),
+[cached addition](crate/cached_add/README.md#check-the-release-executable), and
+[scalar reduction](crate/scalar/README.md#replay-against-a-release-executable).
+For the composed routine, run the [ladder-step audit](crate/ladder_step/README.md).
 
 `python3 -B verification/test_evidence.py` checks report replay, seed provenance
 and audit manifest integrity without requiring Coq, XED or AVX-512 hardware.
