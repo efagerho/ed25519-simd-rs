@@ -13,6 +13,8 @@ from coq_proof import export_cases, symbol_bytes
 from elf import symbol_extent
 from evidence import sha256, tool_versions
 
+from proof_build import component_flags, write_project
+
 HERE = Path(__file__).resolve().parent
 
 
@@ -27,16 +29,15 @@ def write_evidence(binary, address, raw, work, checks, cases):
             shutil.copyfile(path, sources / name / path.name)
     shutil.copyfile(HERE.parents[1] / "proof_build.py", sources / "proof_build.py")
     coq_sources = sorted(work.rglob("*.v"))
-    (work / "_CoqProject").write_text("-Q machine Machine\n-Q arithmetic ProofArithmetic\n" + "".join(
-        str(path.relative_to(work)) + "\n" for path in coq_sources))
+    write_project(work, component_flags("scalar"), coq_sources)
     retained = [*coq_sources, *(p for p in sources.rglob("*") if p.is_file()),
-                work / "_CoqProject", work / "machine/_CoqProject", work / "arithmetic/_CoqProject", work / "reduce.expanded.S",
+                *work.rglob("_CoqProject"), work / "reduce.expanded.S",
                 work / "symbol.bin", work / "assumptions.txt", work / "coqchk.log"]
     if cases:
         retained.append(work / cases["path"])
     manifest = {
         "schema_version": 1,
-        "theorem": "Object.assembled_scalar_correct : Audit.scalar_contract ObjectBytes.symbol_bytes",
+        "theorem": "Ed25519Simd.Scalar.Object.assembled_scalar_correct : Ed25519Simd.Scalar.Audit.scalar_contract Ed25519Simd.Scalar.ObjectBytes.symbol_bytes",
         "elf": {"name": binary.name, "sha256": sha256(binary)},
         "symbol": {"name": SYMBOL, "address": address, "size": len(raw),
                    "sha256": hashlib.sha256(raw).hexdigest()},
@@ -56,7 +57,7 @@ def replay(binary, work, cases=None, seed=1):
     checks = certify(raw, work)
     corpus = None
     if cases:
-        reserved = {work / name for name in ("manifest.json", "symbol.bin", "_CoqProject", "sources", "ExportCases.v")}
+        reserved = {work / name for name in ("manifest.json", "symbol.bin", "_CoqProject", "sources", "Scalar/ExportCases.v")}
         if ((work.resolve() in cases.resolve().parents and cases.exists()) or
                 cases.resolve() in {path.resolve() for path in reserved}):
             raise ValueError("case output conflicts with an audit file")

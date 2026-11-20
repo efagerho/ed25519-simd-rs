@@ -1,13 +1,14 @@
 From ProofArithmetic Require Import Interval.
 From Coq Require Import ZArith List Bool Lia.
 From Machine Require Import Instructions.
-Require Import FieldSpec Polynomial.
-From ProofArithmetic Require Symbolic.
+From Curve25519 Require Import Radix51.
+From Curve25519 Require Import FieldPolynomial.
+From Machine.symbolic Require Expressions.
 Import ListNotations.
 Open Scope Z_scope.
 
-Definition rhs := ProofArithmetic.Symbolic.rhs 51.
-Definition madd_expr := ProofArithmetic.Symbolic.madd_expr.
+Definition rhs := Machine.symbolic.Expressions.rhs 51.
+Definition madd_expr := Machine.symbolic.Expressions.madd_expr.
 Definition legal_rhs dst op := match rhs dst op with
  | Some e => legal e | None => match op with Load _ _ | MaddMem _ _ _ _ => true | _ => false end end.
 Definition supported op := match op with
@@ -26,8 +27,8 @@ Definition legal_instruction (i:instruction) :=
 Lemma rhs_ok load r dst op e : r 29%nat=radix-1 -> supported op=true ->
  rhs dst op=Some e -> bits load r dst op=val r e.
 Proof.
- intros Mask Form;apply ProofArithmetic.Symbolic.rhs_ok;[lia|].
- destruct op;cbn [supported] in Form;cbn [ProofArithmetic.Symbolic.operand_ok];
+ intros Mask Form;apply Machine.symbolic.Expressions.rhs_ok;[lia|].
+ destruct op;cbn [supported] in Form;cbn [Machine.symbolic.Expressions.operand_ok];
  try exact Logic.I;try(now apply Nat.eqb_eq in Form).
  apply Nat.eqb_eq in Form;subst b;rewrite Mask;reflexivity.
 Qed.
@@ -35,7 +36,7 @@ Qed.
 Lemma madd_value high acc lhs rhs0 :
  IFMA.madd52 high acc lhs rhs0 = val (madd_inputs acc lhs rhs0) (madd_expr high (V 0) (V 1) (V 2)).
 Proof.
- unfold IFMA.madd52, X86.low64;cbn [madd_expr ProofArithmetic.Symbolic.madd_expr val madd_inputs Nat.eqb].
+ unfold IFMA.madd52, X86.low64;cbn [madd_expr Machine.symbolic.Expressions.madd_expr val madd_inputs Nat.eqb].
  repeat rewrite Z.land_ones by lia;destruct high;
  try rewrite Z.shiftr_div_pow2 by lia;reflexivity.
 Qed.
@@ -59,7 +60,7 @@ Proof.
  - unfold put; rewrite Dest; exact Mask.
  - intro j; unfold put; destruct (Nat.eqb d j); [|apply R].
    apply refine_ok; [exact Hints|].
-   destruct op; cbn [aexec rhs ProofArithmetic.Symbolic.rhs legal_rhs] in *;
+   destruct op; cbn [aexec rhs Machine.symbolic.Expressions.rhs legal_rhs] in *;
    try (erewrite rhs_ok by (eassumption || reflexivity); apply abstract_ok; assumption).
    + apply Mem;now left.
    + change (models env

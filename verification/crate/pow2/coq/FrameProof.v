@@ -1,7 +1,7 @@
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Blocks MemoryTrace FlatMemory ExecutionProperties.
-Require Import Program Pow2ABI Pow2Memory.
-Require Execution.
+From Ed25519Simd.Pow2 Require Import Program Pow2ABI Pow2Memory.
+From Ed25519Simd.Pow2 Require Execution.
 From Machine Require Import MemoryCoverage ByteExecution.
 Import ListNotations.
 Open Scope Z_scope.

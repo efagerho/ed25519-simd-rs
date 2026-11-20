@@ -30,10 +30,13 @@ fn main() {
             format!("verification/crate/{proof}"),
             "verification/machine".into(),
             "verification/arithmetic".into(),
+            "verification/curve25519".into(),
+            "verification/crate/Wide51.v".into(),
+            "verification/crate/FieldSymbolic.v".into(),
+            "verification/crate/_CoqProject".into(),
             "verification/proof_build.py".into(),
-            // Field proofs and certificate drivers also share routine-specific helpers.
+            // The component drivers share the listing and ELF tools in pow2.
             "verification/crate/pow2".into(),
-            "verification/crate/double4".into(),
         ] {
             println!("cargo:rerun-if-changed={path}");
         }

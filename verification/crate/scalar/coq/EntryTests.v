@@ -1,7 +1,7 @@
 From Coq Require Import ZArith List Lia.
 From Machine Require Import Blocks MemoryTrace FlatMemory WordBounds ByteMemory.
-Require Import ScalarABI ScalarMemory ScalarBytes ScalarSpec FrameProof.
-Require Audit Program.
+From Ed25519Simd.Scalar Require Import ScalarABI ScalarMemory ScalarBytes ScalarSpec FrameProof.
+From Ed25519Simd.Scalar Require Audit Program.
 Import ListNotations. Open Scope Z_scope.
 Definition test_placement shift := Placement
  (fun r=>if Nat.eqb r stack then 0x10008 else if Nat.eqb r output then 0x4000+shift else 0x8000+shift)0x1000 0.

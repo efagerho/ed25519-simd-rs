@@ -1,7 +1,9 @@
 From Coq Require Import List ZArith.
 From Machine Require Blocks.
-Require Import Pow2Caller.
-Require Import FieldSpec Lane Chain Buffers Program Pow2ABI.
+From Ed25519Simd.Pow2 Require Import Pow2Caller.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Ed25519Simd.Pow2 Require Import Lane Chain Buffers Program Pow2ABI Pow2Spec.
 Import ListNotations.
 Open Scope Z_scope.
 Open Scope list_scope.

@@ -9,7 +9,8 @@ import shutil
 import subprocess
 import tempfile
 
-from certify import LOAD_PATH, certify
+from certify import certify
+from proof_build import COMPONENTS, component_flags
 from evidence import write_evidence
 from elf import require, symbol_extent
 from generate_listing import generate
@@ -35,8 +36,10 @@ def symbol_bytes(binary, pc, size):
 
 def export_cases(raw, work, dest, seed, source=None, tag="pow2"):
     source = source or Path(__file__).parent / "coq/ExportCases.v"
-    shutil.copyfile(source, work / source.name)
-    output = subprocess.check_output(["coqc", *LOAD_PATH, source.name], cwd=work, text=True)
+    destination = work / COMPONENTS[tag] / source.name
+    destination.parent.mkdir(exist_ok=True)
+    shutil.copyfile(source, destination)
+    output = subprocess.check_output(["coqc", *component_flags(tag), str(destination.relative_to(work))], cwd=work, text=True)
     match = re.search(r'= "([^"]+)"', output)
     require(match, "Coq did not export the kernel rows")
     symbol_hash = hashlib.sha256(raw).hexdigest()
@@ -76,7 +79,7 @@ def replay(binary, work, cases=None, seed=1):
     checks = certify(raw, work)
     corpus = None
     if cases:
-        reserved = {work / name for name in ("manifest.json", "symbol.bin", "_CoqProject", "sources", "ExportCases.v")}
+        reserved = {work / name for name in ("manifest.json", "symbol.bin", "_CoqProject", "sources", "Pow2/ExportCases.v")}
         if ((work.resolve() in cases.resolve().parents and cases.exists()) or
                 cases.resolve() in {path.resolve() for path in reserved}):
             raise ValueError("case output conflicts with an audit file")

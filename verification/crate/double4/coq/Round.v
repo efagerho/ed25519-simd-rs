@@ -1,6 +1,9 @@
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Blocks Instructions WordBounds Dependencies.
-Require Import Program Double4ABI FieldSpec Polynomial Kernels KernelInterface.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Curve25519 Require Import FieldPolynomial.
+From Ed25519Simd.Double4 Require Import Program Double4ABI Kernels KernelInterface.
 Import ListNotations. Open Scope Z_scope.
 Definition kernel_id k := match k with AddReduce=>2%nat | SquarePair=>7%nat |
  SubtractReduce=>4%nat | MultiplyPair=>8%nat | MultiplySingle=>9%nat end.

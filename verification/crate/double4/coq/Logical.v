@@ -1,6 +1,8 @@
 From Coq Require Import List ZArith Lia.
 From Machine Require Import Blocks WordBounds.
-Require Import Program Double4ABI Double4Memory FieldSpec Double4Spec Round KernelInterface Preparation Finish Execution RoundArithmetic.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Ed25519Simd.Double4 Require Import Program Double4ABI Double4Memory Double4Spec Round KernelInterface Preparation Finish Execution RoundArithmetic.
 Import ListNotations. Open Scope Z_scope.
 Local Opaque effects double_n doubling.
 Lemma read_words m region i j : (j<8)%nat ->
@@ -14,10 +16,10 @@ Qed.
 Lemma input_coordinates d j : (j<8)%nat ->
  point_values(words_at(memory d)point)j=lane_coordinates(view d j).
 Proof.
- intro J;unfold point_values,lane_coordinates,field_at,limbs,field,view;cbn [cx cy cz ct cells].
+ intro J;unfold point_values,point_from_fields,word_coordinate,lane_coordinates,field_at,limbs,field,view;cbn [cx cy cz ct cells].
  repeat rewrite read_words by exact J;reflexivity.
 Qed.
-Lemma input_lanes d : input_bounds(words_at(memory d)point) ->
+Lemma input_lanes d : loose_xyz(words_at(memory d)point) ->
  forall j,(j<8)%nat -> xyz_bounds(view d j).
 Proof.
  intros B j J c C;apply(loose_ext (fun i=>cell(words_at(memory d)point)(5*c+i)%nat j));[|apply B;assumption].

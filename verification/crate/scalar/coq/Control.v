@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith Bool.
 From Machine Require Import Blocks MemoryTrace.
-Require Import Program ScalarABI.
+From Ed25519Simd.Scalar Require Import Program ScalarABI.
 Import ListNotations. Open Scope Z_scope.
 Definition dummy := Control Caller(fun _=>Unknown)None(fun _=>None).
 Definition expected_path := Eval vm_compute in match path 100 scalar_program abi_layout(initial_control dummy)

@@ -1,6 +1,8 @@
 From Coq Require Import List ZArith Bool Lia Ring.
 From Machine Require Import Blocks Instructions WordBounds.
-Require Import Program CachedAddABI FieldSpec Kernels Lane Control Bounds KernelCalls Calls Routing CachedAddSpec.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Ed25519Simd.CachedAdd Require Import Program CachedAddABI Kernels Lane Control Bounds KernelCalls Calls Routing CachedAddSpec.
 Import ListNotations. Open Scope Z_scope.
 Local Opaque prefix_state.
 Lemma affine_z j full s : Bounds.input_bounds true s ->forall i,(i<5)%nat ->
@@ -22,7 +24,8 @@ Proof. intro B;unfold limbs;repeat rewrite(affine_z j full s B)by lia;ring. Qed.
 Definition lane_value s region c := limbs(field s region(5*c)).
 Theorem arithmetic_coordinates j full affine s : lane_words s ->Bounds.input_bounds affine s ->
  forall c,(c<4)%nat ->represents(limbs(M j full affine 67 s point(5*c)))
- (addition full affine(lane_value s point)(lane_value s cached)c).
+ (coordinate (add full (point_from_fields(lane_value s point))
+   (cache_from_fields affine(lane_value s cached))) c).
 Proof.
  intros W Bounds.
  set(x:=limbs(field s point 0));set(y:=limbs(field s point 5));
@@ -120,10 +123,10 @@ Proof.
    rewrite(limbs_ext _ _ (yt_e j affine s)),(limbs_ext _ _ (yt_h j true affine s))in V.
    eapply ctrans;[exact V|apply ctimes;assumption]. }
  intros c C0;destruct c as[|[|[|[|c]]]];try lia;cbn [Nat.mul Nat.add].
- - rewrite(limbs_ext _ _ (out_x j full affine s));exact X.
- - rewrite(limbs_ext _ _ (out_y j full affine s));exact Y.
- - rewrite(limbs_ext _ _ (out_z j full affine s));exact Z.
+ - rewrite(limbs_ext _ _ (out_x j full affine s));destruct affine;exact X.
+ - rewrite(limbs_ext _ _ (out_y j full affine s));destruct affine;exact Y.
+ - rewrite(limbs_ext _ _ (out_z j full affine s));destruct affine;exact Z.
  - destruct full.
-   + rewrite(limbs_ext _ _ (out_t j affine s));exact(T eq_refl).
+   + rewrite(limbs_ext _ _ (out_t j affine s));destruct affine;exact(T eq_refl).
    + rewrite(limbs_ext _ _ (out_zero j affine s));apply crefl.
 Qed.

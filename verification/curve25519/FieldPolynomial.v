@@ -1,6 +1,6 @@
 From Coq Require Import ZArith.
 From ProofArithmetic Require Export Polynomial.
-Require Import FieldSpec.
+From Curve25519 Require Import Field.
 Open Scope Z_scope.
 
 (* Field-specific convenience interface to the common integer checker. *)

@@ -1,11 +1,11 @@
 From Coq Require Import List ZArith Bool Lia Ring.
 From Machine Require Import Blocks Instructions WordBounds.
-Require Import Program CachedAddABI FieldSpec Kernels Lane Control Bounds.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Ed25519Simd.CachedAdd Require Import Program CachedAddABI Kernels Lane Control Bounds.
 Import ListNotations. Open Scope Z_scope.
 Definition R j full affine n s start := rfield(prefix_state j full affine n s)start.
 Definition M j full affine n s region coord := field(prefix_state j full affine n s)region coord.
-Lemma limbs_ext x y : (forall i,(i<5)%nat ->x i=y i) ->limbs x=limbs y.
-Proof. intro E;unfold limbs;repeat rewrite E by lia;reflexivity. Qed.
 Ltac five := intros i I;do 5(destruct i as[|i];[reflexivity|]);lia.
 Lemma ab_x j full affine s : forall i,(i<5)%nat ->(M j full affine 4 s point 0)i=(field s point 0)i.
 Proof. unfold R,M;rewrite(prefix_segment j full affine 0 4 s ltac:(destruct full || idtac;destruct affine || idtac;lia));destruct full;destruct affine;five. Qed.

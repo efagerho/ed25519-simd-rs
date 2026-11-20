@@ -1,6 +1,8 @@
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Blocks Instructions.
-Require Import Program CachedAddABI FieldSpec Kernels Lane Control Bounds KernelCalls.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Ed25519Simd.CachedAdd Require Import Program CachedAddABI Kernels Lane Control Bounds KernelCalls.
 Import ListNotations. Open Scope Z_scope.
 Inductive site := AB | ProductsAB | ProductCD | FG | EH | XZ | YT.
 Definition site_kernel site (full affine:bool) := match site with

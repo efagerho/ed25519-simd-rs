@@ -1,8 +1,9 @@
+From Ed25519Simd Require Import Wide51.
 From Coq Require Import List ZArith Lia.
 From Machine Require Import Instructions FlatMemory ByteMemory LinkedCalls MemoryGeometry WordBounds.
-From Double4 Require Double4ABI Double4Spec.
-From CachedAdd Require CachedAddABI.
-Require Import LinkedBytes Callees Schedule Audit Object.
+From Ed25519Simd.Double4 Require Double4ABI Double4Spec.
+From Ed25519Simd.CachedAdd Require CachedAddABI.
+From Ed25519Simd.LadderStep Require Import LinkedBytes Callees Schedule Audit Object.
 Import ListNotations. Open Scope Z_scope.
 
 (* Instantiate the public theorem for both T modes and every stack
@@ -36,8 +37,8 @@ Proof.
    - intros [|[|[|[|[|[|[|[|r]]]]]]]];destruct full;unfold word64,scratch,point,cache;
      cbn [entry regs CachedAddABI.flag_word];unfold scratch,point,cache;lia.
    - intros x;change(0<=0<256);lia. }
- assert (B:Double4Spec.input_bounds(buffer_words(mem(entry pad full))point)).
- { intros c j C J;apply Double4.Bounds.ready_loose;intros i I.
+ assert (B:Wide51.loose_xyz(buffer_words(mem(entry pad full))point)).
+ { intros c j C J;apply Radix51.ready_loose;intros i I.
    change (0<=0<=2^51+2^20);lia. }
  assert (K:forall a addr,cache_bounds a (buffer_words(mem(entry pad full))addr)).
  { intros a addr i j I J;change(0<=0<2^52);lia. }

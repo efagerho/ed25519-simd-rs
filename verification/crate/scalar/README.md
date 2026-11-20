@@ -1,7 +1,7 @@
 # Scalar reduction certificate
 
 The public theorem is
-[`Object.assembled_scalar_correct`](coq/Object.v), with the complete statement
+[`Ed25519Simd.Scalar.Object.assembled_scalar_correct`](coq/Object.v), with the complete statement
 in [`Audit.scalar_contract`](coq/Audit.v). It binds every modeled instruction
 to the linked bytes of `ed25519_simd_scalar_reduce_ifma` and proves canonical
 reduction of all eight independent 512-bit inputs modulo
@@ -54,10 +54,9 @@ Replay the retained certificate without the repository or assembler:
 ```sh
 cd scalar-audit
 set -e
-for proof_source in $(coqdep -sort -f _CoqProject); do
-  coqc -Q machine Machine -Q arithmetic ProofArithmetic "$proof_source"
-done
-coqchk -Q machine Machine -Q arithmetic ProofArithmetic -silent Object
+coq_makefile -f _CoqProject -o Makefile
+make -B
+make validate
 ```
 
 To embed certified bytes for scalar reduction during the build:

@@ -4,7 +4,7 @@ import sys
 
 HERE = Path(__file__).resolve().parent
 sys.path.append(str(HERE.parents[1]))
-from proof_build import LOAD_PATH, certify_modules
+from proof_build import certify_modules
 
 PROOF_MODULES = (
     "ScalarSpec", "ScalarMath", "Symbolic", "Product", "Unpack", "Reduction", "Montgomery",

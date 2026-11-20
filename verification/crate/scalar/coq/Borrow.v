@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith Lia Ring.
 From Machine Require Import Instructions WordBounds.
-Require Import ScalarSpec ScalarMath.
+From Ed25519Simd.Scalar Require Import ScalarSpec ScalarMath.
 Import ListNotations. Open Scope Z_scope.
 Definition borrow d := (d mod W)/2^63.
 Lemma borrow_correct d : -B<=d<B ->

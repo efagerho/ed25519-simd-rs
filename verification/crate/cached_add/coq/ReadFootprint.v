@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Blocks MemoryTrace ExecutionProperties.
-Require Import Program CachedAddABI CachedAddMemory Control FrameProof.
+From Ed25519Simd.CachedAdd Require Import Program CachedAddABI CachedAddMemory Control FrameProof.
 Import ListNotations. Open Scope Z_scope.
 Definition cache_reads_bounded affine a := negb(Nat.eqb(fst a)cached) ||
  ((0<=?snd a)&&(snd a+64<=?cache_length affine)).

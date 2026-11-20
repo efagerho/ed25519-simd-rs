@@ -1,7 +1,11 @@
 From ProofArithmetic Require Import Interval.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Blocks Instructions.
-Require Import FieldSpec Polynomial Symbolic Program.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Curve25519 Require Import FieldPolynomial.
+From Ed25519Simd Require Import FieldSymbolic.
+From Ed25519Simd.CachedAdd Require Import Program.
 Import ListNotations. Open Scope Z_scope.
 Inductive kernel := PrepareAB | PrepareFG | PrepareEH | Independent | Pair | Single.
 Definition kernel_id k := match k with PrepareAB=>0%nat | PrepareFG=>2%nat | PrepareEH=>3%nat |
@@ -9,9 +13,8 @@ Definition kernel_id k := match k with PrepareAB=>0%nat | PrepareFG=>2%nat | Pre
 Definition code k := fragment_code add_cached_program (kernel_id k).
 Definition bias i := if Nat.eqb i 0 then 0x3fffffffffff6800 else 0x3ffffffffffff800.
 Definition loose_bound i := if Nat.eqb (i mod 5) 0 then 2^60-1 else 2^53-1.
-Definition output_bound i := if Nat.eqb (i mod 5) 1 then split-1 else radix-1.
 Definition input_bound k i := if Nat.ltb i 10 then
- match k with PrepareFG=>loose_bound i | PrepareAB | PrepareEH=>word-1 | Single=>if Nat.ltb i 5 then split-1 else word-1 | _=>split-1 end else word-1.
+ match k with PrepareFG=>loose_bound i | PrepareAB | PrepareEH=>2^64-1 | Single=>if Nat.ltb i 5 then split-1 else 2^64-1 | _=>split-1 end else 2^64-1.
 Definition needs_bias k := match k with PrepareAB | PrepareFG | PrepareEH=>true | _=>false end.
 Definition regvar i := V (2*i).
 Definition memvar i := V (2*i+1).

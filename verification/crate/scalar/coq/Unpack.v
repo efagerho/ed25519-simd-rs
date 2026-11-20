@@ -1,7 +1,7 @@
 From ProofArithmetic Require Import Interval Polynomial.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Blocks Instructions WordBounds.
-Require Import Program ScalarSpec ScalarMath Symbolic Product.
+From Ed25519Simd.Scalar Require Import Program ScalarSpec ScalarMath Symbolic Product.
 Import ListNotations. Open Scope Z_scope.
 Definition code := fragment_code scalar_program 1.
 Definition initial i := if Nat.eqb i 29 then I(C(B-1))(B-1)(B-1)else I(V i)0(W-1).

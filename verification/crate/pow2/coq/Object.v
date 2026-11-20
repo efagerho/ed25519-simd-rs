@@ -1,7 +1,9 @@
 From Coq Require Import ZArith List.
 From Machine Require Import Blocks LayoutProofs ScalarRefinement.
-Require Import Program Pow2ABI Pow2Memory Pow2Bytes FieldSpec.
-Require Audit Execution FrameProof ObjectBytes.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Ed25519Simd.Pow2 Require Import Program Pow2ABI Pow2Memory Pow2Bytes Pow2Spec.
+From Ed25519Simd.Pow2 Require Audit Execution FrameProof ObjectBytes.
 
 Definition object_bytes := ObjectBytes.symbol_bytes.
 

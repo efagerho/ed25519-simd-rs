@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Blocks Instructions WordBounds.
-Require Import Program ScalarSpec ScalarMath Product Reduction Montgomery Borrow.
+From Ed25519Simd.Scalar Require Import Program ScalarSpec ScalarMath Product Reduction Montgomery Borrow.
 Import ListNotations. Open Scope Z_scope.
 Lemma mask_B x : Z.land x(B-1)=x mod B.
 Proof. change(Z.land x(Z.ones 52)=x mod 2^52);apply Z.land_ones;lia. Qed.

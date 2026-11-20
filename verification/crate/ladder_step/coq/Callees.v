@@ -1,11 +1,11 @@
 From Coq Require Import List ZArith Lia.
 From Machine Require Import Instructions Blocks MemoryTrace FlatMemory ByteMemory
  ByteExecution WordBounds MemoryGeometry ScalarRefinement KnownRegisters SysV LinkedCalls.
-From Double4 Require Double4Bytes Double4ABI Double4Memory Double4Spec Object.
-From CachedAdd Require CachedAddBytes CachedAddABI CachedAddMemory CachedAddSpec Object.
+From Ed25519Simd.Double4 Require Double4Bytes Double4ABI Double4Memory Double4Spec Object.
+From Ed25519Simd.CachedAdd Require CachedAddBytes CachedAddABI CachedAddMemory CachedAddSpec Object.
 Import ListNotations. Open Scope Z_scope.
-Module D := Double4.Double4Bytes.
-Module A := CachedAdd.CachedAddBytes.
+Module D := Ed25519Simd.Double4.Double4Bytes.
+Module A := Ed25519Simd.CachedAdd.CachedAddBytes.
 
 Notation saved := sysv_saved.
 Definition layout_at scratch point cache pc ret :=
@@ -19,13 +19,13 @@ Inductive dispatch dp ap scratch pad : Z -> cpu -> Z -> cpu -> Prop :=
 | run_double s ret out :
  let loc := call_loc scratch dp s in
  let entry := D.entry_from_bytes loc pad (regs s) (vectors s) (flag s) (mem s) in
- callee_returns Double4.Program.double4_program Double4ABI.abi_layout loc entry (mem s) ret out ->
+ callee_returns Ed25519Simd.Double4.Program.double4_program Double4ABI.abi_layout loc entry (mem s) ret out ->
  dispatch dp ap scratch pad dp s ret out
 | run_add s full affine ret out :
  regs s 2%nat=CachedAddABI.flag_word full -> regs s 1%nat=CachedAddABI.flag_word affine ->
  let loc := call_loc scratch ap s in
  let entry := A.entry_from_bytes full affine loc pad (regs s) (vectors s) (flag s) (mem s) in
- callee_returns CachedAdd.Program.add_cached_program (CachedAddABI.abi_layout affine) loc entry (mem s) ret out ->
+ callee_returns Ed25519Simd.CachedAdd.Program.add_cached_program (CachedAddABI.abi_layout affine) loc entry (mem s) ret out ->
  dispatch dp ap scratch pad ap s ret out.
 
 Definition call_post scratch (s out:cpu) :=
@@ -35,8 +35,8 @@ Definition call_post scratch (s out:cpu) :=
                       scratch-16<=x<regs s 4%nat)) (mem s) (mem out).
 
 Definition point_words s := buffer_words (mem s) (regs s 7%nat).
-Definition dsize := Z.of_nat(length Double4.Object.object_bytes).
-Definition asize := Z.of_nat(length CachedAdd.Object.object_bytes).
+Definition dsize := Z.of_nat(length Ed25519Simd.Double4.Object.object_bytes).
+Definition asize := Z.of_nat(length Ed25519Simd.CachedAdd.Object.object_bytes).
 
 (* Project the common byte-level ABI facts once for both callees. The
    only routine-specific inputs are the entry adapter and arithmetic spec. *)
@@ -82,7 +82,7 @@ Proof.
  set(loc:=call_loc scratch dp s).
  assert(E:D.concrete_entry loc dsize pad (regs s)(vectors s)(mem s)) by
   (constructor;try assumption;try reflexivity;change(read_word(mem s)(scratch+1288+pad)=read_word(mem s)(regs s 4%nat));now rewrite SP).
- destruct Double4.Object.assembled_double4_correct as [_ [_ [_ [_ [_ Cert]]]]].
+ destruct Ed25519Simd.Double4.Object.assembled_double4_correct as [_ [_ [_ [_ [_ Cert]]]]].
  destruct(Cert loc pad _ _ (flag s) _ E)as[_[fin[after[R[Stack[Pres[_[Bytes Spec]]]]]]]].
  destruct(D.concrete_entry_representable _ _ _ _ _ (flag s) _ E)as[_[_[_ Entry]]].
  use_return R Bytes Entry.
@@ -103,7 +103,7 @@ Proof.
  set(loc:=call_loc scratch ap s).
  assert(E:A.concrete_entry full affine loc asize pad (regs s)(vectors s)(mem s)) by
   (constructor;try assumption;try reflexivity;change(read_word(mem s)(scratch+1288+pad)=read_word(mem s)(regs s 4%nat));now rewrite SP).
- destruct CachedAdd.Object.assembled_cached_add_correct as [_ [_ [_ [_ [_ Cert]]]]].
+ destruct Ed25519Simd.CachedAdd.Object.assembled_cached_add_correct as [_ [_ [_ [_ [_ Cert]]]]].
  destruct(Cert full affine loc pad _ _ (flag s) _ E)as[_[fin[after[R[Stack[Pres[_[Bytes Spec]]]]]]]].
  destruct(A.concrete_entry_representable full affine _ _ _ _ _ (flag s) _ E)as[_[_[_ Entry]]].
  use_return R Bytes Entry.

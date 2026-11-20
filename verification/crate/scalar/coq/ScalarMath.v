@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Lia Ring.
-Require Import ScalarSpec.
+From Ed25519Simd.Scalar Require Import ScalarSpec.
 Import ListNotations. Open Scope Z_scope.
 Definition l0 : Z := 0x2631a5cf5d3ed.
 Definition l1 : Z := 0xdea2f79cd6581.
@@ -36,14 +36,6 @@ Proof.
  pose proof(Z.mod_pos_bound (x+B-1) B Pos).
  unfold B in *;destruct(Z.eq_dec(x mod 4503599627370496)0);lia.
 Qed.
-Lemma canonical x : 0<=x<2*L ->
- (if x<?L then x else x-L)=x mod L.
-Proof.
- intros Bounds;pose proof L_positive;destruct(x<?L)eqn:E.
- - apply Z.ltb_lt in E;rewrite Z.mod_small by lia;reflexivity.
- - apply Z.ltb_ge in E;apply Z.mod_unique with(q:=1);[left;lia|ring].
-Qed.
-
 Lemma mod_word_B x : (x mod W)mod B=x mod B.
 Proof.
  symmetry;apply Znumtheory.Zmod_div_mod;[apply B_positive|apply W_positive|].
@@ -111,7 +103,7 @@ Lemma montgomery_range a b u q :
  R*u=a*(R mod L)+b*((2^256*R)mod L)+q*L ->0<=u<2*L.
 Proof.
  intros A D Q E.
- pose proof(Z.mod_pos_bound R L L_positive).
- pose proof(Z.mod_pos_bound (2^256*R) L L_positive).
+ pose proof(canonical_residue R).
+ pose proof(canonical_residue (2^256*R));unfold canonical_scalar in *.
  unfold R,B,L in *;nia.
 Qed.

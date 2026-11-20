@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith.
 From Machine Require Import Blocks MemoryTrace FlatMemory SysV.
-Require Import CachedAddABI.
+From Ed25519Simd.CachedAdd Require Import CachedAddABI.
 From Machine Require Export MemoryGeometry.
 Import ListNotations. Open Scope Z_scope.
 Section Mode.

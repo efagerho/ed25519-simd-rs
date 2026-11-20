@@ -1,7 +1,7 @@
 From Coq Require Import List ZArith.
 From Machine Require Import Blocks LayoutProofs ScalarRefinement.
-Require Import Program CachedAddABI CachedAddMemory CachedAddBytes CachedAddSpec.
-Require Audit Logical FrameProof ReadFootprint ObjectBytes Control.
+From Ed25519Simd.CachedAdd Require Import Program CachedAddABI CachedAddMemory CachedAddBytes CachedAddSpec.
+From Ed25519Simd.CachedAdd Require Audit Logical FrameProof ReadFootprint ObjectBytes Control.
 Definition object_bytes := ObjectBytes.symbol_bytes.
 Local Lemma logical_execution size full affine initial pad : valid_cached_add_entry initial pad full affine ->exists final,
  returns add_cached_program(abi_layout affine)initial final /\stack_restored initial final /\

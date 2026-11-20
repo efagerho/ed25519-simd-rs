@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Blocks MemoryTrace FlatMemory WordBounds ByteMemory ExecutionProperties.
-Require Import ScalarABI ScalarMemory ScalarSpec FrameProof.
+From Ed25519Simd.Scalar Require Import ScalarABI ScalarMemory ScalarSpec FrameProof.
 From Machine Require Import ByteExecution.
 Import ListNotations. Open Scope Z_scope.
 Record concrete_entry loc size(regs:nat->Z)(vectors:nat->nat->Z)before : Prop := {

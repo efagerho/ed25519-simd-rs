@@ -14,7 +14,8 @@ import shutil
 import subprocess
 import sys
 
-from certificate import LOAD_PATH
+import certificate
+from proof_build import component_flags
 from listing import SOURCE, SYMBOL
 from generate_listing import assemble
 from coq_proof import symbol_bytes
@@ -108,11 +109,11 @@ def run_case(name, old, new, passes, output, native):
     raw = symbol_bytes(binary, address, size)
     (audit / "MutationBinding.v").write_text(
         "From Coq Require Import List ZArith.\nFrom Machine Require Import Blocks.\n"
-        "Require Import Program.\nImport ListNotations. Open Scope Z_scope.\n"
+        "From Ed25519Simd.Scalar Require Import Program.\nImport ListNotations. Open Scope Z_scope.\n"
         "Example exact_bytes : image scalar_program = [" + ";".join(map(str, raw)) +
         "].\nProof. vm_compute;reflexivity. Qed.\n"
         "Example valid_layout : valid_program scalar_program=true.\nProof. vm_compute;reflexivity. Qed.\n")
-    subprocess.run(["coqc", *LOAD_PATH, "MutationBinding.v"], cwd=audit, check=True)
+    subprocess.run(["coqc", *component_flags("scalar"), "MutationBinding.v"], cwd=audit, check=True)
     result = {"name": name, "certificate_passed": status == 0, "failure": failure,
               "byte_binding_passed": True, "symbol_sha256": hashlib.sha256(raw).hexdigest()}
     if native:

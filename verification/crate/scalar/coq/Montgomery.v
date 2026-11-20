@@ -1,7 +1,7 @@
 From ProofArithmetic Require Import Interval Polynomial.
 From Coq Require Import List ZArith Bool Lia Ring.
 From Machine Require Import Blocks Instructions WordBounds.
-Require Import Program ScalarSpec ScalarMath Symbolic Product Reduction.
+From Ed25519Simd.Scalar Require Import Program ScalarSpec ScalarMath Symbolic Product Reduction.
 Import ListNotations. Open Scope Z_scope.
 Fixpoint reduce n load r := match n with O=>r | S i=>run load(Reduction.code i)(reduce i load r)end.
 Lemma reduce_correct n load r : (n<=5)%nat ->

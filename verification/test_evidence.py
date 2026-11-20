@@ -150,7 +150,7 @@ class ReleaseEvidenceTests(unittest.TestCase):
             row = json.loads((work / "cases.jsonl").read_text())
             self.assertEqual(row["id"], "cached_add/+0x0000")
             self.assertEqual(row["instruction"], ["vpmadd52huq_mem", 31, 16, 8, 320])
-            self.assertEqual((work / "ExportCases.v").read_bytes(), source.read_bytes())
+            self.assertEqual((work / "CachedAdd/ExportCases.v").read_bytes(), source.read_bytes())
             case_data.validate(row)
 
     def test_double4_export_uses_its_own_program_and_case_ids(self):
@@ -163,7 +163,7 @@ class ReleaseEvidenceTests(unittest.TestCase):
             row = json.loads((work / "cases.jsonl").read_text())
             self.assertEqual(row["id"], "double4/+0x0000")
             self.assertEqual(row["instruction"], ["vpsubq", 0, 1, 0])
-            self.assertEqual((work / "ExportCases.v").read_bytes(), source.read_bytes())
+            self.assertEqual((work / "Double4/ExportCases.v").read_bytes(), source.read_bytes())
             case_data.validate(row)
 
     def test_export_preserves_seed_and_full_register_state(self):
@@ -192,8 +192,11 @@ class ReleaseEvidenceTests(unittest.TestCase):
             work = Path(tmp)
             (work / "machine").mkdir()
             (work / "arithmetic").mkdir()
+            (work / "curve25519").mkdir()
+            (work / "crate").mkdir()
             artifacts = {"Program.v": "Definition program := 0.\n", "Audit.v": "Definition contract := True.\n",
-                         "FieldSpec.v": "Definition exponent := 1.\n", "machine/X86.v": "Definition bits := 64.\n",
+                         "curve25519/Field.v": "Definition prime := 31.\n",
+                         "crate/Wide51.v": "Definition lanes := 8.\n", "machine/X86.v": "Definition bits := 64.\n",
                          "machine/_CoqProject": "-Q . Machine\nX86.v\n",
                          "arithmetic/_CoqProject": "-Q . ProofArithmetic\nExpressions.v\n",
                          "arithmetic/Expressions.v": "Definition atom := 0.\n", f"{routine}.expanded.S": "ret\n",
@@ -213,7 +216,9 @@ class ReleaseEvidenceTests(unittest.TestCase):
             self.assertEqual(manifest["elf"]["sha256"], evidence.sha256(work / "release.elf"))
             for name, digest in manifest["files"].items():
                 self.assertEqual(evidence.sha256(work / name), digest)
-            self.assertIn("FieldSpec.v", manifest["files"])
+            self.assertIn("curve25519/Field.v", manifest["files"])
+            self.assertIn("crate/Wide51.v", manifest["files"])
+            self.assertIn("-Q crate Ed25519Simd\n", (work / "_CoqProject").read_text())
             self.assertIn("machine/X86.v", manifest["files"])
             self.assertIn("arithmetic/Expressions.v", manifest["files"])
             self.assertIn("arithmetic/_CoqProject", manifest["files"])
@@ -221,8 +226,8 @@ class ReleaseEvidenceTests(unittest.TestCase):
             self.assertIn("-Q arithmetic ProofArithmetic\n", (work / "_CoqProject").read_text())
             self.assertIn(generator, manifest["files"])
             self.assertIn("Program.v\n", (work / "_CoqProject").read_text())
-            (work / "FieldSpec.v").write_text("Definition exponent := 2.\n")
-            self.assertNotEqual(evidence.sha256(work / "FieldSpec.v"), manifest["files"]["FieldSpec.v"])
+            (work / "curve25519/Field.v").write_text("Definition prime := 17.\n")
+            self.assertNotEqual(evidence.sha256(work / "curve25519/Field.v"), manifest["files"]["curve25519/Field.v"])
 
 
 if __name__ == "__main__":

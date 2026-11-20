@@ -1,7 +1,11 @@
-From Coq Require Import ZArith List Lia.
-Require Import FieldSpec.
-Open Scope Z_scope.
+From Coq Require Import List ZArith Lia Ring.
+Import ListNotations. Open Scope Z_scope.
 
+Definition radix := 2^51.
+Definition split := 2^52.
+Definition limbs (get : nat -> Z) :=
+  get 0%nat + radix * (get 1%nat + radix * (get 2%nat +
+    radix * (get 3%nat + radix * get 4%nat))).
 (* Public input/output bounds; independent of the assembly listing and its proof. *)
 (* radix = 2^51; split = 2^52. Bounds here are inclusive. *)
 Definition loose_bound i := if Nat.eqb (i mod 5) 0 then 2^60-1 else split-1.

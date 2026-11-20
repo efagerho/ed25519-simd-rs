@@ -1,6 +1,8 @@
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Blocks MemoryTrace FlatMemory WordBounds ByteMemory ExecutionProperties.
-Require Import CachedAddABI CachedAddMemory CachedAddSpec FieldSpec FrameProof.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Ed25519Simd.CachedAdd Require Import CachedAddABI CachedAddMemory CachedAddSpec FrameProof.
 From Machine Require Import ByteExecution.
 Import ListNotations. Open Scope Z_scope.
 Section Mode.

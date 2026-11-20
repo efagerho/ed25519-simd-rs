@@ -1,7 +1,11 @@
 From ProofArithmetic Require Import Ranges.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Blocks Instructions WordBounds.
-Require Import Program FieldSpec Polynomial Symbolic CachedAddABI Lane Control Kernels.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Curve25519 Require Import FieldPolynomial.
+From Ed25519Simd Require Import FieldSymbolic.
+From Ed25519Simd.CachedAdd Require Import Program CachedAddABI Lane Control Kernels.
 Import ListNotations. Open Scope Z_scope.
 Definition bexec (loads:nat->Z->bounds) s dst op := match op with
  | Load b d=>loads b d
@@ -23,7 +27,7 @@ Proof.
  - intros b off H;apply M;unfold loads_of in *;cbn [flat_map snd];apply in_or_app;now right.
  - intro i;unfold put;destruct(Nat.eqb d i);[|apply R].
    change(bounded(bexec loads s d op)(bits load r d op)).
-   destruct op;cbn [bexec rhs ProofArithmetic.Symbolic.rhs legal_rhs] in *;
+   destruct op;cbn [bexec rhs Machine.symbolic.Expressions.rhs legal_rhs] in *;
      try(erewrite rhs_ok by (eassumption || reflexivity);apply range_eval_sound;assumption).
    + apply M;now left.
    + change (bounded
@@ -78,13 +82,13 @@ Definition input_cell affine (a:pointer) :=
   (Nat.eqb(fst a)cached && (snd a<?cache_length affine))) &&
  (0<=?snd a) && (snd a mod 64=?0).
 Definition initial_bounds affine : bstate :=
- (fun _=>Range 0(word-1),fun a=>Range 0(if input_cell affine a then split-1 else word-1)).
+ (fun _=>Range 0(2^64-1),fun a=>Range 0(if input_cell affine a then split-1 else 2^64-1)).
 Definition input_bounds affine s := forall a,input_cell affine a=true ->0<=cells s a<split.
 Lemma initial_bounds_sound affine s : lane_words s ->input_bounds affine s ->bmodels(initial_bounds affine)s.
 Proof.
  intros[W M]B;split;intro i;unfold bounded,initial_bounds;cbn [fst snd lower_bound upper_bound].
- - specialize(W i);unfold word,word64 in *;lia.
- - destruct(input_cell affine i)eqn:E;[specialize(B i E)|specialize(M i)];unfold word,word64 in *;lia.
+ - specialize(W i);unfold word64 in *;lia.
+ - destruct(input_cell affine i)eqn:E;[specialize(B i E)|specialize(M i)];unfold word64 in *;lia.
 Qed.
 Theorem bounds_path_checked j full affine : bcheck j (expected_path full affine)(initial_bounds affine)=true.
 Proof. destruct full,affine;vm_compute;reflexivity. Qed.

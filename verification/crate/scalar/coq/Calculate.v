@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith Bool Lia Ring.
 From Machine Require Import Blocks Instructions WordBounds Dependencies.
-Require Import Program ScalarSpec ScalarMath Product Unpack Reduction Montgomery Borrow Finish.
+From Ed25519Simd.Scalar Require Import Program ScalarSpec ScalarMath Product Unpack Reduction Montgomery Borrow Finish.
 Import ListNotations. Open Scope Z_scope.
 Definition prepare r i := if Nat.eqb i 23 then 0 else match constants i with Some c=>c | None=>r i end.
 Definition calculate load r :=

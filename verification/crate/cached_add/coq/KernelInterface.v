@@ -1,7 +1,11 @@
 From ProofArithmetic Require Import Interval.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import Instructions WordBounds.
-Require Import FieldSpec Polynomial Symbolic Kernels.
+From Curve25519 Require Import Field Radix51.
+From Ed25519Simd Require Import Wide51.
+From Curve25519 Require Import FieldPolynomial.
+From Ed25519Simd Require Import FieldSymbolic.
+From Ed25519Simd.CachedAdd Require Import Kernels.
 Import ListNotations. Open Scope Z_scope.
 Definition get (r:nat->Z) start := fun i=>(r (start+i)%nat).
 Definition env (r m:nat->Z) i := if Nat.eqb (i mod 2) 0 then r (i/2)%nat else m (i/2)%nat.
@@ -44,7 +48,7 @@ Proof.
      * unfold models;cbn [term lower upper ProofArithmetic.Interval.I enclosure lower_bound upper_bound];rewrite env_reg;split;[reflexivity|].
        destruct (Nat.ltb i 10) eqn:I.
        -- apply Nat.ltb_lt in I;apply Bounds;exact I.
-       -- unfold input_bound;rewrite I. specialize (Words i);unfold word64,word in *;lia.
+       -- unfold input_bound;rewrite I. specialize (Words i);unfold word64 in *;lia.
 Qed.
 Lemma valid_hints k r m : (forall i, word64 (r i)) -> operands k r ->
  Forall (valid_hint (env r m)) (hints k).
