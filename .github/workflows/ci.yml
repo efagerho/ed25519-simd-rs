@@ -69,63 +69,25 @@ jobs:
       - name: Build shared Coq libraries
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y python3-z3 coq libcoq-coqprime llvm
+          sudo apt-get install -y python3-z3 coq libcoq-coqprime llvm time
           python3 -B verification/proof_build.py "$RUNNER_TEMP/shared-coq" --jobs 4
           echo "ED25519_SIMD_COQ_LIBRARIES=$RUNNER_TEMP/shared-coq" >> "$GITHUB_ENV"
 
       - name: Check verification report and audit evidence regressions
         run: python3 -B verification/test_evidence.py
 
-      - name: Check the build-time proof and the linked assembly-only release binary
+      - name: Verify release proofs, mutation rejection and machine conformance
         run: |
-          cargo build --locked --release --features verify-asm-pow2,verify-asm-double4,verify-asm-cached-add,verify-asm-scalar --lib --target x86_64-unknown-linux-gnu
           artifact=$(jq -r 'select(.target.name == "cold_profile_zip215" and .executable != null) | .executable' "$RUNNER_TEMP/pow2-build.json")
-          /usr/bin/python3 verification/crate/pow2/check.py "$artifact"
-          /usr/bin/python3 verification/crate/pow2/coq_proof.py "$artifact" \
-            --output "$RUNNER_TEMP/pow2-audit" --cases "$RUNNER_TEMP/pow2-cases.jsonl" --seed 42
-          /usr/bin/python3 verification/crate/double4/audit.py "$artifact" \
-            --output "$RUNNER_TEMP/double4-audit" --cases "$RUNNER_TEMP/double4-cases.jsonl" --seed 42
-          /usr/bin/python3 verification/crate/cached_add/audit.py "$artifact" \
-            --output "$RUNNER_TEMP/cached-add-audit" --cases "$RUNNER_TEMP/cached-add-cases.jsonl" --seed 42
-          /usr/bin/python3 verification/crate/scalar/audit.py "$artifact" \
-            --output "$RUNNER_TEMP/scalar-audit" --cases "$RUNNER_TEMP/scalar-cases.jsonl" --seed 42
-
-          /usr/bin/python3 -B verification/crate/ladder_step/audit.py "$artifact" \
-            --output "$RUNNER_TEMP/ladder-step-audit"
-          /usr/bin/python3 -B verification/crate/ladder_step/mutations.py "$artifact" \
-            --audit "$RUNNER_TEMP/ladder-step-audit"
-
-      - name: Check cached-add and scalar proof mutation rejection
-        run: |
-          native=
-          if grep -qw avx512ifma /proc/cpuinfo && grep -qw avx512dq /proc/cpuinfo && grep -qw avx512f /proc/cpuinfo; then
-            native=--native
-          fi
-          python3 -B verification/crate/cached_add/mutations.py \
-            --output "$RUNNER_TEMP/cached-add-mutations" $native
-          python3 -B verification/crate/scalar/mutations.py \
-            --output "$RUNNER_TEMP/scalar-mutations" $native
-
-      - name: Check the fixed machine corpus and linked kernel rows
-        run: |
-          export XED_KIT="$RUNNER_TEMP/xed-kit"
-          verification/machine/tests/xed/build-kit.sh "$XED_KIT"
+          test -x "$artifact"
           backend=xed
           if grep -qw avx512ifma /proc/cpuinfo && grep -qw avx512dq /proc/cpuinfo && grep -qw avx512f /proc/cpuinfo; then
             backend=all
           else
             echo "Native comparison skipped on this runner (requires AVX-512F/DQ/IFMA)."
           fi
-          python3 -B verification/machine/tests/run.py --backend "$backend" \
-            --report "$RUNNER_TEMP/fixed-report.json" --failure "$RUNNER_TEMP/machine-failure.json"
-          python3 -B verification/machine/tests/run.py --backend "$backend" --cases "$RUNNER_TEMP/pow2-cases.jsonl" \
-            --report "$RUNNER_TEMP/pow2-report.json" --failure "$RUNNER_TEMP/machine-failure.json"
-          python3 -B verification/machine/tests/run.py --backend "$backend" --cases "$RUNNER_TEMP/double4-cases.jsonl" \
-            --report "$RUNNER_TEMP/double4-report.json" --failure "$RUNNER_TEMP/machine-failure.json"
-          python3 -B verification/machine/tests/run.py --backend "$backend" --cases "$RUNNER_TEMP/cached-add-cases.jsonl" \
-            --report "$RUNNER_TEMP/cached-add-report.json" --failure "$RUNNER_TEMP/machine-failure.json"
-          python3 -B verification/machine/tests/run.py --backend "$backend" --cases "$RUNNER_TEMP/scalar-cases.jsonl" \
-            --report "$RUNNER_TEMP/scalar-report.json" --failure "$RUNNER_TEMP/machine-failure.json"
+          make -f .github/verification.mk -j4 --keep-going --output-sync=target verify \
+            RELEASE_ELF="$artifact" MACHINE_BACKEND="$backend"
 
       - name: Retain conformance reports, inputs, and release proof evidence
         if: always()
@@ -134,7 +96,7 @@ jobs:
           name: machine-conformance
           path: |
             ${{ runner.temp }}/*-report.json
-            ${{ runner.temp }}/machine-failure.json
+            ${{ runner.temp }}/*-failure.json
             ${{ runner.temp }}/pow2-cases.jsonl
             ${{ runner.temp }}/pow2-audit/
             ${{ runner.temp }}/double4-cases.jsonl
