@@ -57,7 +57,7 @@ Proof.
  exists(last,effects double4_program expected_path d);split.
  - apply(path_returns _ _ _ _ _ _ P).
  - split.
-   + unfold stack_restored;cbn [fst];rewrite SP.
+   + unfold stack_restored,SysV.restores_rsp;cbn [fst];rewrite SP.
      change(Some(Ptr(scratch,1296+pad))=Some(Ptr(scratch,(1288+pad)+8))).
      f_equal;f_equal;f_equal;lia.
    + apply arithmetic_contract;exact Words.

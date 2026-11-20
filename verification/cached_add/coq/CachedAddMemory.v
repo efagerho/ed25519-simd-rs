@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith.
-From Machine Require Import Blocks MemoryTrace FlatMemory.
+From Machine Require Import Blocks MemoryTrace FlatMemory SysV.
 Require Import CachedAddABI.
 From Machine Require Export MemoryGeometry.
 Import ListNotations. Open Scope Z_scope.
@@ -53,11 +53,9 @@ Definition memory_safe p size pad (initial final:state) :=
 Definition output_initialized p (initial final:state) :=
  exists fuel es,record_path fuel p (abi_layout affine)(fst initial)=Some(fst final,es) /\
  forall loc k,0<=k<1280 ->writes_at loc es(origin loc point+k).
-Definition saved_registers := [3;5;12;13;14;15]%nat.
-Definition registers_preserved(initial final:state) :=
- forall r,In r saved_registers ->Blocks.gpr(fst final)r=Blocks.gpr(fst initial)r.
-Definition stack_restored(initial final:state) :=
- Some(Blocks.gpr(fst final)4%nat)=option_map Ptr(pointer_at(fst initial)4 8).
+Definition saved_registers := SysV.sysv_saved.
+Definition registers_preserved := SysV.preserves_sysv.
+Definition stack_restored := SysV.restores_rsp.
 (* Explicit loads inside a vector fragment are included in the read footprint. *)
 Definition read_addresses p e := match e with
  | Read _ a=>[a]

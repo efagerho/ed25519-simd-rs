@@ -1,4 +1,4 @@
-// One radix-256 ladder iteration in eight lanes. Not yet formally verified.
+// One radix-256 ladder iteration in eight lanes. Linked proof in verification/ladder_step.
 // Calls the separately verified double4 and cached-add implementations.
 //
 // SysV AMD64 arguments:

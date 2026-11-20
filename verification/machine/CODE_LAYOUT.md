@@ -92,3 +92,5 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 | [_CoqProject](_CoqProject) | Maps this directory to the Coq namespace `Machine` and lists the model, proof, and test modules to build. |
 | [README.md](README.md) | Model scope, theorem summaries, conformance coverage, and commands for building, testing, and replaying a case. |
 | [CODE_LAYOUT.md](CODE_LAYOUT.md) | This file index. |
+
+`LinkedCalls.v` executes straight-line linked callers on concrete registers and byte memory. It decodes relative call displacements and connects return states to the callee block interpreter and its recorded memory events. `KnownRegisters.v` proves that successful block execution preserves concrete GPR values when all entry GPRs have a value. `SysV.v` defines the callee-saved GPR set and stack restoration rule.
