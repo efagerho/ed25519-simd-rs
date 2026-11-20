@@ -6,19 +6,19 @@ From Ed25519Simd.Double4 Require Import Program Double4ABI Double4Memory Double4
 Import ListNotations. Open Scope Z_scope.
 Local Opaque effects double_n doubling.
 Lemma input_coordinates d j : (j<8)%nat ->
- point_values(words_at(memory d)point)j=lane_coordinates(view d j).
+ point_values(words_at(memory d)point)j=lane_coordinates true (view d j).
 Proof.
  intro J;unfold point_values,point_from_fields,word_coordinate,lane_coordinates,field_at,limbs,field,view;cbn [cx cy cz ct cells].
  repeat rewrite cell_words_at by exact J;reflexivity.
 Qed.
 Lemma input_lanes d : loose_xyz(words_at(memory d)point) ->
- forall j,(j<8)%nat -> xyz_bounds(view d j).
+ forall j,(j<8)%nat -> xyz_bounds true (view d j).
 Proof.
  intros B j J c C;apply(loose_ext (fun i=>cell(words_at(memory d)point)(5*c+i)%nat j));[|apply B;assumption].
  intros i I;rewrite cell_words_at by exact J;reflexivity.
 Qed.
 Lemma output_spec_from_memory before after j : (j<8)%nat ->
- memory_spec(lane_coordinates(view before j))after j ->
+ memory_spec(lane_coordinates true (view before j))after j ->
  forall c,(c<4)%nat ->
  reduced(fun i=>cell(words_at(memory after)point)(5*c+i)%nat j) /\
  field_at(words_at(memory after)point)(5*c)%nat j mod prime=

@@ -12,8 +12,8 @@ Definition finish j (full:bool) s :=
 Definition round_result (full:bool) before after :=
  lane_words after /\ constants after /\
  forall coord,(coord<(if full then 4 else 3))%nat ->
- reduced(field after point(5*coord)) /\
- represents(limbs(field after point(5*coord)))(coordinate(doubling(lane_coordinates before))coord).
+ reduced(round_field full after coord) /\
+ represents(limbs(round_field full after coord))(coordinate(doubling(lane_coordinates false before))coord).
 Lemma offset_field s region coord i :
  cells s(offset(region,64*Z.of_nat coord)(64*Z.of_nat i))=field s region coord i.
 Proof. unfold offset,field;cbn [fst snd];rewrite Nat2Z.inj_add;f_equal;f_equal;ring. Qed.
@@ -66,7 +66,7 @@ Proof.
  rewrite(limbs_ext _ _ YG),(limbs_ext _ _ YH)in YV.
  pose proof(ctrans _ _ _ YV (ctimes _ _ _ _ GV HV))as Ymath.
  assert(Tresult:full=true -> reduced(rfield yt 5) /\ represents(limbs(rfield yt 5))
- (preparation_value(lane_coordinates before)0*preparation_value(lane_coordinates before)15)).
+ (preparation_value(lane_coordinates false before)0*preparation_value(lane_coordinates false before)15)).
  { intro Full.
    destruct(call_multiply j full (scratch,960)yt_in Wyti Cyti YGbound YEbound YHbound 5
     ltac:(rewrite Full;cbn [In];auto))as[TB TV].
@@ -85,6 +85,7 @@ Proof.
    unfold yt_in;apply stage5_z;exact I. }
  intros coord K;destruct coord as[|[|[|[|coord]]]];
  try (destruct full;cbn in K;lia).
+ all: try rewrite round_field_memory by lia.
  all: cbn [Nat.mul Nat.add].
  - split;[apply(field_bound_ext _ (rfield xz 0));[intros;symmetry;apply OutX;assumption|exact XB]|].
    rewrite(limbs_ext _ _ OutX).
@@ -95,7 +96,7 @@ Proof.
    eapply ctrans;[exact Ymath|]. unfold preparation_value,doubling,coordinate;cbn [cx cy cz ct].
    exists 0;ring.
  - split;[apply(field_bound_ext _ (rfield xz 5));[intros;symmetry;apply OutZ;assumption|exact ZB]|].
-   change(represents(limbs(field(shuffle j(stage 6 full)yt)point 10))(coordinate(doubling(lane_coordinates before))2)).
+   change(represents(limbs(field(shuffle j(stage 6 full)yt)point 10))(coordinate(doubling(lane_coordinates false before))2)).
    rewrite(limbs_ext _ _ OutZ).
    eapply ctrans;[exact Zmath|]. unfold preparation_value,doubling,coordinate;cbn [cx cy cz ct].
    exists 0;ring.

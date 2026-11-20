@@ -83,10 +83,14 @@ ed25519_simd_double4_ifma:
     mov rax, 0x7ffffffffffff
     vpbroadcastq zmm29, rax
     mov ecx, 3
+    d4_load rdi, 320, 5
 .Ld4_repeat:
     call .Ld4_prepare
     call .Ld4_multiply_single
-    d4_store rdi, 320, 0
+    // Carry intermediate Y directly into the next double.
+.irp i,0,1,2,3,4
+    d4_rr vmovdqa64, %(5+\i), \i
+.endr
     dec ecx
     jne .Ld4_repeat
     call .Ld4_prepare
@@ -99,13 +103,12 @@ ed25519_simd_double4_ifma:
     vzeroupper
     ret
 
-// Read X/Y/Z before the first point store. Scratch initially holds A/B and
+// Y enters in ZMM5..9. Load X and Z before the first point store. Scratch holds A/B and
 // X+Y, then E/G/F/H at 0/320/640/960. Return with X' and Z' already stored,
 // G in ZMM0..4 and R8 pointing to H, ready for Y'. The last round also
 // reloads E into ZMM5..9 to compute T'; earlier rounds never need that load.
 .Ld4_prepare:
     d4_load rdi, 0, 0
-    d4_load rdi, 320, 5
 .Ld4_add_reduce:
 .irp i,0,1,2,3,4
     d4_rrr vpaddq, %(10+\i), \i, %(5+\i)

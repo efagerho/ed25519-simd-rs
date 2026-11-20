@@ -325,6 +325,78 @@ fn ladder_step_preserves_sysv_registers_and_staged_operands() {
     }
 }
 
+#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
+#[test]
+fn full_ladder_preserves_sysv_frame_and_accepts_loose_top_cache() {
+    use crate::edwards::PointTable;
+    use crate::scalar::Radix16;
+
+    unsafe extern "C" {
+        fn ed25519_simd_test_mul_public_abi(
+            out: *mut u8,
+            keys: *const *const CachedPoint,
+            base: *const AffineCachedPoint,
+            s: *const Radix16,
+            k: *const Radix16,
+            compute_t: u64,
+            stack_offset: usize,
+        ) -> u64;
+    }
+
+    // Projective identity at scale z. The redundant encoding of 2z has
+    // limb1 + (limb0 >> 51) == 2^52, outside double4's input bounds.
+    const B: u64 = 1 << 51;
+    let z = Fe51::from_limbs_unchecked([B + B / 2 - 1, B - 1, B - 1, B - 1, B - 1]);
+    let z2 = Fe51::from_limbs_unchecked([2 * B - 2, 2 * B - 1, 2 * B - 2, 2 * B - 2, 2 * B - 2]);
+    let identity = CachedPoint::from_fields(z, z, z2, Fe51::zero());
+    let mut key = PointTable::identity();
+    key.set_multiple(1, identity.clone(), identity);
+    let keys = [key.entries_ptr(); LANES];
+    let base = BasepointTable::new();
+    let mut s = [[0i8; 64]; LANES];
+    let mut k = [[0i8; 64]; LANES];
+    for lane in 0..LANES {
+        s[lane][0] = 1;
+        k[lane][63] = -1;
+    }
+    let poison = WideFe::constant([u64::MAX; LIMB_COUNT]);
+    for compute_t in [false, true] {
+        for offset in [0, 16, 32, 48] {
+            let mut actual = Guarded::new(WidePoint {
+                x: poison,
+                y: poison,
+                z: poison,
+                t: poison,
+            });
+            // SAFETY: all inputs are live for the call. The probe forwards the
+            // six production arguments and varies the incoming SysV alignment.
+            let failure = unsafe {
+                ed25519_simd_test_mul_public_abi(
+                    core::ptr::from_mut(&mut actual.value).cast(),
+                    keys.as_ptr(),
+                    base.entries().as_ptr(),
+                    s.as_ptr(),
+                    k.as_ptr(),
+                    u64::from(compute_t),
+                    offset,
+                )
+            };
+            assert_eq!(failure, 0, "ABI slot {failure}, stack offset {offset}");
+            actual.check();
+            let point = actual.value;
+            assert_eq!(point.compress(), [BASEPOINT_COMPRESSED; LANES]);
+            if compute_t {
+                assert_eq!(
+                    point.t.multiply(&point.z).to_bytes_lanes(),
+                    point.x.multiply(&point.y).to_bytes_lanes()
+                );
+            } else {
+                assert_eq!(wide_rows(point.t), [[0; LANES]; LIMB_COUNT]);
+            }
+        }
+    }
+}
+
 /// Run pinned to one core in release mode with asm (including pow2) enabled.
 /// ED25519_LADDER_PATH: stage (selection and transpose across all 32 pairs),
 /// selected (staging + wrapper), staged, or separate (Rust orchestration).
