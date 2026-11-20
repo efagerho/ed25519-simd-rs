@@ -5,4 +5,5 @@ Radix51.v
 Scalar.v
 Edwards.v
 Torsion.v
+SmallOrderFilter.v
 FieldPolynomial.v

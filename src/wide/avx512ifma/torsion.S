@@ -101,6 +101,14 @@
     tor_carry 0
 .endm
 
+// Replace Y (zmm0..4) by i*Y, where i^2 = -1 in the field.
+.macro tor_mul_i
+.irp j,0,1,2,3,4
+    tor_broadcast %(5+\j), .Ltor_sqrt_m1, \j
+.endr
+    tor_mul
+.endm
+
 ed25519_simd_check_8_torsion_ifma:
     push rbp
     mov rbp, rsp
@@ -186,11 +194,11 @@ ed25519_simd_check_8_torsion_ifma:
 
     // The doubling numerator is proportional to Xq*Yq*(Xq^2+Yq^2). In the prime field,
     // its roots are Xq=0, Yq=0, or Xq=+/-i*Yq, where i^2=-1.
-.irp j,0,1,2,3,4
-    tor_broadcast %(5+\j), .Ltor_sqrt_m1, \j
-.endr
-    tor_mul
+    tor_mul_i
     tor_field load, 5, rsp, 320
+.Ltor_root_mask:
+    // Both entries supply positive carried i*Y and X in zmm0..4 and zmm5..9,
+    // the four constants in zmm28..31, and the saved frame pointer in rbp.
     vpbroadcastq zmm27, qword ptr [rip + .Ltor_zero_adjust]
     tor_zero k3, zmm0,zmm1,zmm2,zmm3,zmm4
     tor_zero k4, zmm5,zmm6,zmm7,zmm8,zmm9
@@ -259,7 +267,82 @@ ed25519_simd_check_8_torsion_ifma:
 .Ltor_sqrt_m1:
     .quad 1718705420411056, 234908883556509, 2233514472574048, 2117202627021982, 765476049583133
 .size ed25519_simd_check_8_torsion_ifma, .-ed25519_simd_check_8_torsion_ifma
+
+// SysV RDI points to a read-only WidePoint. Only the ten X/Y limb vectors
+// are read (640 bytes); each input limb must be below 2^52. For a valid
+// projective point, EAX bit j is set iff [8]P[j] is the identity.
+// The only stack writes are saved RBP and two nested return addresses.
+// The linked ZIP-215 certificate covers the preceding symbol.
+.pushsection .text.ed25519_simd_small_order_ifma,"ax",@progbits
+.p2align 4
+.globl ed25519_simd_small_order_ifma
+.hidden ed25519_simd_small_order_ifma
+.type ed25519_simd_small_order_ifma,@function
+ed25519_simd_small_order_ifma:
+    // Estimate 2^64 * X/p and 2^64 * iY/p modulo one word. Each Y limb
+    // has its own rounded weight. The top limb alone suffices for X.
+    // SmallOrderFilter.v proves that every exact root lies in its window.
+    tor_field load, 0, rdi, 320
+    vmovdqu64 zmm5, [rdi + 256]
+    vpsllq zmm5, zmm5, 13
+    vpmullq zmm6, zmm0, qword ptr [rip + .Lorder_weights + 0]{1to8}
+    vpmullq zmm7, zmm1, qword ptr [rip + .Lorder_weights + 8]{1to8}
+    vpmullq zmm8, zmm2, qword ptr [rip + .Lorder_weights + 16]{1to8}
+    vpmullq zmm9, zmm3, qword ptr [rip + .Lorder_weights + 24]{1to8}
+    vpmullq zmm10, zmm4, qword ptr [rip + .Lorder_weights + 32]{1to8}
+    vpaddq zmm6, zmm6, zmm7
+    vpaddq zmm8, zmm8, zmm9
+    vpaddq zmm6, zmm6, zmm10
+    vpaddq zmm6, zmm6, zmm8
+
+    // Bias each of iY, X, iY+X and iY-X by the radius. If the unsigned
+    // minimum is below twice the radius in any lane, check all lanes exactly.
+    vpbroadcastq zmm11, qword ptr [rip + .Lorder_radius]
+    vpaddq zmm6, zmm6, zmm11
+    vpaddq zmm7, zmm5, zmm11
+    vpaddq zmm8, zmm6, zmm5
+    vpsubq zmm9, zmm6, zmm5
+    vpminuq zmm6, zmm6, zmm7
+    vpminuq zmm8, zmm8, zmm9
+    vpminuq zmm6, zmm6, zmm8
+    vpcmpuq k1, zmm6, qword ptr [rip + .Lorder_width]{1to8}, 1
+    kortestw k1, k1
+    jnz .Lorder_exact
+    xor eax, eax
+    vzeroupper
+    ret
+
+.Lorder_exact:
+    push rbp
+    mov rbp, rsp
+    vpbroadcastq zmm28, qword ptr [rip + .Ltor_modulus_fold]
+    vpbroadcastq zmm29, qword ptr [rip + .Ltor_limb_mask]
+    vpbroadcastq zmm30, qword ptr [rip + .Ltor_bias0]
+    vpbroadcastq zmm31, qword ptr [rip + .Ltor_bias1]
+    tor_mul_i
+
+    // Bias X by 1024*p before carrying. Even literal zero then has a
+    // positive representative. Each outgoing carry is at most 1025,
+    // so the carried value is below 2*p as required by tor_zero.
+    vpaddq zmm5, zmm30, [rdi]
+    vpaddq zmm6, zmm31, [rdi + 64]
+    vpaddq zmm7, zmm31, [rdi + 128]
+    vpaddq zmm8, zmm31, [rdi + 192]
+    vpaddq zmm9, zmm31, [rdi + 256]
+    tor_carry 5
+    jmp .Ltor_root_mask
+
+// round(2^64 * ((sqrt_m1 * 2^(51*j)) mod p) / p), j = 0..4
+.balign 8
+.Lorder_weights:
+    .quad 0x570649009f83be16, 0xf0b2b4d00993dfbd, 0xfdebd397a18c0357
+    .quad 0x1ab4bf91e313b86d, 0xc364e941d416ceaf
+.Lorder_radius: .quad 1 << 52
+.Lorder_width:  .quad 1 << 53
+.size ed25519_simd_small_order_ifma, .-ed25519_simd_small_order_ifma
+.popsection
 .noaltmacro
+.purgem tor_mul_i
 .purgem tor_mul
 .purgem tor_op
 .purgem tor_memop

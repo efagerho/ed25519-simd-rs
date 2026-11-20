@@ -93,6 +93,7 @@ core::arch::global_asm!(include_str!("torsion.S"), options(raw));
 #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
 unsafe extern "C" {
     fn ed25519_simd_check_8_torsion_ifma(point: *const u8, affine: *const u8) -> u8;
+    fn ed25519_simd_small_order_ifma(point: *const u8) -> u8;
 }
 
 /// Per-lane cached points selected from either projective or affine tables.
@@ -215,6 +216,26 @@ impl WidePoint {
     }
     /// Return whether each point is killed by the Ed25519 cofactor.
     pub(super) fn is_small_order_lanes(&self) -> [bool; LANES] {
+        #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
+        {
+            #[cfg(debug_assertions)]
+            for field in [&self.x, &self.y] {
+                debug_assert!(super::field::limbs_are_ifma_operands(&field.limbs));
+            }
+            // SAFETY: The repr(C) layout above places X and Y first. Both
+            // the decoder and the ladder supply five 52-bit limbs per field.
+            let mask = unsafe { ed25519_simd_small_order_ifma(core::ptr::from_ref(self).cast()) };
+            super::mask_to_lanes(mask)
+        }
+        #[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
+        self.is_small_order_lanes_rust()
+    }
+
+    #[cfg(any(
+        test,
+        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
+    ))]
+    pub(super) fn is_small_order_lanes_rust(&self) -> [bool; LANES] {
         let p8 = self
             .double_without_t()
             .double_without_t()
@@ -475,6 +496,10 @@ impl WidePoint {
         );
         self.double_impl::<true, true>()
     }
+    #[cfg(any(
+        test,
+        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
+    ))]
     pub(super) fn double_without_t(&self) -> Self {
         self.double_impl::<false, false>()
     }
