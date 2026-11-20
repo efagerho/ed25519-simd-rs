@@ -11,6 +11,7 @@ and can be checked independently of the machine model.
 | [Scalar.v](Scalar.v) | The scalar order `L` and canonical reduction modulo `L`. |
 | [Edwards.v](Edwards.v) | The coordinate formulas for doubling, cached addition, and the ladder step. |
 | [Torsion.v](Torsion.v) | The determinant, mixed-subtraction numerators, and four field zero tests for one lane of the ZIP-215 equation check. |
+| [SmallOrderFilter.v](SmallOrderFilter.v) | Every exact small-order root passes the 64-bit rejection filter for bounded projective X and Y. |
 | [PrimeField.v](group/PrimeField.v), [Affine.v](group/Affine.v) | The prime field and the affine Edwards group law. |
 | [Representation.v](group/Representation.v) | How XYZ, extended, and cached coordinates represent group elements. |
 | [Cofactor.v](group/Cofactor.v) | The meaning of the determinant shortcut and the full torsion check in the Edwards group. |
