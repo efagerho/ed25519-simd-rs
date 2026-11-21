@@ -25,6 +25,9 @@ fn main() {
         if env::var_os(feature).is_none() {
             continue;
         }
+        if routine == "pow2" {
+            println!("cargo:rerun-if-changed=src/wide/avx512ifma/pow22523.inc");
+        }
         for path in [
             source.into(),
             format!("verification/crate/{proof}"),

@@ -1,4 +1,4 @@
-use super::decode::{WideRPoint, decompress_finish, decompress_r_points, decompress_setup};
+use super::decode::{WideRPoint, decompress_deferred};
 use super::field::WideFe;
 use super::ladder_step::mul_s_base_minus_k_public;
 use super::point::WidePoint;
@@ -66,32 +66,30 @@ pub(crate) fn check_zip215_candidates(
     candidates: &[Zip215Candidate],
     r_bytes: &[[[u8; R_ENCODING_LEN]; LANES]],
 ) -> [([bool; LANES], [bool; LANES]); ZIP215_BATCH] {
-    debug_assert_eq!(candidates.len(), r_bytes.len());
-    let empty = ([false; LANES], [false; LANES]);
-    match candidates {
-        [single] => {
-            let (r, r_mask) = decompress_r_points(&r_bytes[0]);
-            let holds = single.0.subtract_affine_and_check_8_torsion(&r.point);
-            [(holds, mask_to_lanes(r_mask)), empty]
+    fn score<const N: usize>(
+        candidates: &[Zip215Candidate],
+        bytes: &[[[u8; R_ENCODING_LEN]; LANES]],
+    ) -> [([bool; LANES], [bool; LANES]); N] {
+        let mut storage = core::mem::MaybeUninit::uninit();
+        let bytes = bytes.try_into().expect("one R chunk per candidate");
+        let (points, masks) = decompress_deferred::<N>(bytes, &mut storage);
+        core::array::from_fn(|i| {
+            (
+                candidates[i]
+                    .0
+                    .subtract_affine_and_check_8_torsion(&points[i]),
+                mask_to_lanes(masks[i]),
+            )
+        })
+    }
+
+    match candidates.len() {
+        1 => {
+            let [one] = score::<1>(candidates, r_bytes);
+            [one, ([false; LANES], [false; LANES])]
         }
-        [first, second] => {
-            let setup_a = decompress_setup(&r_bytes[0]);
-            let setup_b = decompress_setup(&r_bytes[1]);
-            let (pow_a, pow_b) = WideFe::pow_p_minus_5_over_8_x2(&setup_a.uv, &setup_b.uv);
-            let (r_a, mask_a, _) = decompress_finish::<true, false>(setup_a, pow_a);
-            let (r_b, mask_b, _) = decompress_finish::<true, false>(setup_b, pow_b);
-            [
-                (
-                    first.0.subtract_affine_and_check_8_torsion(&r_a),
-                    mask_to_lanes(mask_a),
-                ),
-                (
-                    second.0.subtract_affine_and_check_8_torsion(&r_b),
-                    mask_to_lanes(mask_b),
-                ),
-            ]
-        }
-        _ => unreachable!("the queue flushes at ZIP215_BATCH chunks"),
+        2 => score::<2>(candidates, r_bytes),
+        _ => unreachable!("the queue flushes at one or two chunks"),
     }
 }
 

@@ -4,3 +4,4 @@ Affine.v
 SignedMultiple.v
 Representation.v
 Cofactor.v
+Decompression.v

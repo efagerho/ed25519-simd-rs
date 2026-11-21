@@ -103,7 +103,13 @@ unsafe extern "C" {
 }
 
 #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
-core::arch::global_asm!(include_str!("torsion.S"), options(raw));
+// Both entries use the same private IFMA multiplication subroutine.
+core::arch::global_asm!(
+    include_str!("torsion.S"),
+    include_str!("pow22523.inc"),
+    include_str!("decompress_r.S"),
+    options(raw)
+);
 
 #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
 unsafe extern "C" {
