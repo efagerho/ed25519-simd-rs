@@ -1,6 +1,6 @@
-// Raise a radix-51 field to (p-5)/8 = 2^252-3. The caller supplies
-// three scratch slots, a multiplication by a slot and repeated squaring.
-.macro fe51_pow22523 save, multiply, square_n
+// Raise z to (p-5)/8, or to p-2 for inversion. Both chains build z^(2^250-1).
+// The caller supplies three scratch slots, multiplication and repeated squaring.
+.macro fe51_pow_chain save, multiply, square_n, invert=0
     \save 0
     // Raw input may use all 52 bits in every limb. The general product
     // establishes the tighter bounds needed for doubled square operands.
@@ -10,6 +10,9 @@
     \multiply 0
     \save 2
     \multiply 1
+.if \invert
+    \save 0                       // z^11 replaces z for the inversion tail
+.endif
     \square_n 1
     \multiply 2
     // Current exponent is 31. Build exponents 2^k - 1.
@@ -32,7 +35,11 @@
     \multiply 2
     \square_n 50
     \multiply 1
-    \square_n 2
+.if \invert
+    \square_n 5                   // 32*(2^250-1) + 11 = p-2
+.else
+    \square_n 2                   // 4*(2^250-1) + 1 = (p-5)/8
+.endif
     \multiply 0
 .endm
 

@@ -1,10 +1,9 @@
 use super::decode::{WideRPoint, decompress_deferred};
-use super::field::WideFe;
 use super::ladder_step::mul_s_base_minus_k_public;
 use super::point::WidePoint;
 use super::{LANES, mask_to_lanes};
 use crate::batch::R_ENCODING_LEN;
-use crate::edwards::{BasepointTableEntries, POINT_ENCODING_LEN, PointTable};
+use crate::edwards::{BasepointTableEntries, PointTable};
 use crate::wide::PreparedChunk;
 
 /// Chunks whose final inversion is shared. Each doubling halves the
@@ -15,8 +14,8 @@ pub(crate) const DALEK_BATCH: usize = 8;
 /// An uncompressed Dalek verification result waiting to be compared with
 /// the signature's encoded R point.
 ///
-/// Eight candidates are normalized with one batch inversion before
-/// their encodings are checked, instead of performing eight separate inversions.
+/// Up to eight queued chunks share the inversion used to recover affine X.
+#[repr(transparent)]
 pub(crate) struct DalekCandidate(pub(super) WidePoint);
 
 /// ZIP-215 chunks whose `R` decompressions are interleaved pairwise, so
@@ -101,25 +100,50 @@ pub(crate) fn prepare_dalek_candidate(
     DalekCandidate(mul_s_base_minus_k_public::<false>(base_table, prepared))
 }
 
-/// Compress up to [`DALEK_BATCH`] chunks sharing a single field inversion.
-///
-/// Montgomery's trick: invert the running product of every `Z`, then walk
-/// back down recovering each reciprocal with one multiply. That trades
-/// `n - 1` inversions for `3(n - 1)` multiplies, and an inversion costs
-/// roughly 265 field operations against a multiply's one.
-pub(crate) fn compress_dalek_candidates(
+/// Bit j of byte i is set when candidate (i,j) has the supplied encoding
+/// and passes the Dalek small-order check. Unused bytes are zero.
+pub(crate) fn check_dalek_candidates(
     candidates: &[DalekCandidate],
-    encodings: &mut [[[u8; POINT_ENCODING_LEN]; LANES]],
-    small_order: &mut [[bool; LANES]],
-) {
-    debug_assert_eq!(candidates.len(), encodings.len());
-    debug_assert_eq!(candidates.len(), small_order.len());
-    debug_assert!(candidates.len() <= DALEK_BATCH);
-    if candidates.is_empty() {
-        return;
+    r_bytes: &[[[u8; R_ENCODING_LEN]; LANES]],
+) -> [u8; DALEK_BATCH] {
+    assert_eq!(candidates.len(), r_bytes.len());
+    assert!(candidates.len() <= DALEK_BATCH);
+
+    #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
+    {
+        const _: () = assert!(DALEK_BATCH == 8 && R_ENCODING_LEN == 32);
+        unsafe extern "C" {
+            fn ed25519_simd_dalek_recompress(points: *const u8, r: *const u8, n: usize) -> u64;
+        }
+        // SAFETY: DalekCandidate is transparent over the aligned WidePoint ABI.
+        // Both arrays cover n read-only chunks. The ladder bounds XYZ limbs to
+        // 52 bits and only produces projective points with nonzero Z.
+        unsafe {
+            ed25519_simd_dalek_recompress(
+                candidates.as_ptr().cast(),
+                r_bytes.as_ptr().cast(),
+                candidates.len(),
+            )
+            .to_le_bytes()
+        }
     }
 
-    let mut product = candidates[0].0.z;
+    #[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
+    check_dalek_candidates_rust(candidates, r_bytes)
+}
+
+#[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
+fn check_dalek_candidates_rust(
+    candidates: &[DalekCandidate],
+    r_bytes: &[[[u8; R_ENCODING_LEN]; LANES]],
+) -> [u8; DALEK_BATCH] {
+    use super::field::WideFe;
+
+    let mut masks = [0; DALEK_BATCH];
+    let Some(first) = candidates.first() else {
+        return masks;
+    };
+    let mut product = first.0.z;
     let mut prefix = [WideFe::one(); DALEK_BATCH];
     prefix[0] = product;
     for (index, candidate) in candidates.iter().enumerate().skip(1) {
@@ -127,18 +151,23 @@ pub(crate) fn compress_dalek_candidates(
         prefix[index] = product;
     }
 
-    // Walking back down lets each reciprocal be consumed as it is formed,
-    // so no array of inverses is ever materialized.
     let mut accumulator = product.invert();
-    for index in (1..candidates.len()).rev() {
-        let z = &candidates[index].0.z;
-        let inverse = prefix[index - 1].multiply(&accumulator);
-        accumulator = accumulator.multiply(z);
-        encodings[index] = candidates[index].0.compress_with_z_inverse(&inverse);
-        small_order[index] = candidates[index].0.is_small_order_lanes();
+    for i in (0..candidates.len()).rev() {
+        let inverse = if i == 0 {
+            accumulator
+        } else {
+            let inverse = prefix[i - 1].multiply(&accumulator);
+            accumulator = accumulator.multiply(&candidates[i].0.z);
+            inverse
+        };
+        let encoding = candidates[i].0.compress_with_z_inverse(&inverse);
+        let small_order = candidates[i].0.is_small_order_lanes();
+        for lane in 0..LANES {
+            let matches = encoding[lane] == r_bytes[i][lane] && !small_order[lane];
+            masks[i] |= u8::from(matches) << lane;
+        }
     }
-    encodings[0] = candidates[0].0.compress_with_z_inverse(&accumulator);
-    small_order[0] = candidates[0].0.is_small_order_lanes();
+    masks
 }
 
 /// Identify small-order public keys from the already-built `[8]A` table entry.
