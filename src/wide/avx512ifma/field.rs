@@ -21,7 +21,11 @@ pub(super) struct WideFe {
     target_os = "linux",
     target_pointer_width = "64"
 ))]
-core::arch::global_asm!(include_str!("pow2.S"), options(raw));
+core::arch::global_asm!(
+    include_str!("pow22523.inc"),
+    include_str!("pow2.S"),
+    options(raw)
+);
 
 #[cfg(all(
     feature = "verify-asm-pow2",
@@ -488,6 +492,10 @@ impl WideFe {
         let (lo, hi) = self.multiply_accum(rhs);
         Self::reduce_ifma(lo, hi)
     }
+    #[cfg(any(
+        test,
+        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
+    ))]
     pub(super) fn pow_p_minus_5_over_8(&self) -> Self {
         pow_p_minus_5_over_8_chain(*self)
     }

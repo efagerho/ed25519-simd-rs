@@ -30,16 +30,53 @@ impl WideRPoint {
     }
 }
 
-/// Decompress one SIMD chunk of `R` points and return a per-lane validity mask.
-pub(crate) fn decompress_r_points(r_bytes: &[[u8; R_ENCODING_LEN]; LANES]) -> (WideRPoint, u8) {
-    let (point, mask) = decompress_points_wide(r_bytes);
-    (
-        WideRPoint {
-            point,
-            x_zero_mask: None,
-        },
-        mask,
-    )
+type EncodedChunk = [[u8; R_ENCODING_LEN]; LANES];
+
+/// Borrow the decoded points in place so the equation check can consume
+/// the aligned assembly output directly.
+pub(super) fn decompress_deferred<'a, const N: usize>(
+    bytes: &[EncodedChunk; N],
+    out: &'a mut core::mem::MaybeUninit<[WidePoint; N]>,
+) -> (&'a [WidePoint; N], [u8; N]) {
+    const { assert!(N == 1 || N == 2) };
+    #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
+    {
+        const _: () = assert!(size_of::<EncodedChunk>() == 256);
+        unsafe extern "C" {
+            fn ed25519_simd_zip215_decode_r(
+                out: *mut u8,
+                encodings: *const EncodedChunk,
+                chunks: usize,
+            ) -> u16;
+        }
+        // SAFETY: the assembly reads N chunks and initializes all coordinates
+        // of the aligned output, including lanes whose mask bit is clear.
+        let (points, masks) = unsafe {
+            let masks = ed25519_simd_zip215_decode_r(out.as_mut_ptr().cast(), bytes.as_ptr(), N);
+            (out.assume_init_ref(), masks)
+        };
+        (points, core::array::from_fn(|i| (masks >> (8 * i)) as u8))
+    }
+    #[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
+    {
+        let (points, masks) = match bytes.as_slice() {
+            [one] => {
+                let (point, mask) = decompress_points_wide(one);
+                ([point; N], [mask; N])
+            }
+            [a, b] => {
+                let ((a, am), (b, bm, _)) = decompress_two_point_chunks_wide::<false>(a, b);
+                let points = [a, b];
+                let masks = [am, bm];
+                (
+                    core::array::from_fn(|i| points[i]),
+                    core::array::from_fn(|i| masks[i]),
+                )
+            }
+            _ => unreachable!(),
+        };
+        (out.write(points), masks)
+    }
 }
 
 /// Decode keys and `R` together, interleaving their inverse-square-root chains.
@@ -76,15 +113,15 @@ pub(crate) fn decode_public_key_table(encoded: &[u8; PUBLIC_KEY_LEN]) -> Option<
 ///
 /// Retaining two setups lets their exponentiation chains alternate
 /// IFMA operations so one chain fills the other's multiplication latency.
-pub(super) struct DecompressSetup {
+struct DecompressSetup {
     u: WideFe,
     v: WideFe,
-    pub(super) uv: WideFe, // raised to (p-5)/8
+    uv: WideFe, // raised to (p-5)/8
     y: WideFe,
     x_sign_mask: u8,
 }
 
-pub(super) fn decompress_setup(bytes: &[[u8; POINT_ENCODING_LEN]; LANES]) -> DecompressSetup {
+fn decompress_setup(bytes: &[[u8; POINT_ENCODING_LEN]; LANES]) -> DecompressSetup {
     let mut y_fields = core::array::from_fn(|_| Fe51::zero());
     let mut x_sign_mask = 0u8;
 
@@ -110,7 +147,7 @@ pub(super) fn decompress_setup(bytes: &[[u8; POINT_ENCODING_LEN]; LANES]) -> Dec
     }
 }
 
-pub(super) fn decompress_finish<const COMPUTE_T: bool, const TRACK_X_ZERO: bool>(
+fn decompress_finish<const COMPUTE_T: bool, const TRACK_X_ZERO: bool>(
     s: DecompressSetup,
     pow: WideFe,
 ) -> (WidePoint, u8, Option<u8>) {
@@ -157,6 +194,10 @@ pub(super) fn decompress_finish<const COMPUTE_T: bool, const TRACK_X_ZERO: bool>
 }
 
 /// Decompress one SIMD chunk of compressed Edwards points with per-lane validity.
+#[cfg(any(
+    test,
+    not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
+))]
 pub(super) fn decompress_points_wide(bytes: &[[u8; POINT_ENCODING_LEN]; LANES]) -> (WidePoint, u8) {
     let s = decompress_setup(bytes);
     let pow = s.uv.pow_p_minus_5_over_8();
@@ -178,7 +219,7 @@ pub(super) fn cold_decompress_points_wide(
 
 /// Decompress two independent SIMD chunks, interleaving the two
 /// inverse-square-root chains so each fills the other's IFMA latency gaps.
-pub(super) fn decompress_two_point_chunks_wide<const MINIMIZE_B_FOR_DALEK: bool>(
+fn decompress_two_point_chunks_wide<const MINIMIZE_B_FOR_DALEK: bool>(
     a_bytes: &[[u8; POINT_ENCODING_LEN]; LANES],
     b_bytes: &[[u8; POINT_ENCODING_LEN]; LANES],
 ) -> ((WidePoint, u8), (WidePoint, u8, Option<u8>)) {

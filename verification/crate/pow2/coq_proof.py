@@ -14,7 +14,7 @@ from proof_build import COMPONENTS, component_flags
 from evidence import write_evidence
 from disassembly import SYMBOL
 from elf import require, symbol_bytes, symbol_extent
-from generate_listing import generate
+from generate_listing import SOURCES, generate
 
 
 def export_cases(raw, work, dest, seed, source=None, tag="pow2"):
@@ -71,8 +71,7 @@ def replay(binary, work, cases=None, seed=1):
         if cases.resolve() != retained.resolve():
             shutil.copyfile(cases, retained)
         corpus = {"path": retained.name, "count": count, "export_seed": seed}
-    source = Path(__file__).resolve().parents[3] / "src/wide/avx512ifma/pow2.S"
-    write_evidence(binary, work, "pow2", checks, [(SYMBOL, address, raw)], [source],
+    write_evidence(binary, work, "pow2", checks, [(SYMBOL, address, raw)], SOURCES,
                    component_flags("pow2"), corpus)
     print(f"Coq kernel replay passed for ed25519_simd_pow2_ifma, SHA-256 {hashlib.sha256(raw).hexdigest()}")
 
