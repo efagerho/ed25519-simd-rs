@@ -42,7 +42,7 @@ ed25519_simd_pow2_ifma:
 .irp i,5,6,7,8,9
     vmovdqu64 zmm\i, [rdx + 64*(\i-5)]
 .endr
-    fe51_pow22523 pow2_save, multiply_slot, squares
+    fe51_pow_chain pow2_save, multiply_slot, squares
     pair_save rdi, 0
     add rsp, 1928
     vzeroupper
@@ -134,6 +134,6 @@ ed25519_simd_pow2_ifma:
 .purgem column
 .purgem multiply_pair
 .purgem pow2_save
-.purgem fe51_pow22523
+.purgem fe51_pow_chain
 .purgem fe51_square
 .purgem copy_limb

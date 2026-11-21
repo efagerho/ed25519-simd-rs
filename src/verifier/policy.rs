@@ -60,13 +60,6 @@ pub(super) struct PendingLanes {
     pub(super) active_lane_count: usize,
 }
 
-/// Dalek additionally needs both original encodings after recompression.
-#[derive(Debug)]
-struct PendingDalekChunk {
-    lanes: PendingLanes,
-    r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
-}
-
 /// Reusable ZIP-215-only buffers.
 ///
 /// Two queued candidates let their `R` inverse-square-root chains
@@ -81,13 +74,14 @@ pub struct Zip215Queues {
 
 /// Reusable Dalek-only buffers.
 ///
-/// Eight queued projective candidates share one Montgomery batch
-/// inversion before their affine encodings are compared with the signatures.
+/// Queuing up to eight chunks amortizes the field inversion in the
+/// comparison with the original signature encodings.
 #[doc(hidden)]
 #[derive(Debug, Default)]
 pub struct DalekQueues {
     dalek_candidates: Vec<avx512ifma::DalekCandidate>,
-    dalek_pending: Vec<PendingDalekChunk>,
+    dalek_r_bytes: Vec<[[u8; R_ENCODING_LEN]; SIMD_LANES]>,
+    dalek_pending: Vec<PendingLanes>,
 }
 
 /// The per-lane chunk data both policies score their SIMD result against.
@@ -351,9 +345,8 @@ impl PolicyOps for DalekPolicy {
         lanes: PendingLanes,
         r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
     ) {
-        queues
-            .dalek_pending
-            .push(PendingDalekChunk { lanes, r_bytes });
+        queues.dalek_r_bytes.push(r_bytes);
+        queues.dalek_pending.push(lanes);
     }
 
     #[inline(always)]
@@ -434,36 +427,25 @@ pub(super) fn score_dalek_lanes(
     }
 }
 
-/// Compress every queued candidate through one shared inversion and score the
-/// chunks against their encoded `R`. Leaves both queues empty.
+/// Recompress the queued candidates and scatter accepted lanes to the caller.
 fn flush_dalek_queue(queues: &mut DalekQueues, out: &mut [bool]) {
     let DalekQueues {
         dalek_candidates: candidates,
+        dalek_r_bytes: r_bytes,
         dalek_pending: pending,
     } = queues;
     if candidates.is_empty() {
         return;
     }
     debug_assert_eq!(candidates.len(), pending.len());
-
-    let mut encodings = [[[0u8; R_ENCODING_LEN]; SIMD_LANES]; avx512ifma::DALEK_BATCH];
-    let mut small_order = [[false; SIMD_LANES]; avx512ifma::DALEK_BATCH];
-    avx512ifma::compress_dalek_candidates(
-        candidates,
-        &mut encodings[..candidates.len()],
-        &mut small_order[..candidates.len()],
-    );
-
-    for ((chunk, encoding), small_order) in pending.drain(..).zip(&encodings).zip(&small_order) {
-        for lane in 0..chunk.lanes.active_lane_count {
-            // Recompression is canonical, so a non-canonical or wrong-sign
-            // `R` encoding simply fails to match.
-            out[chunk.lanes.output_indices[lane]] = encoding[lane] == chunk.r_bytes[lane]
-                && chunk.lanes.valid[lane]
-                && !small_order[lane];
+    let masks = avx512ifma::check_dalek_candidates(candidates, r_bytes);
+    for (chunk, mask) in pending.drain(..).zip(masks) {
+        for lane in 0..chunk.active_lane_count {
+            out[chunk.output_indices[lane]] = chunk.valid[lane] && mask & (1 << lane) != 0;
         }
     }
     candidates.clear();
+    r_bytes.clear();
 }
 
 /// Check every queued ZIP-215 chunk, decompressing the pair of `R` chunks

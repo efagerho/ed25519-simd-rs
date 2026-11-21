@@ -96,7 +96,7 @@ def main():
     checks = check_object(work, flags, "decompress_r")
     asm = SOURCES[0].parent
     write_evidence(elf, work, "decompress_r", checks, symbols,
-                   [asm / "decompress_r.S", asm / "torsion.S", *SOURCES], flags)
+                   [asm / "decompress_r.S", asm / "point_encoding.inc", asm / "torsion.S", *SOURCES], flags)
     print(f"Checked {checks['theorem']} against {elf}")
 
 

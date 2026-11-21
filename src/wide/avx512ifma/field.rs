@@ -1,4 +1,8 @@
 use super::{LANES, mask_to_lanes};
+#[cfg(any(
+    test,
+    not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
+))]
 use crate::edwards::POINT_ENCODING_LEN;
 use crate::field::{Fe51, LIMB_COUNT};
 use std::arch::x86_64::*;
@@ -150,6 +154,10 @@ impl WideFe {
             ])
         })
     }
+    #[cfg(any(
+        test,
+        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
+    ))]
     pub(super) fn to_bytes_lanes(self) -> [[u8; POINT_ENCODING_LEN]; LANES] {
         unsafe {
             let c = self.canonical();
@@ -524,6 +532,10 @@ impl WideFe {
         let h = g.square_repeat::<50>().multiply(&e);
         h.square_repeat::<5>().multiply(&z11)
     }
+    #[cfg(any(
+        test,
+        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
+    ))]
     pub(super) fn invert(&self) -> Self {
         self.invert_chain()
     }
@@ -622,6 +634,10 @@ impl WideFe {
     pub(super) fn is_odd_lanes(self) -> [bool; LANES] {
         mask_to_lanes(self.is_odd_mask())
     }
+    #[cfg(any(
+        test,
+        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
+    ))]
     pub(super) fn limb_below(&self, index: usize, bits: u32) -> bool {
         let mut lanes = [0u64; LANES];
         storeu(self.limbs[index], &mut lanes);

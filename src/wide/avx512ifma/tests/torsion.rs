@@ -58,18 +58,6 @@ fn torsion_check_requires_all_lanes_for_early_acceptance() {
     }
 }
 
-// A second representation within the input bound, including limbs near 2^52.
-fn redundant(v: WideFe) -> WideFe {
-    let mut rows = wide_rows(v.canonical());
-    for (j, row) in rows.iter_mut().enumerate() {
-        let bias = (1u64 << 51) - if j == 0 { 19 } else { 1 };
-        for limb in row {
-            *limb += bias;
-        }
-    }
-    wide_from_rows(rows)
-}
-
 #[test]
 fn small_order_matches_three_doublings_for_every_mask() {
     let torsion = torsion_multiples(&vectors());

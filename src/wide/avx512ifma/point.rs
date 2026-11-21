@@ -1,11 +1,11 @@
 use super::LANES;
 use super::field::WideFe;
+use crate::edwards::CachedPoint;
 #[cfg(any(
     test,
     not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
 ))]
-use crate::edwards::AffineCachedPoint;
-use crate::edwards::{CachedPoint, POINT_ENCODING_LEN};
+use crate::edwards::{AffineCachedPoint, POINT_ENCODING_LEN};
 use crate::field::Fe51;
 
 /// Eight extended Edwards points packed coordinate-wise for SIMD arithmetic.
@@ -103,10 +103,12 @@ unsafe extern "C" {
 }
 
 #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
-// Both entries use the same private IFMA multiplication subroutine.
+// These entries share private IFMA field kernels and the encoded-point layout.
 core::arch::global_asm!(
     include_str!("torsion.S"),
     include_str!("pow22523.inc"),
+    include_str!("point_encoding.inc"),
+    include_str!("dalek_recompress.S"),
     include_str!("decompress_r.S"),
     options(raw)
 );
@@ -217,6 +219,10 @@ impl WidePoint {
         let zinv = self.z.invert();
         self.compress_with_z_inverse(&zinv)
     }
+    #[cfg(any(
+        test,
+        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
+    ))]
     pub(super) fn compress_with_z_inverse(
         &self,
         zinv: &WideFe,

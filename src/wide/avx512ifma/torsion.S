@@ -226,6 +226,7 @@ ed25519_simd_check_8_torsion_ifma:
 .irp j,11,12,13,14
     vmovdqa64 zmm\j, zmm31
 .endr
+.Ltor_seeded_columns:               // ZMM10..14 hold the five low-column biases
 .irp j,15,16,17,18,19,20,21,22,23,24,25,26,27
     tor_op vpxorq, \j, \j, \j
 .endr
