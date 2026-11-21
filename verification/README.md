@@ -71,7 +71,8 @@ The deferred ZIP-215 decoder uses tagged addresses for its outer caller and
 field slots for its local load, store and mask instruction groups. The shared
 pow2 callee has a flat-memory certificate. For the rest of the decoder,
 matching the grouped operations to native reads and writes remains part of
-the audit. [Decoder memory boundary](crate/decompress_r/README.md#what-to-audit)
+the audit. The Dalek recompressor uses the same field kernels and a private
+stack projection for its prefixes, sign bytes and match masks. [Recompressor memory boundary](crate/dalek_recompress/README.md#what-to-audit) · [Decoder memory boundary](crate/decompress_r/README.md#what-to-audit)
 
 **Mathematical meaning.** Check the field prime, scalar order, radix and limb
 weights, Edwards curve and group law, and the predicates saying which point

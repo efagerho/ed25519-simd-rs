@@ -27,14 +27,16 @@ Definition tail_bytes :=
 Definition at_bytes (image:list Z) (offset:Z) bytes :=
  firstn (length bytes) (skipn (Z.to_nat offset) image)=bytes.
 Definition word_bytes n := le32 n ++ le32 (n/2^32).
-Definition kernel_image k decoder_pc decoder helper_pc helper :=
+Definition field_image k decoder_pc decoder helper_pc helper :=
  let ret:=[0xc3] in
  at_bytes helper 0xb90 (vectors(seed_columns k)++call 0xbfc 0xcb0++vectors(fold_columns k)++ret) /\
  length(vectors(seed_columns k))=0x6c%nat /\
  at_bytes helper 0xcb0 (vectors(convolve k)++ret) /\
  at_bytes decoder 0x59b (vectors(square k)++ret) /\
  at_bytes decoder 0x7b2 (call 0x7b2 0xa57++vectors(tighten k)++ret) /\
- at_bytes decoder 0x7f1 tail_bytes /\
  at_bytes decoder 0xa57 (field_rows false 5 8 0 ++ call (decoder_pc+0xa79) (helper_pc+0xb90)
    ++vectors(carry k)++ret) /\
  at_bytes helper 0xde0 (flat_map word_bytes [19;2^51-1;(2^51-19)*1024;(2^51-1)*1024]).
+
+Definition kernel_image k decoder_pc decoder helper_pc helper :=
+ field_image k decoder_pc decoder helper_pc helper /\ at_bytes decoder 0x7f1 tail_bytes.

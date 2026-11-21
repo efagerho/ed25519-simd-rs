@@ -14,6 +14,7 @@ README for its contract and release audit.
 | [stage_round/](stage_round/README.md) | Signed key lookup, base-digit folding and exact limb placement in the 55-row ladder input. |
 | [ladder_step/](ladder_step/README.md) | A radix-256 ladder step composed from the verified doubling and cached-addition routines. |
 | [full_ladder/](full_ladder/README.md) | The complete 32-pair public ladder represents [s]B + [−k]A from signed digit bytes and valid tables, including both final T modes. |
+| [dalek_recompress/](dalek_recompress/README.md) | Each returned bit requires exact canonical recompression and a point of non-small order. Covers zero to eight chunks. |
 | [decompress_r/](decompress_r/README.md) | Deferred ZIP-215 decoding of eight or sixteen encodings, including noncanonical y, both signs of zero, and rejection of nonsquares. |
 | [torsion/](torsion/README.md) | The returned lane mask equals the full ZIP-215 cofactor check, including the all-lanes early return. |
 | [small_order/](small_order/README.md) | The returned mask selects precisely the valid projective points killed by the cofactor, including the all-lanes rejection path. |
@@ -76,8 +77,9 @@ separate review.
 
 On x86-64 Linux, the `asm` feature enables all assembly backends. Each
 `verify-asm-*` feature also checks the named standalone routine during the
-build and embeds the bytes that passed. Staging, radix16, ladder, torsion and
-small-order audits check the linked symbols in the release ELF.
+build and embeds the bytes that passed. Staging, radix16, ladder, torsion,
+small-order, ZIP-215 decoding and Dalek recompression audits check the linked
+symbols in the release ELF.
 
 Run the build commands from the repository root.
 

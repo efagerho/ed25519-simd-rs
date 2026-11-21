@@ -40,9 +40,11 @@ def write_evidence(binary, work, component, checks, symbols, sources, flags, cas
         shutil.copyfile(path, dest / path.name)
     for path in [HERE / "proof_build.py", HERE / "elf.py", Path(__file__)]:
         shutil.copyfile(path, dest / path.name)
-    if component in ("torsion", "small_order", "decompress_r"):
+    if component in ("torsion", "small_order", "decompress_r", "dalek_recompress"):
         shutil.copyfile(HERE / "mask_listing.py", dest / "mask_listing.py")
     dependencies = {component} if component in ("small_order", "stage_round") else {"pow2", component}
+    if component == "dalek_recompress":
+        dependencies = {component, "decompress_r", "small_order"}
     if component == "full_ladder":
         dependencies.update(("ladder_step", "stage_round"))
     if component in ("ladder_step", "full_ladder"):

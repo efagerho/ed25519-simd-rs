@@ -190,7 +190,8 @@ class ReleaseEvidenceTests(unittest.TestCase):
                                             (cached_add_audit, "add_cached", "CachedAdd", "sources/cached_add/audit.py"),
                                             (scalar_audit, "reduce", "Scalar", "sources/scalar/audit.py"),
                                             (evidence, "ladder_step", "LadderStep", "sources/ladder_step/audit.py"),
-                                            (evidence, "digest_to_radix16", "Radix16", "sources/radix16/audit.py")):
+                                            (evidence, "digest_to_radix16", "Radix16", "sources/radix16/audit.py"),
+                                            (evidence, "dalek_recompress", "Dalek", "sources/dalek_recompress/audit.py")):
             with self.subTest(routine=routine):
                 self.check_manifest(module, routine, namespace, generator)
 
@@ -218,6 +219,8 @@ class ReleaseEvidenceTests(unittest.TestCase):
             symbols = [(routine, 4096, b"\xc3")]
             if component == "ladder_step":
                 symbols.extend([("double4", 8192, b"a"), ("add_cached", 12288, b"b")])
+            elif component == "dalek_recompress":
+                symbols.extend([("decoder", 8192, b"d"), ("helper", 12288, b"h"), ("small", 16384, b"s")])
             elif component == "radix16":
                 symbols.append(("scalar_reduce", 8192, b"a"))
             with patch.object(evidence, "tool_versions", return_value={"coqc": {"version": "test"}}):
@@ -243,6 +246,10 @@ class ReleaseEvidenceTests(unittest.TestCase):
             if component == "radix16":
                 self.assertIn("sources/scalar/listing.py", manifest["files"])
                 self.assertEqual((work / "scalar_reduce.bin").read_bytes(), b"a")
+            if component == "dalek_recompress":
+                for dependency in ("decompress_r", "small_order"):
+                    self.assertIn(f"sources/{dependency}/audit.py", manifest["files"])
+                self.assertIn("sources/mask_listing.py", manifest["files"])
             project = (work / "_CoqProject").read_text().splitlines()
             self.assertIn(f"-Q {namespace} Ed25519Simd.{namespace}", project)
             self.assertIn(f"{namespace}/Program.v", project)

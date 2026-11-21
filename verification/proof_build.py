@@ -19,7 +19,7 @@ SHARED_ENV = "ED25519_SIMD_COQ_LIBRARIES"
 COMPONENTS = {"pow2": "Pow2", "double4": "Double4", "cached_add": "CachedAdd",
               "scalar": "Scalar", "ladder_step": "LadderStep", "torsion": "Torsion",
               "small_order": "SmallOrder", "radix16": "Radix16", "stage_round": "StageRound",
-              "full_ladder": "FullLadder", "decompress_r": "Decode"}
+              "full_ladder": "FullLadder", "decompress_r": "Decode", "dalek_recompress": "Dalek"}
 
 
 # The release statement is independent of the theorem implementation in Object.v.
@@ -33,6 +33,7 @@ PUBLIC_THEOREMS = {
     "ladder_step": ("assembled_ladder_step_correct", "ladder_contract"),
     "full_ladder": ("assembled_full_ladder_correct", "full_ladder_contract"),
     "small_order": ("assembled_small_order_correct", "small_order_contract"),
+    "dalek_recompress": ("assembled_dalek_recompress_correct", "recompress_contract"),
     "decompress_r": ("assembled_decode_correct", "decode_contract"),
     "torsion": ("assembled_torsion_correct", "torsion_contract"),
 }
@@ -42,7 +43,10 @@ def public_statement(component):
     namespace = "Ed25519Simd." + COMPONENTS[component]
     theorem, contract = PUBLIC_THEOREMS[component]
     expected = f"{namespace}.Audit.{contract}"
-    if component == "decompress_r":
+    if component == "dalek_recompress":
+        for module in ("Dalek.ObjectBytes", "Decode.DecoderBytes", "Decode.HelperBytes", "SmallOrder.EntryBytes"):
+            expected += f" Ed25519Simd.{module}.address Ed25519Simd.{module}.symbol_bytes"
+    elif component == "decompress_r":
         for module in ("DecoderBytes", "HelperBytes"):
             expected += f" {namespace}.{module}.address {namespace}.{module}.symbol_bytes"
         expected += f" {namespace}.DecoderBytes.pow_pc Ed25519Simd.Pow2.ObjectBytes.symbol_bytes"

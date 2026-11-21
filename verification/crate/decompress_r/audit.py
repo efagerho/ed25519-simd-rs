@@ -13,9 +13,6 @@ from evidence import write_evidence
 from proof_build import (MASK_PROJECTS, check_object, compile_libraries, compile_object,
                          component_flags, write_symbol_bytes)
 
-sys.path.insert(0, str(HERE.parent / "pow2"))
-from certify import PROOF_MODULES
-from generate_listing import generate, SOURCES
 
 DECODER = "ed25519_simd_zip215_decode_r"
 HELPER = "ed25519_simd_check_8_torsion_ifma"
@@ -63,6 +60,10 @@ def extract(binary, dest):
 
 
 def main():
+    sys.path.insert(0, str(HERE.parent / "pow2"))
+    from certify import PROOF_MODULES
+    from generate_listing import generate, SOURCES
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("elf", type=Path)
     parser.add_argument("--output", required=True, type=Path)

@@ -66,19 +66,23 @@ Qed.
    five result registers are independent of them and the constants survive. *)
 Definition live op i := Nat.ltb i (match op with Square=>5 | _=>10 end) ||
  match constant i with Some _=>true | _=>false end.
-Definition frame_check k op :=
- let code:=body k op in
- forallb (Dependencies.agreement (fun _ _=>false) code (live op)) (seq 0 5) &&
+Definition field_frame_check code live_inputs :=
+ forallb (Dependencies.agreement (fun _ _=>false) code live_inputs) (seq 0 5) &&
  forallb (fun i=>Nat.ltb (fst i) 28) code.
-Definition kernel_frame k op :=
- forall l l' r r', (forall i, live op i=true -> r i=r' i) ->
- (forall i,(i<5)%nat -> run l (body k op) r i=run l' (body k op) r' i) /\
- (forall i,(28<=i)%nat -> run l (body k op) r i=r i).
-Lemma frame_ok k op : frame_check k op=true -> kernel_frame k op.
+Definition field_frame code live_inputs :=
+ forall l l' r r', (forall i, live_inputs i=true -> r i=r' i) ->
+ (forall i,(i<5)%nat -> run l code r i=run l' code r' i) /\
+ (forall i,(28<=i)%nat -> run l code r i=r i).
+Lemma field_frame_ok code live_inputs : field_frame_check code live_inputs=true -> field_frame code live_inputs.
 Proof.
- unfold frame_check,kernel_frame. rewrite andb_true_iff;intros [A D] l l' r r' R;split.
- - intros i I;apply (Dependencies.agreement_sound (fun _ _=>false) (body k op) (live op) l l' r r' ltac:(discriminate) R).
+ unfold field_frame_check,field_frame. rewrite andb_true_iff;intros [A D] l l' r r' R;split.
+ - intros i I;apply (Dependencies.agreement_sound (fun _ _=>false) code live_inputs l l' r r' ltac:(discriminate) R).
    apply forallb_forall with (x:=i) in A;[exact A|apply in_seq;lia].
  - intros i I;apply Dependencies.untouched,forallb_forall;intros ins Mem.
    apply forallb_forall with (x:=ins) in D;auto. apply Nat.ltb_lt in D;apply negb_true_iff,Nat.eqb_neq;lia.
 Qed.
+
+Definition frame_check k op := field_frame_check (body k op) (live op).
+Definition kernel_frame k op := field_frame (body k op) (live op).
+Lemma frame_ok k op : frame_check k op=true -> kernel_frame k op.
+Proof. apply field_frame_ok. Qed.

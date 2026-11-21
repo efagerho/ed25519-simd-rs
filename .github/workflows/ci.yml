@@ -63,7 +63,7 @@ jobs:
 
       - name: Build all assembly backends
         run: |
-          cargo build --locked --release --features asm --bench cold_profile_dalek --bench hot_profile_zip215 \
+          cargo build --locked --release --features asm --bench cold_profile_dalek --bench hot_profile_zip215 --bench hot_profile_dalek \
             --target x86_64-unknown-linux-gnu --message-format=json > "$RUNNER_TEMP/pow2-build.json"
 
       - name: Build shared Coq libraries
@@ -80,7 +80,8 @@ jobs:
         run: |
           artifact=$(jq -r 'select(.target.name == "cold_profile_dalek" and .executable != null) | .executable' "$RUNNER_TEMP/pow2-build.json")
           zip_elf=$(jq -r 'select(.target.name == "hot_profile_zip215" and .executable != null) | .executable' "$RUNNER_TEMP/pow2-build.json")
-          test -x "$artifact" && test -x "$zip_elf"
+          dalek_elf=$(jq -r 'select(.target.name == "hot_profile_dalek" and .executable != null) | .executable' "$RUNNER_TEMP/pow2-build.json")
+          test -x "$artifact" && test -x "$zip_elf" && test -x "$dalek_elf"
           backend=xed
           if grep -qw avx512ifma /proc/cpuinfo && grep -qw avx512dq /proc/cpuinfo && grep -qw avx512bw /proc/cpuinfo && grep -qw avx512f /proc/cpuinfo; then
             backend=all
@@ -88,7 +89,7 @@ jobs:
             echo "Native comparison skipped on this runner (requires AVX-512F/BW/DQ/IFMA)."
           fi
           make -f .github/verification.mk -j4 --keep-going --output-sync=target verify \
-            RELEASE_ELF="$artifact" ZIP_ELF="$zip_elf" MACHINE_BACKEND="$backend"
+            RELEASE_ELF="$artifact" ZIP_ELF="$zip_elf" DALEK_ELF="$dalek_elf" MACHINE_BACKEND="$backend"
 
       - name: Retain conformance reports, inputs, and release proof evidence
         if: always()
@@ -109,6 +110,7 @@ jobs:
             ${{ runner.temp }}/torsion-audit/
             ${{ runner.temp }}/small-order-audit/
             ${{ runner.temp }}/decompress-r-audit/
+            ${{ runner.temp }}/dalek-recompress-audit/
             ${{ runner.temp }}/scalar-cases.jsonl
             ${{ runner.temp }}/scalar-audit/
             ${{ runner.temp }}/radix16-audit/
