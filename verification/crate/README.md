@@ -14,6 +14,7 @@ README for its contract and release audit.
 | [stage_round/](stage_round/README.md) | Signed key lookup, base-digit folding and exact limb placement in the 55-row ladder input. |
 | [ladder_step/](ladder_step/README.md) | A radix-256 ladder step composed from the verified doubling and cached-addition routines. |
 | [full_ladder/](full_ladder/README.md) | The complete 32-pair public ladder represents [s]B + [−k]A from signed digit bytes and valid tables, including both final T modes. |
+| [decompress_r/](decompress_r/README.md) | Deferred ZIP-215 decoding of eight or sixteen encodings, including noncanonical y, both signs of zero, and rejection of nonsquares. |
 | [torsion/](torsion/README.md) | The returned lane mask equals the full ZIP-215 cofactor check, including the all-lanes early return. |
 | [small_order/](small_order/README.md) | The returned mask selects precisely the valid projective points killed by the cofactor, including the all-lanes rejection path. |
 
@@ -31,7 +32,8 @@ separate review.
    retained symbol file. The extractor cross-checks the file offset from
    `.text` against the executable load segment. For the ladder, check the
    wrapper and both callees in the same ELF and the relative call targets.
-   For radix16, check the wrapper and its scalar reducer together.
+   For radix16, check the wrapper and its scalar reducer together. For deferred
+   decoding, use an ELF retaining the decoder, the torsion product helper and pow2.
    [ELF extraction](../elf.py) · [Manifest contents](../evidence.py)
 2. **Read the public statement.** Start in the routine’s `coq/Audit.v`. For a
    standalone routine with an output buffer follow `run_concrete` to its byte-level contract. Check

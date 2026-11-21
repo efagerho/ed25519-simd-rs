@@ -1,13 +1,13 @@
-# Each audit uses the same release ELF and writes to its own directory.
+# Each audit writes to its own directory. The ZIP benchmark retains the decoder symbol.
 routines := pow2 double4 cached-add scalar
 linked_checks := $(addsuffix -conformance,$(routines))
 timed = /usr/bin/time -f '$@ elapsed %E'
 export XED_KIT := $(RUNNER_TEMP)/xed-kit
 
-.PHONY: full-ladder stage-round stage-round-mutations radix16 radix16-mutations verify certificates ladder-mutations ladder torsion torsion-mutations small-order small-order-mutations pow2-z3 xed-kit fixed-conformance \
+.PHONY: decompress-r decompress-r-mutations full-ladder stage-round stage-round-mutations radix16 radix16-mutations verify certificates ladder-mutations ladder torsion torsion-mutations small-order small-order-mutations pow2-z3 xed-kit fixed-conformance \
         $(routines) $(linked_checks) cached-add-mutations scalar-mutations
 
-verify: full-ladder stage-round-mutations radix16-mutations ladder-mutations certificates cached-add-mutations $(linked_checks) \
+verify: decompress-r-mutations full-ladder stage-round-mutations radix16-mutations ladder-mutations certificates cached-add-mutations $(linked_checks) \
         scalar-mutations torsion-mutations small-order-mutations fixed-conformance pow2-z3
 
 certificates:
@@ -82,3 +82,11 @@ stage-round-mutations: full-ladder
 full-ladder:
 	$(timed) python3 -B verification/crate/full_ladder/audit.py "$(RELEASE_ELF)" \
 	  --output "$(RUNNER_TEMP)/full-ladder-audit"
+
+decompress-r:
+	$(timed) python3 -B verification/crate/decompress_r/audit.py "$(ZIP_ELF)" \
+		--output "$(RUNNER_TEMP)/decompress-r-audit"
+
+decompress-r-mutations: decompress-r
+	$(timed) python3 -B verification/crate/decompress_r/mutations.py "$(ZIP_ELF)" \
+		--audit "$(RUNNER_TEMP)/decompress-r-audit"
