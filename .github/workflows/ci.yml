@@ -111,6 +111,7 @@ jobs:
             ${{ runner.temp }}/small-order-audit/
             ${{ runner.temp }}/decompress-r-audit/
             ${{ runner.temp }}/dalek-recompress-audit/
+            ${{ runner.temp }}/zip215-audit/
             ${{ runner.temp }}/scalar-cases.jsonl
             ${{ runner.temp }}/scalar-audit/
             ${{ runner.temp }}/radix16-audit/

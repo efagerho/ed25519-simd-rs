@@ -19,11 +19,13 @@ SHARED_ENV = "ED25519_SIMD_COQ_LIBRARIES"
 COMPONENTS = {"pow2": "Pow2", "double4": "Double4", "cached_add": "CachedAdd",
               "scalar": "Scalar", "ladder_step": "LadderStep", "torsion": "Torsion",
               "small_order": "SmallOrder", "radix16": "Radix16", "stage_round": "StageRound",
-              "full_ladder": "FullLadder", "decompress_r": "Decode", "dalek_recompress": "Dalek"}
+              "full_ladder": "FullLadder", "decompress_r": "Decode", "dalek_recompress": "Dalek",
+              "zip215": "Zip215"}
 
 
 # The release statement is independent of the theorem implementation in Object.v.
 PUBLIC_THEOREMS = {
+    "zip215": ("assembled_zip215_correct", "zip215_contract"),
     "pow2": ("assembled_symbol_correct", "pow2_contract"),
     "double4": ("assembled_double4_correct", "double4_contract"),
     "cached_add": ("assembled_cached_add_correct", "cached_add_contract"),
@@ -56,7 +58,7 @@ def public_statement(component):
     elif component == "radix16":
         expected += (f" {namespace}.LinkedBytes.wrapper_pc {namespace}.LinkedBytes.symbol_bytes"
                      f" {namespace}.LinkedBytes.reducer_pc Ed25519Simd.Scalar.ObjectBytes.symbol_bytes")
-    elif component not in ("ladder_step", "full_ladder"):
+    elif component not in ("ladder_step", "full_ladder", "zip215"):
         expected += f" {namespace}.ObjectBytes.symbol_bytes"
     return f"{namespace}.Object.{theorem}", expected
 
