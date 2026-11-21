@@ -4,10 +4,10 @@ linked_checks := $(addsuffix -conformance,$(routines))
 timed = /usr/bin/time -f '$@ elapsed %E'
 export XED_KIT := $(RUNNER_TEMP)/xed-kit
 
-.PHONY: dalek-recompress dalek-recompress-mutations decompress-r decompress-r-mutations full-ladder stage-round stage-round-mutations radix16 radix16-mutations verify certificates ladder-mutations ladder torsion torsion-mutations small-order small-order-mutations pow2-z3 xed-kit fixed-conformance \
+.PHONY: zip215 zip215-mutations dalek-recompress dalek-recompress-mutations decompress-r decompress-r-mutations full-ladder stage-round stage-round-mutations radix16 radix16-mutations verify certificates ladder-mutations ladder torsion torsion-mutations small-order small-order-mutations pow2-z3 xed-kit fixed-conformance \
         $(routines) $(linked_checks) cached-add-mutations scalar-mutations
 
-verify: dalek-recompress-mutations decompress-r-mutations full-ladder stage-round-mutations radix16-mutations ladder-mutations certificates cached-add-mutations $(linked_checks) \
+verify: zip215-mutations dalek-recompress-mutations decompress-r-mutations full-ladder stage-round-mutations radix16-mutations ladder-mutations certificates cached-add-mutations $(linked_checks) \
         scalar-mutations torsion-mutations small-order-mutations fixed-conformance pow2-z3
 
 certificates:
@@ -29,15 +29,15 @@ ladder:
 	  --output "$(RUNNER_TEMP)/ladder-step-audit"
 
 ladder-mutations: full-ladder
-	$(timed) /usr/bin/python3 -B verification/crate/ladder_step/mutations.py "$(RELEASE_ELF)" \
+	$(timed) /usr/bin/python3 -B verification/crate/ladder_step/mutations.py "$(ZIP_ELF)" \
 	  --audit "$(RUNNER_TEMP)/full-ladder-audit"
 
 torsion:
-	$(timed) python3 -B verification/crate/torsion/audit.py "$(RELEASE_ELF)" \
+	$(timed) python3 -B verification/crate/torsion/audit.py "$(ZIP_ELF)" \
 	  --output "$(RUNNER_TEMP)/torsion-audit"
 
 torsion-mutations: torsion
-	$(timed) python3 -B verification/crate/torsion/mutations.py "$(RELEASE_ELF)" \
+	$(timed) python3 -B verification/crate/torsion/mutations.py "$(ZIP_ELF)" \
 	  --audit "$(RUNNER_TEMP)/torsion-audit"
 
 small-order:
@@ -64,11 +64,11 @@ $(linked_checks): %-conformance: % xed-kit
 	  --report "$(RUNNER_TEMP)/$*-report.json" --failure "$(RUNNER_TEMP)/$*-failure.json"
 
 radix16:
-	$(timed) python3 -B verification/crate/radix16/audit.py "$(RELEASE_ELF)" \
+	$(timed) python3 -B verification/crate/radix16/audit.py "$(ZIP_ELF)" \
 		--output "$(RUNNER_TEMP)/radix16-audit"
 
 radix16-mutations: radix16
-	$(timed) python3 -B verification/crate/radix16/mutations.py "$(RELEASE_ELF)" \
+	$(timed) python3 -B verification/crate/radix16/mutations.py "$(ZIP_ELF)" \
 		--audit "$(RUNNER_TEMP)/radix16-audit"
 
 stage-round:
@@ -76,11 +76,11 @@ stage-round:
 		--output "$(RUNNER_TEMP)/stage-round-audit"
 
 stage-round-mutations: full-ladder
-	$(timed) python3 -B verification/crate/stage_round/mutations.py "$(RELEASE_ELF)" \
+	$(timed) python3 -B verification/crate/stage_round/mutations.py "$(ZIP_ELF)" \
 		--audit "$(RUNNER_TEMP)/full-ladder-audit"
 
 full-ladder:
-	$(timed) python3 -B verification/crate/full_ladder/audit.py "$(RELEASE_ELF)" \
+	$(timed) python3 -B verification/crate/full_ladder/audit.py "$(ZIP_ELF)" \
 	  --output "$(RUNNER_TEMP)/full-ladder-audit"
 
 decompress-r:
@@ -98,3 +98,11 @@ dalek-recompress:
 dalek-recompress-mutations: dalek-recompress
 	$(timed) python3 -B verification/crate/dalek_recompress/mutations.py "$(DALEK_ELF)" \
 	  --audit "$(RUNNER_TEMP)/dalek-recompress-audit"
+
+zip215: full-ladder radix16 torsion decompress-r
+	$(timed) python3 -B verification/crate/zip215/audit.py "$(ZIP_ELF)" \
+		--output "$(RUNNER_TEMP)/zip215-audit" --dependencies "$(RUNNER_TEMP)" \
+		--recompress-dependencies "$(RUNNER_TEMP)/zip215-callees"
+
+zip215-mutations: zip215
+	$(timed) python3 -B verification/crate/zip215/mutations.py "$(ZIP_ELF)" --audit "$(RUNNER_TEMP)/zip215-audit"

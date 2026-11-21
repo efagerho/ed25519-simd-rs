@@ -6,6 +6,7 @@ README for its contract and release audit.
 
 | Routine | What the theorem covers |
 | --- | --- |
+| [zip215/](zip215/README.md) | Post-hash cofactored verification, deferred resolution, and active-lane output placement. |
 | [pow2/](pow2/README.md) | Paired field exponentiation. |
 | [double4/](double4/README.md) | Four in-place point doublings. |
 | [cached_add/](cached_add/README.md) | Cached point addition with affine or projective inputs and optional T output. |
