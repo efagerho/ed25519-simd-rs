@@ -34,8 +34,7 @@ formulas and reduced limb bounds.
    the loose XYZ bounds, and the 52-bit cache limbs. The assembly staging
    routine selects signed entries and transposes their limbs before this
    theorem starts. The staging theorem proves which source word occupies each
-   row and lane of those three operands. The full 32-round caller still
-   requires its own proof.
+   row and lane of those three operands. The [full-ladder theorem](../full_ladder/README.md) composes all 32 pairs.
    [Staging theorem](../stage_round/README.md) · [Full ladder caller](../../../src/wide/avx512ifma/mul_s_base_minus_k_public.S) · [Assembly ABI](../../../src/wide/avx512ifma/ladder_step.S) · [Entry witnesses](coq/EntryTests.v)
 3. **The schedule and group meaning.** Read `result_value` and `group_result`
    against `ladder_sum`. Four doublings precede the Odd addition and four more

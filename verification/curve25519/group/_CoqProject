@@ -1,5 +1,6 @@
 -Q .. Curve25519
 PrimeField.v
 Affine.v
+SignedMultiple.v
 Representation.v
 Cofactor.v

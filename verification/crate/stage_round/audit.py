@@ -16,9 +16,7 @@ SYMBOL = "ed25519_simd_stage_round"
 SOURCE = VERIFY.parent / "src/wide/avx512ifma/stage_round.S"
 
 
-def audit(elf, work):
-    work.mkdir(parents=True, exist_ok=False)
-    compile_libraries(work)
+def compile_stage(elf, work):
     dest = work / "StageRound"
     dest.mkdir()
     pc, size = symbol_extent(elf, SYMBOL)
@@ -30,8 +28,15 @@ def audit(elf, work):
         if name != "ObjectBytes":
             shutil.copyfile(HERE / "coq" / path.name, path)
         subprocess.run(["coqc", *flags, str(path.relative_to(work))], cwd=work, check=True)
+    return flags, (SYMBOL, pc, raw)
+
+
+def audit(elf, work):
+    work.mkdir(parents=True, exist_ok=False)
+    compile_libraries(work)
+    flags, symbol = compile_stage(elf, work)
     checks = check_object(work, flags, "stage_round")
-    write_evidence(elf, work, "stage_round", checks, [(SYMBOL, pc, raw)], [SOURCE, HERE / "coq/Counterexample.v"], flags)
+    write_evidence(elf, work, "stage_round", checks, [symbol], [SOURCE, HERE / "coq/Counterexample.v"], flags)
     print(f"Checked {checks['theorem']} against {elf}")
 
 

@@ -26,11 +26,9 @@ def read_symbol(elf, name):
     return address, symbol_bytes(elf, address, size)
 
 
-def audit(elf, work):
+def compile_ladder(elf, work):
     wrapper_pc, wrapper = read_symbol(elf, "ladder_step")
     callees = {symbol: read_symbol(elf, symbol) for _, symbol, _ in CALLEES}
-    work.mkdir(parents=True, exist_ok=False)
-    compile_libraries(work, projects=GROUP_PROJECTS)
     flags = component_flags("ladder_step")
     for name, symbol, namespace in CALLEES:
         dest = work / namespace
@@ -58,12 +56,19 @@ def audit(elf, work):
         subprocess.run(["coqc", *flags, "LadderStep/" + module + ".v"], cwd=work, check=True)
     subprocess.run(["coqc", *flags, "LadderStep/Object.v"], cwd=work, check=True)
     subprocess.run(["coqc", *flags, "LadderStep/EntryTests.v"], cwd=work, check=True)
-    checks = check_object(work, flags, "ladder_step")
     symbols = [("ed25519_simd_ladder_step_ifma", wrapper_pc, wrapper)]
     sources = [VERIFY.parent / "src/wide/avx512ifma/ladder_step.S"]
     for name, symbol, _ in CALLEES:
         symbols.append((f"ed25519_simd_{symbol}_ifma", *callees[symbol]))
         sources.append(import_module(f"{name}.listing").SOURCE)
+    return flags, symbols, sources
+
+
+def audit(elf, work):
+    work.mkdir(parents=True, exist_ok=False)
+    compile_libraries(work, projects=GROUP_PROJECTS)
+    flags, symbols, sources = compile_ladder(elf, work)
+    checks = check_object(work, flags, "ladder_step")
     write_evidence(elf, work, "ladder_step", checks, symbols, sources, flags)
     print("Checked Ed25519Simd.LadderStep.Object.assembled_ladder_step_correct against", elf)
 

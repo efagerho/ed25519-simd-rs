@@ -14,6 +14,7 @@ and can be checked independently of the machine model.
 | [Torsion.v](Torsion.v) | The determinant, mixed-subtraction numerators, and four field zero tests for one lane of the ZIP-215 equation check. |
 | [SmallOrderFilter.v](SmallOrderFilter.v) | Every exact small-order root passes the 64-bit rejection filter for bounded projective X and Y. |
 | [PrimeField.v](group/PrimeField.v), [Affine.v](group/Affine.v) | The prime field and the affine Edwards group law. |
+| [SignedMultiple.v](group/SignedMultiple.v) | Integer scalar multiplication, addition of signed coefficients, and scaling a signed multiple. |
 | [Representation.v](group/Representation.v) | How XYZ, extended, and cached coordinates represent group elements. |
 | [Cofactor.v](group/Cofactor.v) | The Edwards group meaning of the projective small-order check, mixed-subtraction torsion check and determinant shortcut. |
 
