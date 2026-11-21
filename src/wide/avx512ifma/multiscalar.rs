@@ -1,7 +1,7 @@
-use super::decode::{WideRPoint, decompress_deferred};
+use super::LANES;
+use super::decode::WideRPoint;
 use super::ladder_step::mul_s_base_minus_k_public;
 use super::point::WidePoint;
-use super::{LANES, mask_to_lanes};
 use crate::batch::R_ENCODING_LEN;
 use crate::edwards::{BasepointTableEntries, PointTable};
 use crate::wide::PreparedChunk;
@@ -18,77 +18,11 @@ pub(crate) const DALEK_BATCH: usize = 8;
 #[repr(transparent)]
 pub(crate) struct DalekCandidate(pub(super) WidePoint);
 
-/// ZIP-215 chunks whose `R` decompressions are interleaved pairwise, so
-/// each inverse-square-root chain fills the other's IFMA latency gaps.
-pub(crate) const ZIP215_BATCH: usize = 2;
-
-/// A ZIP-215 ladder result waiting for its `R` point to be decompressed.
-///
-/// Two candidates queue two `R` decompressions whose exponentiation
-/// chains are interleaved to hide dependent IFMA latency.
-pub(crate) struct Zip215Candidate(pub(super) WidePoint);
-
-// A queued candidate is an opaque curve point; name it and stop.
-macro_rules! opaque_debug {
-    ($($type:ident),+) => {$(
-        impl core::fmt::Debug for $type {
-            fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-                formatter.debug_struct(stringify!($type)).finish_non_exhaustive()
-            }
-        }
-    )+};
-}
-opaque_debug!(Zip215Candidate, DalekCandidate);
-// ZIP-215 cofactored verification: [8](sB - kA - R) == identity.
-#[inline(never)]
-pub(crate) fn verify_prepared_zip215(
-    prepared: &PreparedChunk<'_>,
-    r: &WideRPoint,
-    base_table: &BasepointTableEntries,
-) -> [bool; LANES] {
-    let combined = mul_s_base_minus_k_public::<true>(base_table, prepared);
-    combined.subtract_affine_and_check_8_torsion(&r.point)
-}
-
-#[inline(never)]
-pub(crate) fn prepare_zip215_candidate(
-    prepared: &PreparedChunk<'_>,
-    base_table: &BasepointTableEntries,
-) -> Zip215Candidate {
-    Zip215Candidate(mul_s_base_minus_k_public::<true>(base_table, prepared))
-}
-
-/// Score up to [`ZIP215_BATCH`] queued chunks, decompressing a pair of `R`
-/// chunks through interleaved inverse-square-root chains. Returns
-/// per-chunk `(equation_holds, r_valid)` lane flags.
-pub(crate) fn check_zip215_candidates(
-    candidates: &[Zip215Candidate],
-    r_bytes: &[[[u8; R_ENCODING_LEN]; LANES]],
-) -> [([bool; LANES], [bool; LANES]); ZIP215_BATCH] {
-    fn score<const N: usize>(
-        candidates: &[Zip215Candidate],
-        bytes: &[[[u8; R_ENCODING_LEN]; LANES]],
-    ) -> [([bool; LANES], [bool; LANES]); N] {
-        let mut storage = core::mem::MaybeUninit::uninit();
-        let bytes = bytes.try_into().expect("one R chunk per candidate");
-        let (points, masks) = decompress_deferred::<N>(bytes, &mut storage);
-        core::array::from_fn(|i| {
-            (
-                candidates[i]
-                    .0
-                    .subtract_affine_and_check_8_torsion(&points[i]),
-                mask_to_lanes(masks[i]),
-            )
-        })
-    }
-
-    match candidates.len() {
-        1 => {
-            let [one] = score::<1>(candidates, r_bytes);
-            [one, ([false; LANES], [false; LANES])]
-        }
-        2 => score::<2>(candidates, r_bytes),
-        _ => unreachable!("the queue flushes at one or two chunks"),
+impl core::fmt::Debug for DalekCandidate {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter
+            .debug_struct("DalekCandidate")
+            .finish_non_exhaustive()
     }
 }
 

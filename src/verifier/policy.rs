@@ -1,10 +1,11 @@
 use super::driver::{verify_cached_batch_for, verify_uncached_batch_for};
 use super::{R_ENCODING_LEN, SIMD_LANES, Verifier};
-use crate::cache::{KeyCache, NullKeyCache};
-use crate::edwards::PointTable;
+use crate::batch::PendingLanes;
+use crate::cache::NullKeyCache;
+use crate::edwards::{BasepointTableEntries, PointTable};
 use crate::hot_key_cache::HotKeyCache;
 use crate::input::{PUBLIC_KEY_LEN, VerifyInput};
-use crate::wide::{PreparedChunk, avx512ifma};
+use crate::wide::{HashedChunk, avx512ifma};
 
 /// Which acceptance rules a [`Verifier`](crate::Verifier) applies.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -52,25 +53,10 @@ pub(crate) fn r_encoding_has_canonical_y(r_bytes: &[u8; R_ENCODING_LEN]) -> bool
     false
 }
 
-/// Per-lane output bookkeeping shared by the policy-specific pending records.
-#[derive(Debug)]
-pub(super) struct PendingLanes {
-    pub(super) valid: [bool; SIMD_LANES],
-    pub(super) output_indices: [usize; SIMD_LANES],
-    pub(super) active_lane_count: usize,
-}
-
-/// Reusable ZIP-215-only buffers.
-///
-/// Two queued candidates let their `R` inverse-square-root chains
-/// alternate IFMA operations, hiding each chain's multiplication latency.
+/// Reusable storage for deferred ZIP-215 candidates, encodings and output positions.
 #[doc(hidden)]
 #[derive(Debug, Default)]
-pub struct Zip215Queues {
-    zip215_candidates: Vec<avx512ifma::Zip215Candidate>,
-    zip215_r_bytes: Vec<[[u8; R_ENCODING_LEN]; SIMD_LANES]>,
-    zip215_pending: Vec<PendingLanes>,
-}
+pub struct Zip215Queues(avx512ifma::zip215::Queue);
 
 /// Reusable Dalek-only buffers.
 ///
@@ -82,12 +68,6 @@ pub struct DalekQueues {
     dalek_candidates: Vec<avx512ifma::DalekCandidate>,
     dalek_r_bytes: Vec<[[u8; R_ENCODING_LEN]; SIMD_LANES]>,
     dalek_pending: Vec<PendingLanes>,
-}
-
-/// The per-lane chunk data both policies score their SIMD result against.
-pub(super) struct ScoredLanes<'a> {
-    pub(super) r_bytes: &'a [[u8; R_ENCODING_LEN]; SIMD_LANES],
-    pub(super) valid: &'a [bool; SIMD_LANES],
 }
 
 mod sealed {
@@ -149,35 +129,22 @@ pub(super) trait PolicyOps: VerificationPolicy {
         valid: &mut [bool; SIMD_LANES],
     );
 
-    fn verify_lanes<C: KeyCache>(
-        verifier: &Verifier<Self, C>,
-        prepared: &PreparedChunk<'_>,
-        decoded_r: Option<(avx512ifma::WideRPoint, [bool; SIMD_LANES])>,
-        lanes: &ScoredLanes<'_>,
-        out: &mut [bool; SIMD_LANES],
-        queues: &mut Self::Queues,
-    ) -> bool;
-
-    fn push_pending(
-        queues: &mut Self::Queues,
+    fn verify_encoded(
+        chunk: &HashedChunk<'_>,
+        base: &BasepointTableEntries,
         lanes: PendingLanes,
-        r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
+        queues: &mut Self::Queues,
+        out: &mut [bool],
     );
-
-    fn queue_is_full(queues: &Self::Queues) -> bool;
+    fn verify_decoded(
+        chunk: &HashedChunk<'_>,
+        base: &BasepointTableEntries,
+        r: &avx512ifma::WideRPoint,
+        r_valid: u8,
+        lanes: &PendingLanes,
+        out: &mut [bool],
+    );
     fn flush_queue(queues: &mut Self::Queues, out: &mut [bool]);
-}
-
-/// Policy operations specialized for batches that cannot contain cache hits.
-pub(super) trait UncachedPolicyOps: PolicyOps {
-    fn verify_decoded_lanes(
-        verifier: &Verifier<Self, NullKeyCache>,
-        prepared: &PreparedChunk<'_>,
-        r_points: &avx512ifma::WideRPoint,
-        r_valid_lanes: &[bool; SIMD_LANES],
-        lanes: &ScoredLanes<'_>,
-        out: &mut [bool; SIMD_LANES],
-    );
 }
 
 impl VerificationPolicy for Zip215Policy {
@@ -222,57 +189,29 @@ impl PolicyOps for Zip215Policy {
     }
 
     #[inline(always)]
-    fn verify_lanes<C: KeyCache>(
-        verifier: &Verifier<Self, C>,
-        prepared: &PreparedChunk<'_>,
-        decoded_r: Option<(avx512ifma::WideRPoint, [bool; SIMD_LANES])>,
-        lanes: &ScoredLanes<'_>,
-        out: &mut [bool; SIMD_LANES],
-        queues: &mut Self::Queues,
-    ) -> bool {
-        verifier.verify_zip215_lanes(
-            prepared,
-            decoded_r,
-            lanes,
-            out,
-            &mut queues.zip215_candidates,
-        )
-    }
-
-    #[inline(always)]
-    fn push_pending(
-        queues: &mut Self::Queues,
+    fn verify_encoded(
+        chunk: &HashedChunk<'_>,
+        base: &BasepointTableEntries,
         lanes: PendingLanes,
-        r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
+        queues: &mut Self::Queues,
+        out: &mut [bool],
     ) {
-        queues.zip215_r_bytes.push(r_bytes);
-        queues.zip215_pending.push(lanes);
+        queues.0.push(chunk, base, lanes, out);
     }
 
-    #[inline(always)]
-    fn queue_is_full(queues: &Self::Queues) -> bool {
-        queues.zip215_candidates.len() == avx512ifma::ZIP215_BATCH
+    fn verify_decoded(
+        chunk: &HashedChunk<'_>,
+        base: &BasepointTableEntries,
+        r: &avx512ifma::WideRPoint,
+        r_valid: u8,
+        lanes: &PendingLanes,
+        out: &mut [bool],
+    ) {
+        avx512ifma::zip215::check_decoded(chunk, base, r, r_valid, lanes, out);
     }
 
-    #[inline(always)]
     fn flush_queue(queues: &mut Self::Queues, out: &mut [bool]) {
-        flush_zip215_queue(queues, out);
-    }
-}
-
-impl UncachedPolicyOps for Zip215Policy {
-    #[inline(always)]
-    fn verify_decoded_lanes(
-        verifier: &Verifier<Self, NullKeyCache>,
-        prepared: &PreparedChunk<'_>,
-        r_points: &avx512ifma::WideRPoint,
-        r_valid_lanes: &[bool; SIMD_LANES],
-        lanes: &ScoredLanes<'_>,
-        out: &mut [bool; SIMD_LANES],
-    ) {
-        let equation_holds =
-            avx512ifma::verify_prepared_zip215(prepared, r_points, verifier.base_table);
-        score_zip215_lanes(&equation_holds, r_valid_lanes, lanes, out);
+        queues.0.flush(out);
     }
 }
 
@@ -322,108 +261,47 @@ impl PolicyOps for DalekPolicy {
     }
 
     #[inline(always)]
-    fn verify_lanes<C: KeyCache>(
-        verifier: &Verifier<Self, C>,
-        prepared: &PreparedChunk<'_>,
-        decoded_r: Option<(avx512ifma::WideRPoint, [bool; SIMD_LANES])>,
-        lanes: &ScoredLanes<'_>,
-        out: &mut [bool; SIMD_LANES],
-        queues: &mut Self::Queues,
-    ) -> bool {
-        verifier.verify_dalek_lanes(
-            prepared,
-            decoded_r,
-            lanes,
-            out,
-            &mut queues.dalek_candidates,
-        )
-    }
-
-    #[inline(always)]
-    fn push_pending(
-        queues: &mut Self::Queues,
+    fn verify_encoded(
+        chunk: &HashedChunk<'_>,
+        base: &BasepointTableEntries,
         lanes: PendingLanes,
-        r_bytes: [[u8; R_ENCODING_LEN]; SIMD_LANES],
+        queues: &mut Self::Queues,
+        out: &mut [bool],
     ) {
-        queues.dalek_r_bytes.push(r_bytes);
+        let candidate = chunk.with_digits(|p| avx512ifma::prepare_dalek_candidate(p, base));
+        queues.dalek_candidates.push(candidate);
+        queues.dalek_r_bytes.push(*chunk.r_bytes);
         queues.dalek_pending.push(lanes);
+        if queues.dalek_candidates.len() == avx512ifma::DALEK_BATCH {
+            flush_dalek_queue(queues, out);
+        }
     }
 
-    #[inline(always)]
-    fn queue_is_full(queues: &Self::Queues) -> bool {
-        queues.dalek_candidates.len() == avx512ifma::DALEK_BATCH
+    fn verify_decoded(
+        chunk: &HashedChunk<'_>,
+        base: &BasepointTableEntries,
+        r: &avx512ifma::WideRPoint,
+        r_valid: u8,
+        lanes: &PendingLanes,
+        out: &mut [bool],
+    ) {
+        let equation =
+            chunk.with_digits(|p| avx512ifma::verify_prepared_dalek_decompressed_r(p, r, base));
+        let x_zero = r.x_zero_lanes();
+        let small_order = r.small_order_lanes();
+        lanes.score(out, |j| {
+            let bytes = &chunk.r_bytes[j];
+            let signed_zero = x_zero[j] && bytes[31] & 0x80 != 0;
+            equation[j]
+                && r_valid & (1 << j) != 0
+                && r_encoding_has_canonical_y(bytes)
+                && !signed_zero
+                && !small_order[j]
+        });
     }
 
-    #[inline(always)]
     fn flush_queue(queues: &mut Self::Queues, out: &mut [bool]) {
         flush_dalek_queue(queues, out);
-    }
-}
-
-impl UncachedPolicyOps for DalekPolicy {
-    #[inline(always)]
-    fn verify_decoded_lanes(
-        verifier: &Verifier<Self, NullKeyCache>,
-        prepared: &PreparedChunk<'_>,
-        r_points: &avx512ifma::WideRPoint,
-        r_valid_lanes: &[bool; SIMD_LANES],
-        lanes: &ScoredLanes<'_>,
-        out: &mut [bool; SIMD_LANES],
-    ) {
-        let equation_holds = avx512ifma::verify_prepared_dalek_decompressed_r(
-            prepared,
-            r_points,
-            verifier.base_table,
-        );
-        score_dalek_lanes(&equation_holds, r_points, r_valid_lanes, lanes, out);
-    }
-}
-
-/// Score one chunk's lanes against an already-decompressed `R` under ZIP-215.
-///
-/// The sole home of the ZIP-215 accept predicate: both the cached and the
-/// cache-free driver route here so the two cannot drift apart.
-#[inline(always)]
-pub(super) fn score_zip215_lanes(
-    equation_holds: &[bool; SIMD_LANES],
-    r_valid_lanes: &[bool; SIMD_LANES],
-    lanes: &ScoredLanes<'_>,
-    out: &mut [bool; SIMD_LANES],
-) {
-    for lane in 0..SIMD_LANES {
-        out[lane] =
-            zip215_lane_accepts(equation_holds[lane], lanes.valid[lane], r_valid_lanes[lane]);
-    }
-}
-
-#[inline(always)]
-fn zip215_lane_accepts(equation_holds: bool, input_valid: bool, r_valid: bool) -> bool {
-    equation_holds && input_valid && r_valid
-}
-
-/// Score one chunk's lanes against an already-decompressed `R` under the
-/// strict Dalek rules: canonical encoding and no small-order `R`.
-///
-/// The sole home of the Dalek accept predicate; see [`score_zip215_lanes`].
-#[inline(always)]
-pub(super) fn score_dalek_lanes(
-    equation_holds: &[bool; SIMD_LANES],
-    r_points: &avx512ifma::WideRPoint,
-    r_valid_lanes: &[bool; SIMD_LANES],
-    lanes: &ScoredLanes<'_>,
-    out: &mut [bool; SIMD_LANES],
-) {
-    let r_x_zero = r_points.x_zero_lanes();
-    let r_small_order = r_points.small_order_lanes();
-    for lane in 0..SIMD_LANES {
-        let r_bytes = &lanes.r_bytes[lane];
-        let signed_zero = r_x_zero[lane] && r_bytes[31] & 0x80 != 0;
-        out[lane] = equation_holds[lane]
-            && lanes.valid[lane]
-            && r_valid_lanes[lane]
-            && r_encoding_has_canonical_y(r_bytes)
-            && !signed_zero
-            && !r_small_order[lane];
     }
 }
 
@@ -440,35 +318,7 @@ fn flush_dalek_queue(queues: &mut DalekQueues, out: &mut [bool]) {
     debug_assert_eq!(candidates.len(), pending.len());
     let masks = avx512ifma::check_dalek_candidates(candidates, r_bytes);
     for (chunk, mask) in pending.drain(..).zip(masks) {
-        for lane in 0..chunk.active_lane_count {
-            out[chunk.output_indices[lane]] = chunk.valid[lane] && mask & (1 << lane) != 0;
-        }
-    }
-    candidates.clear();
-    r_bytes.clear();
-}
-
-/// Check every queued ZIP-215 chunk, decompressing the pair of `R` chunks
-/// through interleaved chains. Leaves both queues empty.
-fn flush_zip215_queue(queues: &mut Zip215Queues, out: &mut [bool]) {
-    let Zip215Queues {
-        zip215_candidates: candidates,
-        zip215_r_bytes: r_bytes,
-        zip215_pending: pending,
-    } = queues;
-    if candidates.is_empty() {
-        return;
-    }
-    debug_assert_eq!(candidates.len(), r_bytes.len());
-    debug_assert_eq!(candidates.len(), pending.len());
-
-    let checks = avx512ifma::check_zip215_candidates(candidates, r_bytes);
-
-    for (chunk, (equation_holds, r_valid_lanes)) in pending.drain(..).zip(&checks) {
-        for lane in 0..chunk.active_lane_count {
-            out[chunk.output_indices[lane]] =
-                zip215_lane_accepts(equation_holds[lane], chunk.valid[lane], r_valid_lanes[lane]);
-        }
+        chunk.score(out, |lane| mask & (1 << lane) != 0);
     }
     candidates.clear();
     r_bytes.clear();

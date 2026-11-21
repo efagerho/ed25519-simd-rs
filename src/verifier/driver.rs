@@ -1,15 +1,13 @@
-use super::policy::{
-    PendingLanes, PolicyOps, ScoredLanes, UncachedPolicyOps, score_dalek_lanes, score_zip215_lanes,
-};
+use super::policy::PolicyOps;
 use super::{R_ENCODING_LEN, SIMD_LANES, VerificationPolicy, Verifier};
-use crate::batch;
+use crate::batch::{self, PendingLanes};
 use crate::cache::{CachedPublicKey, KeyCache, NullKeyCache};
 use crate::edwards::PointTable;
 use crate::hot_key_cache::HotKeyCache;
 use crate::input::{PUBLIC_KEY_LEN, VerifyInput};
 use crate::scalar::{self, CanonicalScalar, Radix16};
 use crate::sha512;
-use crate::wide::{PreparedChunk, avx512ifma};
+use crate::wide::{HashedChunk, avx512ifma};
 
 /// One input chunk parsed into the structure-of-arrays layout used by SIMD code.
 ///
@@ -41,31 +39,31 @@ impl ChunkScratch {
 }
 
 impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
-    /// Verify one chunk, returning whether its policy-specific result was
-    /// queued for shared inversion work instead of scored here. Queuing writes straight into
-    /// the caller's buffers: returning the candidate by value would put a
-    /// kilobyte of `sret` traffic on every chunk, including the paths that
-    /// never defer.
     fn verify_chunk(
         &mut self,
         inputs: &[VerifyInput<'_>; SIMD_LANES],
         output_indices: [usize; SIMD_LANES],
         active_lane_count: usize,
-        out: &mut [bool; SIMD_LANES],
+        out: &mut [bool],
         queues: &mut P::Queues,
-    ) -> bool
-    where
+    ) where
         P: PolicyOps,
     {
         let ParsedChunk {
-            mut valid,
+            valid,
             r_bytes,
             public_keys,
             s_digits,
             messages,
         } = parse_chunk_inputs(inputs);
-        if !any_lane(&valid) {
-            return false;
+        let mut lanes = PendingLanes {
+            valid,
+            output_indices,
+            active_lane_count,
+        };
+        if !any_lane(&lanes.valid) {
+            lanes.score(out, |_| false);
+            return;
         }
 
         let cached_keys: [Option<&CachedPublicKey>; SIMD_LANES] =
@@ -74,13 +72,13 @@ impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
             core::array::from_fn(|lane| cached_keys[lane].is_none());
 
         // Decode missing keys and their R points together.
-        let mut decoded_r: Option<(avx512ifma::WideRPoint, [bool; SIMD_LANES])> = None;
+        let mut decoded_r = None;
         let mut decoded_key_lanes = [false; SIMD_LANES];
         if any_lane(&missing_key_lanes) {
             let (key_valid_bits, r_points, r_valid_bits) =
                 P::decode_keys_and_r(&public_keys, &r_bytes, &mut self.scratch.key_tables);
             decoded_key_lanes = avx512ifma::mask_to_lanes(key_valid_bits);
-            decoded_r = Some((r_points, avx512ifma::mask_to_lanes(r_valid_bits)));
+            decoded_r = Some((r_points, r_valid_bits));
         }
 
         let public_key_tables: [&PointTable; SIMD_LANES] = core::array::from_fn(|lane| {
@@ -93,43 +91,32 @@ impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
                         .as_ref()
                         .expect("a valid decoded lane has a table")
                 } else {
-                    valid[lane] = false;
+                    lanes.valid[lane] = false;
                     self.identity_table
                 }
             }
         });
-        P::reject_small_order_keys(&public_key_tables, &mut valid);
+        P::reject_small_order_keys(&public_key_tables, &mut lanes.valid);
 
         // Skip the ladder, but still retain the keys that did decode.
-        let mut deferred = false;
-        if any_lane(&valid) {
-            let k_digits = challenge_digits(&r_bytes, &public_keys, messages);
-
-            let prepared = PreparedChunk {
+        if any_lane(&lanes.valid) {
+            let digests = sha512::hash_ed25519_challenge_words(&r_bytes, &public_keys, messages);
+            let chunk = HashedChunk {
                 public_key_tables,
                 s_digits: &s_digits,
-                k_digits: &k_digits,
-            };
-            let lanes = ScoredLanes {
+                digests: &digests,
                 r_bytes: &r_bytes,
-                valid: &valid,
             };
-            deferred = P::verify_lanes(self, &prepared, decoded_r, &lanes, out, queues);
-            if deferred {
-                P::push_pending(
-                    queues,
-                    PendingLanes {
-                        valid,
-                        output_indices,
-                        active_lane_count,
-                    },
-                    r_bytes,
-                );
+            match decoded_r {
+                Some((r, mask)) => {
+                    P::verify_decoded(&chunk, self.base_table, &r, mask, &lanes, out)
+                }
+                None => P::verify_encoded(&chunk, self.base_table, lanes, queues, out),
             }
+        } else {
+            lanes.score(out, |_| false);
         }
-
         self.retain_decoded_keys(&missing_key_lanes, &decoded_key_lanes, &public_keys);
-        deferred
     }
 
     /// Offer freshly decoded tables to the cache, emptying the scratch slots.
@@ -155,64 +142,6 @@ impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
             }
         }
     }
-
-    /// Score the lanes against an already-decompressed `R`, or queue the
-    /// ladder result when `R` is still encoded so its decompression can pair
-    /// with another chunk's. Returns whether the chunk was queued.
-    #[inline(always)]
-    pub(super) fn verify_zip215_lanes(
-        &self,
-        prepared: &PreparedChunk<'_>,
-        decoded_r: Option<(avx512ifma::WideRPoint, [bool; SIMD_LANES])>,
-        lanes: &ScoredLanes<'_>,
-        out: &mut [bool; SIMD_LANES],
-        zip_candidates: &mut Vec<avx512ifma::Zip215Candidate>,
-    ) -> bool {
-        // Cache misses already decompressed R alongside their keys.
-        let Some((r_points, r_valid_lanes)) = decoded_r else {
-            // Every lane hit the cache, so nothing decompressed `R`. Queue the
-            // ladder result to share an interleaved decompression pair.
-            zip_candidates.push(avx512ifma::prepare_zip215_candidate(
-                prepared,
-                self.base_table,
-            ));
-            return true;
-        };
-
-        let equation_holds =
-            avx512ifma::verify_prepared_zip215(prepared, &r_points, self.base_table);
-        score_zip215_lanes(&equation_holds, &r_valid_lanes, lanes, out);
-        false
-    }
-
-    /// Score the lanes against an already-decompressed `R`, or queue the point
-    /// when `R` is still encoded so the recompression can share an inversion.
-    /// Returns whether the chunk was queued.
-    #[inline(always)]
-    pub(super) fn verify_dalek_lanes(
-        &self,
-        prepared: &PreparedChunk<'_>,
-        decoded_r: Option<(avx512ifma::WideRPoint, [bool; SIMD_LANES])>,
-        lanes: &ScoredLanes<'_>,
-        out: &mut [bool; SIMD_LANES],
-        candidates: &mut Vec<avx512ifma::DalekCandidate>,
-    ) -> bool {
-        let Some((r_points, r_valid_lanes)) = decoded_r else {
-            // Every lane hit the cache, so nothing decompressed `R`. Recomputing
-            // it needs an inversion; queue the point to be batched instead.
-            candidates.push(avx512ifma::prepare_dalek_candidate(
-                prepared,
-                self.base_table,
-            ));
-            return true;
-        };
-
-        // R already decompressed on a cache miss: compare points directly.
-        let equation_holds =
-            avx512ifma::verify_prepared_dalek_decompressed_r(prepared, &r_points, self.base_table);
-        score_dalek_lanes(&equation_holds, &r_points, &r_valid_lanes, lanes, out);
-        false
-    }
 }
 
 impl<P: VerificationPolicy> Verifier<P, NullKeyCache> {
@@ -221,25 +150,32 @@ impl<P: VerificationPolicy> Verifier<P, NullKeyCache> {
     fn verify_uncached_chunk(
         &mut self,
         inputs: &[VerifyInput<'_>; SIMD_LANES],
-        out: &mut [bool; SIMD_LANES],
+        output_indices: [usize; SIMD_LANES],
+        active_lane_count: usize,
+        out: &mut [bool],
     ) where
-        P: UncachedPolicyOps,
+        P: PolicyOps,
     {
         let ParsedChunk {
-            mut valid,
+            valid,
             r_bytes,
             public_keys,
             s_digits,
             messages,
         } = parse_chunk_inputs(inputs);
-        if !any_lane(&valid) {
+        let mut lanes = PendingLanes {
+            valid,
+            output_indices,
+            active_lane_count,
+        };
+        if !any_lane(&lanes.valid) {
+            lanes.score(out, |_| false);
             return;
         }
 
         let (key_valid_bits, r_points, r_valid_bits) =
             P::decode_keys_and_r(&public_keys, &r_bytes, &mut self.scratch.key_tables);
         let decoded_key_lanes = avx512ifma::mask_to_lanes(key_valid_bits);
-        let r_valid_lanes = avx512ifma::mask_to_lanes(r_valid_bits);
 
         let public_key_tables: [&PointTable; SIMD_LANES] = core::array::from_fn(|lane| {
             if decoded_key_lanes[lane] {
@@ -247,24 +183,30 @@ impl<P: VerificationPolicy> Verifier<P, NullKeyCache> {
                     .as_ref()
                     .expect("a valid decoded lane has a table")
             } else {
-                valid[lane] = false;
+                lanes.valid[lane] = false;
                 self.identity_table
             }
         });
-        P::reject_small_order_keys(&public_key_tables, &mut valid);
+        P::reject_small_order_keys(&public_key_tables, &mut lanes.valid);
 
-        if any_lane(&valid) {
-            let k_digits = challenge_digits(&r_bytes, &public_keys, messages);
-            let prepared = PreparedChunk {
+        if any_lane(&lanes.valid) {
+            let digests = sha512::hash_ed25519_challenge_words(&r_bytes, &public_keys, messages);
+            let chunk = HashedChunk {
                 public_key_tables,
                 s_digits: &s_digits,
-                k_digits: &k_digits,
-            };
-            let lanes = ScoredLanes {
+                digests: &digests,
                 r_bytes: &r_bytes,
-                valid: &valid,
             };
-            P::verify_decoded_lanes(self, &prepared, &r_points, &r_valid_lanes, &lanes, out);
+            P::verify_decoded(
+                &chunk,
+                self.base_table,
+                &r_points,
+                r_valid_bits,
+                &lanes,
+                out,
+            );
+        } else {
+            lanes.score(out, |_| false);
         }
 
         // Decoding fills every scratch slot. NullKeyCache retains none of them.
@@ -286,21 +228,7 @@ pub(super) fn verify_cached_batch_for<P: PolicyOps>(
         inputs,
         &mut visit_order,
         |chunk, output_indices, active_lane_count| {
-            let mut tmp = [false; SIMD_LANES];
-            let deferred = verifier.verify_chunk(
-                chunk,
-                *output_indices,
-                active_lane_count,
-                &mut tmp,
-                &mut queues,
-            );
-            if !deferred {
-                for (&index, &value) in output_indices[..active_lane_count].iter().zip(&tmp) {
-                    out[index] = value;
-                }
-            } else if P::queue_is_full(&queues) {
-                P::flush_queue(&mut queues, out);
-            }
+            verifier.verify_chunk(chunk, *output_indices, active_lane_count, out, &mut queues);
         },
     );
     P::flush_queue(&mut queues, out);
@@ -308,7 +236,7 @@ pub(super) fn verify_cached_batch_for<P: PolicyOps>(
     verifier.queues = queues;
 }
 
-pub(super) fn verify_uncached_batch_for<P: UncachedPolicyOps>(
+pub(super) fn verify_uncached_batch_for<P: PolicyOps>(
     verifier: &mut Verifier<P, NullKeyCache>,
     inputs: &[VerifyInput<'_>],
     out: &mut [bool],
@@ -319,11 +247,7 @@ pub(super) fn verify_uncached_batch_for<P: UncachedPolicyOps>(
         inputs,
         &mut visit_order,
         |chunk, output_indices, active_lane_count| {
-            let mut tmp = [false; SIMD_LANES];
-            verifier.verify_uncached_chunk(chunk, &mut tmp);
-            for (&index, &value) in output_indices[..active_lane_count].iter().zip(&tmp) {
-                out[index] = value;
-            }
+            verifier.verify_uncached_chunk(chunk, *output_indices, active_lane_count, out);
         },
     );
     verifier.visit_order = visit_order;
@@ -357,16 +281,6 @@ fn parse_chunk_inputs<'a>(inputs: &[VerifyInput<'a>; SIMD_LANES]) -> ParsedChunk
         s_digits,
         messages,
     }
-}
-
-#[inline(always)]
-fn challenge_digits(
-    r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
-    public_keys: &[[u8; PUBLIC_KEY_LEN]; SIMD_LANES],
-    messages: [&[u8]; SIMD_LANES],
-) -> [Radix16; SIMD_LANES] {
-    let digests = sha512::hash_ed25519_challenge_words(r_bytes, public_keys, messages);
-    scalar::wide_words_to_radix16(&digests)
 }
 
 fn any_lane(lanes: &[bool; SIMD_LANES]) -> bool {

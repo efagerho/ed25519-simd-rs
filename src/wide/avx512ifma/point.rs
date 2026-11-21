@@ -109,12 +109,14 @@ core::arch::global_asm!(
     include_str!("pow22523.inc"),
     include_str!("point_encoding.inc"),
     include_str!("dalek_recompress.S"),
+    include_str!("zip215.S"),
     include_str!("decompress_r.S"),
     options(raw)
 );
 
 #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
 unsafe extern "C" {
+    #[cfg(test)]
     fn ed25519_simd_check_8_torsion_ifma(point: *const u8, affine: *const u8) -> u8;
     fn ed25519_simd_small_order_ifma(point: *const u8) -> u8;
 }
@@ -466,6 +468,10 @@ impl WidePoint {
     ///
     /// For `Q = self - rhs`, test `x(2Q)*y(2Q) == 0` via its numerator
     /// `E*H`, avoiding materialization of `Q` or `2Q`. Requires `rhs.z == 1`.
+    #[cfg(any(
+        test,
+        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
+    ))]
     pub(super) fn subtract_affine_and_check_8_torsion(&self, rhs: &Self) -> [bool; LANES] {
         debug_assert!(
             rhs.z.equals_lanes(&WideFe::one()).iter().all(|&eq| eq),

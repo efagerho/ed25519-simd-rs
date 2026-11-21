@@ -60,20 +60,7 @@ ed25519_simd_dalek_recompress:
     // Canonical y is below p: only the top 19 of the 255-bit encodings fail.
     fe51_high_ones
     vpcmpuq k2{k1}, zmm0, qword ptr [rip + .Lfe51_p0]{1to8}, 5
-.irp i,5,6,7,8,9
-    vmovdqa64 zmm\i, [r12 + 640 + 64*(\i-5)]
-.endr
-    // Seed the product with 1024*p - Y. Every limb stays positive for
-    // 52-bit Y. The parallel carry leaves a representative in (0,2*p),
-    // so encoded_y * Z == Y exactly when its five digits equal p.
-    vpsubq zmm10, zmm30, [r12 + 320]
-.irp i,11,12,13,14
-    vpsubq zmm\i, zmm31, [r12 + 320 + 64*(\i-10)]
-.endr
-    call .Ltor_seeded_columns
-    call .Lfe51_carry
-    fe51_high_ones
-    vpcmpeqq k1{k1}, zmm0, qword ptr [rip + .Lfe51_p0]{1to8}
+    fe51_match_projective_y r12
     kandnw k1, k2, k1
     kmovw eax, k1
     mov [r10], al

@@ -2,7 +2,7 @@ use super::field::WideFe;
 use super::point::WidePoint;
 use super::tables::{build_lane0_table_from_point, build_tables_from_point};
 use super::{LANES, mask_to_lanes};
-use crate::batch::R_ENCODING_LEN;
+use crate::batch::EncodedPointChunk;
 use crate::edwards::{POINT_ENCODING_LEN, PointTable};
 use crate::field::Fe51;
 use crate::input::PUBLIC_KEY_LEN;
@@ -30,22 +30,19 @@ impl WideRPoint {
     }
 }
 
-type EncodedChunk = [[u8; R_ENCODING_LEN]; LANES];
-
-/// Borrow the decoded points in place so the equation check can consume
-/// the aligned assembly output directly.
-pub(super) fn decompress_deferred<'a, const N: usize>(
-    bytes: &[EncodedChunk; N],
+/// Decode one or two ZIP-215 chunks into the caller’s aligned output.
+pub(super) fn decompress_zip215<'a, const N: usize>(
+    bytes: &[EncodedPointChunk; N],
     out: &'a mut core::mem::MaybeUninit<[WidePoint; N]>,
 ) -> (&'a [WidePoint; N], [u8; N]) {
     const { assert!(N == 1 || N == 2) };
     #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
     {
-        const _: () = assert!(size_of::<EncodedChunk>() == 256);
+        const _: () = assert!(size_of::<EncodedPointChunk>() == 256);
         unsafe extern "C" {
             fn ed25519_simd_zip215_decode_r(
                 out: *mut u8,
-                encodings: *const EncodedChunk,
+                encodings: *const EncodedPointChunk,
                 chunks: usize,
             ) -> u16;
         }
@@ -82,12 +79,17 @@ pub(super) fn decompress_deferred<'a, const N: usize>(
 /// Decode keys and `R` together, interleaving their inverse-square-root chains.
 #[inline(never)]
 pub(crate) fn decode_keys_and_decompress_r<const DALEK: bool>(
-    keys: &[[u8; PUBLIC_KEY_LEN]; LANES],
-    r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
+    keys: &EncodedPointChunk,
+    r_bytes: &EncodedPointChunk,
     key_tables: &mut [Option<PointTable>; LANES],
 ) -> (u8, WideRPoint, u8) {
-    let ((kp, kmask), (rp, rmask, x_zero_mask)) =
-        decompress_two_point_chunks_wide::<DALEK>(keys, r_bytes);
+    let ((kp, kmask), (rp, rmask, x_zero_mask)) = if DALEK {
+        decompress_two_point_chunks_wide::<true>(keys, r_bytes)
+    } else {
+        let mut storage = core::mem::MaybeUninit::uninit();
+        let ([key, r], [kmask, rmask]) = decompress_zip215(&[*keys, *r_bytes], &mut storage);
+        ((*key, kmask), (*r, rmask, None))
+    };
     build_tables_from_point(kp, key_tables);
     (
         kmask,

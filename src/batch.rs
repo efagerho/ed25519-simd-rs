@@ -5,6 +5,27 @@ pub(crate) const R_ENCODING_LEN: usize = crate::edwards::POINT_ENCODING_LEN;
 /// Number of verification lanes processed by one SIMD chunk.
 pub(crate) const SIMD_LANES: usize = 8;
 
+/// Eight lane-major encodings of Edwards points.
+pub(crate) type EncodedPointChunk = [[u8; R_ENCODING_LEN]; SIMD_LANES];
+
+/// Input validity and output positions for one padded chunk. Native ZIP-215
+/// scoring reads this layout and writes only the first active_lane_count lanes.
+#[repr(C)]
+#[derive(Debug)]
+pub(crate) struct PendingLanes {
+    pub(crate) valid: [bool; SIMD_LANES],
+    pub(crate) output_indices: [usize; SIMD_LANES],
+    pub(crate) active_lane_count: usize,
+}
+
+impl PendingLanes {
+    pub(crate) fn score(&self, out: &mut [bool], accepts: impl Fn(usize) -> bool) {
+        for lane in 0..self.active_lane_count {
+            out[self.output_indices[lane]] = self.valid[lane] && accepts(lane);
+        }
+    }
+}
+
 /// Visit padded SIMD chunks, taken in SHA-512 block-count order when that
 /// lets a chunk's lanes agree on how much to compress.
 pub(crate) fn for_each_simd_chunk<'a>(

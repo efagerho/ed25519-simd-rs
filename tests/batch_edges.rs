@@ -130,3 +130,116 @@ fn valid_cases(size: usize) -> Vec<Case> {
 fn fill_message(message: &mut [u8], seed: u64) {
     StdRng::seed_from_u64(seed ^ 0x9e37_79b9_7f4a_7c15).fill_bytes(message);
 }
+
+#[test]
+fn zip215_scatter_across_deferred_pairs_misses_and_a_tail() {
+    use ed25519_simd::{CachedPublicKey, KeyCache, Zip215Verifier};
+
+    // Each group of eight is a distinct SHA block count. Queue the first,
+    // score the mixed-hit second immediately, pair the third with the first,
+    // and flush the three-lane tail on its own.
+    let mut cache = HotKeyCache::with_capacity(32);
+    let mut cases = Vec::new();
+    for i in 0..27 {
+        let key = signing_key_from_index(0x2150 + i as u64);
+        let message = vec![i as u8; 1 + 128 * (i / 8)];
+        let mut public_key = <[u8; 32]>::from(VerificationKeyBytes::from(&key));
+        let mut signature = key.sign(&message).to_bytes();
+        if matches!(i, 1 | 2 | 9 | 11 | 17 | 19 | 24 | 25) {
+            // ZIP-215 accepts both signs of x=0 and y=p+1 for the identity.
+            // With A=identity the equation still holds if an invalid S below
+            // is replaced by zero digits. Only the input-valid mask rejects it.
+            public_key = [0; 32];
+            public_key[0] = 1;
+            signature = [0; 64];
+            signature[..32].fill(0xff);
+            signature[0] = 0xee;
+        }
+        if i != 10 {
+            cache.insert(CachedPublicKey::from_encoded(public_key).unwrap());
+        }
+        match i {
+            2 | 11 | 19 | 25 => signature[32..].fill(0xff), // S >= L
+            6 | 12 | 16 => signature[32] ^= 1,              // wrong equation
+            5 | 14 | 20 => {
+                // y = 2 has no Edwards x
+                signature[..32].fill(0);
+                signature[0] = 2;
+            }
+            _ => {}
+        }
+        cases.push(Case {
+            public_key,
+            signature,
+            message,
+        });
+    }
+    // Interleave the groups in caller order so scatter indices are nonconsecutive.
+    let inputs: Vec<_> = (0..27).map(|i| cases[(i * 8) % 27].input()).collect();
+    let expected: Vec<_> = inputs
+        .iter()
+        .map(|v| solana_ed25519_verify_zebra(v.public_key, v.signature, v.message))
+        .collect();
+    let mut hot = Zip215Verifier::with_cache(cache);
+    let mut cold = Zip215Verifier::new();
+    for path in ["mixed", "all hit", "uncached"] {
+        let mut out: Vec<_> = expected.iter().map(|v| !v).collect();
+        if path == "uncached" {
+            cold.verify_batch(&inputs, &mut out);
+        } else {
+            hot.verify_batch(&inputs, &mut out);
+        }
+        assert_eq!(out, expected, "{path}");
+    }
+}
+
+#[test]
+fn zip215_recompression_preserves_cofactored_acceptance() {
+    use ed25519_simd::{CachedPublicKey, KeyCache, Zip215Verifier};
+
+    let mut cases = valid_cases(67);
+    let mut identity = [0; 32];
+    identity[0] = 1;
+    let mut base = [0x66; 32];
+    base[0] = 0x58;
+    let mut negative_base = base;
+    negative_base[31] |= 0x80;
+    // With A = identity the candidate is [S]B regardless of the digest.
+    // B and -B have the same encoded y, but only the positive sign satisfies
+    // the equation for S=1. For S=0 the order-four point y=0 is ZIP-215 valid.
+    for (i, r, s, accepts) in [
+        (8, negative_base, 1, false),
+        (16, [0; 32], 0, true),
+        (39, base, 1, true),
+        (48, negative_base, 1, false),
+        (62, [0; 32], 0, true),
+        (63, negative_base, 1, false),
+        (66, negative_base, 1, false),
+    ] {
+        let case = &mut cases[i];
+        case.public_key = identity;
+        case.signature = [0; 64];
+        case.signature[..32].copy_from_slice(&r);
+        case.signature[32] = s;
+        assert_eq!(
+            solana_ed25519_verify_zebra(identity, case.signature, &case.message),
+            accepts
+        );
+    }
+
+    let mut cache = HotKeyCache::with_capacity(cases.len());
+    for case in &cases {
+        cache.insert(CachedPublicKey::from_encoded(case.public_key).unwrap());
+    }
+    let mut verifier = Zip215Verifier::with_cache(cache);
+    let inputs: Vec<_> = cases.iter().map(Case::input).collect();
+    let expected: Vec<_> = inputs
+        .iter()
+        .map(|v| solana_ed25519_verify_zebra(v.public_key, v.signature, v.message))
+        .collect();
+    for n in [8, 16, 24, 32, 56, 63, 64, 67] {
+        let mut out: Vec<_> = expected[..n].iter().map(|v| !v).collect();
+        verifier.verify_batch(&inputs[..n], &mut out);
+        assert_eq!(out, expected[..n], "warm batch of {n}");
+    }
+}
