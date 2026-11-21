@@ -10,12 +10,16 @@ mod point;
 mod tables;
 #[cfg(test)]
 mod tests;
+#[cfg_attr(
+    all(feature = "asm", target_os = "linux", target_pointer_width = "64"),
+    path = "zip215_asm.rs"
+)]
+pub(crate) mod zip215;
 
 pub(crate) use decode::{WideRPoint, decode_keys_and_decompress_r, decode_public_key_table};
 pub(crate) use multiscalar::{
-    DALEK_BATCH, DalekCandidate, ZIP215_BATCH, Zip215Candidate, check_dalek_candidates,
-    check_zip215_candidates, prepare_dalek_candidate, prepare_zip215_candidate,
-    public_key_small_order_lanes, verify_prepared_dalek_decompressed_r, verify_prepared_zip215,
+    DALEK_BATCH, DalekCandidate, check_dalek_candidates, prepare_dalek_candidate,
+    public_key_small_order_lanes, verify_prepared_dalek_decompressed_r,
 };
 pub(crate) use tables::build_basepoint_table_entries;
 

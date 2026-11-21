@@ -400,12 +400,12 @@ fn deferred_zip215_decodes_single_and_paired_chunks() {
             }),
         };
         let mut both = core::mem::MaybeUninit::uninit();
-        let (points, masks) = decode::decompress_deferred(&input.chunks, &mut both);
+        let (points, masks) = decode::decompress_zip215(&input.chunks, &mut both);
         for ((paired, paired_mask), bytes) in points.iter().zip(masks).zip(&input.chunks) {
             let (reference, expected) = decompress_points_wide(bytes);
             let mut one = core::mem::MaybeUninit::uninit();
             let ([single], [single_mask]) =
-                decode::decompress_deferred(core::array::from_ref(bytes), &mut one);
+                decode::decompress_zip215(core::array::from_ref(bytes), &mut one);
             assert_eq!((paired_mask, single_mask), (expected, expected));
             for point in [paired, single] {
                 for (actual, wanted) in [
