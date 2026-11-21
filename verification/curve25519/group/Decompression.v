@@ -34,6 +34,14 @@ Proof.
  rewrite (prime_phi_n_minus_1 p modulus_prime) in H. apply GZnZ.zirr. exact H.
 Qed.
 
+Lemma power_inverse a : a<>0 -> power a (p-2) = 1/a.
+Proof.
+ intro NZ. pose proof (fermat a NZ) as H.
+ replace (p-1)%Z with ((p-2)+1)%Z in H by ring.
+ rewrite power_add, power_one in H by (unfold Field.prime;lia).
+ transitivity ((power a (p-2)*a)/a); [field;exact NZ|now rewrite H].
+Qed.
+
 Definition numerator (y:fp) := residue 121666 * (y*y-1).
 Definition denominator (y:fp) := y*y - numerator y.
 Definition test_value (u v t:fp) := u*v*(t*t).

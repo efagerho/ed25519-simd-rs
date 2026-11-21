@@ -4,10 +4,10 @@ linked_checks := $(addsuffix -conformance,$(routines))
 timed = /usr/bin/time -f '$@ elapsed %E'
 export XED_KIT := $(RUNNER_TEMP)/xed-kit
 
-.PHONY: decompress-r decompress-r-mutations full-ladder stage-round stage-round-mutations radix16 radix16-mutations verify certificates ladder-mutations ladder torsion torsion-mutations small-order small-order-mutations pow2-z3 xed-kit fixed-conformance \
+.PHONY: dalek-recompress dalek-recompress-mutations decompress-r decompress-r-mutations full-ladder stage-round stage-round-mutations radix16 radix16-mutations verify certificates ladder-mutations ladder torsion torsion-mutations small-order small-order-mutations pow2-z3 xed-kit fixed-conformance \
         $(routines) $(linked_checks) cached-add-mutations scalar-mutations
 
-verify: decompress-r-mutations full-ladder stage-round-mutations radix16-mutations ladder-mutations certificates cached-add-mutations $(linked_checks) \
+verify: dalek-recompress-mutations decompress-r-mutations full-ladder stage-round-mutations radix16-mutations ladder-mutations certificates cached-add-mutations $(linked_checks) \
         scalar-mutations torsion-mutations small-order-mutations fixed-conformance pow2-z3
 
 certificates:
@@ -90,3 +90,11 @@ decompress-r:
 decompress-r-mutations: decompress-r
 	$(timed) python3 -B verification/crate/decompress_r/mutations.py "$(ZIP_ELF)" \
 		--audit "$(RUNNER_TEMP)/decompress-r-audit"
+
+dalek-recompress:
+	$(timed) python3 -B verification/crate/dalek_recompress/audit.py "$(DALEK_ELF)" \
+	  --output "$(RUNNER_TEMP)/dalek-recompress-audit"
+
+dalek-recompress-mutations: dalek-recompress
+	$(timed) python3 -B verification/crate/dalek_recompress/mutations.py "$(DALEK_ELF)" \
+	  --audit "$(RUNNER_TEMP)/dalek-recompress-audit"

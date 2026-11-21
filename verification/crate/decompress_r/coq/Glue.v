@@ -26,15 +26,17 @@ Definition shuffle d a b imm := fixed(rr 3 1 0x43 d a b++[imm]).
 Definition perm d i r := fixed(rr 2 1 0x7e d i r).
 Definition indices r := rip (fun d=>prefix 1 1 (Z.of_nat r) 0 5++[0x6f;modrm 0 (Z.of_nat r) 5]++le32 d).
 Definition join d b c := fixed(rr 1 1 0xeb d b c).
-Definition unpack_code := group (
- map (fun i=>alu i (Load 6 (64*Z.of_nat i))) (seq 0 4) ++
+Definition word_loads base table := group (
+ map (fun i=>alu i (Load base (64*Z.of_nat i))) (seq 0 4) ++
  [shuffle 4 0 1 136;shuffle 5 2 3 136;shuffle 6 0 1 221;shuffle 7 2 3 221;
- indices 8 0xb00;indices 9 0xb40;alu 0 (Copy 4);perm 0 8 5;perm 4 9 5;
- alu 2 (Copy 6);perm 2 8 7;perm 6 9 7;fixed (rr 2 2 0x39 2 0 6);
- fixed(MaskTrace.encoding(KmovEax 2));alu 1 (Shr 0 51);alu 5 (Shl 4 13);join 1 1 5;
+ indices 8 table;indices 9 (table+64);alu 0 (Copy 4);perm 0 8 5;perm 4 9 5;
+ alu 2 (Copy 6);perm 2 8 7;perm 6 9 7]).
+Definition y_limbs := group ([alu 1 (Shr 0 51);alu 5 (Shl 4 13);join 1 1 5;
  alu 4 (Shr 4 38);alu 5 (Shl 2 26);join 4 4 5;alu 3 (Shr 2 25);alu 5 (Shl 6 39);
  join 3 3 5;alu 2 (And 4 29);alu 4 (Shr 6 12)]++
  map (fun i=>alu i (And i 29)) [0;1;3;4]%nat).
+Definition unpack_code := group [word_loads 6 0xb00; fixed(rr 2 2 0x39 2 0 6);
+ fixed(MaskTrace.encoding(KmovEax 2));y_limbs].
 Definition scale i := let a:=if Nat.eqb i 0 then 5%nat else i in
  let hi:=(15+i)%nat in let lo:=(10+i)%nat in
  [alu hi (Xor hi hi);alu hi (Madd true a 26);alu lo (Mul a 25);alu lo (And lo 29)].
