@@ -24,7 +24,7 @@ At symbol offset `+0x062d`, the bytes `62 82 d5 40 b4 f4` encode
 For each lane, `bits` multiplies the low 52 bits of ZMM21 and ZMM28, takes
 the low 52 bits of that product (`false`), and adds them to the old ZMM22
 modulo `2^64`. The `true` case selects product bits 103 through 52 for
-`vpmadd52huq`. [Assembly source](../../../src/wide/avx512ifma/pow2.S) · [IFMA semantics and encoding](../../machine/isa/IFMA.v)
+`vpmadd52huq`. [Squaring kernel](../../../src/wide/avx512ifma/pow22523.inc) · [IFMA semantics and encoding](../../machine/isa/IFMA.v)
 
 ## Caller, memory, and control flow
 

@@ -336,6 +336,80 @@ fn wide_decompression_matches_vectors() {
     }
 }
 
+#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
+#[test]
+fn deferred_zip215_decodes_single_and_paired_chunks() {
+    use rand::{RngCore, SeedableRng, rngs::StdRng};
+
+    #[repr(C, align(64))]
+    struct Unaligned {
+        prefix: u8,
+        chunks: [[[u8; 32]; LANES]; 2],
+    }
+
+    let vectors = vectors();
+    let mut cases: Vec<_> = vector_cases(&vectors, "decompression")
+        .iter()
+        .map(|case| hex_32(&case["encoding"]))
+        .collect();
+    // Both signs of the order-two point and all noncanonical y = p..p+18.
+    for low in 0xec..=0xff {
+        for high in [0x7f, 0xff] {
+            let mut bytes = [0xff; 32];
+            bytes[0] = low;
+            bytes[31] = high;
+            cases.push(bytes);
+        }
+    }
+    // The uncorrected root is p+6 after the alternate-root multiply and
+    // p+14 on the primary path. Both must use canonical parity.
+    for y in [
+        "aa9239e819ad147f9f634c535d82d85717a872ef0ae6c71c72571510cc4ba362",
+        "b1c761d02d3bc181990152fa37afcb84012d4f3b86572ad8ced5695d4f652f6b",
+    ] {
+        let mut bytes = [0; 32];
+        hex::decode_to_slice(y, &mut bytes).unwrap();
+        cases.push(bytes);
+        bytes[31] |= 0x80;
+        cases.push(bytes);
+    }
+    let mut rng = StdRng::seed_from_u64(215);
+    cases.extend((0..1024).map(|_| {
+        let mut bytes = [0; 32];
+        rng.fill_bytes(&mut bytes);
+        bytes
+    }));
+
+    for batch in cases.chunks(2 * LANES) {
+        let input = Unaligned {
+            prefix: 0,
+            chunks: core::array::from_fn(|c| {
+                core::array::from_fn(|j| batch[(c * LANES + j) % batch.len()])
+            }),
+        };
+        let mut both = core::mem::MaybeUninit::uninit();
+        let (points, masks) = decode::decompress_deferred(&input.chunks, &mut both);
+        for ((paired, paired_mask), bytes) in points.iter().zip(masks).zip(&input.chunks) {
+            let (reference, expected) = decompress_points_wide(bytes);
+            let mut one = core::mem::MaybeUninit::uninit();
+            let ([single], [single_mask]) =
+                decode::decompress_deferred(core::array::from_ref(bytes), &mut one);
+            assert_eq!((paired_mask, single_mask), (expected, expected));
+            for point in [paired, single] {
+                for (actual, wanted) in [
+                    (point.x, reference.x),
+                    (point.y, reference.y),
+                    (point.z, reference.z),
+                    (point.t, reference.t),
+                ] {
+                    assert!(wide_rows(actual).into_iter().flatten().all(|v| v < 1 << 52));
+                    assert_eq!(actual.equals_mask(&wanted) & expected, expected);
+                }
+            }
+        }
+    }
+}
+
 #[test]
 fn batched_compression_matches_independent_inversions() {
     let vectors = vectors();

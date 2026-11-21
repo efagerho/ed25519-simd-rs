@@ -9,6 +9,7 @@ from pathlib import Path
 from disassembly import SYMBOL, disassemble, require
 
 SOURCE = Path(__file__).resolve().parents[3] / "src/wide/avx512ifma/pow2.S"
+SOURCES = (SOURCE.with_name("pow22523.inc"), SOURCE)
 
 
 def mc(*args, **kwargs):
@@ -124,10 +125,13 @@ def generate(work):
     """Write Program.v and the expanded assembly, and return the assembled bytes."""
     with tempfile.TemporaryDirectory(dir=work) as tmp:
         objects = Path(tmp)
-        raw = assemble(SOURCE, objects, "macro")
+        # Rust global_asm includes these same two sources in this order.
+        source = objects / SOURCE.name
+        source.write_text("\n".join(path.read_text() for path in SOURCES))
+        raw = assemble(source, objects, "macro")
         base, code = disassemble(objects / "macro.o")
         require(base == 0, "unexpected symbol offset")
-        assembly = mc("-filetype=asm", "--output-asm-variant=1", SOURCE,
+        assembly = mc("-filetype=asm", "--output-asm-variant=1", source,
                       capture_output=True, text=True).stdout
         write_listings(work, assembly, code, raw)
         require(assemble(work / "pow2.expanded.S", objects, "expanded") == raw,

@@ -45,13 +45,13 @@ elf=/path/to/unstripped-release-elf
 python3 -B verification/crate/pow2/coq_proof.py "$elf" --output ./pow2-audit
 ```
 
-**The implementation lives in `pow2.S`.** The `asm` feature assembles it
-alongside the other backends with Rust's built-in assembler. The optional
-`verify-asm-pow2` build and the release checker use LLVM MC to assemble the same file and
+The `asm` feature assembles the shared squaring kernel and addition chain in
+`pow22523.inc` with the paired caller and multiplication kernel in `pow2.S`.
+The `verify-asm-pow2` build and release checker assemble the same two inputs and
 generate `Program.v` from its expanded Intel mnemonics, grouped into basic
 blocks. Coq uses this program for both encoding and execution. It derives the
 sequence of squares, multiplies and saves by following the caller's branches.
-[Assembly source](../../../src/wide/avx512ifma/pow2.S) · [Listing generator](generate_listing.py) · [Arithmetic trace](coq/Linked.v)
+[Paired assembly](../../../src/wide/avx512ifma/pow2.S) · [Shared macros](../../../src/wide/avx512ifma/pow22523.inc) · [Listing generator](generate_listing.py) · [Arithmetic trace](coq/Linked.v)
 
 The `verify-asm-pow2` build embeds the pow2 bytes that Coq checked. For a release
 audit, the checker extracts the linked symbol into `pow2-audit/Pow2/ObjectBytes.v`.
