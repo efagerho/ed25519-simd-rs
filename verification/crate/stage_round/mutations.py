@@ -1,5 +1,6 @@
 """Check that three changed release symbols violate the staging theorem on an admissible call."""
 import argparse
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -38,7 +39,9 @@ def run(elf, audit, work):
     pc, size = symbol_extent(elf, SYMBOL)
     original = symbol_bytes(elf, pc, size)
     source = SOURCE.read_text()
-    if original != (audit / "symbol.bin").read_bytes() or original != assemble(work, source):
+    symbols = json.loads((audit / "manifest.json").read_text())["symbols"]
+    retained, = (audit / item["path"] for item in symbols if item["name"] == SYMBOL)
+    if original != retained.read_bytes() or original != assemble(work, source):
         raise ValueError("expected the certified linked stage_round.S symbol")
     for name in ("arithmetic", "curve25519", "machine", "crate"):
         (work / name).symlink_to(audit / name)
