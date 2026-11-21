@@ -67,6 +67,12 @@ refinement for this model remains open. Coq proves that its lifted vector
 operations agree with the shared lane semantics. Native probes compare
 the mask-dependent instructions with the CPU. [Mask execution](machine/execution/MaskTrace.v) · [Lane refinement](machine/execution/CircuitFacts.v) · [EAX probe](machine/tests/Mask.v) · [Filter probe](machine/tests/Filter.v)
 
+The deferred ZIP-215 decoder uses tagged addresses for its outer caller and
+field slots for its local load, store and mask instruction groups. The shared
+pow2 callee has a flat-memory certificate. For the rest of the decoder,
+matching the grouped operations to native reads and writes remains part of
+the audit. [Decoder memory boundary](crate/decompress_r/README.md#what-to-audit)
+
 **Mathematical meaning.** Check the field prime, scalar order, radix and limb
 weights, Edwards curve and group law, and the predicates saying which point
 an XYZ, extended, or cached representation denotes. An incorrect modulus or

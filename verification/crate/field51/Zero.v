@@ -6,7 +6,7 @@ Definition packed a b c d e := a + radix*(b + radix*(c + radix*(d + radix*e))).
 Definition zero_bits a b c d e :=
   Z.land (Z.land (a+18) (Z.land b c)) (Z.land d e).
 
-Local Lemma digit_low n : 0 <= n < 2*radix-1 ->
+Lemma digit_low n : 0 <= n < 2*radix-1 ->
   Z.land n (radix-1) = radix-1 -> n = radix-1.
 Proof.
  change (radix-1) with (Z.ones 51). rewrite Z.land_ones by lia.
@@ -15,7 +15,7 @@ Proof.
  unfold radix in *; lia.
 Qed.
 
-Local Lemma factors a b m : Z.land a b = m ->
+Lemma factors a b m : Z.land a b = m ->
   Z.land a m = m /\ Z.land b m = m.
 Proof.
  intros <-. split.
@@ -23,7 +23,7 @@ Proof.
  - rewrite (Z.land_comm a b), Z.land_assoc, Z.land_diag. reflexivity.
 Qed.
 
-Local Lemma split_mask a b m mask : Z.land m mask = mask ->
+Lemma split_mask a b m mask : Z.land m mask = mask ->
  Z.land a b = m -> Z.land a mask = mask /\ Z.land b mask = mask.
 Proof.
  intros H F. destruct (factors _ _ _ F) as [A B].

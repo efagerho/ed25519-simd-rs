@@ -16,6 +16,7 @@ and can be checked independently of the machine model.
 | [PrimeField.v](group/PrimeField.v), [Affine.v](group/Affine.v) | The prime field and the affine Edwards group law. |
 | [SignedMultiple.v](group/SignedMultiple.v) | Integer scalar multiplication, addition of signed coefficients, and scaling a signed multiple. |
 | [Representation.v](group/Representation.v) | How XYZ, extended, and cached coordinates represent group elements. |
+| [Decompression.v](group/Decompression.v) | The scaled square-root test accepts precisely the Edwards y-coordinates. The encoded sign selects a unique x, including zero. |
 | [Cofactor.v](group/Cofactor.v) | The Edwards group meaning of the projective small-order check, mixed-subtraction torsion check and determinant shortcut. |
 
 The theorem `ladder_represents` connects the coordinate schedule to the group
