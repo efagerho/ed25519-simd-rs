@@ -1,4 +1,3 @@
-use super::LANES;
 use super::field::WideFe;
 
 /// Eight extended Edwards points packed coordinate-wise for SIMD arithmetic.
@@ -58,19 +57,6 @@ core::arch::global_asm!(
 );
 
 impl WidePoint {
-    /// Pack lane zero from eight duplicated points into independent lanes.
-    pub(super) fn from_lane0_points(points: &[Self; LANES]) -> Self {
-        let field = |pick: fn(&Self) -> WideFe| {
-            WideFe::from_fields(&core::array::from_fn(|lane| pick(&points[lane]).lane0()))
-        };
-        Self {
-            x: field(|point| point.x),
-            y: field(|point| point.y),
-            z: field(|point| point.z),
-            t: field(|point| point.t),
-        }
-    }
-
     // Table-building points are strict, so small-bias `subtract` is valid.
     pub(super) fn add(&self, rhs: &Self) -> Self {
         self.add_impl::<false>(rhs)
@@ -82,8 +68,6 @@ impl WidePoint {
         );
         self.add_impl::<true>(rhs)
     }
-    // Always inline: `cold_add` shares this body, and letting that third
-    // caller outline it puts a call in the hot table builder's `add`.
     #[inline(always)]
     fn add_impl<const AFFINE_RHS: bool>(&self, rhs: &Self) -> Self {
         let a = self.y.subtract(&self.x).multiply(&rhs.y.subtract(&rhs.x));
@@ -107,12 +91,6 @@ impl WidePoint {
         }
     }
 
-    /// Initialization-only copy of projective addition. Keeping its call
-    /// sites separate preserves the hot table builder's inlining choices.
-    #[inline(never)]
-    pub(super) fn cold_add(&self, rhs: &Self) -> Self {
-        self.add_impl::<false>(rhs)
-    }
     pub(super) fn double(&self) -> Self {
         self.double_impl::<false>()
     }
@@ -120,16 +98,6 @@ impl WidePoint {
         debug_assert!(
             self.z.equals_lanes(&WideFe::one()).iter().all(|&eq| eq),
             "double_from_affine requires z == 1 in every lane"
-        );
-        self.double_impl::<true>()
-    }
-    /// Initialization-only affine doubling, isolated so using SIMD during
-    /// setup does not outline this operation in the verification hot path.
-    #[inline(never)]
-    pub(super) fn cold_double_from_affine(&self) -> Self {
-        debug_assert!(
-            self.z.equals_lanes(&WideFe::one()).iter().all(|&eq| eq),
-            "cold_double_from_affine requires z == 1 in every lane"
         );
         self.double_impl::<true>()
     }

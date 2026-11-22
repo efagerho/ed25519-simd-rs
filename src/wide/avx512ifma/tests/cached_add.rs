@@ -52,7 +52,7 @@ fn affine(fields: [Fe51; 4]) -> AffineCachedPoint {
 // This also works for the arbitrary bounded coordinates in the kernel tests.
 fn expected(input: WidePoint, fields: [WideFe; 4], affine: bool, compute_t: bool) -> WidePoint {
     let [minus, plus, t2d, z2] = fields;
-    let half = WideFe::one().double().invert();
+    let half = invert(&WideFe::one().double());
     let rhs = WidePoint {
         x: plus.subtract(&minus).multiply(&half),
         y: plus.add(&minus).multiply(&half),
@@ -61,7 +61,7 @@ fn expected(input: WidePoint, fields: [WideFe; 4], affine: bool, compute_t: bool
         } else {
             z2.multiply(&half)
         },
-        t: t2d.multiply(&WideFe::two_d().invert()),
+        t: t2d.multiply(&invert(&WideFe::two_d())),
     };
     let mut result = input.add(&rhs);
     if !compute_t {

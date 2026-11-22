@@ -103,10 +103,8 @@ that includes both monomorphized implementations.
 
 ## Batch Verification
 
-All verification goes through a `Verifier`, which is constructed once and reused.
-It holds the precomputed base-point table and a pluggable, statically-selected
-key cache, so construction is not free — build it once and call `verify_batch`
-repeatedly:
+A `Verifier` reuses its scratch buffers and configured key cache across batches.
+Both policies share the read-only basepoint table embedded in the library.
 
 ```rust,no_run
 use ed25519_simd::{VerifyInput, Zip215Verifier};

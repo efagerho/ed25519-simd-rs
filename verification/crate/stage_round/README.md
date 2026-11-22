@@ -24,9 +24,9 @@ The destination is row `first+c`, qword `lane`. [Contract](coq/Audit.v) · [Theo
    [Full ladder caller](../../../src/wide/avx512ifma/mul_s_base_minus_k_public.S) · [Staged layout in native tests](../../../src/wide/avx512ifma/tests/ladder.rs) · [Table layout and construction](../../../src/edwards.rs)
 2. Check `selected` against the table ordering. Projective entries store five
    words each of Y−X, Y+X, 2dT and 2Z. Affine entries omit 2Z. The theorem
-   copies arbitrary limb bits. The mathematical point represented by a table
-   entry depends on how Rust constructed the table. The separate ladder theorem
-   consumes the staged operands under its point-representation premises.
+   copies arbitrary limb bits. The ladder theorem requires the embedded
+   basepoint entries and runtime key tables to represent the signed multiples
+   at those indices.
    [Selection arithmetic](coq/Selection.v) · [Ladder contract](../ladder_step/README.md)
 3. Check `access_coverage`, `initializes_output` and `stage_correct`. Each full
    vector load fits in a selected entry. The other data loads read pointers

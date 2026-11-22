@@ -183,7 +183,6 @@ fn ladder_step_matches_its_leaf_calls_at_loose_bounds() {
 
 #[test]
 fn full_ladder_matches_independent_scalar_multiplication() {
-    let base_table = BasepointTable::new();
     let (basepoint, mask) = decompress_points_wide(&[BASEPOINT_COMPRESSED; LANES]);
     assert_eq!(mask, u8::MAX);
     let tables: [_; LANES] = core::array::from_fn(|lane| {
@@ -235,8 +234,8 @@ fn full_ladder_matches_independent_scalar_multiplication() {
             let q = scalar(&s_digits[lane]) - Scalar::from(1u64 << lane) * scalar(&k_digits[lane]);
             EdwardsPoint::mul_base(&q).compress().to_bytes()
         });
-        let full = mul_s_base_minus_k_public::<true>(base_table.entries(), &prepared);
-        let partial = mul_s_base_minus_k_public::<false>(base_table.entries(), &prepared);
+        let full = mul_s_base_minus_k_public::<true>(&BASEPOINT_TABLE, &prepared);
+        let partial = mul_s_base_minus_k_public::<false>(&BASEPOINT_TABLE, &prepared);
         assert_eq!(full.compress(), expected, "full, case {case}");
         assert_eq!(partial.compress(), expected, "partial, case {case}");
         assert_eq!(
@@ -343,7 +342,6 @@ fn full_ladder_preserves_sysv_frame_and_accepts_loose_top_cache() {
     let mut key = PointTable::identity();
     key.set_multiple(1, identity.clone(), identity);
     let keys = [key.entries_ptr(); LANES];
-    let base = BasepointTable::new();
     let mut s = [[0i8; 64]; LANES];
     let mut k = [[0i8; 64]; LANES];
     for lane in 0..LANES {
@@ -365,7 +363,7 @@ fn full_ladder_preserves_sysv_frame_and_accepts_loose_top_cache() {
                 ed25519_simd_test_mul_public_abi(
                     core::ptr::from_mut(&mut actual.value).cast(),
                     keys.as_ptr(),
-                    base.entries().as_ptr(),
+                    BASEPOINT_TABLE.as_ptr(),
                     s.as_ptr(),
                     k.as_ptr(),
                     u64::from(compute_t),

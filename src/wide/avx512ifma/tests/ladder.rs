@@ -1,5 +1,5 @@
 use super::*;
-use crate::edwards::{BASEPOINT_TABLE_SIZE, select_signed_affine_cached_ref};
+use crate::edwards::BASEPOINT_TABLE_SIZE;
 use crate::edwards::{BasepointTableEntries, PointTable};
 use crate::field::Fe51;
 use crate::scalar::Radix16;
@@ -208,7 +208,7 @@ fn stage_round_matches_signed_lookup_for_every_digit_pair_and_lane() {
                     .select_signed_cached_ref(-k[lane][digit])
                     .coords();
                 let folded = i16::from(s[lane][digit]) + 16 * i16::from(s[lane][digit + 1]);
-                let b = select_signed_affine_cached_ref(&base, folded).coords();
+                let b = base[(BASEPOINT_TABLE_SIZE as i16 + folded) as usize].coords();
                 let fields = [
                     odd.1, odd.0, odd.3, odd.2, b.1, b.0, b.2, even.1, even.0, even.3, even.2,
                 ];

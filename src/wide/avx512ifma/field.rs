@@ -43,8 +43,8 @@ impl WideFe {
             }
         }
     }
-    /// Transpose eight lanes of scalar limbs. Inlined so both entry points
-    /// below cost the same as an open-coded loop.
+    /// Transpose eight lanes of scalar limbs.
+    #[cfg(test)]
     #[inline(always)]
     pub(super) fn from_limbs_per_lane(limbs_of: impl Fn(usize) -> [u64; LIMB_COUNT]) -> Self {
         let mut by_limb = [[0u64; LANES]; LIMB_COUNT];
@@ -68,9 +68,6 @@ impl WideFe {
                 loadu(by_limb[4]),
             ],
         }
-    }
-    pub(super) fn from_fields(fields: &[Fe51; LANES]) -> Self {
-        Self::from_limbs_per_lane(|lane| fields[lane].loose_limbs())
     }
     #[cfg(test)]
     pub(super) fn from_field_refs(fields: &[&Fe51; LANES]) -> Self {
@@ -276,8 +273,7 @@ impl WideFe {
     /// Both operands feed `vpmadd52` directly, so every limb must already be
     /// `< 2^52`. A loose limb 0 (`< 2^60`, what `*_loose` and `reduce_ifma_loose`
     /// produce) must pass through [`carry_limb0`](Self::carry_limb0) or an
-    /// additive op first. This is what makes `square_repeat`'s last iteration a
-    /// strict `square()`: it restores the bound before the next multiply.
+    /// additive op first.
     pub(super) fn multiply_accum(
         &self,
         rhs: &Self,
@@ -435,54 +431,10 @@ impl WideFe {
     pub(super) fn double_loose(&self) -> Self {
         self.add_loose(self)
     }
-    pub(super) fn square(&self) -> Self {
-        let (lo, hi) = self.square_accum();
-        Self::reduce_ifma(lo, hi)
-    }
     pub(super) fn multiply(&self, rhs: &Self) -> Self {
         let (lo, hi) = self.multiply_accum(rhs);
         Self::reduce_ifma(lo, hi)
     }
-    /// The inversion addition chain, shared by both entry points.
-    #[inline(always)]
-    pub(super) fn invert_chain(&self) -> Self {
-        let z = self;
-        let t0 = z.square();
-        let t1 = t0.square_repeat::<2>().multiply(z);
-        let z11 = t0.multiply(&t1);
-        let a = z11.square().multiply(&t1);
-        let b = a.square_repeat::<5>().multiply(&a);
-        let c = b.square_repeat::<10>().multiply(&b);
-        let d = c.square_repeat::<20>().multiply(&c);
-        let e = d.square_repeat::<10>().multiply(&b);
-        let f = e.square_repeat::<50>().multiply(&e);
-        let g = f.square_repeat::<100>().multiply(&f);
-        let h = g.square_repeat::<50>().multiply(&e);
-        h.square_repeat::<5>().multiply(&z11)
-    }
-    #[cfg(test)]
-    pub(super) fn invert(&self) -> Self {
-        self.invert_chain()
-    }
-
-    /// Inversion for affine basepoint table construction.
-    #[inline(never)]
-    pub(super) fn cold_invert(&self) -> Self {
-        self.invert_chain()
-    }
-    // Keep intermediates loose; reduce only the final result for multiplication.
-    pub(super) fn square_repeat<const N: usize>(&self) -> Self {
-        let mut out = *self;
-        for i in 0..N {
-            out = if i + 1 < N {
-                out.square_loose()
-            } else {
-                out.square()
-            };
-        }
-        out
-    }
-
     pub(super) fn equals_lanes(self, rhs: &Self) -> [bool; LANES] {
         mask_to_lanes(self.equals_mask(rhs))
     }
@@ -668,6 +620,7 @@ fn add_wrap19(lo: &mut __m512i, hi: &mut __m512i, wrap_lo: __m512i, wrap_hi: __m
         *hi = _mm512_add_epi64(*hi, _mm512_mullo_epi64(wrap_hi, nineteen));
     }
 }
+#[cfg(test)]
 pub(super) fn loadu(values: [u64; LANES]) -> __m512i {
     unsafe { _mm512_loadu_si512(values.as_ptr() as *const __m512i) }
 }

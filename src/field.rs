@@ -6,14 +6,6 @@ const MASK: u64 = (1u64 << LIMB_BITS) - 1;
 pub(crate) const LIMB_COUNT: usize = 5;
 
 // 51-bit curve constants broadcast by the SIMD field path.
-#[cfg(test)]
-pub(crate) const D_LIMBS: [u64; LIMB_COUNT] = [
-    929_955_233_495_203,
-    466_365_720_129_213,
-    1_662_059_464_998_953,
-    2_033_849_074_728_123,
-    1_442_794_654_840_575,
-];
 pub(crate) const TWO_D_LIMBS: [u64; LIMB_COUNT] = [
     1_859_910_466_990_425,
     932_731_440_258_426,
@@ -42,8 +34,9 @@ pub(crate) struct Fe51 {
 impl Fe51 {
     /// Store limbs without canonicalizing. Valid only when each limb is already
     /// `< 2^52` (the loosely-reduced invariant), e.g. straight from a wide reduce.
-    pub(crate) fn from_limbs_unchecked(limbs: [u64; LIMB_COUNT]) -> Self {
-        debug_assert!(limbs.iter().all(|&limb| limb < (1u64 << 52)));
+    pub(crate) const fn from_limbs_unchecked(limbs: [u64; LIMB_COUNT]) -> Self {
+        let [a, b, c, d, e] = limbs;
+        debug_assert!((a | b | c | d | e) < (1u64 << 52));
         Self { limbs }
     }
 
@@ -81,6 +74,7 @@ impl Fe51 {
     }
 
     /// Loosely reduced limbs for AVX-512 IFMA field arithmetic.
+    #[cfg(test)]
     pub(crate) fn loose_limbs(&self) -> [u64; LIMB_COUNT] {
         debug_assert!(self.limbs.iter().all(|&limb| limb < (1u64 << 52)));
         self.limbs
