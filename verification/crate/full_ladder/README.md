@@ -18,9 +18,9 @@ return in the model and covers every permitted return.
    The proof obtains their selected indices and words from the staging
    theorem. The caller supplies bounded digits, valid tables, readable
    inputs and disjoint writable memory. Read the placement conditions
-   alongside the Rust call and the shared memory assumptions.
+   alongside the post-hash candidate call and the shared memory assumptions.
    [Public theorem](coq/Audit.v) · [Table and digit ABI](coq/Operands.v) ·
-   [Rust caller](../../../src/wide/avx512ifma/ladder_step_asm.rs) ·
+   [Candidate call](../../../src/wide/avx512ifma/post_hash.inc) ·
    [Central audit surface](../../README.md#shared-audit-surface)
 2. Check the projection at call boundaries. `Program.walk` follows the
    linked relative targets and both conditional branches. It models the

@@ -1,21 +1,54 @@
 use super::*;
-use crate::scalar::is_canonical;
+use core::mem::MaybeUninit;
 use rand::{RngCore, SeedableRng, rngs::StdRng};
 
-#[cfg(all(
-    feature = "asm",
-    target_os = "linux",
-    target_arch = "x86_64",
-    target_pointer_width = "64"
-))]
 #[path = "native.rs"]
 mod native;
 
-fn rows(value: WideScalar52) -> [[u64; LANES]; LIMB_COUNT] {
-    core::array::from_fn(|i| {
-        let mut row = [0; LANES];
-        storeu(value.0[i], &mut row);
-        row
+type DigestWords = [[u64; LANES]; WIDE_WORDS];
+type ScalarLimbs = [[u64; LANES]; 5];
+
+unsafe extern "C" {
+    fn ed25519_simd_digest_to_radix16(out: *mut u8, words: *const u8);
+
+    fn ed25519_simd_scalar_reduce_ifma(out: *mut u8, words: *const u8);
+}
+
+fn wide_words_to_radix16(words: &[[u64; LANES]; WIDE_WORDS]) -> [Radix16; LANES] {
+    let mut out = MaybeUninit::<[Radix16; LANES]>::uninit();
+    // The pointers cover disjoint 512-byte buffers. The assembly accepts
+    // unaligned addresses and writes all 64 digit bytes in every lane.
+    unsafe {
+        ed25519_simd_digest_to_radix16(out.as_mut_ptr().cast(), words.as_ptr().cast());
+        out.assume_init()
+    }
+}
+
+fn reduce(words: &DigestWords) -> ScalarLimbs {
+    let mut out = core::mem::MaybeUninit::<ScalarLimbs>::uninit();
+    // SAFETY: the reducer reads all 512 input bytes and writes all 320
+    // output bytes. Both buffers can be unaligned and are disjoint.
+    unsafe {
+        ed25519_simd_scalar_reduce_ifma(out.as_mut_ptr().cast(), words.as_ptr().cast());
+        out.assume_init()
+    }
+}
+
+fn reference_bytes(words: &DigestWords) -> [[u8; 32]; LANES] {
+    core::array::from_fn(|lane| {
+        let input = core::array::from_fn(|i| words[i / 8][lane].to_le_bytes()[i % 8]);
+        curve25519::scalar::Scalar::from_bytes_mod_order_wide(&input).to_bytes()
+    })
+}
+
+fn reference_limbs(bytes: &[[u8; 32]; LANES]) -> ScalarLimbs {
+    core::array::from_fn(|row| {
+        core::array::from_fn(|lane| {
+            let start = row * 52;
+            (start..(start + 52).min(256)).fold(0, |limb, i| {
+                limb | (u64::from((bytes[lane][i / 8] >> (i % 8)) & 1) << (i - start))
+            })
+        })
     })
 }
 
@@ -40,7 +73,7 @@ fn neighbors(value: [u64; WIDE_WORDS]) -> [[u64; WIDE_WORDS]; 3] {
 }
 
 #[test]
-fn full_width_reduction_matches_rust_and_independent_scalar() {
+fn full_width_reduction_matches_independent_scalar() {
     let mut cases = vec![[0; WIDE_WORDS], [u64::MAX; WIDE_WORDS]];
     // Exercise every bit and carry boundary, including the 256-bit split.
     for bit in 0..512 {
@@ -68,25 +101,13 @@ fn full_width_reduction_matches_rust_and_independent_scalar() {
         let words = core::array::from_fn(|word| {
             core::array::from_fn(|lane| inputs[lane % inputs.len()][word])
         });
-        let actual = WideScalar52::from_wide_words(&words);
-        let limbs = rows(actual);
-        assert_eq!(
-            limbs,
-            rows(WideScalar52::from_wide_words_rust(&words)),
-            "batch {batch}"
-        );
-        assert!(limbs.iter().flatten().all(|&limb| limb < 1 << 52));
-        let bytes = actual.to_bytes_lanes();
-        let digits = crate::scalar::wide_words_to_radix16(&words);
-        assert_eq!(digits, wide_words_to_radix16(&words), "batch {batch}");
+        let expected = reference_bytes(&words);
+        assert_eq!(reduce(&words), reference_limbs(&expected), "batch {batch}");
+        let digits = wide_words_to_radix16(&words);
         for lane in 0..LANES {
-            let input: [u8; 64] = core::array::from_fn(|i| words[i / 8][lane].to_le_bytes()[i % 8]);
-            let expected = curve25519::scalar::Scalar::from_bytes_mod_order_wide(&input).to_bytes();
-            assert_eq!(bytes[lane], expected, "batch {batch}, lane {lane}");
-            assert!(is_canonical(&bytes[lane]));
             assert_eq!(
                 digits[lane],
-                crate::scalar::CanonicalScalar::from_canonical_bytes(expected).to_radix16(),
+                crate::scalar::CanonicalScalar::from_canonical_bytes(expected[lane]).to_radix16(),
                 "batch {batch}, lane {lane} recoding"
             );
         }
@@ -110,25 +131,16 @@ fn radix16_carries_across_limb_and_word_boundaries_in_each_lane() {
             digits[first..end].fill(-8);
             digits[end] = 1;
         }
-        assert_eq!(crate::scalar::wide_words_to_radix16(&words), expected);
+        assert_eq!(wide_words_to_radix16(&words), expected);
     }
 }
 
-/// Pin to one core and enable asm. ED25519_SCALAR_PATH selects the reducer
-/// (selected or rust) or the complete digest-to-digits path (digits).
+/// ED25519_SCALAR_PATH selects the reducer (selected) or digest-to-digits (digits).
 #[test]
 #[ignore = "isolated eight-lane scalar reduction benchmark"]
 #[allow(clippy::assertions_on_constants)]
 fn profile_scalar_reduce() {
     use std::{hint::black_box, time::Instant};
-    assert!(
-        cfg!(all(
-            feature = "asm",
-            target_os = "linux",
-            target_pointer_width = "64"
-        )),
-        "benchmarks require asm"
-    );
     assert!(!cfg!(debug_assertions), "benchmark in release mode");
     let iterations: usize = std::env::var("ED25519_SCALAR_ITERS")
         .map(|s| s.parse().expect("ED25519_SCALAR_ITERS must be an integer"))
@@ -152,9 +164,8 @@ fn profile_scalar_reduce() {
         start.elapsed().as_secs_f64() * 1e9 / iterations as f64
     }
     let ns = match path.as_str() {
-        "rust" => measure(&words, iterations, WideScalar52::from_wide_words_rust),
-        "selected" => measure(&words, iterations, WideScalar52::from_wide_words),
-        "digits" => measure(&words, iterations, crate::scalar::wide_words_to_radix16),
+        "selected" => measure(&words, iterations, reduce),
+        "digits" => measure(&words, iterations, wide_words_to_radix16),
         _ => panic!("unknown scalar path: {path}"),
     };
     eprintln!("{ns:.2} ns/call ({path}, eight lanes, {iterations} calls, asm enabled)");
@@ -170,22 +181,17 @@ fn eight_lane_reduction_and_radix16_match_vectors() {
     let words: [[u64; LANES]; WIDE_WORDS] = core::array::from_fn(|word| {
         core::array::from_fn(|lane| cases[lane]["words"][word].as_u64().unwrap())
     });
-    let wide = WideScalar52::from_wide_words(&words);
-    let reduced = wide.to_bytes_lanes();
-    let digits = crate::scalar::wide_words_to_radix16(&words);
-
+    let reduced = core::array::from_fn(|lane| {
+        let mut bytes = [0u8; 32];
+        hex::decode_to_slice(cases[lane]["reduced"].as_str().unwrap(), &mut bytes).unwrap();
+        bytes
+    });
+    assert_eq!(reduce(&words), reference_limbs(&reduced));
+    let digits = wide_words_to_radix16(&words);
     for lane in 0..LANES {
-        let mut expected_reduced = [0u8; 32];
-        hex::decode_to_slice(
-            cases[lane]["reduced"].as_str().unwrap(),
-            &mut expected_reduced,
-        )
-        .unwrap();
         let expected_digits: Radix16 =
             core::array::from_fn(|digit| cases[lane]["radix16"][digit].as_i64().unwrap() as i8);
 
-        assert_eq!(reduced[lane], expected_reduced, "lane {lane} reduction");
         assert_eq!(digits[lane], expected_digits, "lane {lane} recoding");
-        assert!(is_canonical(&reduced[lane]), "lane {lane} canonicality");
     }
 }

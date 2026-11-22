@@ -1,5 +1,4 @@
 use super::*;
-use crate::scalar::asm::{ed25519_simd_digest_to_radix16, ed25519_simd_scalar_reduce_ifma};
 use core::ffi::{c_int, c_void};
 
 type ScalarRoutine = unsafe extern "C" fn(*mut u8, *const u8);
@@ -29,17 +28,17 @@ fn operands() -> ([u8; 512], [(ScalarRoutine, Vec<u8>); 2]) {
     let mut rng = StdRng::seed_from_u64(0x05ca_1ab1);
     let words: [[u64; LANES]; WIDE_WORDS] =
         core::array::from_fn(|_| core::array::from_fn(|_| rng.next_u64()));
-    let reduced = WideScalar52::from_wide_words_rust(&words);
-    let limbs = rows(reduced)
+    let reduced = reference_bytes(&words);
+    let limbs = reference_limbs(&reduced)
         .into_iter()
         .flatten()
         .flat_map(u64::to_le_bytes)
         .collect();
     let digits = reduced
-        .to_radix16()
+        .map(|bytes| crate::scalar::CanonicalScalar::from_canonical_bytes(bytes).to_radix16())
         .into_iter()
         .flatten()
-        .map(|d| d as u8)
+        .map(|digit| digit as u8)
         .collect();
     (
         core::array::from_fn(|i| words[i / 64][i / 8 % 8].to_le_bytes()[i % 8]),

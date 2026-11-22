@@ -48,6 +48,28 @@ fn affine(fields: [Fe51; 4]) -> AffineCachedPoint {
     AffineCachedPoint::from_fields(fields[1], fields[0], fields[2])
 }
 
+// Recover extended coordinates and use the ordinary table-builder addition.
+// This also works for the arbitrary bounded coordinates in the kernel tests.
+fn expected(input: WidePoint, fields: [WideFe; 4], affine: bool, compute_t: bool) -> WidePoint {
+    let [minus, plus, t2d, z2] = fields;
+    let half = WideFe::one().double().invert();
+    let rhs = WidePoint {
+        x: plus.subtract(&minus).multiply(&half),
+        y: plus.add(&minus).multiply(&half),
+        z: if affine {
+            WideFe::one()
+        } else {
+            z2.multiply(&half)
+        },
+        t: t2d.multiply(&WideFe::two_d().invert()),
+    };
+    let mut result = input.add(&rhs);
+    if !compute_t {
+        result.t = WideFe::zero();
+    }
+    result
+}
+
 #[test]
 fn cached_add_matches_integer_vectors() {
     let data: Value =
@@ -70,18 +92,22 @@ fn cached_add_matches_integer_vectors() {
         let affine = fields.map(affine);
         for (is_affine, compute_t) in [(false, false), (false, true), (true, true)] {
             let mut actual = Guarded::new(input);
-            let mut reference = input;
             if is_affine {
                 let refs = core::array::from_fn(|lane| &affine[lane]);
                 actual.value.add_affine_cached_refs_assign(&refs);
-                reference.add_affine_cached_refs_assign_rust(&refs);
             } else {
                 let refs = core::array::from_fn(|lane| &projective[lane]);
                 actual.value.add_cached_refs_assign(&refs, compute_t);
-                reference.add_cached_refs_assign_rust(&refs, compute_t);
             }
             actual.check();
-            assert_output(&actual.value, &reference, compute_t);
+            let selected = core::array::from_fn(|i| {
+                WideFe::from_limbs_per_lane(|j| fields[j][i].loose_limbs())
+            });
+            assert_output(
+                &actual.value,
+                &expected(input, selected, is_affine, compute_t),
+                compute_t,
+            );
             for (i, coord) in coordinates(&actual.value).into_iter().enumerate() {
                 for (lane, bytes) in coord.to_bytes_lanes().into_iter().enumerate() {
                     let expected = if i == 3 && !compute_t {
@@ -97,7 +123,7 @@ fn cached_add_matches_integer_vectors() {
 }
 
 #[test]
-fn cached_add_matches_rust_for_per_lane_and_aliased_selections() {
+fn cached_add_matches_point_addition_for_per_lane_and_aliased_selections() {
     let mut rng = StdRng::seed_from_u64(0x0cac_4eda_dd52);
     for iteration in 0..256 {
         let mut field = || core::array::from_fn(|_| rng.next_u64() & ((1 << 52) - 1));
@@ -120,6 +146,9 @@ fn cached_add_matches_rust_for_per_lane_and_aliased_selections() {
         };
         let projective_refs = core::array::from_fn(|lane| &projective[index(lane)]);
         let affine_refs = core::array::from_fn(|lane| &affine[index(lane)]);
+        let selected = core::array::from_fn(|i| {
+            WideFe::from_limbs_per_lane(|j| fields[index(j)][i].loose_limbs())
+        });
         for compute_t in [false, true] {
             let mut actual = Guarded::new(input);
             let mut reference = input;
@@ -128,10 +157,10 @@ fn cached_add_matches_rust_for_per_lane_and_aliased_selections() {
                 actual
                     .value
                     .add_cached_refs_assign(&projective_refs, compute_t);
-                reference.add_cached_refs_assign_rust(&projective_refs, compute_t);
+                reference = expected(reference, selected, false, compute_t);
                 assert_output(&actual.value, &reference, compute_t);
                 actual.value.add_affine_cached_refs_assign(&affine_refs);
-                reference.add_affine_cached_refs_assign_rust(&affine_refs);
+                reference = expected(reference, selected, true, true);
                 assert_output(&actual.value, &reference, true);
                 actual.check();
             }
@@ -139,7 +168,6 @@ fn cached_add_matches_rust_for_per_lane_and_aliased_selections() {
     }
 }
 
-#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
 mod native {
     use super::*;
     use core::ffi::{c_int, c_void};
@@ -192,7 +220,6 @@ mod native {
     #[allow(clippy::assertions_on_constants)]
     fn profile_cached_add() {
         use std::{hint::black_box, time::Instant};
-        assert!(cfg!(feature = "asm"), "benchmarks require asm");
         assert!(!cfg!(debug_assertions), "benchmark in release mode");
         let mode = std::env::var("ED25519_CACHED_ADD_MODE").unwrap_or("projective".into());
         let (is_affine, compute_t) = match mode.as_str() {
@@ -247,34 +274,6 @@ mod native {
             _ => panic!("unknown cached-add path: {path}"),
         };
         eprintln!("{ns:.2} ns/cached-add ({mode}, {path}, {iterations} calls, asm enabled)");
-    }
-
-    fn expected(
-        mut input: WidePoint,
-        fields: [WideFe; 4],
-        is_affine: bool,
-        compute_t: bool,
-    ) -> WidePoint {
-        let rows = fields.map(wide_rows);
-        let scalars: [[Fe51; 4]; LANES] = core::array::from_fn(|lane| {
-            core::array::from_fn(|i| {
-                Fe51::from_limbs_unchecked(core::array::from_fn(|j| rows[i][j][lane]))
-            })
-        });
-        if is_affine {
-            let cached = scalars.map(affine);
-            input.add_affine_cached_refs_assign_rust(&core::array::from_fn(|lane| &cached[lane]));
-            if !compute_t {
-                input.t = WideFe::zero();
-            }
-        } else {
-            let cached = scalars.map(projective);
-            input.add_cached_refs_assign_rust(
-                &core::array::from_fn(|lane| &cached[lane]),
-                compute_t,
-            );
-        }
-        input
     }
 
     #[test]

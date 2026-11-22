@@ -16,7 +16,7 @@ early return and batches in which only some lanes pass. [Public contract and lan
    The arithmetic result permits arbitrary stored R.Z. The group result
    requires R.Z congruent to one and both T coordinates consistent with
    their points. The arguments can refer to the same point. Check that
-   Rust reads EAX bit zero as lane zero. [Rust caller](../../../src/wide/avx512ifma/point.rs) · [Representation](../Wide51.v) · [Edwards representation](../../curve25519/group/Representation.v)
+   the ZIP-215 caller reads EAX bit zero as lane zero. [Assembly caller](../../../src/wide/avx512ifma/zip215.S) · [Representation](../Wide51.v) · [Edwards representation](../../curve25519/group/Representation.v)
 2. Read `torsion_check` and `torsion_check_correct`. With mixed-subtraction
    numerators X and Y, the full check tests zero modulo the field prime for
    `iY`, `X`, `iY+X`, and `iY−X`, where `i² = −1`. The shortcut compares

@@ -1,10 +1,10 @@
 use super::driver::{verify_cached_batch_for, verify_uncached_batch_for};
-use super::{R_ENCODING_LEN, SIMD_LANES, Verifier};
+use super::{SIMD_LANES, Verifier};
 use crate::batch::PendingLanes;
 use crate::cache::NullKeyCache;
 use crate::edwards::{BasepointTableEntries, PointTable};
 use crate::hot_key_cache::HotKeyCache;
-use crate::input::{PUBLIC_KEY_LEN, VerifyInput};
+use crate::input::VerifyInput;
 use crate::wide::{HashedChunk, avx512ifma};
 
 /// Which acceptance rules a [`Verifier`](crate::Verifier) applies.
@@ -64,7 +64,7 @@ mod sealed {
 /// associated type is projected by the public `KeyCache::Queues<P>`, so a
 /// `pub(crate)` `PolicyOps` is rejected outright (`E0446`, crate-private
 /// associated type in public interface) and a `pub` one leaks `PointTable`,
-/// `WideRPoint`, and `PreparedChunk` into the public API.
+/// `WideRPoint`, and `HashedChunk` into the public API.
 pub trait VerificationPolicy: sealed::Sealed + Copy + core::fmt::Debug + Default + 'static {
     /// Policy-specific reusable queue storage.
     #[doc(hidden)]
@@ -92,12 +92,6 @@ pub trait VerificationPolicy: sealed::Sealed + Copy + core::fmt::Debug + Default
 
 /// Internal operations implemented differently by each verification policy.
 pub(super) trait PolicyOps: VerificationPolicy {
-    fn decode_keys_and_r(
-        keys: &[[u8; PUBLIC_KEY_LEN]; SIMD_LANES],
-        r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
-        key_tables: &mut [Option<PointTable>; SIMD_LANES],
-    ) -> (u8, avx512ifma::WideRPoint, u8);
-
     fn reject_small_order_keys(
         public_key_tables: &[&PointTable; SIMD_LANES],
         valid: &mut [bool; SIMD_LANES],
@@ -146,15 +140,6 @@ impl VerificationPolicy for Zip215Policy {
 }
 
 impl PolicyOps for Zip215Policy {
-    #[inline(always)]
-    fn decode_keys_and_r(
-        keys: &[[u8; PUBLIC_KEY_LEN]; SIMD_LANES],
-        r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
-        key_tables: &mut [Option<PointTable>; SIMD_LANES],
-    ) -> (u8, avx512ifma::WideRPoint, u8) {
-        avx512ifma::decode_keys_and_decompress_r::<false>(keys, r_bytes, key_tables)
-    }
-
     #[inline(always)]
     fn reject_small_order_keys(
         _public_key_tables: &[&PointTable; SIMD_LANES],
@@ -214,15 +199,6 @@ impl VerificationPolicy for DalekPolicy {
 }
 
 impl PolicyOps for DalekPolicy {
-    #[inline(always)]
-    fn decode_keys_and_r(
-        keys: &[[u8; PUBLIC_KEY_LEN]; SIMD_LANES],
-        r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
-        key_tables: &mut [Option<PointTable>; SIMD_LANES],
-    ) -> (u8, avx512ifma::WideRPoint, u8) {
-        avx512ifma::decode_keys_and_decompress_r::<true>(keys, r_bytes, key_tables)
-    }
-
     #[inline(always)]
     fn reject_small_order_keys(
         public_key_tables: &[&PointTable; SIMD_LANES],

@@ -14,9 +14,9 @@ publish = ["crates-io"]
 exclude = ["/.github/", "/benches-compare/"]
 
 [features]
-# All SysV assembly backends on x86-64 Linux. The ladder proof is checked after linking.
+# Compatibility feature. Supported builds always use assembly.
 asm = []
-# Enable assembly, check the named Coq proof, and embed that routine's certified bytes.
+# Check the named Coq proof and embed that routine's certified bytes.
 verify-asm-pow2 = ["asm"]
 verify-asm-double4 = ["asm"]
 verify-asm-cached-add = ["asm"]

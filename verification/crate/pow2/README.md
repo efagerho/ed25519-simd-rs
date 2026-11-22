@@ -19,12 +19,12 @@ Object.assembled_symbol_correct : Audit.pow2_contract ObjectBytes.symbol_bytes
    `2^51 + 511`. The other four must be below `2^51`.
    [Field specification](coq/Pow2Spec.v)
 2. **Pointers and initialization.** Compare `concrete_entry` and
-   `concrete_pow2_contract` with the Rust call. RDI supplies a distinct
+   `concrete_pow2_contract` with the paired decoder call. RDI supplies a distinct
    640-byte output, RSI and RDX supply 320-byte inputs that may coincide or
    partially overlap. Both inputs are decoded from the same bytes. Check that
-   `output_initialized` covers the whole Rust `[WideFe; 2]` before
-   `assume_init()`, independently of the limb premise.
-   [Byte contract](coq/Pow2Bytes.v) · [Rust caller](../../../src/wide/avx512ifma/field.rs) · [Aliasing and coverage witnesses](coq/ByteEntryTests.v)
+   `output_initialized` covers both five-row field outputs before
+   the decoder consumes them, independently of the limb premise.
+   [Byte contract](coq/Pow2Bytes.v) · [Decoder call](../../../src/wide/avx512ifma/decompress_r.S) · [Aliasing and coverage witnesses](coq/ByteEntryTests.v)
 3. **Stack and return.** For entry RSP `S`, check the writable vector scratch
    range `[S−1928, S−8)`, the internal call slot at `S−1936`, and the caller’s
    return word at `S`. The stack and output need the separations in
@@ -45,7 +45,7 @@ elf=/path/to/unstripped-release-elf
 python3 -B verification/crate/pow2/coq_proof.py "$elf" --output ./pow2-audit
 ```
 
-The `asm` feature assembles the shared squaring kernel and addition chain in
+The default build assembles the shared squaring kernel and addition chain in
 `pow22523.inc` with the paired caller and multiplication kernel in `pow2.S`.
 The `verify-asm-pow2` build and release checker assemble the same two inputs and
 generate `Program.v` from its expanded Intel mnemonics, grouped into basic

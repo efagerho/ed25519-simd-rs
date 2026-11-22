@@ -66,8 +66,7 @@ fn double4_matches_integer_vectors() {
         let mut actual = GuardedPoint::new(input);
         actual.point.double_four_times_assign();
         actual.check_guards();
-        let mut reference = input;
-        reference.double_four_times_assign_rust();
+        let reference = input.double().double().double().double();
         assert_output(&actual.point, &reference);
         for (i, coord) in coordinates(&actual.point).iter().enumerate() {
             let bytes = coord.to_bytes_lanes();
@@ -84,7 +83,7 @@ fn double4_matches_integer_vectors() {
 }
 
 #[test]
-fn double4_matches_rust_at_loose_bounds_and_ignores_t() {
+fn double4_matches_four_doublings_at_loose_bounds_and_ignores_t() {
     let mut rng = StdRng::seed_from_u64(0x0d04_b1e4);
     for _ in 0..256 {
         let mut field = || {
@@ -115,7 +114,7 @@ fn double4_matches_rust_at_loose_bounds_and_ignores_t() {
             }));
             actual.point.double_four_times_assign();
             poisoned.double_four_times_assign();
-            reference.double_four_times_assign_rust();
+            reference = reference.double().double().double().double();
             actual.check_guards();
             assert_output(&actual.point, &reference);
             for (a, b) in coordinates(&actual.point)
@@ -128,10 +127,8 @@ fn double4_matches_rust_at_loose_bounds_and_ignores_t() {
     }
 }
 
-#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
 core::arch::global_asm!(include_str!("double4_abi.S"), options(raw));
 
-#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
 #[test]
 fn double4_preserves_sysv_registers() {
     unsafe extern "C" {
@@ -140,7 +137,7 @@ fn double4_preserves_sysv_registers() {
     let (input, mask) = decompress_points_wide(&[BASEPOINT_COMPRESSED; LANES]);
     assert_eq!(mask, u8::MAX);
     let mut expected = input;
-    expected.double_four_times_assign_rust();
+    expected = expected.double().double().double().double();
     for stack_offset in [0, 16, 32, 48] {
         let mut actual = GuardedPoint::new(input);
         let failure = unsafe {
@@ -158,23 +155,13 @@ fn double4_preserves_sysv_registers() {
     }
 }
 
-/// Run pinned to one core, in release mode, always with `asm` enabled.
-/// ED25519_DOUBLE4_PATH=rust measures the reference; the default is assembly.
-/// Both paths retain assembly pow2.
+/// Run pinned to one core in release mode.
 /// Set ED25519_DOUBLE4_ITERS for longer instruction-sampling runs.
 #[test]
 #[ignore = "isolated four-doubling benchmark"]
 #[allow(clippy::assertions_on_constants)] // Enforce configuration when the ignored benchmark runs.
 fn profile_double4() {
     use std::{hint::black_box, time::Instant};
-    assert!(
-        cfg!(all(
-            feature = "asm",
-            target_os = "linux",
-            target_pointer_width = "64"
-        )),
-        "double4 benchmarks require the asm backend"
-    );
     assert!(!cfg!(debug_assertions), "benchmark in release mode");
     let iterations: usize = std::env::var("ED25519_DOUBLE4_ITERS")
         .map(|value| {
@@ -184,23 +171,18 @@ fn profile_double4() {
         })
         .unwrap_or(2_000_000);
     assert!(iterations > 0);
-    let path = std::env::var("ED25519_DOUBLE4_PATH").unwrap_or("selected".into());
     let (point, mask) = decompress_points_wide(&[BASEPOINT_COMPRESSED; LANES]);
     assert_eq!(mask, u8::MAX);
-    fn measure(mut point: WidePoint, iterations: usize, double: impl Fn(&mut WidePoint)) -> f64 {
+    fn measure(mut point: WidePoint, iterations: usize) -> f64 {
         for _ in 0..10_000 {
-            double(black_box(&mut point));
+            black_box(&mut point).double_four_times_assign();
         }
         let start = Instant::now();
         for _ in 0..iterations {
-            double(black_box(&mut point));
+            black_box(&mut point).double_four_times_assign();
         }
         start.elapsed().as_secs_f64() * 1e9 / iterations as f64
     }
-    let ns = match path.as_str() {
-        "selected" => measure(point, iterations, WidePoint::double_four_times_assign),
-        "rust" => measure(point, iterations, WidePoint::double_four_times_assign_rust),
-        _ => panic!("unknown double4 path: {path}"),
-    };
-    eprintln!("{ns:.1} ns/double4 ({path}, {iterations} calls, asm enabled)");
+    let ns = measure(point, iterations);
+    eprintln!("{ns:.1} ns/double4 ({iterations} calls)");
 }

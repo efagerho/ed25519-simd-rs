@@ -85,8 +85,8 @@ export RUSTFLAGS='-C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma'
 cargo build --release --features verify-asm-scalar
 ```
 
-`asm` selects this and all other assembly backends without running Coq during
-the build. `verify-asm-scalar` also enables `asm` and certifies scalar reduction.
+The default build assembles the reducer directly. `verify-asm-scalar`
+certifies scalar reduction at build time.
 Release auditing checks the final linked artifact from either build.
 
 ## Proof structure

@@ -1,8 +1,5 @@
 use super::{LANES, mask_to_lanes};
-#[cfg(any(
-    test,
-    not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-))]
+#[cfg(test)]
 use crate::edwards::POINT_ENCODING_LEN;
 use crate::field::{Fe51, LIMB_COUNT};
 use std::arch::x86_64::*;
@@ -19,65 +16,16 @@ pub(super) struct WideFe {
     pub(super) limbs: [__m512i; LIMB_COUNT],
 }
 
-#[cfg(all(
-    feature = "asm",
-    not(feature = "verify-asm-pow2"),
-    target_os = "linux",
-    target_pointer_width = "64"
-))]
+#[cfg(not(feature = "verify-asm-pow2"))]
 core::arch::global_asm!(
     include_str!("pow22523.inc"),
     include_str!("pow2.S"),
     options(raw)
 );
 
-#[cfg(all(
-    feature = "verify-asm-pow2",
-    target_os = "linux",
-    target_pointer_width = "64"
-))]
+#[cfg(feature = "verify-asm-pow2")]
 core::arch::global_asm!(include_str!(concat!(env!("OUT_DIR"), "/pow2-checked.S")));
 
-/// Two independent SIMD field values processed as one interleaved power chain.
-///
-/// Alternating the squarings for two point decompressions fills
-/// the IFMA latency gap that a single dependent chain would leave idle.
-#[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
-#[derive(Clone, Copy)]
-pub(super) struct WideFePair(WideFe, WideFe);
-
-/// Arithmetic interface shared by the single and interleaved exponentiation chains.
-///
-/// `WideFePair` maps each chain step over two values so their
-/// independent IFMA instructions can be scheduled together.
-trait PowChainValue: Copy {
-    fn chain_square(self) -> Self;
-    fn chain_square_repeat<const N: usize>(self) -> Self;
-    fn chain_multiply(self, rhs: Self) -> Self;
-}
-
-/// The `(p-5)/8` addition chain, shared by both the single-value and
-/// latency-interleaved pair implementations.
-#[inline(always)]
-fn pow_p_minus_5_over_8_chain<T: PowChainValue>(z: T) -> T {
-    let t0 = z.chain_square();
-    let t1 = t0.chain_square_repeat::<2>().chain_multiply(z);
-    let t0 = t0.chain_multiply(t1);
-    let t0 = t0.chain_square().chain_multiply(t1);
-    let t1 = t0.chain_square_repeat::<5>();
-    let t0 = t1.chain_multiply(t0);
-    let t1 = t0.chain_square_repeat::<10>().chain_multiply(t0);
-    let t2 = t1.chain_square_repeat::<20>();
-    let t1 = t2.chain_multiply(t1);
-    let t1 = t1.chain_square_repeat::<10>();
-    let t0 = t1.chain_multiply(t0);
-    let t1 = t0.chain_square_repeat::<50>().chain_multiply(t0);
-    let t2 = t1.chain_square_repeat::<100>();
-    let t1 = t2.chain_multiply(t1);
-    let t1 = t1.chain_square_repeat::<50>();
-    let t0 = t1.chain_multiply(t0);
-    t0.chain_square_repeat::<2>().chain_multiply(z)
-}
 impl WideFe {
     pub(super) fn zero() -> Self {
         unsafe {
@@ -124,10 +72,7 @@ impl WideFe {
     pub(super) fn from_fields(fields: &[Fe51; LANES]) -> Self {
         Self::from_limbs_per_lane(|lane| fields[lane].loose_limbs())
     }
-    #[cfg(any(
-        test,
-        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-    ))]
+    #[cfg(test)]
     pub(super) fn from_field_refs(fields: &[&Fe51; LANES]) -> Self {
         Self::from_limbs_per_lane(|lane| fields[lane].loose_limbs())
     }
@@ -158,10 +103,7 @@ impl WideFe {
             ])
         })
     }
-    #[cfg(any(
-        test,
-        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-    ))]
+    #[cfg(test)]
     pub(super) fn to_bytes_lanes(self) -> [[u8; POINT_ENCODING_LEN]; LANES] {
         unsafe {
             let c = self.canonical();
@@ -391,10 +333,7 @@ impl WideFe {
             (lo, hi)
         }
     }
-    #[cfg(any(
-        test,
-        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-    ))]
+    #[cfg(test)]
     pub(super) fn multiply_loose(&self, rhs: &Self) -> Self {
         let (lo, hi) = self.multiply_accum(rhs);
         Self::reduce_ifma_loose(lo, hi)
@@ -504,21 +443,6 @@ impl WideFe {
         let (lo, hi) = self.multiply_accum(rhs);
         Self::reduce_ifma(lo, hi)
     }
-    #[cfg(any(
-        test,
-        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-    ))]
-    pub(super) fn pow_p_minus_5_over_8(&self) -> Self {
-        pow_p_minus_5_over_8_chain(*self)
-    }
-
-    /// Initialization-only copy. The out-of-line wrapper keeps setup call
-    /// sites from perturbing the hot path's inlining.
-    #[inline(never)]
-    pub(super) fn cold_pow_p_minus_5_over_8(&self) -> Self {
-        pow_p_minus_5_over_8_chain(*self)
-    }
-
     /// The inversion addition chain, shared by both entry points.
     #[inline(always)]
     pub(super) fn invert_chain(&self) -> Self {
@@ -536,15 +460,12 @@ impl WideFe {
         let h = g.square_repeat::<50>().multiply(&e);
         h.square_repeat::<5>().multiply(&z11)
     }
-    #[cfg(any(
-        test,
-        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-    ))]
+    #[cfg(test)]
     pub(super) fn invert(&self) -> Self {
         self.invert_chain()
     }
 
-    /// Initialization-only copy; see [`cold_pow_p_minus_5_over_8`](Self::cold_pow_p_minus_5_over_8).
+    /// Inversion for affine basepoint table construction.
     #[inline(never)]
     pub(super) fn cold_invert(&self) -> Self {
         self.invert_chain()
@@ -562,65 +483,13 @@ impl WideFe {
         out
     }
 
-    // Interleave two exponentiation chains to hide IFMA latency.
-    #[cfg(any(
-        test,
-        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-    ))]
-    pub(super) fn square_repeat_x2<const N: usize>(a: &Self, b: &Self) -> (Self, Self) {
-        let (mut x, mut y) = (*a, *b);
-        for i in 0..N {
-            if i + 1 < N {
-                x = x.square_loose();
-                y = y.square_loose();
-            } else {
-                x = x.square();
-                y = y.square();
-            }
-        }
-        (x, y)
-    }
-
-    #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
-    #[cfg(test)]
-    pub(super) fn pow_p_minus_5_over_8_x2(a: &Self, b: &Self) -> (Self, Self) {
-        unsafe extern "C" {
-            fn ed25519_simd_pow2_ifma(out: *mut u8, a: *const u8, b: *const u8);
-        }
-        const _: () = assert!(size_of::<WideFe>() == 320);
-        #[cfg(debug_assertions)]
-        debug_assert!(limbs_are_ifma_operands(&a.limbs) && limbs_are_ifma_operands(&b.limbs));
-        let mut out = core::mem::MaybeUninit::<[Self; 2]>::uninit();
-        // repr(C) places the five limb vectors at offsets 0,64,...,256.
-        // Both inputs are readable, and the distinct output holds ten vectors.
-        // Audit.pow2_contract's output_initialized guarantee covers all 640
-        // bytes before return, independently of the arithmetic limb bounds.
-        unsafe {
-            ed25519_simd_pow2_ifma(
-                out.as_mut_ptr().cast(),
-                core::ptr::from_ref(a).cast(),
-                core::ptr::from_ref(b).cast(),
-            );
-            let [x, y] = out.assume_init();
-            (x, y)
-        }
-    }
-
-    #[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
-    pub(super) fn pow_p_minus_5_over_8_x2(a: &Self, b: &Self) -> (Self, Self) {
-        let pair = pow_p_minus_5_over_8_chain(WideFePair(*a, *b));
-        (pair.0, pair.1)
-    }
     pub(super) fn equals_lanes(self, rhs: &Self) -> [bool; LANES] {
         mask_to_lanes(self.equals_mask(rhs))
     }
     pub(super) fn equals_mask(self, rhs: &Self) -> u8 {
         self.subtract(rhs).is_zero_mask()
     }
-    #[cfg(any(
-        test,
-        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-    ))]
+    #[cfg(test)]
     pub(super) fn is_zero_lanes(self) -> [bool; LANES] {
         mask_to_lanes(self.is_zero_mask())
     }
@@ -643,32 +512,19 @@ impl WideFe {
     pub(super) fn is_odd_lanes(self) -> [bool; LANES] {
         mask_to_lanes(self.is_odd_mask())
     }
-    #[cfg(any(
-        test,
-        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-    ))]
+    #[cfg(test)]
     pub(super) fn limb_below(&self, index: usize, bits: u32) -> bool {
         let mut lanes = [0u64; LANES];
         storeu(self.limbs[index], &mut lanes);
         lanes.iter().all(|&limb| limb < (1u64 << bits))
     }
 
+    #[cfg(test)]
     pub(super) fn is_odd_mask(self) -> u8 {
         unsafe {
             let c = self.canonical();
             let one = _mm512_set1_epi64(1);
             _mm512_test_epi64_mask(c.limbs[0], one)
-        }
-    }
-    /// Return parity and zero masks from one canonicalization.
-    pub(super) fn odd_and_zero_masks(self) -> (u8, u8) {
-        unsafe {
-            let c = self.canonical();
-            let one = _mm512_set1_epi64(1);
-            (
-                _mm512_test_epi64_mask(c.limbs[0], one),
-                c.canonical_zero_mask(),
-            )
         }
     }
     /// Vectorized `Fe51::canonical`; bounded high limbs reduce `>= p` to a
@@ -698,6 +554,7 @@ impl WideFe {
             }
         }
     }
+    #[cfg(test)]
     pub(super) fn blend(&self, mask: u8, rhs: &Self) -> Self {
         unsafe {
             let mask = mask as __mmask8;
@@ -768,9 +625,7 @@ impl WideFe {
         }
     }
     // Broadcast the shared scalar/SIMD constants from `field.rs`.
-    pub(super) fn d() -> Self {
-        Self::constant(crate::field::D_LIMBS)
-    }
+    #[cfg(test)]
     pub(super) fn sqrt_m1() -> Self {
         Self::constant(crate::field::SQRT_M1_LIMBS)
     }
@@ -778,42 +633,6 @@ impl WideFe {
         Self::constant(crate::field::TWO_D_LIMBS)
     }
 }
-impl PowChainValue for WideFe {
-    #[inline(always)]
-    fn chain_square(self) -> Self {
-        self.square()
-    }
-
-    #[inline(always)]
-    fn chain_square_repeat<const N: usize>(self) -> Self {
-        self.square_repeat::<N>()
-    }
-
-    #[inline(always)]
-    fn chain_multiply(self, rhs: Self) -> Self {
-        self.multiply(&rhs)
-    }
-}
-
-#[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
-impl PowChainValue for WideFePair {
-    #[inline(always)]
-    fn chain_square(self) -> Self {
-        Self(self.0.square(), self.1.square())
-    }
-
-    #[inline(always)]
-    fn chain_square_repeat<const N: usize>(self) -> Self {
-        let (a, b) = WideFe::square_repeat_x2::<N>(&self.0, &self.1);
-        Self(a, b)
-    }
-
-    #[inline(always)]
-    fn chain_multiply(self, rhs: Self) -> Self {
-        Self(self.0.multiply(&rhs.0), self.1.multiply(&rhs.1))
-    }
-}
-
 /// Whether every limb in every lane is a valid `vpmadd52` operand.
 ///
 /// `vpmadd52lo/hi` read only the low 52 bits of each source, so a limb at or

@@ -59,7 +59,7 @@ fn torsion_check_requires_all_lanes_for_early_acceptance() {
 }
 
 #[test]
-fn small_order_matches_three_doublings_for_every_mask() {
+fn small_order_identifies_torsion_lanes_for_every_mask() {
     let torsion = torsion_multiples(&vectors());
     let (base, valid) = decompress_points_wide(&[BASEPOINT_COMPRESSED; LANES]);
     assert_eq!(valid, u8::MAX);
@@ -74,7 +74,6 @@ fn small_order_matches_three_doublings_for_every_mask() {
             t: WideFe::zero(), // The Dalek ladder omits T.
         };
         let expected = mask_to_lanes(mask);
-        assert_eq!(p.is_small_order_lanes_rust(), expected);
         assert_eq!(p.is_small_order_lanes(), expected);
         let loose = WidePoint {
             x: redundant(p.x),
@@ -176,7 +175,6 @@ fn torsion_check_covers_all_eight_torsion_differences_and_lane_masks() {
             t: choose(positive.t, negative.t),
         };
         let expected = mask_to_lanes(mask);
-        assert_eq!(p.subtract_affine_and_check_8_torsion_rust(&r), expected);
         assert_eq!(p.subtract_affine_and_check_8_torsion(&r), expected);
     }
 }
@@ -197,7 +195,6 @@ fn profile_torsion_check() {
         "unequal" => negative,
         _ => panic!("unknown torsion input {case}"),
     };
-    let path = std::env::var("ED25519_TORSION_PATH").unwrap_or_else(|_| "asm".into());
     let iters: usize = std::env::var("ED25519_TORSION_ITERS")
         .map(|n| n.parse().expect("iteration count"))
         .unwrap_or(1_000_000);
@@ -212,14 +209,8 @@ fn profile_torsion_check() {
         }
         start.elapsed().as_secs_f64() * 1e9 / iters as f64
     }
-    let ns = match path.as_str() {
-        "asm" => measure(iters, || {
-            black_box(&p).subtract_affine_and_check_8_torsion(black_box(&r))
-        }),
-        "rust" => measure(iters, || {
-            black_box(&p).subtract_affine_and_check_8_torsion_rust(black_box(&r))
-        }),
-        _ => panic!("unknown torsion check path {path}"),
-    };
-    eprintln!("{path}/{case}: {ns:.2} ns/eight-lane check");
+    let ns = measure(iters, || {
+        black_box(&p).subtract_affine_and_check_8_torsion(black_box(&r))
+    });
+    eprintln!("{case}: {ns:.2} ns/eight-lane check");
 }

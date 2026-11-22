@@ -1,5 +1,5 @@
 use super::LANES;
-use super::decode::cold_decompress_points_wide;
+use super::decode::decompress_points_wide;
 use super::field::WideFe;
 use super::point::WidePoint;
 use crate::edwards::{
@@ -24,7 +24,7 @@ fn build_projective_basepoint_blocks() -> Vec<WidePoint> {
         assert!(BASEPOINT_TABLE_SIZE.is_multiple_of(LANES));
     }
 
-    let (basepoint, mask) = cold_decompress_points_wide(&[BASEPOINT_COMPRESSED; LANES]);
+    let (basepoint, mask) = decompress_points_wide(&[BASEPOINT_COMPRESSED; LANES]);
     assert_eq!(mask, u8::MAX, "the standard basepoint must decompress");
 
     let (mut block, p8) = first_basepoint_block(basepoint);

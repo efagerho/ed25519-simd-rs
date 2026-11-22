@@ -1,13 +1,12 @@
 # Scalar reduction and signed radix-16 assembly
 
-On x86-64 Linux, `asm` routes eight 512-bit challenge digests through
+Both verification policies route eight 512-bit challenge digests through
 `ed25519_simd_digest_to_radix16`. It calls the scalar reducer and returns
-eight arrays of 64 signed radix-16 digits. The Rust implementation serves
-as the default and the test reference. [Assembly entry point](radix16.S)
+eight arrays of 64 signed radix-16 digits. [Assembly entry point](radix16.S)
 
 The [Coq certificate](../../verification/crate/scalar/README.md)
 proves canonical reduction, ABI preservation, and concrete byte-memory safety
-for `ed25519_simd_scalar_reduce_ifma`. `verify-asm-scalar` enables `asm`,
+for `ed25519_simd_scalar_reduce_ifma`. `verify-asm-scalar`
 checks that proof during the build, and embeds the certified reducer bytes.
 A post-link certificate covers the complete conversion, including digit range,
 lane placement and stack restoration. [Digest-to-digits theorem](../../verification/crate/radix16/README.md)
@@ -32,7 +31,7 @@ The two constant multipliers are `R mod L` and `(2^256*R) mod L`. Accumulating
 both products before Montgomery reduction gives a product `T < R*L/8`.
 Consequently `(T+n*L)/R < 9*L/8` for the Montgomery correction `0 <= n < R`,
 so one conditional subtraction suffices. This removes one Montgomery
-reduction and two canonicalization steps from the Rust algorithm.
+reduction and two canonicalization steps from the former Rust algorithm.
 
 Each eliminated low column `x` has correction `q=-x*L0^-1 mod B`. Its low
 product satisfies `(q*L0) mod B = (-x) mod B`, so the carry from adding it is
@@ -47,7 +46,7 @@ one call reduces eight scalars.
 
 | Implementation | ns/call |
 |---|---:|
-| Rust reference | 61.82 |
+| Former Rust reducer | 61.82 |
 | Fused Montgomery assembly | 30.66 |
 | Assembly with shortened carry chain | 28.81 |
 
@@ -64,23 +63,19 @@ gave medians of 43.77 ns before the change and 41.56 ns after it.
 
 ## Validation and reproduction
 
-The tests compare exact limbs against the Rust reducer, canonical bytes
-against an independent scalar implementation, and SIMD recoding against the
-scalar Rust recoder. Inputs
-include every single-bit boundary, shifted multiples of L and their
+The tests reduce each lane with the independent `solana-ed25519` scalar
+implementation and compare all five assembly output limbs with that residue.
+They also compare all 64 output digits with the canonical scalar recoder.
+Inputs include every single-bit boundary, shifted multiples of L and their
 neighbors, full-width random values, zero, and the maximum 512-bit integer.
 Native probes check callee-saved registers, stack restoration, all 64 buffer
 alignments, canaries, read-only input, and guard pages.
 
 ```sh
 export RUSTFLAGS='-C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma'
-features=asm
-cargo test --release --features "$features"
-taskset -c 4 cargo test --release --features "$features" --lib \
-  scalar::wide::tests::profile_scalar_reduce -- --exact --ignored --nocapture
-ED25519_SCALAR_PATH=rust taskset -c 4 cargo test --release \
-  --features "$features" --lib scalar::wide::tests::profile_scalar_reduce \
-  -- --exact --ignored --nocapture
+cargo test --release
+taskset -c 4 cargo test --release --lib \
+  scalar::wide_tests::profile_scalar_reduce -- --exact --ignored --nocapture
 ```
 
 Set `ED25519_SCALAR_ITERS` to change the profiling duration. Set
@@ -91,6 +86,6 @@ when running `cargo test --release --features asm --lib --no-run`.
 ```sh
 ED25519_SCALAR_PATH=digits ED25519_SCALAR_ITERS=20000000 \
   perf record -e cycles:u -c 29989 -- taskset -c 4 "$test_executable" \
-  scalar::wide::tests::profile_scalar_reduce --exact --ignored --nocapture
+  scalar::wide_tests::profile_scalar_reduce --exact --ignored --nocapture
 perf annotate --stdio -M intel ed25519_simd_digest_to_radix16
 ```
