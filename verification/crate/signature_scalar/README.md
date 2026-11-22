@@ -9,13 +9,13 @@ zero bytes. All higher bits of RAX are zero. [Public contract](coq/Audit.v) · [
 
 ## What to audit
 
-1. Compare the Rust call with the contract. RSI points to eight pointers to
+1. Compare the call in `prepare_chunk.S` with the contract. RSI points to eight pointers to
    32-byte scalars. Inputs may be unaligned and pointers may repeat. RDI
    designates 512 disjoint writable bytes. Digit zero is least significant.
    Check that the caller takes S from the second half of each signature and
    uses the returned bit for the corresponding lane. A Coq entry witness
    admits every 256-bit S with all eight pointers sharing one unaligned
-   scalar. [Entry witness](coq/EntryTests.v) · [ABI](../../../src/scalar/asm.rs) · [Caller](../../../src/verifier/driver.rs)
+   scalar. [Entry witness](coq/EntryTests.v) · [Caller](../../../src/wide/avx512ifma/prepare_chunk.S) · [Rust input layout](../../../src/wide/avx512ifma/prepare.rs)
 2. Check the ELF evidence for the entire function and the 32 read-only bytes
    containing L. Coq re-encodes the listing, including the signed displacements
    from the ends of the RIP-relative loads, and checks the literal as a

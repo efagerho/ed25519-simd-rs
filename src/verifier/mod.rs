@@ -1,16 +1,13 @@
 mod driver;
 mod policy;
 
-use crate::batch;
 use crate::edwards::PointTable;
 use crate::input::VerifyInput;
+use crate::wide::avx512ifma::ChunkScratch;
 use core::mem::MaybeUninit;
 use std::sync::LazyLock;
 
 pub use policy::{DalekPolicy, VerificationPolicy, VerifyPolicy, Zip215Policy};
-
-const SIMD_LANES: usize = batch::SIMD_LANES;
-const R_ENCODING_LEN: usize = batch::R_ENCODING_LEN;
 
 // Placeholder table for invalid lanes, also shared across verifiers.
 static IDENTITY_TABLE: LazyLock<PointTable> = LazyLock::new(PointTable::identity);
@@ -26,7 +23,7 @@ pub struct Verifier<P: VerificationPolicy = Zip215Policy> {
     // Invalid lanes are masked out but still need a real ladder table.
     identity_table: &'static PointTable,
     visit_order: Vec<usize>,
-    key_tables: Box<MaybeUninit<[PointTable; SIMD_LANES]>>,
+    scratch: Box<MaybeUninit<ChunkScratch>>,
 }
 
 /// A verifier fixed to ZIP-215 at compile time.
@@ -60,7 +57,7 @@ impl<P: VerificationPolicy> Verifier<P> {
             policy: core::marker::PhantomData,
             identity_table: &IDENTITY_TABLE,
             visit_order: Vec::new(),
-            key_tables: Box::new_uninit(),
+            scratch: Box::new_uninit(),
         }
     }
 

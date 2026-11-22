@@ -12,7 +12,7 @@ preserve bytes outside the requested extent. [Public contract](coq/Audit.v) ·
 
 ## What to audit
 
-1. **Check the Rust ABI and the consumer.** RDI points to a writable,
+1. **Check the assembly call and the consumer.** RDI points to a writable,
    64-byte-aligned 1,280-byte X/Y/Z/T buffer. RSI points to 8-byte-aligned
    storage for RDX tables, with RDX equal to 1 or 8. Each table contains
    seventeen 160-byte rows. The twenty little-endian words in a row encode
@@ -21,7 +21,7 @@ preserve bytes outside the requested extent. [Public contract](coq/Audit.v) ·
    `scalar_cache` definition. The Edwards interpretation requires a valid
    extended point with Z equal to one in the field. It applies to points
    with torsion as well as prime-order points.
-   [Rust call](../../../src/wide/avx512ifma/decode.rs) ·
+   [Eight-table call](../../../src/wide/avx512ifma/prepare_chunk.S) ·
    [Cache representation](../../curve25519/group/Representation.v) ·
    [Ladder table premise](../full_ladder/coq/Operands.v)
 2. **Check the code identity and the live operands.** The certificate binds

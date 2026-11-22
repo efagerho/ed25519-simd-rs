@@ -41,8 +41,8 @@ theorem also covers the standalone queue entries.
   [Schedule.v](coq/Schedule.v).
 * For the predecoded entry check that the incoming decoder-valid bit
   describes the original R bytes, including the invalid case. The theorem
-  takes this as an input contract. The Rust driver passes the R point and
-  validity mask from the paired assembly decoder. Both entries take the eligibility flags,
+  takes this as an input contract. The driver passes the R point and validity mask saved by
+  [chunk preparation](../../../src/wide/avx512ifma/prepare_chunk.S). Both entries take the eligibility flags,
   indices and active count from the caller. Hashing and key preparation
   are caller responsibilities.
 

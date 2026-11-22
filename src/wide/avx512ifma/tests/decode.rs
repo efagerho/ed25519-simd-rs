@@ -1,13 +1,8 @@
 use super::LANES;
-use super::point::WidePoint;
+use super::WidePoint;
 use crate::batch::EncodedPointChunk;
 use crate::edwards::PointTable;
 use core::mem::MaybeUninit;
-
-/// The eight affine R points returned by the paired key/signature decoder.
-pub(crate) struct WideRPoint {
-    pub(super) point: WidePoint,
-}
 
 /// The Dalek check reads the original low 255 input bits from the Y limbs.
 pub(super) fn decompress_zip215<'a, const N: usize>(
@@ -52,27 +47,5 @@ pub(super) fn build_key_tables<'a, const N: usize>(
             N,
         );
         out.assume_init_ref()
-    }
-}
-
-pub(crate) struct DecodedKeys<'a> {
-    pub(crate) tables: &'a [PointTable; LANES],
-    pub(crate) valid: [bool; LANES],
-    pub(crate) r: WideRPoint,
-    pub(crate) r_valid: u8,
-}
-
-pub(crate) fn decode_keys_and_decompress_r<'a>(
-    keys: &EncodedPointChunk,
-    r_bytes: &EncodedPointChunk,
-    out: &'a mut MaybeUninit<[PointTable; LANES]>,
-) -> DecodedKeys<'a> {
-    let mut storage = MaybeUninit::uninit();
-    let ([key, r], [kmask, rmask]) = decompress_zip215(&[*keys, *r_bytes], &mut storage);
-    DecodedKeys {
-        tables: build_key_tables(key, out),
-        valid: super::mask_to_lanes(kmask),
-        r: WideRPoint { point: *r },
-        r_valid: rmask,
     }
 }

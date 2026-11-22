@@ -27,13 +27,13 @@ standalone queue entries with the same acceptance predicate. [Public contract](c
   the low mask byte first in queue order. Check the occupied-slot premises
   in `flush_result` and the copy destinations in `push_abi`.
   [Screen.v](coq/Screen.v) · [Queue.v](coq/Queue.v) · [Staging.v](../post_hash/Staging.v)
-* **Decoded entry.** Rust passes the second point chunk and
-  second validity byte from the paired key/R decoder. Trace that handoff
-  at the FFI. The proof obtains both from the linked decoder certificate,
+* **Decoded entry.** Chunk preparation leaves R in the second decoder output and saves
+  the high mask byte. Rust passes both to the decoded entry. Trace that
+  handoff across the assembly and Rust layouts. The proof obtains both from the linked decoder certificate,
   uses the original radix-51 Y digits for canonicality, rejects small
   order, and tests both X and Y against the projective candidate. A zero
   X cannot pass the small-order check, including the negative-zero case.
-  [Decoder handoff](../../../src/wide/avx512ifma/decode.rs) · [Decoded.v](coq/Decoded.v)
+  [Chunk preparation](../../../src/wide/avx512ifma/prepare_chunk.S) · [Rust scratch layout](../../../src/wide/avx512ifma/prepare.rs) · [Decoded.v](coq/Decoded.v)
 * **Linked code and grouped operations.** Compare the manifest with the
   release ELF for the five Dalek wrappers, the shared scatter routine,
   and their callees. Check each named instruction group against its stated

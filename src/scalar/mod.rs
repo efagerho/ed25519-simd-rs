@@ -7,6 +7,7 @@ const LANES: usize = crate::batch::SIMD_LANES;
 const WIDE_WORDS: usize = 8;
 
 mod asm;
+#[cfg(test)]
 pub(crate) use asm::prepare_signature_scalars;
 #[cfg(test)]
 mod tests;

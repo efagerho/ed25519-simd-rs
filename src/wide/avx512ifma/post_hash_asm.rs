@@ -1,7 +1,7 @@
 //! SysV inputs and scatter metadata for both policies.
 use super::LANES;
-use super::decode::WideRPoint;
 use super::point::WidePoint;
+use super::prepare::WideRPoint;
 use crate::batch::{EncodedPointChunk, PendingLanes};
 use crate::edwards::{AffineCachedPoint, BASEPOINT_TABLE, CachedPoint, PointTable};
 use crate::scalar::Radix16;
@@ -57,14 +57,6 @@ unsafe extern "C" {
         out: *mut bool,
         len: usize,
     ) -> u32;
-    fn ed25519_simd_dalek_filter_keys(tables: *const *const CachedPoint, valid: *mut bool);
-}
-
-pub(crate) fn reject_small_order_keys(tables: &[&PointTable; LANES], valid: &mut [bool; LANES]) {
-    let entries = tables.map(PointTable::entries_ptr);
-    // SAFETY: every initialized table contains the [8]A entry at index 16.
-    // The filter clears bytes of this exclusive eight-element bool array.
-    unsafe { ed25519_simd_dalek_filter_keys(entries.as_ptr(), valid.as_mut_ptr()) }
 }
 
 pub(crate) fn check_decoded<P: VerificationPolicy>(
