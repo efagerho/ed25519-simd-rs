@@ -36,7 +36,7 @@ chunk. [Public theorem](coq/Object.v) · [Contract](coq/Audit.v) · [Lane result
    arbitrary input bytes through the transpose and proves the carries,
    conditional negation and parity against the word operations.
    [Schedule and encodings](coq/Glue.v) · [Byte unpacking](coq/Unpack.v) · [IFMA scaling and parity](coq/Scale.v)
-4. **The ABI and memory boundary.** The Rust caller supplies RDI pointing to
+4. **The ABI and memory boundary.** The caller supplies RDI pointing to
    one or two 1,280-byte output points aligned to 64 bytes, RSI to the
    corresponding unaligned 256-byte input chunks, and RDX equal to 1 or 2.
    Input, output and private stack storage must be disjoint. The output
@@ -48,7 +48,7 @@ chunk. [Public theorem](coq/Object.v) · [Contract](coq/Audit.v) · [Lane result
    operations to native memory effects, including the stores behind Rust’s
    `assume_init_ref`, is part of the human audit. A single flat-memory
    read/write and preservation theorem for the entire decoder is still open.
-   [Caller interpreter](coq/Caller.v) · [Rust caller](../../../src/wide/avx512ifma/decode.rs) · [Shared machine and memory assumptions](../../README.md#shared-audit-surface)
+   [Caller interpreter](coq/Caller.v) · [Paired preparation call](../../../src/wide/avx512ifma/prepare_chunk.S) · [Rust scratch layout](../../../src/wide/avx512ifma/prepare.rs) · [Shared machine and memory assumptions](../../README.md#shared-audit-surface)
 
 ## Replay
 

@@ -1,6 +1,6 @@
 use super::point::{WideFe, WidePoint};
 use super::*;
-use crate::batch::EncodedPointChunk;
+use crate::batch::{EncodedPointChunk, mask_to_lanes};
 use crate::edwards::{
     AffineCachedPoint, BASEPOINT_TABLE, CachedPoint, POINT_ENCODING_LEN, PointTable,
 };
@@ -12,12 +12,14 @@ use ladder::{PreparedChunk, mul_s_base_minus_k_public};
 use serde_json::Value;
 
 mod cached_add;
+mod decode;
 mod double4;
 mod field;
 mod key_table;
 mod ladder;
 mod ladder_step;
 mod point;
+mod prepare_chunk;
 mod recompress;
 mod torsion;
 
@@ -508,20 +510,24 @@ fn wide_multiscalar_matches_nontrivial_basepoint_relation() {
 
 #[test]
 fn dalek_key_filter_preserves_eligibility_for_every_lane_mask() {
+    unsafe extern "C" {
+        fn ed25519_simd_dalek_filter_keys(tables: *const *const CachedPoint, valid: *mut bool);
+    }
     let regular = decode_public_key_table(&BASEPOINT_COMPRESSED).unwrap();
     // y=0 represents an order-four point, so [8]A is the identity.
     let small = decode_public_key_table(&[0; 32]).unwrap();
     for mask in 0..=u8::MAX {
-        let tables = core::array::from_fn(|j| {
+        let entries: [_; LANES] = core::array::from_fn(|j| {
             if mask & (1 << j) != 0 {
-                &small
+                small.entries_ptr()
             } else {
-                &regular
+                regular.entries_ptr()
             }
         });
         for initial in [0xff_u8, 0xa5] {
             let mut valid = mask_to_lanes(initial);
-            reject_small_order_keys(&tables, &mut valid);
+            // SAFETY: all eight tables have an initialized [8]A entry.
+            unsafe { ed25519_simd_dalek_filter_keys(entries.as_ptr(), valid.as_mut_ptr()) };
             assert_eq!(valid, mask_to_lanes(initial & !mask));
         }
     }

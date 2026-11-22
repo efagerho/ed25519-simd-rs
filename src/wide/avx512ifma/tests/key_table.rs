@@ -29,8 +29,9 @@ fn key_tables_match_every_signed_multiple_in_both_output_modes() {
     encoded[0] = [0xff; 32];
     encoded[0][0] = 0xee;
     let mut out = MaybeUninit::uninit();
-    let batch = decode_keys_and_decompress_r(&encoded, &encoded, &mut out);
-    assert_eq!(batch.valid, [true; LANES]);
+    let (mut point, valid) = decompress_points_wide(&encoded);
+    assert_eq!(valid, u8::MAX);
+    let tables = decode::build_key_tables(&mut point, &mut out);
     let singles = encoded.map(|bytes| decode_public_key_table(&bytes).unwrap());
 
     for digit in -8i8..=8 {
@@ -40,7 +41,7 @@ fn key_tables_match_every_signed_multiple_in_both_output_modes() {
         });
         let (affine, valid) = decompress_points_wide(&expected);
         assert_eq!(valid, u8::MAX);
-        let all = cached_fields(batch.tables, digit);
+        let all = cached_fields(tables, digit);
         let single = cached_fields(&singles, digit);
         for (batch_field, single_field) in all.iter().zip(single) {
             for (a, b) in batch_field.iter().zip(single_field) {

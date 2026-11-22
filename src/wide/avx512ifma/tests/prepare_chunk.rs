@@ -1,0 +1,121 @@
+use super::*;
+use crate::wide::avx512ifma::prepare::prepare_chunk;
+use crate::{DalekPolicy, VerificationPolicy, VerifyInput, VerifyPolicy, Zip215Policy};
+
+fn check_lanes<P: VerificationPolicy>(
+    inputs: &[VerifyInput<'_>; LANES],
+    scratch: &mut MaybeUninit<ChunkScratch>,
+    identity: &PointTable,
+) {
+    let (chunk, lanes) = prepare_chunk::<P>(inputs, scratch, identity).unwrap();
+    let keys = inputs.each_ref().map(|i| i.public_key);
+    let encodings = inputs
+        .each_ref()
+        .map(|i| *i.signature.first_chunk().unwrap());
+    let (s_mask, digits) = crate::scalar::prepare_signature_scalars(
+        inputs.each_ref().map(|i| i.signature.last_chunk().unwrap()),
+    );
+    let (mut a, a_mask) = decompress_points_wide(&keys);
+    let (r, r_mask) = decompress_points_wide(&encodings);
+    let mut storage = MaybeUninit::uninit();
+    let tables = decode::build_key_tables::<LANES>(&mut a, &mut storage);
+
+    assert_eq!(chunk.public_keys, keys);
+    assert_eq!(chunk.r_bytes, encodings);
+    assert_eq!(chunk.s_digits, digits);
+    assert_eq!(lanes.r_valid, r_mask);
+    for (actual, expected) in [
+        (chunk.r.point.x, r.x),
+        (chunk.r.point.y, r.y),
+        (chunk.r.point.z, r.z),
+        (chunk.r.point.t, r.t),
+    ] {
+        assert_eq!(wide_rows(actual), wide_rows(expected));
+    }
+    for j in 0..LANES {
+        let key_ok = a_mask & (1 << j) != 0;
+        let weak = keys[j] == [0; 32]; // the only small-order key in this fixture
+        assert_eq!(
+            lanes.valid[j],
+            key_ok && s_mask & (1 << j) != 0 && (P::POLICY == VerifyPolicy::Zip215 || !weak)
+        );
+        let selected = lanes.tables[j];
+        assert_eq!(core::ptr::eq(selected, identity), !key_ok);
+        if key_ok {
+            for digit in -8..=8 {
+                let limbs = |table: &PointTable| {
+                    let (plus, minus, z2, t2d) = table.select_signed_cached_ref(digit).coords();
+                    [plus, minus, z2, t2d].map(|field| field.loose_limbs())
+                };
+                assert_eq!(
+                    limbs(selected),
+                    limbs(&tables[j]),
+                    "lane {j}, digit {digit}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn prepared_chunk_matches_component_outputs_in_every_lane() {
+    use curve25519::{edwards::EdwardsPoint, scalar::Scalar};
+
+    let mut inputs = core::array::from_fn(|j| {
+        let multiple = |n| {
+            EdwardsPoint::mul_base(&Scalar::from(n))
+                .compress()
+                .to_bytes()
+        };
+        let mut signature = [0; 64];
+        signature[..32].copy_from_slice(&multiple(9 + j as u64));
+        signature[32] = 0x81 + j as u8;
+        VerifyInput {
+            public_key: multiple(1 + j as u64),
+            signature,
+            message: &[],
+        }
+    });
+    inputs[1].public_key = [0; 32];
+    inputs[2].public_key = [2; 32]; // off curve
+    inputs[3].signature[32..].fill(0xff);
+    inputs[4].signature[..32].fill(2); // bad R, eligibility still set before hashing
+    inputs[5].signature[..32].fill(0xff);
+    inputs[5].signature[0] = 0xee; // noncanonical identity, negative zero
+
+    let identity = PointTable::identity();
+    let mut scratch = Box::<ChunkScratch>::new_uninit();
+    for _ in 0..LANES {
+        check_lanes::<Zip215Policy>(&inputs, &mut scratch, &identity);
+        check_lanes::<DalekPolicy>(&inputs, &mut scratch, &identity);
+        inputs.rotate_left(1);
+    }
+}
+
+#[test]
+fn empty_preparations_do_not_expose_stale_scratch() {
+    let base = VerifyInput {
+        public_key: BASEPOINT_COMPRESSED,
+        signature: [0; 64],
+        message: &[],
+    };
+    let mut inputs = [base; LANES];
+    let identity = PointTable::identity();
+    let mut scratch = Box::<ChunkScratch>::new_uninit();
+    assert!(prepare_chunk::<DalekPolicy>(&inputs, &mut scratch, &identity).is_some());
+
+    for input in &mut inputs {
+        input.signature[32..].fill(0xff);
+    }
+    assert!(prepare_chunk::<Zip215Policy>(&inputs, &mut scratch, &identity).is_none());
+    for input in &mut inputs {
+        input.signature = base.signature;
+        input.public_key = [2; 32];
+    }
+    assert!(prepare_chunk::<Zip215Policy>(&inputs, &mut scratch, &identity).is_none());
+    for input in &mut inputs {
+        input.public_key = [0; 32];
+    }
+    assert!(prepare_chunk::<DalekPolicy>(&inputs, &mut scratch, &identity).is_none());
+    assert!(prepare_chunk::<Zip215Policy>(&inputs, &mut scratch, &identity).is_some());
+}

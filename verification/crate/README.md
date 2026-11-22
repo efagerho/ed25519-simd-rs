@@ -1,6 +1,6 @@
 # Assembly proofs
 
-Each routine has one public theorem binding its result to the bytes of its
+Each verified routine has one public theorem binding its result to the bytes of its
 linked symbol. Start with the routine’s
 README for its contract and release audit.
 
@@ -31,6 +31,11 @@ routine’s inputs from the Rust call site to the public theorem and its outputs
 back to the caller. The certificates begin at the assembly ABI. Rust dispatch,
 caller-side input preparation, and end-to-end Ed25519 acceptance require
 separate review.
+
+The pre-hash chunk wrapper has native differential tests and awaits a composed
+proof. Audit its lane pointers, S and decoder mask bits, identity-table
+selection, and Dalek filter handoff against the individual callee contracts.
+[Assembly wrapper](../../src/wide/avx512ifma/prepare_chunk.S) · [Rust layouts](../../src/wide/avx512ifma/prepare.rs)
 
 1. **Identify the code.** Use the exact release ELF. Independently compare its
    digest, symbol name, address, size, and bytes with the audit manifest and
