@@ -54,7 +54,7 @@ def replay(elf, work, dependencies):
     checks = check_object(work, FLAGS, "key_table")
     asm = listing.SOURCE.parent
     write_evidence(elf, work, "key_table", checks, [linked[0], *helpers, linked[1]],
-                   [asm / name for name in ("key_table.S", "add_cached.S", "decompress_r.S",
+                   [asm / name for name in ("key_table.S", "add_cached.S", "fe51_product.inc", "decompress_r.S",
                                             "torsion.S", "point_encoding.inc", "pow22523.inc")], FLAGS)
     print(f"Checked {checks['theorem']} against {elf}")
 

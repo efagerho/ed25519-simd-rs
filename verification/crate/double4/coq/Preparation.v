@@ -54,7 +54,7 @@ Proof.
  set(ab:=call j SquarePair(scratch,0)ab_in).
  destruct(call_square j ab_in 0 Wabi Cabi Xabi Yabi (or_introl eq_refl))as[A AV].
  destruct(call_square j ab_in 5 Wabi Cabi Xabi Yabi (or_intror eq_refl))as[B BV].
- change(squared(rfield ab 0))in A;change(squared(rfield ab 5))in B.
+ change(folded_columns(rfield ab 0))in A;change(folded_columns(rfield ab 5))in B.
  change(represents(limbs(rfield ab 0))(limbs(rfield ab_in 0)*limbs(rfield ab_in 0)))in AV.
  change(represents(limbs(rfield ab 5))(limbs(rfield ab_in 5)*limbs(rfield ab_in 5)))in BV.
  rewrite (limbs_ext _ _ ABx), XY0 in AV.
@@ -77,7 +77,7 @@ Proof.
  set(cd:=call j SquarePair(scratch,0)cd_in).
  destruct(call_square j cd_in 0 Wcdi Ccdi Zcdi Scdi (or_introl eq_refl))as[CC CV].
  destruct(call_square j cd_in 5 Wcdi Ccdi Zcdi Scdi (or_intror eq_refl))as[DD DV].
- change(squared(rfield cd 0))in CC;change(squared(rfield cd 5))in DD.
+ change(folded_columns(rfield cd 0))in CC;change(folded_columns(rfield cd 5))in DD.
  change(represents(limbs(rfield cd 0))(limbs(rfield cd_in 0)*limbs(rfield cd_in 0)))in CV.
  change(represents(limbs(rfield cd 5))(limbs(rfield cd_in 5)*limbs(rfield cd_in 5)))in DV.
  rewrite (limbs_ext _ _ CDz) in CV;rewrite(limbs_ext _ _ CDs)in DV.
@@ -87,9 +87,9 @@ Proof.
  set(sub_in:=shuffle j(stage 3 false)cd).
  assert(Wsi:lane_words sub_in)by(apply shuffle_words;exact Wcd).
  assert(Csi:constants sub_in)by(apply stage_constants;exact Ccd).
- assert(SC:squared(rfield sub_in 0)).
+ assert(SC:folded_columns(rfield sub_in 0)).
  { apply(field_bound_ext _ (rfield cd 0));[intros;symmetry;apply stage3_regs;lia|exact CC]. }
- assert(SD:squared(rfield sub_in 5)).
+ assert(SD:folded_columns(rfield sub_in 5)).
  { apply(field_bound_ext _ (rfield cd 5));[intros;symmetry;apply stage3_regs;lia|exact DD]. }
  assert(SA:forall i,(i<5)%nat -> field sub_in scratch 0 i=rfield ab 0 i).
  { intros i I;unfold sub_in,field;rewrite stage3_cells. change(field cd scratch 0 i=rfield ab 0 i).
@@ -97,8 +97,8 @@ Proof.
  assert(SB:forall i,(i<5)%nat -> field sub_in scratch 5 i=rfield ab 5 i).
  { intros i I;unfold sub_in,field;rewrite stage3_cells. change(field cd scratch 5 i=rfield ab 5 i).
    unfold cd;rewrite call_field. apply stage2_b;exact I. }
- assert(SAb:squared(field sub_in scratch 0))by(eapply field_bound_ext;[intros;symmetry;apply SA;assumption|exact A]).
- assert(SBb:squared(field sub_in scratch 5))by(eapply field_bound_ext;[intros;symmetry;apply SB;assumption|exact B]).
+ assert(SAb:folded_columns(field sub_in scratch 0))by(eapply field_bound_ext;[intros;symmetry;apply SA;assumption|exact A]).
+ assert(SBb:folded_columns(field sub_in scratch 5))by(eapply field_bound_ext;[intros;symmetry;apply SB;assumption|exact B]).
  destruct(stage3_bias j cd)as[Bias0 Bias1].
  set(sub:=call j SubtractReduce(scratch,0)sub_in).
  pose proof(fun start=>call_subtract j sub_in start Wsi Csi SC SD SAb SBb Bias0 Bias1)as Sub.

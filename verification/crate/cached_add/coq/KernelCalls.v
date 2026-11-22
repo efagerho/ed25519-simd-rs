@@ -14,7 +14,7 @@ Definition kernel_inputs k (b:bstate) bases :=
  forallb(fun i=>includes(fst b i)0(input_bound k i))(seq 0 10) &&
  singleton(fst b 28%nat)19 && singleton(fst b 29%nat)(radix-1) &&
  (negb(needs_bias k) || (singleton(fst b 30%nat)(bias 0) && singleton(fst b 31%nat)(bias 1))) &&
- forallb(fun i=>includes(bload b bases(load_base k)(64*Z.of_nat i))0(right_bound k i))(seq 0(right_count k)).
+ forallb(fun i=>includes(bload b bases(load_base k)(64*Z.of_nat i))0(right_bound k))(seq 0(right_count k)).
 Lemma bload_sound b s bases base disp : bmodels b s ->
  bounded(bload b bases base disp)(lane_load s bases base disp).
 Proof. intros[R M];unfold bload,lane_load;destruct(find _ _)as[[r a]|];auto;unfold bounded;cbn;lia. Qed.
@@ -29,7 +29,7 @@ Proof.
    + intros i I;eapply includes_sound;[apply Reg, in_seq;lia|apply R].
    + split;[eapply singleton_sound;eauto|];split;[eapply singleton_sound;eauto|].
      intro K;rewrite K in Bias;cbn in Bias;apply andb_true_iff in Bias as[A B];split;eapply singleton_sound;eauto.
- - intros i I;eapply includes_sound;[apply Mem,in_seq;lia|apply bload_sound;split;assumption].
+ - intros i I;eapply includes_sound;[apply (Mem i),in_seq;lia|apply bload_sound;split;assumption].
 Qed.
 Definition target_value k r m start := match k with
  | PrepareAB | PrepareEH=>if Nat.eqb start 0 then pack m 5-pack m 0 else pack m 5+pack m 0

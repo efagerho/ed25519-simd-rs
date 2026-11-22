@@ -17,8 +17,9 @@ Import ListNotations. Local Open Scope Z_scope.
 Definition encoding p sig j := read_le 32 (original p) (lane_ptr p sig j).
 Definition signature_scalar p j := read_le 32 (original p) (s_ptr p j).
 Definition decodes z P := y P=residue(z mod 2^255) /\ has_sign (Z.testbit z 255) (x P).
-Definition accepts mode p j := signature_scalar p j<L /\ exists P,
- decodes (encoding p false j) P /\ (mode=true -> multiple 8 P<>identity).
+Definition accepts mode p j :=
+ signature_scalar p j<L /\ (exists R, decodes (encoding p true j) R) /\
+ exists A, decodes (encoding p false j) A /\ (mode=true -> multiple 8 A<>identity).
 
 Definition scalar_result p out :=
  0<=regs out 0%nat<256 /\ forall j,(j<8)%nat ->
@@ -154,27 +155,29 @@ Proof.
 Qed.
 
 Lemma valid_lane mode p out incoming prior j : scalar_result p out ->
- lane_result p false j -> tables_result p incoming prior -> (j<8)%nat ->
+ lane_result p false j -> lane_result p true j -> tables_result p incoming prior -> (j<8)%nat ->
  (final_flag mode (filter_entry p incoming prior) (regs out 0%nat) (decoded p) j=true <->
   accepts mode p j).
 Proof.
- intros [_ S] [Dec _] Tables J;destruct(S j J) as [Scalar _].
+ intros [_ S] [Dec _] [Rdec _] Tables J;destruct(S j J) as [Scalar _].
  set (f:=flags(eligible_mask (regs out 0%nat) (decoded p))).
- assert (Common:f j=true <-> signature_scalar p j<L /\ exists P,decodes(encoding p false j) P).
- { unfold f;rewrite (proj2(flag_exact _ _)),eligible_bit,andb_true_iff,Scalar by exact J.
+ assert (Common:f j=true <-> signature_scalar p j<L /\
+   (exists R, decodes (encoding p true j) R) /\ exists P,decodes(encoding p false j) P).
+ { unfold f;rewrite (proj2(flag_exact _ _)),eligible_bit,!andb_true_iff,Scalar.
    change (bit (key_mask (decoded p)) j=true <-> exists P,decodes (encoding p false j) P) in Dec.
-   rewrite selected_bit in Dec by assumption;tauto. }
+   change (bit (octet (decoded p) 1) j=true <-> exists R,decodes (encoding p true j) R) in Rdec.
+   tauto. }
  unfold final_flag;fold f;unfold accepts.
  destruct mode.
  - destruct (f j) eqn:F.
-   + destruct (proj1 Common eq_refl) as [Canon [P DP]].
+   + destruct (proj1 Common eq_refl) as [Canon [Rdecodes [P DP]]].
      assert (Filter:forall Q,decodes(encoding p false j) Q ->
         (Keys.filter_keys (filter_entry p incoming prior) f j=true <-> multiple 8 Q<>identity)).
      { intros Q D;destruct(Tables j 8 J ltac:(lia) Q D) as [Bound Rep].
        rewrite (Keys.filter_lane_correct _ Q _ j Bound Rep J),F;tauto. }
-     split;[intro H;split;[exact Canon|exists P;split;[exact DP|intros _;now apply (Filter P DP)]]|].
-     intros [_ [Q [D Strong]]];apply (Filter Q D);auto.
+     split;[intro H;split;[exact Canon|split;[exact Rdecodes|];exists P;split;[exact DP|intros _;now apply (Filter P DP)]]|].
+     intros [_ [_ [Q [D Strong]]]];apply (Filter Q D);auto.
    + rewrite filter_clears by exact F;split;[discriminate|].
-     intros [Canon [P [D Strong]]];apply (proj2 Common);split;[exact Canon|now exists P].
- - rewrite Common;split;intros [C [P D]];split;[exact C|exists P;split;[exact D|discriminate]|exact C|exists P;tauto].
+     intros [Canon [Rdecodes [P [D Strong]]]];apply (proj2 Common);repeat split;auto;now exists P.
+ - rewrite Common;split;intros [C [Rdecodes [P D]]];repeat split;auto;exists P;intuition discriminate.
 Qed.

@@ -38,7 +38,7 @@ Proof.
  pose proof(round_correct j false (early_rounds j n s) Wn Cn
  (Bn 0%nat ltac:(lia))(Bn 1%nat ltac:(lia))(Bn 2%nat ltac:(lia)))as[Wo[Co Ro]].
  split;[exact Wo|]. split;[exact Co|]. split.
- - intros c H;apply reduced_loose;apply(Ro c H).
+ - intros c H;apply(Ro c H).
  - intros c H. destruct(Ro c H)as[B V].
    eapply ctrans;[exact V|]. apply doubling_congruent;try lia.
    + exact(Rn 0%nat ltac:(lia)).

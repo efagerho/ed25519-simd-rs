@@ -37,6 +37,7 @@ enum MsgLenArg {
 enum InvalidMode {
     WellFormed,
     Malformed,
+    UndecodableR,
 }
 
 impl InvalidMode {
@@ -44,6 +45,7 @@ impl InvalidMode {
         match self {
             Self::WellFormed => "wellformed",
             Self::Malformed => "malformed",
+            Self::UndecodableR => "undecodable-r",
         }
     }
 }
@@ -52,7 +54,7 @@ pub fn run<P: VerificationPolicy>() {
     let args: Vec<String> = std::env::args().collect();
     let usage = format!(
         "usage: {} [keys] [iters] [msglen|mixed] [invalid_pct] \
-         [wellformed|malformed]",
+         [wellformed|malformed|undecodable-r]",
         args[0]
     );
     // `cargo test --all-targets` runs this as a plain binary; a one-shot timing
@@ -82,6 +84,7 @@ pub fn run<P: VerificationPolicy>() {
     let invalid_mode = match args.get(5).map(String::as_str) {
         Some("wellformed") | None => InvalidMode::WellFormed,
         Some("malformed") => InvalidMode::Malformed,
+        Some("undecodable-r") => InvalidMode::UndecodableR,
         Some(value) => usage_error(&format!("invalid invalid-mode: {value}"), &usage),
     };
 
@@ -114,6 +117,7 @@ pub fn run<P: VerificationPolicy>() {
                     }
                 }
                 InvalidMode::Malformed => signature[32..].fill(0xff),
+                InvalidMode::UndecodableR => signature[..32].fill(2),
             }
         }
     }

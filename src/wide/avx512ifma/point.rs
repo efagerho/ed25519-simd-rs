@@ -40,13 +40,21 @@ const _: () = {
 };
 
 #[cfg(not(feature = "verify-asm-double4"))]
-core::arch::global_asm!(include_str!("double4.S"), options(raw));
+core::arch::global_asm!(
+    include_str!("fe51_product.inc"),
+    include_str!("double4.S"),
+    options(raw)
+);
 
 #[cfg(feature = "verify-asm-double4")]
 core::arch::global_asm!(include_str!(concat!(env!("OUT_DIR"), "/double4-checked.S")));
 
 #[cfg(not(feature = "verify-asm-cached-add"))]
-core::arch::global_asm!(include_str!("add_cached.S"), options(raw));
+core::arch::global_asm!(
+    include_str!("fe51_product.inc"),
+    include_str!("add_cached.S"),
+    options(raw)
+);
 
 #[cfg(feature = "verify-asm-cached-add")]
 core::arch::global_asm!(include_str!(concat!(

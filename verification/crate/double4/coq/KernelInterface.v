@@ -27,8 +27,8 @@ Definition operands k r :=
  r 28%nat=19 /\ r 29%nat=radix-1 /\
  (match k with SubtractReduce=>r 30%nat=bias 0 /\ r 31%nat=bias 1 | _=>True end).
 Definition right_count k := match k with AddReduce | SquarePair=>0%nat | SubtractReduce=>10%nat | _=>5%nat end.
-Definition right_bound k i := match k with SubtractReduce=>square_bound i | _=>split-1 end.
-Definition right_ok k m := forall i, (i<right_count k)%nat -> 0<=m i<=right_bound k i.
+Definition right_bound k := match k with SubtractReduce=>folded_column_bound | _=>split-1 end.
+Definition right_ok k m := forall i, (i<right_count k)%nat -> 0<=m i<=right_bound k.
 Definition load_base k := match k with SubtractReduce=>6%nat | _=>8%nat end.
 Local Opaque code check_kernel.
 Theorem all_kernels_checked k : check_kernel k=true.

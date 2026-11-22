@@ -60,7 +60,7 @@ def compile_ladder(elf, work):
     sources = [VERIFY.parent / "src/wide/avx512ifma/ladder_step.S"]
     for name, symbol, _ in CALLEES:
         symbols.append((f"ed25519_simd_{symbol}_ifma", *callees[symbol]))
-        sources.append(import_module(f"{name}.listing").SOURCE)
+        sources.extend(src for src in import_module(f"{name}.listing").SOURCES if src not in sources)
     return flags, symbols, sources
 
 

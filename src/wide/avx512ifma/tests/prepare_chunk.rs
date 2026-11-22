@@ -37,7 +37,9 @@ fn check_lanes<P: VerificationPolicy>(
         let weak = keys[j] == [0; 32]; // the only small-order key in this fixture
         assert_eq!(
             lanes.valid[j],
-            key_ok && s_mask & (1 << j) != 0 && (P::POLICY == VerifyPolicy::Zip215 || !weak)
+            key_ok
+                && (s_mask & r_mask) & (1 << j) != 0
+                && (P::POLICY == VerifyPolicy::Zip215 || !weak)
         );
         let selected = lanes.tables[j];
         assert_eq!(core::ptr::eq(selected, identity), !key_ok);
@@ -79,7 +81,7 @@ fn prepared_chunk_matches_component_outputs_in_every_lane() {
     inputs[1].public_key = [0; 32];
     inputs[2].public_key = [2; 32]; // off curve
     inputs[3].signature[32..].fill(0xff);
-    inputs[4].signature[..32].fill(2); // bad R, eligibility still set before hashing
+    inputs[4].signature[..32].fill(2); // off-curve R
     inputs[5].signature[..32].fill(0xff);
     inputs[5].signature[0] = 0xee; // noncanonical identity, negative zero
 
@@ -113,7 +115,19 @@ fn empty_preparations_do_not_expose_stale_scratch() {
         input.public_key = [2; 32];
     }
     assert!(prepare_chunk::<Zip215Policy>(&inputs, &mut scratch, &identity).is_none());
+    // Each mask has passing lanes, but no lane passes all three checks.
+    for (j, input) in inputs.iter_mut().enumerate() {
+        *input = base;
+        match j % 3 {
+            0 => input.signature[32..].fill(0xff),
+            1 => input.public_key = [2; 32],
+            _ => input.signature[..32].fill(2),
+        }
+    }
+    assert!(prepare_chunk::<Zip215Policy>(&inputs, &mut scratch, &identity).is_none());
+    assert!(prepare_chunk::<DalekPolicy>(&inputs, &mut scratch, &identity).is_none());
     for input in &mut inputs {
+        *input = base;
         input.public_key = [0; 32];
     }
     assert!(prepare_chunk::<DalekPolicy>(&inputs, &mut scratch, &identity).is_none());

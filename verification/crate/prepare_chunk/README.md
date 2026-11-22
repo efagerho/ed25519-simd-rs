@@ -2,9 +2,9 @@
 
 Audit `assembled_prepare_chunk_correct` for the common ZIP-215 entry and the
 Dalek entry. A chunk is ready exactly when at least one signature has
-`S < L` and a decodable public key. Dalek also requires that multiplying that
-key by eight gives a point other than the identity. R decoding has its own
-mask and never gates preparation. [Public contract](coq/Audit.v) ·
+`S < L`, a decodable public key and a decodable R. Dalek also requires that
+multiplying that key by eight gives a point other than the identity. If the
+three masks have an empty intersection, preparation skips table construction. [Public contract](coq/Audit.v) ·
 [Proof](coq/Object.v)
 
 On success, each lane retains the original key and R bytes, and its signed

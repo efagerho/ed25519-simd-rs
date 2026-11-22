@@ -67,8 +67,7 @@
 .irp i,0,1,2,3
     d4_rrr vpaddq, %(\first+\i+1), %(\first+\i+1), %(20+\i)
 .endr
-    vpmullq zmm24, zmm24, zmm28
-    vpaddq zmm\first, zmm\first, zmm24
+    vpmadd52luq zmm\first, zmm24, zmm28
 .endm
 
 .altmacro
@@ -123,9 +122,9 @@ ed25519_simd_double4_ifma:
     d4_load rsi, 960, 5
     call .Ld4_square_pair
 
-    // Bias limbs represent 2048*p. Kernels return limbs < 2^52, so even
-    // A+2*C < 3*2^52 is below either bias;
-    // bias + D/B < 2^63. No intermediate add, shift or subtract wraps.
+    // Each folded square column is below 300*2^52. Both limb biases
+    // of 2048*p exceed three such columns, and bias plus one column fits
+    // below 2^63. Thus E, F, G and H can be formed before any carries.
     mov rax, 0x3fffffffffff6800
     vpbroadcastq zmm30, rax
     mov rax, 0x3ffffffffffff800
@@ -167,117 +166,6 @@ ed25519_simd_double4_ifma:
     d4_load rsi, 320, 0
     lea r8, [rsi + 960]
     ret
-
-// ZMM0..4 and (for a pair) 5..9 are inputs/outputs. Multiplication uses
-// one shared right operand at R8. Accumulate exact columns as lo+2^52*hi,
-// folding degree >=5 by 19. ZMM10..19 hold output limbs until all source
-// limbs have been consumed. Interleave both products' low/high accumulators
-// in ZMM20/21 and ZMM22/23 to expose four independent IFMA chains.
-//
-// Single: cache the right operand in unused ZMM5..9; carry in ZMM24.
-// Pair: cache right limbs0..4 in ZMM24/26/27/30/31. The second product's
-// carry stays in ZMM25. The first product's carry after columns0..3 uses
-// ZMM16..19: each is a future second-product output, read before that output
-// is written. Column4 puts the final carry in ZMM24, after right limb0's
-// last use. Thus each right limb needs only one load per kernel call.
-.macro d4_term i, streams, right
-.irp high,0,1
-.irp s,0,1
-.if \s < \streams
-.if \high
-    d4_rrr vpmadd52huq, %(21+2*\s), %(5*\s+\i), \right
-.else
-    d4_rrr vpmadd52luq, %(20+2*\s), %(5*\s+\i), \right
-.endif
-.endif
-.endr
-.endr
-.endm
-
-.macro d4_column k, streams
-.irp s,0,1
-.if \s < \streams
-    d4_rrr vpxorq, %(20+2*\s), %(20+2*\s), %(20+2*\s)
-    d4_rrr vpxorq, %(21+2*\s), %(21+2*\s), %(21+2*\s)
-.endif
-.endr
-.irp wrapped,1,0
-.irp i,0,1,2,3,4
-.irp j,0,1,2,3,4
-.if \i+\j == \k+5*\wrapped
-.if \streams == 1
-    d4_term \i, 1, %(5+\j)
-.elseif \j == 0
-    d4_term \i, \streams, 24
-.elseif \j < 3
-    d4_term \i, \streams, %(25+\j)
-.else
-    d4_term \i, \streams, %(27+\j)
-.endif
-.endif
-.endr
-.endr
-.if \wrapped && (\k < 4)
-.irp s,0,1
-.if \s < \streams
-    d4_rrr vpmullq, %(20+2*\s), %(20+2*\s), 28
-    d4_rrr vpmullq, %(21+2*\s), %(21+2*\s), 28
-.endif
-.endr
-.endif
-.endr
-.irp s,0,1
-.if \s < \streams
-.if \k
-.if (\streams == 2) && (\s == 0)
-    // Consume the first product's carry before the second writes this slot.
-    d4_rrr vpaddq, 20, 20, %(15+\k)
-.else
-    d4_rrr vpaddq, %(20+2*\s), %(20+2*\s), %(24+\s)
-.endif
-.endif
-    d4_rrr vpandq, %(10+5*\s+\k), %(20+2*\s), 29
-.if (\streams == 2) && (\s == 0) && (\k < 4)
-    // Borrow the second product's next output slot; keep right limb0 live.
-    d4_rri vpsrlq, %(16+\k), 20, 51
-    d4_rri vpsllq, 21, 21, 1
-    d4_rrr vpaddq, %(16+\k), %(16+\k), 21
-.else
-    d4_rri vpsrlq, %(24+\s), %(20+2*\s), 51
-    d4_rri vpsllq, %(21+2*\s), %(21+2*\s), 1
-    d4_rrr vpaddq, %(24+\s), %(24+\s), %(21+2*\s)
-.endif
-.endif
-.endr
-.endm
-
-.macro d4_multiply_kernel streams
-.if \streams == 1
-    d4_load r8, 0, 5
-.else
-    vmovdqu64 zmm24, [r8]
-    vmovdqu64 zmm26, [r8 + 64]
-    vmovdqu64 zmm27, [r8 + 128]
-    vmovdqu64 zmm30, [r8 + 192]
-    vmovdqu64 zmm31, [r8 + 256]
-.endif
-.irp k,0,1,2,3,4
-    d4_column \k, \streams
-.endr
-.irp s,0,1
-.if \s < \streams
-    d4_rrr vpmullq, %(24+\s), %(24+\s), 28
-    d4_rrr vpaddq, %(10+5*\s), %(10+5*\s), %(24+\s)
-    d4_rri vpsrlq, %(24+\s), %(10+5*\s), 51
-    d4_rrr vpandq, %(5*\s), %(10+5*\s), 29
-    d4_rrr vpaddq, %(5*\s+1), %(10+5*\s+1), %(24+\s)
-.irp i,2,3,4
-    d4_rr vmovdqa64, %(5*\s+\i), %(10+5*\s+\i)
-.endr
-.endif
-.endr
-    ret
-.endm
 
 // A loose-input square. Carry limb0 first; every IFMA source then fits in
 // 52 bits. Only limb0 can be doubled as a source. All other cross-products
@@ -328,8 +216,7 @@ ed25519_simd_double4_ifma:
     vpsllq zmm26, zmm26, 1
     vpmadd52luq zmm26, zmm10, \x4
     vpmadd52luq zmm26, \x2, \x2
-    vpsllq zmm27, zmm21, 1
-    vpmullq zmm27, zmm27, zmm28
+    vpmullq zmm27, zmm21, zmm11
     vpaddq zmm26, zmm26, zmm27
     vmovdqa64 zmm25, zmm15
     vpmadd52luq zmm25, \x1, \x2
@@ -364,45 +251,39 @@ ed25519_simd_double4_ifma:
     vpmullq zmm27, zmm27, zmm28
     vpaddq zmm22, zmm22, zmm27
 
-    // Each L[k], H[k] < 5*2^52, so folded columns < 300*2^52 < 2^61.
-    // Carry additions stay < 2^62 and 19*carry4 < 2^16: the IFMA fold
-    // below is exact. Independent carries 1->2 and 3->4->0 finish the square.
-    // These internal square outputs
-    // may leave limbs1/3 slightly above 2^51, but every limb stays <2^52.
-    vpsrlq zmm20, zmm23, 51
-    vpandq \x1, zmm23, zmm29
-    vpaddq zmm24, zmm24, zmm20
-    vpsrlq zmm20, zmm24, 51
-    vpandq \x2, zmm24, zmm29
-    vpsrlq zmm21, zmm25, 51
-    vpandq \x3, zmm25, zmm29
-    vpaddq zmm26, zmm26, zmm21
-    vpsrlq zmm21, zmm26, 51
-    vpandq \x4, zmm26, zmm29
-    vpmadd52luq zmm22, zmm21, zmm28
-    vpsrlq zmm21, zmm22, 51
-    vpandq \x0, zmm22, zmm29
-    vpaddq \x1, \x1, zmm21
-    vpaddq \x3, \x3, zmm20
+    // These squares feed only additions and biased subtractions. Carry the
+    // combined columns once in d4_reduce before their next multiplication.
+    vmovdqa64 \x0, zmm22
+    vmovdqa64 \x1, zmm23
+    vmovdqa64 \x2, zmm24
+    vmovdqa64 \x3, zmm25
+    vmovdqa64 \x4, zmm26
 .endm
 
 .p2align 4, 0x90
 .Ld4_square_pair:
+    // Column nine is 2*H[8]. Both squares fold it with the same factor of 38.
+    vpaddq zmm11, zmm28, zmm28
     d4_square_field zmm0, zmm1, zmm2, zmm3, zmm4
     d4_square_field zmm5, zmm6, zmm7, zmm8, zmm9
     ret
 .Ld4_multiply_pair:
-    d4_multiply_kernel 2
+    d4_load r8, 0, 22
+    fe51_product 0, 22, 0, d4_rrr, d4_rri
+    fe51_product 5, 22, 5, d4_rrr, d4_rri
+    ret
 .Ld4_multiply_single:
-    d4_multiply_kernel 1
+    // Intermediate Y feeds another doubling. Its five carries can run in parallel.
+    d4_load r8, 0, 22
+    fe51_product 0, 22, 0, d4_rrr, d4_rri, 1
+    d4_reduce 0
+    ret
 .noaltmacro
 .size ed25519_simd_double4_ifma, .-ed25519_simd_double4_ifma
 .purgem d4_load
 .purgem d4_store
 .purgem d4_reduce
-.purgem d4_term
-.purgem d4_column
-.purgem d4_multiply_kernel
+.purgem fe51_product
 .purgem d4_square_field
 .purgem d4_rrr
 .purgem d4_rri

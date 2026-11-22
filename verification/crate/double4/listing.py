@@ -6,18 +6,20 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "pow2"))
 from disassembly import disassemble, require
-from generate_listing import assemble, mc
+from generate_listing import assemble, assembly_source, mc
 
 SYMBOL = "ed25519_simd_double4_ifma"
 SOURCE = Path(__file__).resolve().parents[3] / "src/wide/avx512ifma/double4.S"
+SOURCES = (SOURCE.with_name("fe51_product.inc"), SOURCE)
 
 
 def generate(work):
     with tempfile.TemporaryDirectory(dir=work) as temp:
         objects = Path(temp)
-        raw = assemble(SOURCE, objects, "macro", SYMBOL)
+        source = assembly_source(objects, SOURCES)
+        raw = assemble(source, objects, "macro", SYMBOL)
         _, code = disassemble(objects / "macro.o", SYMBOL)
-        expanded = mc("-filetype=asm", "--output-asm-variant=1", SOURCE,
+        expanded = mc("-filetype=asm", "--output-asm-variant=1", source,
                       capture_output=True, text=True).stdout
         labels, rows, padding = {}, {}, {}
         pc = 0

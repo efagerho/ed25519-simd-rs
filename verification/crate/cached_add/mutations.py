@@ -17,14 +17,14 @@ import sys
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.append(str(ROOT / "verification"))
 from proof_build import component_flags
-from listing import SOURCE, SYMBOL
-from generate_listing import assemble
+from listing import SOURCES, SYMBOL
+from generate_listing import assemble, assembly_source
 from elf import symbol_bytes, symbol_extent
 
 MUTATIONS = {
     "remove-input-reduction": ("    ca_reduce 0\n", "", False),
-    "reuse-wrong-cached-operand": (r"%(64*\j + 320*\stream)", r"%(64*\j)", False),
-    "remove-top-carry-fold": (r"    ca_rrr vpmullq, %(24+\s), %(24+\s), 28" + "\n", "", False),
+    "reuse-wrong-cached-operand": ("    ca_load r8, 320, 22", "    ca_load r8, 0, 22", False),
+    "remove-top-carry-fold": ("    vpmadd52luq zmm12, zmm17, zmm28\n", "", False),
     "ignore-compute-t": ("    mov rcx, rdx\n", "    mov ecx, 0\n", False),
     "omit-x-stores": ("    ca_store rdi, 0, 0\n", "", False),
     "reorder-constant-loads": (
@@ -86,16 +86,20 @@ def run_case(name, old, new, passes, output, native):
     repo = work / "repo"
     shutil.copytree(ROOT / "verification", repo / "verification",
                     ignore=shutil.ignore_patterns("__pycache__", "*.vo", "*.glob", "*.vok", "*.vos"))
-    source = repo / SOURCE.relative_to(ROOT)
-    source.parent.mkdir(parents=True)
-    original = SOURCE.read_text()
-    if old not in original:
-        raise ValueError(f"mutation anchor disappeared: {name}")
+    sources = [repo / src.relative_to(ROOT) for src in SOURCES]
+    sources[0].parent.mkdir(parents=True)
+    for src, dest in zip(SOURCES, sources):
+        shutil.copyfile(src, dest)
+    candidates = [src for src in sources if old in src.read_text()]
+    if len(candidates) != 1:
+        raise ValueError(f"ambiguous or missing mutation anchor: {name}")
+    source, = candidates
+    original = source.read_text()
     changed = original.replace(old, new, 1)
     source.write_text(changed)
     (work / "mutation.diff").write_text("".join(difflib.unified_diff(
-        original.splitlines(True), changed.splitlines(True), fromfile="original.S", tofile="mutated.S")))
-    assemble(source, work, "assembly", SYMBOL)
+        original.splitlines(True), changed.splitlines(True), fromfile=source.name, tofile=source.name)))
+    assemble(assembly_source(work, sources), work, "assembly", SYMBOL)
     wrapper = work / "wrapper.c"
     wrapper.write_text(f"extern void {SYMBOL}(void*, const void*, unsigned long, unsigned long);\n"
                        f"void probe(void *p, const void *q, unsigned long t, unsigned long a) {{ {SYMBOL}(p,q,t,a); }}\n")
