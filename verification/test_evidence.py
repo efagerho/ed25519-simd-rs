@@ -190,6 +190,7 @@ class ReleaseEvidenceTests(unittest.TestCase):
                                             (cached_add_audit, "add_cached", "CachedAdd", "sources/cached_add/audit.py"),
                                             (scalar_audit, "reduce", "Scalar", "sources/scalar/audit.py"),
                                             (evidence, "ladder_step", "LadderStep", "sources/ladder_step/audit.py"),
+                                            (evidence, "prepare_chunk", "PrepareChunk", "sources/prepare_chunk/audit.py"),
                                             (evidence, "prepare_signature_scalars", "SignatureScalar", "sources/signature_scalar/audit.py"),
                                             (evidence, "digest_to_radix16", "Radix16", "sources/radix16/audit.py"),
                                             (evidence, "key_table", "KeyTable", "sources/key_table/audit.py"),
@@ -226,6 +227,8 @@ class ReleaseEvidenceTests(unittest.TestCase):
                 symbols.extend([("decoder", 8192, b"d"), ("helper", 12288, b"h"), ("cached", 16384, b"c")])
             elif component in ("dalek_post_hash", "dalek_recompress"):
                 symbols.extend([("decoder", 8192, b"d"), ("helper", 12288, b"h"), ("small", 16384, b"s")])
+            elif component == "prepare_chunk":
+                symbols.extend([("dalek_prepare_chunk", 8192, b"d"), ("scalar_order", 12288, bytes(32))])
             elif component == "signature_scalar":
                 symbols.append(("scalar_order", 8192, bytes(32)))
             elif component == "radix16":
@@ -256,6 +259,11 @@ class ReleaseEvidenceTests(unittest.TestCase):
             if component == "radix16":
                 self.assertIn("sources/scalar/listing.py", manifest["files"])
                 self.assertEqual((work / "scalar_reduce.bin").read_bytes(), b"a")
+            if component == "prepare_chunk":
+                for dependency in ("prepare_chunk", "signature_scalar", "key_table", "dalek_post_hash"):
+                    self.assertIn(f"sources/{dependency}/audit.py", manifest["files"])
+                self.assertEqual((work / "dalek_prepare_chunk.bin").read_bytes(), b"d")
+                self.assertEqual((work / "scalar_order.bin").read_bytes(), bytes(32))
             if component == "key_table":
                 for path in ("mask_listing.py", "decompress_r/audit.py", "cached_add/listing.py",
                              "post_hash/build.py", "key_table/mutations.py"):

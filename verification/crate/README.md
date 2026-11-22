@@ -12,6 +12,7 @@ README for its contract and release audit.
 | [double4/](double4/README.md) | Four in-place point doublings. |
 | [cached_add/](cached_add/README.md) | Cached point addition with affine or projective inputs and optional T output. |
 | [scalar/](scalar/README.md) | Canonical reduction of eight 512-bit inputs modulo the scalar order. |
+| [prepare_chunk/](prepare_chunk/README.md) | Both pre-hash entries select eligible lanes and key tables from eight signatures, preserve the R decode mask, and apply the Dalek weak-key rule. |
 | [signature_scalar/](signature_scalar/README.md) | Before hashing, each mask bit tests the input signature scalar against L. Accepted lanes encode the exact input in 64 signed digits and rejected lanes contain zeros. |
 | [radix16/](radix16/README.md) | The linked reducer and digest wrapper produce 64 signed digits representing each input modulo the scalar order. |
 | [key_table/](key_table/README.md) | Builds one or eight public-key tables. Every signed entry is initialized and bounded, and represents the corresponding Edwards multiple for a valid affine input lane. |
@@ -31,11 +32,6 @@ routine’s inputs from the Rust call site to the public theorem and its outputs
 back to the caller. The certificates begin at the assembly ABI. Rust dispatch,
 caller-side input preparation, and end-to-end Ed25519 acceptance require
 separate review.
-
-The pre-hash chunk wrapper has native differential tests and awaits a composed
-proof. Audit its lane pointers, S and decoder mask bits, identity-table
-selection, and Dalek filter handoff against the individual callee contracts.
-[Assembly wrapper](../../src/wide/avx512ifma/prepare_chunk.S) · [Rust layouts](../../src/wide/avx512ifma/prepare.rs)
 
 1. **Identify the code.** Use the exact release ELF. Independently compare its
    digest, symbol name, address, size, and bytes with the audit manifest and

@@ -112,6 +112,7 @@ jobs:
             ${{ runner.temp }}/torsion-audit/
             ${{ runner.temp }}/small-order-audit/
             ${{ runner.temp }}/decompress-r-audit/
+            ${{ runner.temp }}/prepare-chunk-audit/
             ${{ runner.temp }}/dalek-post-hash-audit/
             ${{ runner.temp }}/dalek-recompress-audit/
             ${{ runner.temp }}/zip215-audit/

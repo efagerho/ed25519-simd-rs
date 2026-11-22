@@ -4,10 +4,10 @@ linked_checks := $(addsuffix -conformance,$(routines))
 timed = /usr/bin/time -f '$@ elapsed %E'
 export XED_KIT := $(RUNNER_TEMP)/xed-kit
 
-.PHONY: signature-scalar signature-scalar-mutations key-table key-table-mutations dalek-post-hash dalek-post-hash-mutations zip215 zip215-mutations dalek-recompress dalek-recompress-mutations decompress-r decompress-r-mutations full-ladder stage-round stage-round-mutations radix16 radix16-mutations verify certificates ladder-mutations ladder torsion torsion-mutations small-order small-order-mutations pow2-z3 xed-kit fixed-conformance \
+.PHONY: prepare-chunk prepare-chunk-mutations signature-scalar signature-scalar-mutations key-table key-table-mutations dalek-post-hash dalek-post-hash-mutations zip215 zip215-mutations dalek-recompress dalek-recompress-mutations decompress-r decompress-r-mutations full-ladder stage-round stage-round-mutations radix16 radix16-mutations verify certificates ladder-mutations ladder torsion torsion-mutations small-order small-order-mutations pow2-z3 xed-kit fixed-conformance \
         $(routines) $(linked_checks) cached-add-mutations scalar-mutations
 
-verify: signature-scalar-mutations key-table-mutations dalek-post-hash-mutations zip215-mutations dalek-recompress-mutations decompress-r-mutations full-ladder stage-round-mutations radix16-mutations ladder-mutations certificates cached-add-mutations $(linked_checks) \
+verify: prepare-chunk-mutations signature-scalar-mutations key-table-mutations dalek-post-hash-mutations zip215-mutations dalek-recompress-mutations decompress-r-mutations full-ladder stage-round-mutations radix16-mutations ladder-mutations certificates cached-add-mutations $(linked_checks) \
         scalar-mutations torsion-mutations small-order-mutations fixed-conformance pow2-z3
 
 certificates:
@@ -135,3 +135,20 @@ signature-scalar:
 signature-scalar-mutations: signature-scalar
 	$(timed) python3 -B verification/crate/signature_scalar/mutations.py "$(ZIP_ELF)" \
 		--audit "$(RUNNER_TEMP)/signature-scalar-audit"
+
+prepare_deps := $(RUNNER_TEMP)/dalek-callees
+$(prepare_deps)/signature-scalar-audit/manifest.json:
+	$(timed) python3 -B verification/crate/signature_scalar/audit.py "$(DALEK_ELF)" --output "$(@D)"
+
+$(prepare_deps)/key-table-audit/manifest.json: $(prepare_deps)/full-ladder-audit/manifest.json
+	$(timed) python3 -B verification/crate/key_table/audit.py "$(DALEK_ELF)" --output "$(@D)" \
+		--dependencies "$(prepare_deps)"
+
+prepare-chunk: dalek-post-hash $(addprefix $(prepare_deps)/,signature-scalar-audit/manifest.json key-table-audit/manifest.json)
+	$(timed) python3 -B verification/crate/prepare_chunk/audit.py "$(DALEK_ELF)" \
+		--output "$(RUNNER_TEMP)/prepare-chunk-audit" --dependencies "$(prepare_deps)" \
+		--dalek-dependencies "$(RUNNER_TEMP)"
+
+prepare-chunk-mutations: prepare-chunk
+	$(timed) python3 -B verification/crate/prepare_chunk/mutations.py "$(DALEK_ELF)" \
+		--audit "$(RUNNER_TEMP)/prepare-chunk-audit"

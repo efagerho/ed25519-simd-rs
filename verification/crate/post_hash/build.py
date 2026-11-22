@@ -44,14 +44,21 @@ def load_callees(elf, work, dependencies, components_to_load, overrides):
             raise ValueError(f"{audit} was built against a different ELF")
         for symbol in manifest["symbols"]:
             entry = symbol["name"]
-            pc, size = symbol_extent(elf, entry)
-            raw = symbol_bytes(elf, pc, size)
+            if name == "signature_scalar" and entry == "scalar_order":
+                # This unnamed constant is addressed by RIP-relative operands.
+                # The callee theorem checks their target and all 32 bytes.
+                pc = symbol["address"]
+                raw = symbol_bytes(elf, pc, 32, readonly_data=True)
+            else:
+                pc, size = symbol_extent(elf, entry)
+                raw = symbol_bytes(elf, pc, size)
             if (pc != symbol["address"] or raw != (audit / symbol["path"]).read_bytes()):
                 raise ValueError(f"callee evidence differs from ELF for {entry}")
             dep_symbols[entry] = (entry, pc, raw)
         for ns in namespaces:
             for source in (audit / ns).glob("*.v"):
-                checked_in = HERE.parent / components[ns] / "coq" / source.name
+                root = HERE if ns == "PostHash" else HERE.parent / components[ns] / "coq"
+                checked_in = root / source.name
                 if sha256(source) != manifest["files"][f"{ns}/{source.name}"]:
                     raise ValueError(f"corrupt callee proof source {source}")
                 if checked_in.exists() and source.read_bytes() != checked_in.read_bytes():
