@@ -16,7 +16,7 @@ SHARED_PROJECTS = ("arithmetic", "curve25519", "machine", "machine/symbolic", "c
 GROUP_PROJECTS = (*SHARED_PROJECTS, "curve25519/group")
 MASK_PROJECTS = (*GROUP_PROJECTS, "crate/field51")
 SHARED_ENV = "ED25519_SIMD_COQ_LIBRARIES"
-COMPONENTS = {"pow2": "Pow2", "double4": "Double4", "cached_add": "CachedAdd",
+COMPONENTS = {"signature_scalar": "SignatureScalar", "pow2": "Pow2", "double4": "Double4", "cached_add": "CachedAdd",
               "scalar": "Scalar", "ladder_step": "LadderStep", "torsion": "Torsion",
               "small_order": "SmallOrder", "radix16": "Radix16", "stage_round": "StageRound",
               "full_ladder": "FullLadder", "decompress_r": "Decode", "dalek_recompress": "Dalek",
@@ -25,6 +25,7 @@ COMPONENTS = {"pow2": "Pow2", "double4": "Double4", "cached_add": "CachedAdd",
 
 # The release statement is independent of the theorem implementation in Object.v.
 PUBLIC_THEOREMS = {
+    "signature_scalar": ("assembled_signature_scalar_correct", "signature_scalar_contract"),
     "key_table": ("assembled_key_table_correct", "key_table_contract"),
     "dalek_post_hash": ("assembled_dalek_post_hash_correct", "dalek_post_hash_contract"),
     "zip215": ("assembled_zip215_correct", "zip215_contract"),
@@ -47,7 +48,10 @@ def public_statement(component):
     namespace = "Ed25519Simd." + COMPONENTS[component]
     theorem, contract = PUBLIC_THEOREMS[component]
     expected = f"{namespace}.Audit.{contract}"
-    if component == "key_table":
+    if component == "signature_scalar":
+        for module in ("ObjectBytes", "OrderBytes"):
+            expected += f" {namespace}.{module}.address {namespace}.{module}.symbol_bytes"
+    elif component == "key_table":
         for module in ("KeyTable.ObjectBytes", "Decode.DecoderBytes", "Decode.HelperBytes", "KeyTable.CachedBytes"):
             expected += f" Ed25519Simd.{module}.address Ed25519Simd.{module}.symbol_bytes"
     elif component == "dalek_recompress":

@@ -4,8 +4,9 @@ Before hashing, both policies call `ed25519_simd_prepare_signature_scalars`
 with eight pointers to the 32-byte signature scalars. Its return mask sets
 bit `i` exactly when the little-endian scalar in lane `i` is below L.
 Each accepted lane gets 64 signed digits representing that exact integer.
-Rejected lanes get 64 zero bytes. The two entry points share digit packing.
-[Assembly](radix16.S) · [Native tests](tests.rs)
+Rejected lanes get 64 zero bytes. The two entry points share digit packing. The signature-scalar proof binds
+the mask and all 512 output bytes to the linked code and its read-only order
+constant. [Proof and audit](../../verification/crate/signature_scalar/README.md) · [Assembly](radix16.S) · [Native tests](tests.rs)
 
 Both verification policies route eight 512-bit challenge digests through
 `ed25519_simd_digest_to_radix16`. It calls the scalar reducer and returns

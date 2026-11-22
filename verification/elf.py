@@ -22,8 +22,8 @@ ELF_HEADER = struct.Struct("<16sHHIQQQIHHHHHH")
 PROGRAM_HEADER = struct.Struct("<IIQQQQQQ")
 
 
-def executable_offset(file, pc, size):
-    """Translate a complete symbol range through its executable PT_LOAD."""
+def load_offset(file, pc, size, *, readonly_data=False):
+    """Translate one file-backed range through a PT_LOAD with the required permissions."""
     end = pc + size
     require(0 <= pc < end <= 2**64, "invalid symbol range")
     file_size = os.fstat(file.fileno()).st_size
@@ -44,22 +44,28 @@ def executable_offset(file, pc, size):
                 "invalid PT_LOAD extent")
         if not memsz or addr >= end or pc >= addr + memsz:
             continue
-        require(offset is None and flags & 1 and addr <= pc and end <= addr + filesz,
-                "symbol needs one executable, file-backed PT_LOAD mapping")
+        permissions = (flags & 4 and not flags & 2) if readonly_data else (flags & 1)
+        require(offset is None and permissions and addr <= pc and end <= addr + filesz,
+                "range needs one file-backed PT_LOAD with the required permissions")
         offset = pos + pc - addr
     require(offset is not None, "symbol outside loadable segments")
     return offset
 
 
-def symbol_bytes(binary, pc, size):
-    sections = subprocess.check_output(["objdump", "-h", "-j", ".text", binary], text=True)
-    match = re.search(r"^\s*\d+ \.text\s+(\w+)\s+(\w+)\s+\w+\s+(\w+)", sections, re.M)
-    require(match, "missing ELF text section")
+def executable_offset(file, pc, size):
+    return load_offset(file, pc, size)
+
+
+def symbol_bytes(binary, pc, size, *, readonly_data=False):
+    section = ".rodata" if readonly_data else ".text"
+    sections = subprocess.check_output(["objdump", "-h", "-j", section, binary], text=True)
+    match = re.search(rf"^\s*\d+ {re.escape(section)}\s+(\w+)\s+(\w+)\s+\w+\s+(\w+)", sections, re.M)
+    require(match, f"missing ELF {section} section")
     length, address, section_offset = (int(x, 16) for x in match.groups())
-    require(address <= pc and pc + size <= address + length, "symbol outside text section")
+    require(address <= pc and pc + size <= address + length, f"range outside {section}")
     with open(binary, "rb") as file:
-        offset = executable_offset(file, pc, size)
-        require(offset == section_offset + pc - address, ".text and PT_LOAD disagree on symbol offset")
+        offset = load_offset(file, pc, size, readonly_data=readonly_data)
+        require(offset == section_offset + pc - address, f"{section} and PT_LOAD disagree on offset")
         file.seek(offset)
         raw = file.read(size)
     require(len(raw) == size, "truncated symbol")

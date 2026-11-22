@@ -190,6 +190,7 @@ class ReleaseEvidenceTests(unittest.TestCase):
                                             (cached_add_audit, "add_cached", "CachedAdd", "sources/cached_add/audit.py"),
                                             (scalar_audit, "reduce", "Scalar", "sources/scalar/audit.py"),
                                             (evidence, "ladder_step", "LadderStep", "sources/ladder_step/audit.py"),
+                                            (evidence, "prepare_signature_scalars", "SignatureScalar", "sources/signature_scalar/audit.py"),
                                             (evidence, "digest_to_radix16", "Radix16", "sources/radix16/audit.py"),
                                             (evidence, "key_table", "KeyTable", "sources/key_table/audit.py"),
                                             (evidence, "dalek_recompress", "Dalek", "sources/dalek_recompress/audit.py"),
@@ -225,6 +226,8 @@ class ReleaseEvidenceTests(unittest.TestCase):
                 symbols.extend([("decoder", 8192, b"d"), ("helper", 12288, b"h"), ("cached", 16384, b"c")])
             elif component in ("dalek_post_hash", "dalek_recompress"):
                 symbols.extend([("decoder", 8192, b"d"), ("helper", 12288, b"h"), ("small", 16384, b"s")])
+            elif component == "signature_scalar":
+                symbols.append(("scalar_order", 8192, bytes(32)))
             elif component == "radix16":
                 symbols.append(("scalar_reduce", 8192, b"a"))
             with patch.object(evidence, "tool_versions", return_value={"coqc": {"version": "test"}}):
@@ -247,6 +250,9 @@ class ReleaseEvidenceTests(unittest.TestCase):
             self.assertIn("sources/proof_build.py", manifest["files"])
             self.assertIn("-Q arithmetic ProofArithmetic\n", (work / "_CoqProject").read_text())
             self.assertIn(generator, manifest["files"])
+            if component == "signature_scalar":
+                self.assertEqual((work / "scalar_order.bin").read_bytes(), bytes(32))
+                self.assertIn("OrderBytes.symbol_bytes", manifest["theorem"])
             if component == "radix16":
                 self.assertIn("sources/scalar/listing.py", manifest["files"])
                 self.assertEqual((work / "scalar_reduce.bin").read_bytes(), b"a")
@@ -280,16 +286,21 @@ class LinkedElfTests(unittest.TestCase):
         segment = (1, 5, 256, 4096, 0, 4, 4, 1)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "fixture"
-            def check(segments, section_offset=256, kind=3):
+            def check(segments, section_offset=256, kind=3, readonly_data=False):
                 header = elf.ELF_HEADER.pack(ident, kind, 62, 1, 0, 64, 0, 0, 64,
                                              56, len(segments), 0, 0, 0)
                 headers = b"".join(elf.PROGRAM_HEADER.pack(*s) for s in segments)
                 path.write_bytes((header+headers).ljust(256, b"\0") + data)
-                section = f"  0 .text 00000004 00001000 00001000 {section_offset:x}"
+                name = ".rodata" if readonly_data else ".text"
+                section = f"  0 {name} 00000004 00001000 00001000 {section_offset:x}"
                 with patch.object(elf.subprocess, "check_output", return_value=section):
-                    return elf.symbol_bytes(path, 4097, 3)
+                    return elf.symbol_bytes(path, 4097, 3, readonly_data=readonly_data)
             self.assertEqual(check([segment]), b"bcd")
             self.assertEqual(check([segment], kind=2), b"bcd")
+            self.assertEqual(check([(1, 4, *segment[2:])], readonly_data=True), b"bcd")
+            for flags in (0, 2, 6, 7):
+                with self.subTest(flags=flags), self.assertRaises(ValueError):
+                    check([(1, flags, *segment[2:])], readonly_data=True)
             for args in [([segment], 255), ([segment, segment],),
                          ([(1, 4, 256, 4096, 0, 4, 4, 1)],),
                          ([(1, 5, 256, 4096, 0, 3, 4, 1)],),

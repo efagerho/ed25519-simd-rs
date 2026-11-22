@@ -70,6 +70,13 @@ Record symbolic := State { acc:expr; zmm:nat->vec; stores:nat->option vec }.
 Definition initial := State Acc (fun r=>Words (Initial r)) (fun _=>None).
 Definition update {A} (f:nat->A) i a j := if Nat.eqb j i then a else f j.
 Definition putv s d v := State (acc s) (update (zmm s) d v) (stores s).
+(* Source register and qword for the two 128-bit-block permutations.
+   These operations preserve the byte position within each selected qword. *)
+Definition unpack_source high (a b j:nat) :=
+ (if Nat.even j then a else b, (2*(j/2)+(if high:bool then 1 else 0))%nat).
+Definition shuffle_source (a b imm j:nat) :=
+ let block := (j/2)%nat in
+ (if (block <? 2)%nat then a else b, (2*(imm/4^block mod 4)+j mod 2)%nat).
 Definition step s op :=
  let q r := qword (zmm s r) in let b r := byte (zmm s r) in
  match op with
@@ -86,12 +93,9 @@ Definition step s op :=
      let src := (16*(i/16) + (if high then 8 else 0) + i mod 16 / 2)%nat in
      if Nat.even i then b a src else b c src))
  | UnpackQ high d a c => putv s d (Bytes(fun i=>
-     let src := (16*(i/16) + (if high then 8 else 0) + i mod 8)%nat in
-     if Nat.even (i/8) then b a src else b c src))
+     let '(r,j):=unpack_source high a c (i/8)%nat in b r (8*j+i mod 8)%nat))
  | Shuffle d a c imm => putv s d (Bytes(fun i=>
-     let block := (i/16)%nat in
-     let src := (16*(imm / 4^block mod 4) + i mod 16)%nat in
-     if (block <? 2)%nat then b a src else b c src))
+     let '(r,j):=shuffle_source a c imm (i/8)%nat in b r (8*j+i mod 8)%nat))
  | Store row a | StoreAligned row a => State (acc s) (zmm s) (update (stores s) row (Some (zmm s a)))
  | Upper => State (acc s) (fun r=>if (r <? 16)%nat then
      Words(fun j=>if (j <? 2)%nat then q r j else Lit 0) else zmm s r) (stores s)

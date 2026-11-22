@@ -4,10 +4,10 @@ linked_checks := $(addsuffix -conformance,$(routines))
 timed = /usr/bin/time -f '$@ elapsed %E'
 export XED_KIT := $(RUNNER_TEMP)/xed-kit
 
-.PHONY: key-table key-table-mutations dalek-post-hash dalek-post-hash-mutations zip215 zip215-mutations dalek-recompress dalek-recompress-mutations decompress-r decompress-r-mutations full-ladder stage-round stage-round-mutations radix16 radix16-mutations verify certificates ladder-mutations ladder torsion torsion-mutations small-order small-order-mutations pow2-z3 xed-kit fixed-conformance \
+.PHONY: signature-scalar signature-scalar-mutations key-table key-table-mutations dalek-post-hash dalek-post-hash-mutations zip215 zip215-mutations dalek-recompress dalek-recompress-mutations decompress-r decompress-r-mutations full-ladder stage-round stage-round-mutations radix16 radix16-mutations verify certificates ladder-mutations ladder torsion torsion-mutations small-order small-order-mutations pow2-z3 xed-kit fixed-conformance \
         $(routines) $(linked_checks) cached-add-mutations scalar-mutations
 
-verify: key-table-mutations dalek-post-hash-mutations zip215-mutations dalek-recompress-mutations decompress-r-mutations full-ladder stage-round-mutations radix16-mutations ladder-mutations certificates cached-add-mutations $(linked_checks) \
+verify: signature-scalar-mutations key-table-mutations dalek-post-hash-mutations zip215-mutations dalek-recompress-mutations decompress-r-mutations full-ladder stage-round-mutations radix16-mutations ladder-mutations certificates cached-add-mutations $(linked_checks) \
         scalar-mutations torsion-mutations small-order-mutations fixed-conformance pow2-z3
 
 certificates:
@@ -127,3 +127,11 @@ dalek-post-hash: dalek-recompress $(dalek_dependencies)
 
 dalek-post-hash-mutations: dalek-post-hash
 	$(timed) python3 -B verification/crate/dalek_post_hash/mutations.py "$(DALEK_ELF)" --audit "$(RUNNER_TEMP)/dalek-post-hash-audit"
+
+signature-scalar:
+	$(timed) python3 -B verification/crate/signature_scalar/audit.py "$(ZIP_ELF)" \
+		--output "$(RUNNER_TEMP)/signature-scalar-audit"
+
+signature-scalar-mutations: signature-scalar
+	$(timed) python3 -B verification/crate/signature_scalar/mutations.py "$(ZIP_ELF)" \
+		--audit "$(RUNNER_TEMP)/signature-scalar-audit"

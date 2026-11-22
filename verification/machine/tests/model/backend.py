@@ -58,6 +58,7 @@ class Model:
             "packed": ("PackedRows", "packed_report", "seeds", 49),
             "indexed": ("Indexed", "indexed_report", "seeds", 33),
             "mask": ("Mask", "mask_report", "seeds", 2),
+            "masked_words": ("MaskedWordProbe", "report", "seeds", 10),
             "filter": ("Filter", "filter_report", "seeds", 2),
             "control": ("Control", "probe_report", "counts", 4),
             "mixed": ("Mixed", "mixed_report", "seeds", 3 + 32*8 + 3*8),

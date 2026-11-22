@@ -110,6 +110,7 @@ jobs:
             ${{ runner.temp }}/zip215-audit/
             ${{ runner.temp }}/scalar-cases.jsonl
             ${{ runner.temp }}/scalar-audit/
+            ${{ runner.temp }}/signature-scalar-audit/
             ${{ runner.temp }}/radix16-audit/
             ${{ runner.temp }}/scalar-mutations/
           if-no-files-found: ignore
