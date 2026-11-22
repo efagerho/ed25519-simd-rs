@@ -18,8 +18,6 @@ Definition table_address s j (affine:bool) d :=
  if affine then regs s 2%nat+120*(136+d)
  else read_word (mem s) (regs s 6%nat+8*Z.of_nat j)+160*(8+d).
 Definition table_row s j aff d (i:nat) := read_word (mem s) (table_address s j aff d+8*Z.of_nat i).
-Definition scalar_cache affine a :=
- cache_from_fields affine (fun c=>Radix51.limbs (fun i=>a (5*c+i)%nat)).
 Definition weight s j n k := match k with
  | S.Base=>digits s 1 j (2*n)%nat+16*digits s 1 j (S (2*n))
  | S.Odd=> -digits s 8 j (S (2*n)) | S.Even=> -digits s 8 j (2*n)%nat end.

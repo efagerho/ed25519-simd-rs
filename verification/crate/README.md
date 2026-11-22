@@ -13,6 +13,7 @@ README for its contract and release audit.
 | [cached_add/](cached_add/README.md) | Cached point addition with affine or projective inputs and optional T output. |
 | [scalar/](scalar/README.md) | Canonical reduction of eight 512-bit inputs modulo the scalar order. |
 | [radix16/](radix16/README.md) | The linked reducer and digest wrapper produce 64 signed digits representing each input modulo the scalar order. |
+| [key_table/](key_table/README.md) | Builds one or eight public-key tables. Every signed entry is initialized and bounded, and represents the corresponding Edwards multiple for a valid affine input lane. |
 | [stage_round/](stage_round/README.md) | Signed key lookup, base-digit folding and exact limb placement in the 55-row ladder input. |
 | [ladder_step/](ladder_step/README.md) | A radix-256 ladder step composed from the verified doubling and cached-addition routines. |
 | [full_ladder/](full_ladder/README.md) | The complete 32-pair public ladder represents [s]B + [−k]A from signed digit bytes and valid tables, including both final T modes. |

@@ -4,10 +4,10 @@ linked_checks := $(addsuffix -conformance,$(routines))
 timed = /usr/bin/time -f '$@ elapsed %E'
 export XED_KIT := $(RUNNER_TEMP)/xed-kit
 
-.PHONY: dalek-post-hash dalek-post-hash-mutations zip215 zip215-mutations dalek-recompress dalek-recompress-mutations decompress-r decompress-r-mutations full-ladder stage-round stage-round-mutations radix16 radix16-mutations verify certificates ladder-mutations ladder torsion torsion-mutations small-order small-order-mutations pow2-z3 xed-kit fixed-conformance \
+.PHONY: key-table key-table-mutations dalek-post-hash dalek-post-hash-mutations zip215 zip215-mutations dalek-recompress dalek-recompress-mutations decompress-r decompress-r-mutations full-ladder stage-round stage-round-mutations radix16 radix16-mutations verify certificates ladder-mutations ladder torsion torsion-mutations small-order small-order-mutations pow2-z3 xed-kit fixed-conformance \
         $(routines) $(linked_checks) cached-add-mutations scalar-mutations
 
-verify: dalek-post-hash-mutations zip215-mutations dalek-recompress-mutations decompress-r-mutations full-ladder stage-round-mutations radix16-mutations ladder-mutations certificates cached-add-mutations $(linked_checks) \
+verify: key-table-mutations dalek-post-hash-mutations zip215-mutations dalek-recompress-mutations decompress-r-mutations full-ladder stage-round-mutations radix16-mutations ladder-mutations certificates cached-add-mutations $(linked_checks) \
         scalar-mutations torsion-mutations small-order-mutations fixed-conformance pow2-z3
 
 certificates:
@@ -82,6 +82,14 @@ stage-round-mutations: full-ladder
 full-ladder:
 	$(timed) python3 -B verification/crate/full_ladder/audit.py "$(ZIP_ELF)" \
 	  --output "$(RUNNER_TEMP)/full-ladder-audit"
+
+key-table: full-ladder
+	$(timed) python3 -B verification/crate/key_table/audit.py "$(ZIP_ELF)" \
+		--output "$(RUNNER_TEMP)/key-table-audit" --dependencies "$(RUNNER_TEMP)"
+
+key-table-mutations: key-table
+	$(timed) python3 -B verification/crate/key_table/mutations.py "$(ZIP_ELF)" \
+		--audit "$(RUNNER_TEMP)/key-table-audit"
 
 decompress-r:
 	$(timed) python3 -B verification/crate/decompress_r/audit.py "$(ZIP_ELF)" \

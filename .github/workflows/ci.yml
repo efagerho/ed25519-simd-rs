@@ -101,6 +101,7 @@ jobs:
             ${{ runner.temp }}/cached-add-audit/
             ${{ runner.temp }}/cached-add-mutations/
             ${{ runner.temp }}/full-ladder-audit/
+            ${{ runner.temp }}/key-table-audit/
             ${{ runner.temp }}/torsion-audit/
             ${{ runner.temp }}/small-order-audit/
             ${{ runner.temp }}/decompress-r-audit/

@@ -14,6 +14,9 @@ Definition word_coordinate words lane c := field_at words (5*c)%nat lane.
 Definition point_from_fields (f:nat->Z) := Coordinates (f 0%nat) (f 1%nat) (f 2%nat) (f 3%nat).
 Definition cache_from_fields (affine:bool) (f:nat->Z) :=
  CachedCoordinates (f 0%nat) (f 1%nat) (f 2%nat) (if affine then None else Some (f 3%nat)).
+(* A scalar table row stores each field as five consecutive qwords. *)
+Definition scalar_cache affine (row:nat->Z) :=
+ cache_from_fields affine (fun c=>limbs (fun i=>row (5*c+i)%nat)).
 Definition point_values words lane := point_from_fields (word_coordinate words lane).
 Definition cache_values affine words lane := cache_from_fields affine (word_coordinate words lane).
 
