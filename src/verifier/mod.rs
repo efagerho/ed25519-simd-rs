@@ -2,10 +2,9 @@ mod driver;
 mod policy;
 
 use crate::batch;
-use crate::cache::{KeyCache, NullKeyCache};
 use crate::edwards::PointTable;
 use crate::input::VerifyInput;
-use driver::ChunkScratch;
+use core::mem::MaybeUninit;
 use std::sync::LazyLock;
 
 pub use policy::{DalekPolicy, VerificationPolicy, VerifyPolicy, Zip215Policy};
@@ -13,135 +12,81 @@ pub use policy::{DalekPolicy, VerificationPolicy, VerifyPolicy, Zip215Policy};
 const SIMD_LANES: usize = batch::SIMD_LANES;
 const R_ENCODING_LEN: usize = batch::R_ENCODING_LEN;
 
-// Placeholder table for invalid/missing lanes, also shared across verifiers.
+// Placeholder table for invalid lanes, also shared across verifiers.
 static IDENTITY_TABLE: LazyLock<PointTable> = LazyLock::new(PointTable::identity);
 
-/// Batch Ed25519 verifier for a compile-time [`VerificationPolicy`] and [`KeyCache`].
+/// Batch Ed25519 verifier for a compile-time [`VerificationPolicy`].
 /// Reuse one across [`verify_batch`](Verifier::verify_batch) calls.
 ///
 /// Each full chunk hashes, reduces, and evaluates eight signature
-/// equations with AVX-512 while reusing the verifier's tables and scratch space.
+/// equations with AVX-512 while reusing scratch space for the current chunk's key tables.
 #[derive(Debug)]
-pub struct Verifier<P: VerificationPolicy = Zip215Policy, C: KeyCache = NullKeyCache> {
+pub struct Verifier<P: VerificationPolicy = Zip215Policy> {
     policy: core::marker::PhantomData<P>,
     // Invalid lanes are masked out but still need a real ladder table.
     identity_table: &'static PointTable,
     visit_order: Vec<usize>,
-    queues: C::Queues<P>,
-    scratch: Box<ChunkScratch>,
-    cache: C,
+    key_tables: Box<MaybeUninit<[PointTable; SIMD_LANES]>>,
 }
 
 /// A verifier fixed to ZIP-215 at compile time.
-pub type Zip215Verifier<C = NullKeyCache> = Verifier<Zip215Policy, C>;
+pub type Zip215Verifier = Verifier<Zip215Policy>;
 
 /// A verifier fixed to Dalek-compatible rules at compile time.
-pub type DalekVerifier<C = NullKeyCache> = Verifier<DalekPolicy, C>;
+pub type DalekVerifier = Verifier<DalekPolicy>;
 
 /// Explicit runtime choice between the two monomorphized verifier types.
 ///
 /// Prefer [`Zip215Verifier`] or [`DalekVerifier`] when the policy is known at
 /// compile time. This wrapper intentionally includes both code paths.
 #[derive(Debug)]
-pub enum RuntimeVerifier<C: KeyCache = NullKeyCache> {
+pub enum RuntimeVerifier {
     /// ZIP-215 verifier.
-    Zip215(Zip215Verifier<C>),
+    Zip215(Zip215Verifier),
     /// Dalek-compatible verifier.
-    Dalek(DalekVerifier<C>),
+    Dalek(DalekVerifier),
 }
 
-impl<P: VerificationPolicy> Default for Verifier<P, NullKeyCache> {
+impl<P: VerificationPolicy> Default for Verifier<P> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<P: VerificationPolicy> Verifier<P, NullKeyCache> {
-    /// Create a verifier with its type-selected policy and no retained-key cache.
+impl<P: VerificationPolicy> Verifier<P> {
+    /// Create a verifier with its type-selected policy.
     pub fn new() -> Self {
-        Self::with_cache(NullKeyCache::new())
-    }
-}
-
-impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
-    /// Create a verifier backed by a caller-provided cache.
-    pub fn with_cache(cache: C) -> Self {
         Self {
             policy: core::marker::PhantomData,
-            identity_table: &*IDENTITY_TABLE,
+            identity_table: &IDENTITY_TABLE,
             visit_order: Vec::new(),
-            queues: C::Queues::<P>::default(),
-            scratch: Box::new(ChunkScratch::new()),
-            cache,
+            key_tables: Box::new_uninit(),
         }
-    }
-
-    /// Borrow the configured cache.
-    pub fn cache(&self) -> &C {
-        &self.cache
-    }
-
-    /// Mutably borrow the configured cache.
-    pub fn cache_mut(&mut self) -> &mut C {
-        &mut self.cache
     }
 
     /// Return the verifier policy.
     pub fn policy(&self) -> VerifyPolicy {
         P::POLICY
     }
-
-    /// Verify a batch and write one boolean result per input. `out[i]` is
-    /// `true` iff `inputs[i]`'s signature is valid for its `(public_key, message)`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `inputs.len() != out.len()`.
-    pub fn verify_batch(&mut self, inputs: &[VerifyInput<'_>], out: &mut [bool]) {
-        C::dispatch_verify_batch(self, inputs, out);
-    }
 }
 
-impl Default for RuntimeVerifier<NullKeyCache> {
+impl Default for RuntimeVerifier {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl RuntimeVerifier<NullKeyCache> {
-    /// Create a ZIP-215 runtime verifier with no retained-key cache.
+impl RuntimeVerifier {
+    /// Create a ZIP-215 runtime verifier.
     pub fn new() -> Self {
         Self::with_policy(VerifyPolicy::default())
     }
 
-    /// Create a runtime-selected verifier with no retained-key cache.
+    /// Create a runtime-selected verifier.
     pub fn with_policy(policy: VerifyPolicy) -> Self {
-        Self::with_cache(policy, NullKeyCache::new())
-    }
-}
-
-impl<C: KeyCache> RuntimeVerifier<C> {
-    /// Create an explicitly runtime-selected verifier backed by `cache`.
-    pub fn with_cache(policy: VerifyPolicy, cache: C) -> Self {
         match policy {
-            VerifyPolicy::Zip215 => Self::Zip215(Zip215Verifier::with_cache(cache)),
-            VerifyPolicy::Dalek => Self::Dalek(DalekVerifier::with_cache(cache)),
-        }
-    }
-
-    /// Borrow the configured cache.
-    pub fn cache(&self) -> &C {
-        match self {
-            Self::Zip215(verifier) => verifier.cache(),
-            Self::Dalek(verifier) => verifier.cache(),
-        }
-    }
-
-    /// Mutably borrow the configured cache.
-    pub fn cache_mut(&mut self) -> &mut C {
-        match self {
-            Self::Zip215(verifier) => verifier.cache_mut(),
-            Self::Dalek(verifier) => verifier.cache_mut(),
+            VerifyPolicy::Zip215 => Self::Zip215(Zip215Verifier::new()),
+            VerifyPolicy::Dalek => Self::Dalek(DalekVerifier::new()),
         }
     }
 

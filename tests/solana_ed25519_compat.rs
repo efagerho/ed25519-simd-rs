@@ -4,21 +4,21 @@ mod support;
 
 use curve25519::ed_sigs::VerificationKeyBytes;
 use ed25519_simd::{
-    DalekVerifier, HotKeyCache, KeyCache, NullKeyCache, PUBLIC_KEY_LEN, RuntimeVerifier,
-    SIGNATURE_LEN, VerifyInput, VerifyPolicy, Zip215Verifier,
+    DalekVerifier, PUBLIC_KEY_LEN, RuntimeVerifier, SIGNATURE_LEN, VerifyInput, VerifyPolicy,
+    Zip215Verifier,
 };
 use rand::{RngCore, SeedableRng, rngs::StdRng};
 use support::{
     Case, hex_array, signing_key_from_index, solana_ed25519_verify_dalek,
-    solana_ed25519_verify_zebra, verify, verify_warm,
+    solana_ed25519_verify_zebra, verify,
 };
 
 /// Stresses the SIMD distinct-key decode/table path against solana-ed25519.
 #[test]
-fn null_cache_decode_build_stress() {
+fn distinct_key_decode_build_stress() {
     let mut rng = StdRng::seed_from_u64(0x5151_5151_5151_5151);
-    let mut zip = Zip215Verifier::with_cache(NullKeyCache::new());
-    let mut dalek = DalekVerifier::with_cache(NullKeyCache::new());
+    let mut zip = Zip215Verifier::new();
+    let mut dalek = DalekVerifier::new();
 
     for _ in 0..400 {
         let len = (rng.next_u64() % 257) as usize;
@@ -65,7 +65,7 @@ fn null_cache_decode_build_stress() {
 }
 
 #[test]
-fn cached_batches_match_solana_ed25519() {
+fn repeated_and_distinct_key_batches_match_solana_ed25519() {
     for policy in [VerifyPolicy::Zip215, VerifyPolicy::Dalek] {
         for &size in &[8usize, 9, 16, 24, 31, 32] {
             for trial in 0..6u64 {
@@ -126,47 +126,16 @@ fn cached_batches_match_solana_ed25519() {
                     })
                     .collect();
 
-                let mut verifier =
-                    RuntimeVerifier::with_cache(policy, HotKeyCache::with_capacity(1024));
-                for path in ["cold", "warm"] {
-                    let mut out = vec![false; inputs.len()];
-                    verifier.verify_batch(&inputs, &mut out);
-                    assert_eq!(
-                        out, expected,
-                        "{path} {policy:?}, size={size}, uniform_key={uniform_key}"
-                    );
-                }
+                let mut verifier = RuntimeVerifier::with_policy(policy);
+                let mut out = vec![false; inputs.len()];
+                verifier.verify_batch(&inputs, &mut out);
+                assert_eq!(
+                    out, expected,
+                    "{policy:?}, size={size}, uniform_key={uniform_key}"
+                );
             }
         }
     }
-}
-
-#[test]
-fn hot_key_capacity_does_not_evict_current_simd_chunk() {
-    let mut cases = Vec::with_capacity(8);
-    for i in 0..8 {
-        let message = vec![i as u8; 17 + i];
-        let signing_key = signing_key_from_index(0xfeed_0000 + i as u64);
-        let public_key = <[u8; 32]>::from(VerificationKeyBytes::from(&signing_key));
-        let signature = signing_key.sign(&message).to_bytes();
-        cases.push(Case {
-            public_key,
-            signature,
-            message,
-        });
-    }
-
-    let inputs: Vec<VerifyInput<'_>> = cases.iter().map(|case| case.input()).collect();
-    let mut verifier = Zip215Verifier::with_cache(HotKeyCache::with_capacity(1));
-    let mut out = vec![false; inputs.len()];
-    verifier.verify_batch(&inputs, &mut out);
-
-    assert_eq!(out, vec![true; 8]);
-    let resident = cases
-        .iter()
-        .filter(|case| verifier.cache().get(&case.public_key).is_some())
-        .count();
-    assert_eq!(resident, 1);
 }
 
 /// Exercises per-lane validity masking across keys, `R`, and `s`.
@@ -220,24 +189,13 @@ fn per_lane_masking_matches_solana_ed25519_under_heavy_garbage() {
                     })
                     .collect();
 
-                let mut verifier =
-                    RuntimeVerifier::with_cache(policy, HotKeyCache::with_capacity(1024));
+                let mut verifier = RuntimeVerifier::with_policy(policy);
                 let mut out = vec![false; inputs.len()];
                 verifier.verify_batch(&inputs, &mut out);
                 for idx in 0..inputs.len() {
                     assert_eq!(
                         out[idx], solana_ed25519[idx],
-                        "hot-key cache lane {idx} (policy={policy:?}, size={size}, trial={trial}) disagrees"
-                    );
-                }
-
-                let mut cold = RuntimeVerifier::with_cache(policy, NullKeyCache::new());
-                let mut out_cold = vec![false; inputs.len()];
-                cold.verify_batch(&inputs, &mut out_cold);
-                for idx in 0..inputs.len() {
-                    assert_eq!(
-                        out_cold[idx], solana_ed25519[idx],
-                        "null lane {idx} (policy={policy:?}, size={size}, trial={trial}) disagrees"
+                        "lane {idx} (policy={policy:?}, size={size}, trial={trial}) disagrees"
                     );
                 }
             }
@@ -363,15 +321,11 @@ fn edge_case_grid_matches_solana_ed25519() {
 
                 for (policy, oracle) in policies {
                     let expected = oracle(*a, sig, message);
-                    for (path, actual) in [
-                        ("cold", verify(policy, input)),
-                        ("warm", verify_warm(policy, input)),
-                    ] {
-                        assert_eq!(
-                            actual, expected,
-                            "A={a_name}, R={r_name}, S={s_name}, {policy:?} {path}"
-                        );
-                    }
+                    assert_eq!(
+                        verify(policy, input),
+                        expected,
+                        "A={a_name}, R={r_name}, S={s_name}, {policy:?}"
+                    );
                 }
             }
         }

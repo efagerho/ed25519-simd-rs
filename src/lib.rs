@@ -16,18 +16,14 @@ compile_error!(
 );
 
 mod batch;
-mod cache;
 mod edwards;
 mod field;
-mod hot_key_cache;
 mod input;
 mod scalar;
 mod sha512;
 mod verifier;
 mod wide;
 
-pub use cache::{CachedPublicKey, KeyCache, NullKeyCache};
-pub use hot_key_cache::HotKeyCache;
 pub use input::{PUBLIC_KEY_LEN, SIGNATURE_LEN, VerifyInput};
 pub use verifier::{
     DalekPolicy, DalekVerifier, RuntimeVerifier, VerificationPolicy, Verifier, VerifyPolicy,

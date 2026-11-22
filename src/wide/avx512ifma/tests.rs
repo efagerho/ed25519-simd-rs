@@ -1,8 +1,11 @@
-use super::decode::decompress_points_wide;
 use super::point::{WideFe, WidePoint};
 use super::*;
-use crate::edwards::{AffineCachedPoint, BASEPOINT_TABLE, CachedPoint, POINT_ENCODING_LEN};
+use crate::batch::EncodedPointChunk;
+use crate::edwards::{
+    AffineCachedPoint, BASEPOINT_TABLE, CachedPoint, POINT_ENCODING_LEN, PointTable,
+};
 use crate::field::LIMB_COUNT;
+use core::mem::MaybeUninit;
 use curve25519::edwards::CompressedEdwardsY;
 use field::{loadu, storeu};
 use ladder::{PreparedChunk, mul_s_base_minus_k_public};
@@ -21,6 +24,19 @@ mod torsion;
 const BASEPOINT_COMPRESSED: [u8; POINT_ENCODING_LEN] =
     curve25519::constants::ED25519_BASEPOINT_COMPRESSED.to_bytes();
 const VECTOR_JSON: &str = include_str!("../../../tests/vectors/avx512ifma.json");
+
+fn decompress_points_wide(bytes: &EncodedPointChunk) -> (WidePoint, u8) {
+    let mut storage = MaybeUninit::uninit();
+    let ([point], [mask]) = decode::decompress_zip215(core::array::from_ref(bytes), &mut storage);
+    (*point, mask)
+}
+
+/// Decode a single public key and materialize lane zero into its cached table.
+fn decode_public_key_table(encoded: &[u8; POINT_ENCODING_LEN]) -> Option<PointTable> {
+    let (mut point, mask) = decompress_points_wide(&[*encoded; LANES]);
+    (mask & 1 != 0)
+        .then(|| decode::build_key_tables::<1>(&mut point, &mut MaybeUninit::uninit())[0].clone())
+}
 
 fn vectors() -> Value {
     serde_json::from_str(VECTOR_JSON).expect("valid AVX-512 IFMA vectors")
@@ -505,7 +521,7 @@ fn dalek_key_filter_preserves_eligibility_for_every_lane_mask() {
         });
         for initial in [0xff_u8, 0xa5] {
             let mut valid = mask_to_lanes(initial);
-            dalek::reject_small_order_keys(&tables, &mut valid);
+            reject_small_order_keys(&tables, &mut valid);
             assert_eq!(valid, mask_to_lanes(initial & !mask));
         }
     }

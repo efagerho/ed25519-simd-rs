@@ -1,4 +1,4 @@
-// Shared SysV post-hash queue. The Rust layout assertions are in post_hash_asm.rs.
+// Standalone post-hash queue layout shared by the two assembly policies.
 // Each occupied slot owns its candidate, original encodings and scatter indices.
 .equ .Lpost_chunks, 8
 .equ .Lpost_point_size, 1280
