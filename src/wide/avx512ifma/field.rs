@@ -124,6 +124,10 @@ impl WideFe {
     pub(super) fn from_fields(fields: &[Fe51; LANES]) -> Self {
         Self::from_limbs_per_lane(|lane| fields[lane].loose_limbs())
     }
+    #[cfg(any(
+        test,
+        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
+    ))]
     pub(super) fn from_field_refs(fields: &[&Fe51; LANES]) -> Self {
         Self::from_limbs_per_lane(|lane| fields[lane].loose_limbs())
     }
@@ -578,6 +582,7 @@ impl WideFe {
     }
 
     #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
+    #[cfg(test)]
     pub(super) fn pow_p_minus_5_over_8_x2(a: &Self, b: &Self) -> (Self, Self) {
         unsafe extern "C" {
             fn ed25519_simd_pow2_ifma(out: *mut u8, a: *const u8, b: *const u8);
@@ -612,6 +617,10 @@ impl WideFe {
     pub(super) fn equals_mask(self, rhs: &Self) -> u8 {
         self.subtract(rhs).is_zero_mask()
     }
+    #[cfg(any(
+        test,
+        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
+    ))]
     pub(super) fn is_zero_lanes(self) -> [bool; LANES] {
         mask_to_lanes(self.is_zero_mask())
     }

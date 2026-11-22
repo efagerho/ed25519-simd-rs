@@ -1,3 +1,5 @@
+#[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
+pub(crate) mod dalek;
 mod decode;
 mod field;
 #[cfg_attr(
@@ -5,22 +7,32 @@ mod field;
     path = "ladder_step_asm.rs"
 )]
 mod ladder_step;
+#[cfg(any(
+    test,
+    not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
+))]
 mod multiscalar;
 mod point;
+#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
+mod post_hash_asm;
 mod tables;
 #[cfg(test)]
 mod tests;
-#[cfg_attr(
-    all(feature = "asm", target_os = "linux", target_pointer_width = "64"),
-    path = "zip215_asm.rs"
-)]
+#[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
 pub(crate) mod zip215;
+#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
+pub(crate) mod zip215 {
+    pub(crate) type Queue = super::post_hash_asm::Queue<false>;
+}
+#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
+pub(crate) mod dalek {
+    pub(crate) type Queue = super::post_hash_asm::Queue<true>;
+    pub(crate) use super::post_hash_asm::reject_small_order_keys;
+}
 
 pub(crate) use decode::{WideRPoint, decode_keys_and_decompress_r, decode_public_key_table};
-pub(crate) use multiscalar::{
-    DALEK_BATCH, DalekCandidate, check_dalek_candidates, prepare_dalek_candidate,
-    public_key_small_order_lanes, verify_prepared_dalek_decompressed_r,
-};
+#[cfg(test)]
+pub(crate) use multiscalar::{DALEK_BATCH, DalekCandidate, check_dalek_candidates};
 pub(crate) use tables::build_basepoint_table_entries;
 
 const LANES: usize = crate::batch::SIMD_LANES;

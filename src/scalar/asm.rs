@@ -1,5 +1,7 @@
 use super::{LANES, Radix16, WIDE_WORDS};
-use core::mem::{MaybeUninit, size_of};
+#[cfg(test)]
+use core::mem::MaybeUninit;
+use core::mem::size_of;
 
 #[cfg(not(feature = "verify-asm-scalar"))]
 core::arch::global_asm!(include_str!("reduce.S"), options(raw));
@@ -15,13 +17,14 @@ const _: () = {
     assert!(size_of::<Radix16>() == 64);
 };
 
+#[cfg(test)]
 unsafe extern "C" {
     pub(super) fn ed25519_simd_digest_to_radix16(out: *mut u8, words: *const u8);
 
-    #[cfg(test)]
     pub(super) fn ed25519_simd_scalar_reduce_ifma(out: *mut u8, words: *const u8);
 }
 
+#[cfg(test)]
 pub(super) fn wide_words_to_radix16(words: &[[u64; LANES]; WIDE_WORDS]) -> [Radix16; LANES] {
     let mut out = MaybeUninit::<[Radix16; LANES]>::uninit();
     // The pointers cover disjoint 512-byte buffers. The assembly accepts

@@ -1,11 +1,19 @@
 use super::LANES;
 use super::field::WideFe;
+#[cfg(any(
+    test,
+    not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
+))]
 use crate::edwards::CachedPoint;
 #[cfg(any(
     test,
     not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
 ))]
 use crate::edwards::{AffineCachedPoint, POINT_ENCODING_LEN};
+#[cfg(any(
+    test,
+    not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
+))]
 use crate::field::Fe51;
 
 /// Eight extended Edwards points packed coordinate-wise for SIMD arithmetic.
@@ -109,7 +117,9 @@ core::arch::global_asm!(
     include_str!("pow22523.inc"),
     include_str!("point_encoding.inc"),
     include_str!("dalek_recompress.S"),
+    include_str!("post_hash.inc"),
     include_str!("zip215.S"),
+    include_str!("dalek.S"),
     include_str!("decompress_r.S"),
     options(raw)
 );
@@ -118,6 +128,7 @@ core::arch::global_asm!(
 unsafe extern "C" {
     #[cfg(test)]
     fn ed25519_simd_check_8_torsion_ifma(point: *const u8, affine: *const u8) -> u8;
+    #[cfg(test)]
     fn ed25519_simd_small_order_ifma(point: *const u8) -> u8;
 }
 
@@ -203,6 +214,7 @@ impl WidePoint {
     /// Recover `(X:Y:Z)` without `T`; callers must double before an
     /// extended-coordinate operation.
     #[inline(never)]
+    #[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
     pub(super) fn from_cached_refs_without_t(points: &[&CachedPoint; LANES]) -> Self {
         let field = |pick: fn(&CachedPoint) -> &Fe51| {
             WideFe::from_field_refs(&core::array::from_fn(|lane| pick(points[lane])))
@@ -239,6 +251,7 @@ impl WidePoint {
         bytes
     }
     /// Compare with a freshly decompressed point whose `z` is one.
+    #[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
     pub(super) fn equals_affine_lanes(&self, affine: &Self) -> [bool; LANES] {
         debug_assert!(
             affine.z.equals_lanes(&WideFe::one()).iter().all(|&eq| eq),
@@ -251,6 +264,10 @@ impl WidePoint {
         core::array::from_fn(|lane| x_equal[lane] && y_equal[lane])
     }
     /// Return whether each point is killed by the Ed25519 cofactor.
+    #[cfg(any(
+        test,
+        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
+    ))]
     pub(super) fn is_small_order_lanes(&self) -> [bool; LANES] {
         #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
         {

@@ -103,7 +103,7 @@ Proof.
    assert (Bounds:Torsion.Audit.input_bounds (point_words flat pts i)(words os)).
    { intros row j R J;split;[apply strict_split;assumption|]. intros _;rewrite word_cell by exact J.
      specialize(Lanes _ (J' j J)). unfold lane_claim in Lanes.
-     destruct Lanes as [X [Y [Zr [T _]]]].
+     destruct Lanes as [_ [X [Y [Zr [T _]]]]].
      assert (D:(row/5<4)%nat) by (apply Nat.div_lt_upper_bound;lia).
      assert (M:(row mod 5<5)%nat) by (apply Nat.mod_upper_bound;lia).
      unfold os,outputs. destruct (row/5)%nat as [|[|[|[|c]]]];cbn [component];try lia;

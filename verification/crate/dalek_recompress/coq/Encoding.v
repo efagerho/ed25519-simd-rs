@@ -2,7 +2,7 @@ From Coq Require Import ZArith Bool Lia Field.
 From Coqprime.elliptic Require GZnZ.
 From Machine Require Import memory.ByteMemory.
 From Curve25519 Require Import Field Radix51.
-From Curve25519.group Require Import PrimeField Affine Decompression.
+From Curve25519.group Require Import PrimeField Affine Cofactor Decompression.
 From Ed25519Simd.Decode Require Import Kernels Limbs Scale Power Unpack Decode.
 From Ed25519Simd.Dalek Require Import FieldOps.
 Local Open Scope Z_scope.
@@ -23,14 +23,6 @@ Proof.
  unfold noncanonical. destruct (Z.eqb _ (radix-1)) eqn:E, (Z.leb_spec (radix-19) (h 0%nat));
  unfold pack,limbs,radix,prime in *; intuition lia.
 Qed.
-Lemma unpack_strict flat ptr j : field_bound (fun _=>radix-1) (unpack flat ptr j).
-Proof.
- assert (M:forall z,0<=masked z<=radix-1).
- { intro;unfold masked;rewrite Z.land_ones by lia. pose proof(Z.mod_pos_bound z radix ltac:(unfold radix;lia)).
-   change (2^51) with radix;lia. }
- intros [|[|[|[|i]]]] H; apply M.
-Qed.
-
 Definition y_matches k flat ptr j z y :=
  let a:=unpack flat ptr j in negb(noncanonical a) && high_test (subtract_product k a z y) 0.
 Lemma y_matches_ok k flat ptr j z y : checked k=true -> byte_memory flat -> (j<8)%nat ->
@@ -76,6 +68,40 @@ Proof.
 Qed.
 
 Definition compress (P:point) := val(y P) + (if parity(x P) then 2^255 else 0).
+(* The cache-hit screen discards a chunk only when every encoded Y is
+   outside this interval. Either sign gives the same low 255 bits. *)
+Lemma strict_encoding_y_range P : multiple 8 P <> identity ->
+  1 < compress P mod 2^255 < prime-1.
+Proof.
+ intro Strong.
+ assert (Range:0<=val(y P)<prime).
+ { rewrite (GZnZ.inZnZ prime (y P));apply Z.mod_pos_bound;unfold prime;lia. }
+ assert (Limit:prime<2^255) by (unfold prime;lia).
+ assert (Packed:compress P mod 2^255=val(y P)).
+ { unfold compress;destruct (parity(x P)).
+   - replace (val(y P)+2^255) with (val(y P)+1*2^255) by ring.
+     rewrite Z.mod_add by lia. apply Z.mod_small;lia.
+   - rewrite Z.add_0_r;apply Z.mod_small;lia. }
+ rewrite Packed.
+ assert (Y0:y P <> 0%fp).
+ { intro Y;apply Strong,eight_identity_iff;rewrite Y;ring. }
+ assert (Unit:y P <> 1%fp /\ y P <> (0-1)%fp).
+ { assert (Weak: y P=1%fp \/ y P=(0-1)%fp -> False).
+   { intro Y. assert (Zero:on_curve 0%fp (y P)).
+     { destruct Y as [-> | ->];unfold on_curve;ring. }
+     assert (X:x P=0%fp).
+     { eapply (unique_signed_root (parity(x P)) _ _ (y P));
+       [apply on_edwards|exact Zero|right;reflexivity|left;reflexivity]. }
+     apply Strong,eight_identity_iff;rewrite X;ring. }
+   tauto. }
+ destruct Unit as [Y1 Ym].
+ assert (ValEq:forall a b:fp, val a=val b -> a=b) by (intros [a A] [b B];apply GZnZ.zirr).
+ assert (val(y P)<>0) by (intro E;apply Y0,ValEq;exact E).
+ assert (val(y P)<>1) by (intro E;apply Y1,ValEq;exact E).
+ assert (val(y P)<>prime-1) by (intro E;apply Ym,ValEq;exact E).
+ lia.
+Qed.
+
 Lemma encoding_equal flat ptr j P : byte_memory flat ->
  (encoded flat ptr j=compress P <->
  encoded flat ptr j mod 2^255=val(y P) /\ Z.testbit (encoded flat ptr j) 255=parity(x P)).

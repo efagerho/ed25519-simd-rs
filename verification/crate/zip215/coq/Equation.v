@@ -80,7 +80,7 @@ Proof.
  intros H -> CQ [_ T]. unfold lane_claim in H.
  set (o:=Chunks.lane_output k flat ptr pair j) in *.
  set (w:=read_le 32 flat (ptr+32*Z.of_nat j)) in *.
- destruct H as [_ [_ [_ [_ [Y [Zr [TT Meaning]]]]]]].
+ destruct H as [_ [_ [_ [_ [_ [Y [Zr [TT Meaning]]]]]]]].
  destruct (Z.testbit (Chunks.returned k flat ptr pair) (Z.of_nat j)).
  - destruct Meaning as [C [S U]]. set (R:=Point _ _ C).
    assert (Rep:represents_point true (coordinates_of o) R).

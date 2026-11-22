@@ -92,7 +92,7 @@ ed25519_simd_zip215_decode_r:
     vpmovq2m k2, zmm6
     kmovw eax, k2
     encoded_y_limbs
-    fe51_store rdi, 320             // keep the decoded y
+    fe51_store rdi, 320             // preserve the five original Y digits, including y >= p
     lea r8, [rdi + 320]
     call .Lfe51_mul                 // yy = y*y, in a positive representation
     // Scale both numerator and denominator by 121666. Then u=121666*(yy-1)

@@ -1,9 +1,13 @@
 use super::LANES;
 use super::field::WideFe;
+#[cfg(test)]
 use super::point::WidePoint;
+#[cfg(test)]
 use crate::edwards::{AffineCachedPoint, BasepointTableEntries, CachedPoint, PointTable};
 use crate::scalar::Radix16;
+#[cfg(test)]
 use crate::wide::PreparedChunk;
+#[cfg(test)]
 use core::mem::MaybeUninit;
 
 core::arch::global_asm!(include_str!("stage_round.S"), options(raw));
@@ -28,6 +32,7 @@ const _: () = {
     assert!(offset_of!(StagedLadderStep, even) == 2240);
 };
 
+#[cfg(test)]
 unsafe extern "C" {
     fn ed25519_simd_mul_s_base_minus_k_public(
         out: *mut u8,
@@ -37,7 +42,6 @@ unsafe extern "C" {
         k: *const Radix16,
         compute_t: u64,
     );
-    #[cfg(test)]
     fn ed25519_simd_stage_round(
         out: *mut u8,
         keys: *const *const CachedPoint,
@@ -46,10 +50,10 @@ unsafe extern "C" {
         k: *const Radix16,
         pair: usize,
     );
-    #[cfg(test)]
     fn ed25519_simd_ladder_step_ifma(point: *mut u8, operands: *const u8, compute_t: u64);
 }
 
+#[cfg(test)]
 pub(super) fn mul_s_base_minus_k_public<const NEED_T: bool>(
     base: &BasepointTableEntries,
     prepared: &PreparedChunk<'_>,
@@ -125,6 +129,7 @@ impl StagedLadderStep {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(test)]
     use crate::edwards::{BASEPOINT_TABLE_SIZE, select_signed_affine_cached_ref};
     use crate::field::Fe51;
 

@@ -70,22 +70,27 @@
     vpcmpeqq k1, zmm10, zmm29
 .endm
 
-// K1 receives the lanes with encoded y * Z = Y modulo p.
-.macro fe51_match_projective_y point
+// K1 receives the lanes with ZMM0..4 times Z equal to the selected
+// projective coordinate modulo p. Each input limb fits in 52 bits.
+.macro fe51_match_coordinate point, coordinate
 .irp i,5,6,7,8,9
     vmovdqa64 zmm\i, [\point + 640 + 64*(\i-5)]
 .endr
-    // Seed the product with 1024*p - Y. Every limb stays positive for
-    // 52-bit Y. The parallel carry leaves a representative in (0,2*p),
-    // so encoded_y * Z == Y exactly when its five digits equal p.
-    vpsubq zmm10, zmm30, [\point + 320]
+    // Seed the product with 1024*p minus the coordinate. Every limb stays positive for
+    // 52-bit inputs. The parallel carry leaves a representative in (0,2*p),
+    // so equality holds exactly when its five digits equal p.
+    vpsubq zmm10, zmm30, [\point + \coordinate]
 .irp i,11,12,13,14
-    vpsubq zmm\i, zmm31, [\point + 320 + 64*(\i-10)]
+    vpsubq zmm\i, zmm31, [\point + \coordinate + 64*(\i-10)]
 .endr
     call .Ltor_seeded_columns
     call .Lfe51_carry
     fe51_high_ones
     vpcmpeqq k1{k1}, zmm0, qword ptr [rip + .Lfe51_p0]{1to8}
+.endm
+
+.macro fe51_match_projective_y point
+    fe51_match_coordinate \point, 320
 .endm
 
 .macro fe51_squares n

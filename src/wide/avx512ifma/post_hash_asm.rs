@@ -1,4 +1,4 @@
-//! SysV interface for post-hash ZIP-215 verification.
+//! Shared SysV inputs, queue storage and scatter metadata for both policies.
 use super::LANES;
 use super::decode::WideRPoint;
 use super::point::WidePoint;
@@ -53,7 +53,7 @@ impl Default for Storage {
 }
 
 #[derive(Default, Debug)]
-pub(crate) struct Queue(Option<Box<Storage>>);
+pub(crate) struct Queue<const DALEK: bool>(Option<Box<Storage>>);
 
 const _: () = {
     assert!(LANES == 8 && size_of::<Radix16>() == 64 && size_of::<EncodedPointChunk>() == 256);
@@ -87,33 +87,63 @@ unsafe extern "C" {
         len: usize,
     ) -> u32;
     fn ed25519_simd_zip215_flush(queue: *mut u8, out: *mut bool, len: usize) -> u32;
+    fn ed25519_simd_dalek_decoded(
+        inputs: &Inputs,
+        r: *const u8,
+        r_valid: u8,
+        lanes: &PendingLanes,
+        out: *mut bool,
+        len: usize,
+    ) -> u32;
+    fn ed25519_simd_dalek_push(
+        queue: *mut u8,
+        inputs: &Inputs,
+        bytes: &EncodedPointChunk,
+        lanes: &PendingLanes,
+        out: *mut bool,
+        len: usize,
+    ) -> u32;
+    fn ed25519_simd_dalek_flush(queue: *mut u8, out: *mut bool, len: usize) -> u32;
+    fn ed25519_simd_dalek_filter_keys(tables: *const *const CachedPoint, valid: *mut bool);
 }
 
-pub(crate) fn check_decoded(
-    chunk: &HashedChunk<'_>,
-    base: &BasepointTableEntries,
-    r: &WideRPoint,
-    r_valid: u8,
-    lanes: &PendingLanes,
-    out: &mut [bool],
-) {
-    let inputs = Inputs::new(chunk, base);
-    // SAFETY: the buffers in inputs and the aligned affine point remain borrowed
-    // for the call. Scatter checks each active index and writes a bool byte.
-    let ok = unsafe {
-        ed25519_simd_zip215_decoded(
-            &inputs,
-            core::ptr::from_ref(&r.point).cast(),
-            r_valid,
-            lanes,
-            out.as_mut_ptr(),
-            out.len(),
-        )
-    };
-    assert_eq!(ok, 1, "invalid ZIP-215 output positions");
+pub(crate) fn reject_small_order_keys(tables: &[&PointTable; LANES], valid: &mut [bool; LANES]) {
+    let entries = tables.map(PointTable::entries_ptr);
+    // SAFETY: every initialized table contains the [8]A entry at index 16.
+    // The filter clears bytes of this exclusive eight-element bool array.
+    unsafe { ed25519_simd_dalek_filter_keys(entries.as_ptr(), valid.as_mut_ptr()) }
 }
 
-impl Queue {
+impl<const DALEK: bool> Queue<DALEK> {
+    pub(crate) fn check_decoded(
+        chunk: &HashedChunk<'_>,
+        base: &BasepointTableEntries,
+        r: &WideRPoint,
+        r_valid: u8,
+        lanes: &PendingLanes,
+        out: &mut [bool],
+    ) {
+        let inputs = Inputs::new(chunk, base);
+        // SAFETY: the buffers in inputs and the aligned affine point remain borrowed
+        // for the call. Scatter checks each active index and writes a bool byte.
+        let ok = unsafe {
+            let check = if DALEK {
+                ed25519_simd_dalek_decoded
+            } else {
+                ed25519_simd_zip215_decoded
+            };
+            check(
+                &inputs,
+                core::ptr::from_ref(&r.point).cast(),
+                r_valid,
+                lanes,
+                out.as_mut_ptr(),
+                out.len(),
+            )
+        };
+        assert_eq!(ok, 1, "invalid verification output positions");
+    }
+
     pub(crate) fn push(
         &mut self,
         chunk: &HashedChunk<'_>,
@@ -123,10 +153,15 @@ impl Queue {
     ) {
         let queue = self.0.get_or_insert_with(Box::default);
         let inputs = Inputs::new(chunk, base);
-        // SAFETY: queue is exclusive and aligned. Push initializes the next
-        // candidate, encoding and metadata slot before either can be consumed.
+        // SAFETY: queue is exclusive and aligned. Push initializes all three
+        // slot fields before increasing the count. Rejected chunks score directly.
         let ok = unsafe {
-            ed25519_simd_zip215_push(
+            let push = if DALEK {
+                ed25519_simd_dalek_push
+            } else {
+                ed25519_simd_zip215_push
+            };
+            push(
                 core::ptr::from_mut(&mut **queue).cast(),
                 &inputs,
                 chunk.r_bytes,
@@ -135,7 +170,7 @@ impl Queue {
                 out.len(),
             )
         };
-        assert_eq!(ok, 1, "invalid ZIP-215 output positions");
+        assert_eq!(ok, 1, "invalid verification output positions");
     }
 
     pub(crate) fn flush(&mut self, out: &mut [bool]) {
@@ -143,13 +178,18 @@ impl Queue {
             // SAFETY: flush consumes only occupied slots and bounds-checks
             // their saved indices against this exclusive output slice.
             let ok = unsafe {
-                ed25519_simd_zip215_flush(
+                let flush = if DALEK {
+                    ed25519_simd_dalek_flush
+                } else {
+                    ed25519_simd_zip215_flush
+                };
+                flush(
                     core::ptr::from_mut(&mut **queue).cast(),
                     out.as_mut_ptr(),
                     out.len(),
                 )
             };
-            assert_eq!(ok, 1, "invalid ZIP-215 output positions");
+            assert_eq!(ok, 1, "invalid verification output positions");
         }
     }
 }

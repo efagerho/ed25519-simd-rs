@@ -243,3 +243,104 @@ fn zip215_recompression_preserves_cofactored_acceptance() {
         assert_eq!(out, expected[..n], "warm batch of {n}");
     }
 }
+
+#[test]
+fn dalek_deferred_queue_and_mixed_hits_match_strict_verification() {
+    use ed25519_simd::{CachedPublicKey, DalekVerifier, KeyCache};
+
+    let mut cases = valid_cases(73);
+    for (i, case) in cases.iter_mut().enumerate() {
+        match i % 11 {
+            1 => case.signature[31] ^= 0x80, // opposite X, same Y
+            3 => case.signature[32..].fill(0xff),
+            5 => {
+                case.signature[..32].fill(0xff); // noncanonical y=p+1
+                case.signature[0] = 0xee;
+            }
+            7 => {
+                case.signature[..32].fill(0); // negative zero at y=1
+                case.signature[0] = 1;
+                case.signature[31] = 0x80;
+            }
+            9 => case.signature[40] ^= 1,
+            _ => {}
+        }
+    }
+    let mut cache = HotKeyCache::with_capacity(cases.len());
+    for (i, case) in cases.iter().enumerate() {
+        if i != 18 {
+            cache.insert(CachedPublicKey::from_encoded(case.public_key).unwrap());
+        }
+    }
+    let mut hot = DalekVerifier::with_cache(cache);
+    let mut cold = DalekVerifier::new();
+    let inputs: Vec<_> = cases.iter().map(Case::input).collect();
+    let expected: Vec<_> = inputs
+        .iter()
+        .map(|v| solana_ed25519_verify_dalek(v.public_key, v.signature, v.message))
+        .collect();
+
+    // First interleave a decoded chunk with queued hits. Subsequent calls
+    // exercise queue reuse, all eight occupancies, automatic flush and a tail.
+    for n in [73, 0, 1, 15, 24, 31, 40, 47, 56, 63, 64, 65, 73] {
+        let mut out: Vec<_> = expected[..n].iter().map(|ok| !ok).collect();
+        hot.verify_batch(&inputs[..n], &mut out);
+        assert_eq!(out, expected[..n], "cached, count {n}");
+        for result in &mut out {
+            *result = !*result;
+        }
+        cold.verify_batch(&inputs[..n], &mut out);
+        assert_eq!(out, expected[..n], "uncached, count {n}");
+    }
+}
+
+#[test]
+fn dalek_rejected_chunks_and_padded_tails_match_strict_verification() {
+    use ed25519_simd::{CachedPublicKey, DalekVerifier, KeyCache};
+
+    let mut cases = valid_cases(32);
+    for (i, case) in cases.iter_mut().enumerate() {
+        let (r, s) = case.signature.split_at_mut(32);
+        match i / 8 {
+            // The eligible S mask and decodable R mask are disjoint.
+            0 if i % 2 == 0 => s.fill(0xff),
+            0 => {
+                r.fill(0);
+                r[0] = 2; // No Edwards point with this Y.
+            }
+            1 => {
+                r.fill(0xff);
+                r[0] = 0xee; // y = p+1, both signs
+                r[31] = if i % 2 == 0 { 0x7f } else { 0xff };
+            }
+            2 => {
+                r.fill(0);
+                r[0] = 1; // Identity, including negative zero.
+                r[31] = (i % 2) as u8 * 0x80;
+            }
+            _ if i != 31 => r.fill(0), // Order four, next to one valid lane.
+            _ => {}
+        }
+    }
+    let inputs: Vec<_> = cases.iter().map(Case::input).collect();
+    let expected: Vec<_> = inputs
+        .iter()
+        .map(|v| solana_ed25519_verify_dalek(v.public_key, v.signature, v.message))
+        .collect();
+    assert_eq!(expected.iter().filter(|ok| **ok).count(), 1);
+    assert!(expected[31]);
+    let mut cache = HotKeyCache::with_capacity(cases.len());
+    for case in &cases {
+        cache.insert(CachedPublicKey::from_encoded(case.public_key).unwrap());
+    }
+    let mut hot = DalekVerifier::with_cache(cache);
+    let mut cold = DalekVerifier::new();
+    for n in [1, 7, 8, 11, 16, 19, 24, 25, 31, 32] {
+        let mut out: Vec<_> = expected[..n].iter().map(|ok| !ok).collect();
+        cold.verify_batch(&inputs[..n], &mut out);
+        assert_eq!(out, expected[..n], "decoded batch of {n}");
+        out.iter_mut().for_each(|ok| *ok = !*ok);
+        hot.verify_batch(&inputs[..n], &mut out);
+        assert_eq!(out, expected[..n], "cached batch of {n}");
+    }
+}
