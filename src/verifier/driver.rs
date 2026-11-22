@@ -5,7 +5,7 @@ use crate::cache::{CachedPublicKey, KeyCache, NullKeyCache};
 use crate::edwards::PointTable;
 use crate::hot_key_cache::HotKeyCache;
 use crate::input::{PUBLIC_KEY_LEN, VerifyInput};
-use crate::scalar::{self, CanonicalScalar, Radix16};
+use crate::scalar::{Radix16, prepare_signature_scalars};
 use crate::sha512;
 use crate::wide::{HashedChunk, avx512ifma};
 use core::mem::MaybeUninit;
@@ -220,31 +220,19 @@ pub(super) fn verify_uncached_batch_for<P: PolicyOps>(
 
 #[inline(always)]
 fn parse_chunk_inputs<'a>(inputs: &[VerifyInput<'a>; SIMD_LANES]) -> ParsedChunk<'a> {
-    let mut valid = [true; SIMD_LANES];
-    let mut r_bytes = [[0u8; R_ENCODING_LEN]; SIMD_LANES];
-    let mut public_keys = [[0u8; PUBLIC_KEY_LEN]; SIMD_LANES];
-    let mut s_digits = [[0i8; 64]; SIMD_LANES];
-    let mut messages = [inputs[0].message; SIMD_LANES];
-    for (lane, input) in inputs.iter().enumerate() {
-        r_bytes[lane].copy_from_slice(&input.signature[..R_ENCODING_LEN]);
-
-        let mut s_bytes = [0u8; 32];
-        s_bytes.copy_from_slice(&input.signature[R_ENCODING_LEN..]);
-        if scalar::is_canonical(&s_bytes) {
-            s_digits[lane] = CanonicalScalar::from_canonical_bytes(s_bytes).to_radix16();
-        } else {
-            valid[lane] = false;
-        }
-        public_keys[lane] = input.public_key;
-        messages[lane] = input.message;
-    }
-
+    let (mask, s_digits) = prepare_signature_scalars(
+        inputs
+            .each_ref()
+            .map(|input| input.signature[R_ENCODING_LEN..].try_into().unwrap()),
+    );
     ParsedChunk {
-        valid,
-        r_bytes,
-        public_keys,
+        valid: batch::mask_to_lanes(mask),
+        r_bytes: inputs
+            .each_ref()
+            .map(|input| *input.signature.first_chunk().unwrap()),
+        public_keys: inputs.each_ref().map(|input| input.public_key),
         s_digits,
-        messages,
+        messages: inputs.each_ref().map(|input| input.message),
     }
 }
 

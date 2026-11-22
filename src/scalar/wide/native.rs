@@ -35,7 +35,7 @@ fn operands() -> ([u8; 512], [(ScalarRoutine, Vec<u8>); 2]) {
         .flat_map(u64::to_le_bytes)
         .collect();
     let digits = reduced
-        .map(|bytes| crate::scalar::CanonicalScalar::from_canonical_bytes(bytes).to_radix16())
+        .map(reference_radix16)
         .into_iter()
         .flatten()
         .map(|digit| digit as u8)
@@ -140,6 +140,45 @@ fn respects_guard_pages_and_read_only_input() {
                     assert_eq!(core::slice::from_raw_parts(dst, expected.len()), &expected);
                     assert_eq!(core::slice::from_raw_parts(src, 512), &input);
                 }
+            }
+        }
+    }
+}
+
+#[test]
+fn signature_scalars_respect_input_and_output_extents() {
+    let input = Guarded::new();
+    let output = Guarded::new();
+    let mut below = L_BYTES;
+    below[0] -= 1;
+    unsafe {
+        // Every scalar touches a guard page. Reverse the pointer order on the
+        // second pass so each assembly load is checked at both boundaries.
+        let first = input.buffer(32, false).cast::<[u8; 32]>();
+        let last = input.buffer(32, true).cast::<[u8; 32]>();
+        first.write(below);
+        last.write(L_BYTES);
+        assert_eq!(mprotect(input.middle().cast(), input.page, 1), 0);
+        for end in [false, true] {
+            let scalars: [&[u8; 32]; LANES] = core::array::from_fn(|lane| {
+                if (lane % 2 == 0) == end {
+                    &*last
+                } else {
+                    &*first
+                }
+            });
+            let out = output.buffer(512, end).cast::<[Radix16; LANES]>();
+            out.write([[0x5a; 64]; LANES]);
+            let mask =
+                crate::scalar::asm::ed25519_simd_prepare_signature_scalars(out, scalars.as_ptr());
+            assert_eq!(mask, if end { 0xaa } else { 0x55 });
+            for (lane, digits) in out.read().iter().enumerate() {
+                let expected = if mask & (1 << lane) != 0 {
+                    reference_radix16(below)
+                } else {
+                    [0; 64]
+                };
+                assert_eq!(digits, &expected);
             }
         }
     }

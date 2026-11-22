@@ -8,6 +8,10 @@ pub(crate) const SIMD_LANES: usize = 8;
 /// Eight lane-major encodings of Edwards points.
 pub(crate) type EncodedPointChunk = [[u8; R_ENCODING_LEN]; SIMD_LANES];
 
+pub(crate) fn mask_to_lanes(mask: u8) -> [bool; SIMD_LANES] {
+    core::array::from_fn(|lane| (mask & (1 << lane)) != 0)
+}
+
 /// Input validity and output positions for one padded chunk. Native ZIP-215
 /// scoring reads this layout and writes only the first active_lane_count lanes.
 #[repr(C)]

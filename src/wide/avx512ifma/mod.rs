@@ -1,3 +1,5 @@
+use crate::batch::mask_to_lanes;
+
 mod decode;
 mod point;
 mod post_hash_asm;
@@ -30,8 +32,3 @@ pub(crate) use decode::{WideRPoint, decode_keys_and_decompress_r, decode_public_
 
 const LANES: usize = crate::batch::SIMD_LANES;
 const _: () = assert!(LANES == 8, "avx512ifma assumes exactly 8 SIMD lanes");
-
-/// Expand the decoder's per-lane validity mask.
-fn mask_to_lanes(mask: u8) -> [bool; LANES] {
-    core::array::from_fn(|lane| (mask & (1 << lane)) != 0)
-}

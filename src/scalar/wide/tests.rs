@@ -1,3 +1,4 @@
+use super::tests::{L_BYTES, reference_radix16};
 use super::*;
 use core::mem::MaybeUninit;
 use rand::{RngCore, SeedableRng, rngs::StdRng};
@@ -81,9 +82,8 @@ fn full_width_reduction_matches_independent_scalar() {
         value[bit / 64] = 1 << (bit % 64);
         cases.extend(neighbors(value));
     }
-    let l: [u64; 4] = core::array::from_fn(|i| {
-        u64::from_le_bytes(crate::scalar::L_BYTES[8 * i..8 * i + 8].try_into().unwrap())
-    });
+    let l: [u64; 4] =
+        core::array::from_fn(|i| u64::from_le_bytes(L_BYTES[8 * i..8 * i + 8].try_into().unwrap()));
     // L*2^shift and its neighbors check canonicalization over the full input.
     for shift in 0..260 {
         let mut value = [0; WIDE_WORDS];
@@ -107,7 +107,7 @@ fn full_width_reduction_matches_independent_scalar() {
         for lane in 0..LANES {
             assert_eq!(
                 digits[lane],
-                crate::scalar::CanonicalScalar::from_canonical_bytes(expected[lane]).to_radix16(),
+                reference_radix16(expected[lane]),
                 "batch {batch}, lane {lane} recoding"
             );
         }
