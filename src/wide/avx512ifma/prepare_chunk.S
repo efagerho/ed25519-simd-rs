@@ -60,6 +60,7 @@ ed25519_simd_prepare_chunk:
     shr eax, 8
     mov [r13 + .Lpc_r_valid], al    // R decode mask used by the post-hash check
     and r14d, r15d                  // canonical S and decodable A
+    and r14d, eax                   // R must also decode in the same lane
     jz .Lpc_rejected
 
     lea rdi, [rbx + .Lpc_points]    // builder mutates A; R stays in place

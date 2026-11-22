@@ -28,6 +28,9 @@ fn main() {
         if routine == "pow2" {
             println!("cargo:rerun-if-changed=src/wide/avx512ifma/pow22523.inc");
         }
+        if matches!(routine, "double4" | "cached-add") {
+            println!("cargo:rerun-if-changed=src/wide/avx512ifma/fe51_product.inc");
+        }
         for path in [
             source.into(),
             format!("verification/crate/{proof}"),

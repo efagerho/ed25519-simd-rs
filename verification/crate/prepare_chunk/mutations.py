@@ -14,6 +14,7 @@ CASES = (
     ("drop the last two encoding pairs", "Common", "81 f9 00 01 00 00", "81 f9 c0 00 00 00"),
     ("decode only the keys", "Common", "ba 02 00 00 00", "ba 01 00 00 00"),
     ("combine S and A with OR", "Common", "45 21 fe", "45 09 fe"),
+    ("ignore R eligibility", "Common", "41 21 c6", "90 90 90"),
     ("shift the R mask by seven", "Common", "c1 e8 08", "c1 e8 07"),
     ("select the next lane's table", "Common", "00 0e a0 18", "a0 18 a0 18"),
     ("emit 255 for true", "Common", "62 f2 7d 48 1c c0", "90 90 90 90 90 90"),

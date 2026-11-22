@@ -17,6 +17,13 @@ def mc(*args, **kwargs):
                            "-x86-asm-syntax=intel", *args], check=True, **kwargs)
 
 
+def assembly_source(work, sources):
+    """Match the ordered include_str! arguments to global_asm!."""
+    source = work / sources[-1].name
+    source.write_text("\n".join(path.read_text() for path in sources))
+    return source
+
+
 def assemble(source, work, name, symbol=SYMBOL):
     obj, raw = work / (name + ".o"), work / (name + ".bin")
     mc("-filetype=obj", "-o", obj, source)
@@ -125,9 +132,7 @@ def generate(work):
     """Write Program.v and the expanded assembly, and return the assembled bytes."""
     with tempfile.TemporaryDirectory(dir=work) as tmp:
         objects = Path(tmp)
-        # Rust global_asm includes these same two sources in this order.
-        source = objects / SOURCE.name
-        source.write_text("\n".join(path.read_text() for path in SOURCES))
+        source = assembly_source(objects, SOURCES)
         raw = assemble(source, objects, "macro")
         base, code = disassemble(objects / "macro.o")
         require(base == 0, "unexpected symbol offset")

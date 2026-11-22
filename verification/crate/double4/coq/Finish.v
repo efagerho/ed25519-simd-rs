@@ -12,13 +12,19 @@ Definition finish j (full:bool) s :=
 Definition round_result (full:bool) before after :=
  lane_words after /\ constants after /\
  forall coord,(coord<(if full then 4 else 3))%nat ->
- reduced(round_field full after coord) /\
+ (if full then reduced else loose)(round_field full after coord) /\
  represents(limbs(round_field full after coord))(coordinate(doubling(lane_coordinates false before))coord).
 Lemma offset_field s region coord i :
  cells s(offset(region,64*Z.of_nat coord)(64*Z.of_nat i))=field s region coord i.
 Proof. unfold offset,field;cbn [fst snd];rewrite Nat2Z.inj_add;f_equal;f_equal;ring. Qed.
 Lemma reduced_split x : reduced x -> split_field x.
 Proof. intros B i I;specialize(B i I);unfold output_bound in B;destruct(Nat.eqb _ _);unfold split,radix in *;lia. Qed.
+Lemma round_bound_reduced (full:bool) x : reduced x -> (if full then reduced else loose) x.
+Proof. destruct full;[trivial|apply reduced_loose]. Qed.
+Lemma round_bound_product (full:bool) x :
+ field_bound (if full then output_bound else fun _=>ready_bound) x ->
+ (if full then reduced else loose) x.
+Proof. destruct full;[trivial|apply ready_loose]. Qed.
 Lemma finish_correct j full before s : prepared before s -> round_result full before(finish j full s).
 Proof.
  intros[W[C[Fields[Regs Point]]]].
@@ -70,7 +76,7 @@ Proof.
  { intro Full.
    destruct(call_multiply j full (scratch,960)yt_in Wyti Cyti YGbound YEbound YHbound 5
     ltac:(rewrite Full;cbn [In];auto))as[TB TV].
-   split;[exact TB|]. rewrite(limbs_ext _ _ (TE Full)),(limbs_ext _ _ YH)in TV.
+   split;[unfold yt;rewrite Full in TB |- *;exact TB|]. rewrite(limbs_ext _ _ (TE Full)),(limbs_ext _ _ YH)in TV.
    eapply ctrans;[exact TV|apply ctimes;assumption]. }
  assert(Wyt:lane_words yt)by(apply call_words;exact Wyti).
  assert(Cyt:constants yt)by(apply kernel_constants;exact Cyti).
@@ -87,15 +93,15 @@ Proof.
  try (destruct full;cbn in K;lia).
  all: try rewrite round_field_memory by lia.
  all: cbn [Nat.mul Nat.add].
- - split;[apply(field_bound_ext _ (rfield xz 0));[intros;symmetry;apply OutX;assumption|exact XB]|].
+ - split;[apply round_bound_reduced;apply(field_bound_ext _ (rfield xz 0));[intros;symmetry;apply OutX;assumption|exact XB]|].
    rewrite(limbs_ext _ _ OutX).
    eapply ctrans;[exact Xmath|]. unfold preparation_value,doubling,coordinate;cbn [cx cy cz ct].
    exists 0;ring.
- - split;[apply(field_bound_ext _ (rfield yt 0));[intros;symmetry;apply stage6_y;assumption|exact YB]|].
+ - split;[apply round_bound_product;apply(field_bound_ext _ (rfield yt 0));[intros;symmetry;apply stage6_y;assumption|exact YB]|].
    cbn [Nat.mul Nat.add stage];rewrite(limbs_ext _ _ (stage6_y j full yt)).
    eapply ctrans;[exact Ymath|]. unfold preparation_value,doubling,coordinate;cbn [cx cy cz ct].
    exists 0;ring.
- - split;[apply(field_bound_ext _ (rfield xz 5));[intros;symmetry;apply OutZ;assumption|exact ZB]|].
+ - split;[apply round_bound_reduced;apply(field_bound_ext _ (rfield xz 5));[intros;symmetry;apply OutZ;assumption|exact ZB]|].
    change(represents(limbs(field(shuffle j(stage 6 full)yt)point 10))(coordinate(doubling(lane_coordinates false before))2)).
    rewrite(limbs_ext _ _ OutZ).
    eapply ctrans;[exact Zmath|]. unfold preparation_value,doubling,coordinate;cbn [cx cy cz ct].

@@ -61,6 +61,11 @@ Every output coordinate has limbs 0, 2, 3, 4 below `2^51` and limb 1 below
 `2^52`. Omitting T writes five exactly zero vectors, even for inputs outside
 the arithmetic bounds.
 
+The independent products A and B, and projective C and D, return folded
+columns below `300·2^52`. The proof checks the biased differences and sums
+at that bound, then checks that carrying E, F, G and H makes them valid
+52-bit multiplication inputs. [Kernel bounds](coq/Kernels.v) · [Call preconditions](coq/KernelCalls.v)
+
 The same theorem proves finite execution, normal return, restored RSP and
 SysV saved registers, initialization of every output byte, and preservation
 of the cache. Writes stay inside the point and private stack. The aligned
@@ -88,8 +93,9 @@ python3 -B verification/crate/cached_add/audit.py /path/to/unstripped-release-el
 The audit checks the complete theorem, requires `Closed under the global
 context`, and runs `coqchk`. It retains proof sources, the expanded assembly,
 the Coq instruction listing, raw symbol bytes, tool versions and hashes.
-Both listings contain instruction offsets; `add_cached.expanded.S` also
-shows bytes. The manifest identifies the ELF and symbol being certified.
+Both listings expand the field multiplication macro shared with double4 and
+give instruction offsets. `add_cached.expanded.S` also shows the bytes. The
+manifest identifies the ELF and symbol being certified. [Shared multiplication kernel](../../../src/wide/avx512ifma/fe51_product.inc)
 
 Rebuild the retained certificate without the repository or assembler:
 

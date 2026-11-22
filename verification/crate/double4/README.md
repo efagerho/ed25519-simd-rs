@@ -60,6 +60,12 @@ limbs 0, 2, 3 and 4 below `2^51` and limb 1 below `2^52`. These bounds imply
 the next doubling's input condition (`reduced_loose`) and the field
 multiplication bound of `2^52` per limb.
 
+The square kernel returns folded columns below `300·2^52`. The proof checks
+that the `2048p` subtraction bias keeps E, F, G and H in range until they
+are carried for multiplication. In the first three rounds, Y uses parallel
+carries and satisfies the next square's loose input bound.
+[Square and product bounds](coq/Kernels.v) · [Round composition](coq/Finish.v)
+
 The same theorem also guarantees:
 
 - Finite execution and normal return, RBX/RBP/R12–R15 preservation, and RSP
@@ -97,10 +103,12 @@ python3 -B verification/crate/double4/audit.py "$elf" \
   --output ./double4-audit --cases ./double4-cases.jsonl --seed 42
 ```
 
-The checker independently extracts the ELF symbol bytes, expands `double4.S`
-with LLVM MC, and generates a readable Coq program. Coq proves that encoding
-that program equals the extracted bytes, including padding, and proves its
-execution contract. The checker requires `Closed under the global context`
+The checker extracts the ELF symbol bytes and expands `double4.S` with the
+same field multiplication macro used by cached addition. LLVM MC emits the
+instruction listing used to generate the Coq program. [Shared multiplication kernel](../../../src/wide/avx512ifma/fe51_product.inc)
+
+Coq proves that the program encodes to the extracted bytes, including padding,
+and satisfies its execution contract. The checker requires `Closed under the global context`
 and runs `coqchk`. It retains all proof sources, both instruction listings,
 raw symbol bytes, tool versions, logs and SHA-256 hashes in the audit directory.
 [`audit.py`](audit.py) · [`certificate.py`](certificate.py) · [`listing.py`](listing.py)

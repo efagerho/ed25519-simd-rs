@@ -20,7 +20,7 @@ Definition bias i := if Nat.eqb i 0 then 0x3fffffffffff6800 else 0x3ffffffffffff
 Definition input_bound k i :=
  if Nat.ltb i 10 then match k with
  | AddReduce | SquarePair=>loose_bound i
- | SubtractReduce=>square_bound i
+ | SubtractReduce=>folded_column_bound
  | _=>split-1 end else 2^64-1.
 Definition initial k i :=
  if Nat.eqb i 28 then I (C 19) 19 19 else
@@ -29,7 +29,7 @@ Definition initial k i :=
  then I (C (bias (i-30))) (bias (i-30)) (bias (i-30)) else
  I (regvar i) 0 (input_bound k i).
 Definition loads k (b:nat) d := I (memvar (Z.to_nat (d/64))) 0
- (match k with SubtractReduce=>square_bound (Z.to_nat (d/64)) | _=>split-1 end).
+ (match k with SubtractReduce=>folded_column_bound | _=>split-1 end).
 Definition hints k := match k with SquarePair=>
  map (fun i=>I (Plus (regvar (S i)) (Quot (regvar i) radix)) 0 (split-1)) [0%nat;5%nat]
  | _=>[] end.
@@ -46,8 +46,8 @@ Definition output_starts k := match k with
  | AddReduce=>[10%nat] | SubtractReduce=>[0%nat;5%nat;10%nat;15%nat]
  | MultiplySingle=>[0%nat] | _=>[0%nat;5%nat] end.
 Definition bound k i := match k with
- | AddReduce | SubtractReduce=>ready_bound
- | SquarePair=>square_bound i | _=>output_bound i end.
+ | AddReduce | SubtractReduce | MultiplySingle=>ready_bound
+ | SquarePair=>folded_column_bound | _=>output_bound i end.
 Definition check_kernel k := FieldKernel.check_kernel
  (code k) (initial k) (hints k) (loads k) (output_starts k) (bound k) (target k).
 Local Opaque code hints loads.

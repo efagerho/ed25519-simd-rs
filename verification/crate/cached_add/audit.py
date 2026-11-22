@@ -6,7 +6,7 @@ import shutil
 import tempfile
 
 from certificate import certify
-from listing import SYMBOL, SOURCE, generate
+from listing import SYMBOL, SOURCES, generate
 from coq_proof import export_cases
 from elf import symbol_bytes, symbol_extent
 from evidence import write_evidence
@@ -35,7 +35,7 @@ def replay(binary, work, cases=None, seed=1):
         if cases.resolve() != retained.resolve():
             shutil.copyfile(cases, retained)
         corpus = {"path": retained.name, "count": count, "export_seed": seed}
-    write_evidence(binary, work, "cached_add", checks, [(SYMBOL, address, raw)], [SOURCE],
+    write_evidence(binary, work, "cached_add", checks, [(SYMBOL, address, raw)], SOURCES,
                    component_flags("cached_add"), corpus)
     print(f"Coq kernel replay passed for {SYMBOL}, SHA-256 {hashlib.sha256(raw).hexdigest()}")
 

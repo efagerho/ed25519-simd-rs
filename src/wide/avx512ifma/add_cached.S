@@ -72,8 +72,7 @@
 .irp i,0,1,2,3
     ca_rrr vpaddq, %(\first+\i+1), %(\first+\i+1), %(20+\i)
 .endr
-    vpmullq zmm24, zmm24, zmm28
-    vpaddq zmm\first, zmm\first, zmm24
+    vpmadd52luq zmm\first, zmm24, zmm28
 .endm
 
 .altmacro
@@ -87,9 +86,9 @@ ed25519_simd_add_cached_ifma:
     vpbroadcastq zmm28, rax
     mov rax, 0x7ffffffffffff
     vpbroadcastq zmm29, rax
-    // Limbwise 2048*p covers the independent kernel's loose limb0 < 2^60
-    // as well as 52-bit inputs. Subtractions do not underflow, and every
-    // sum stays below 2^63 before ca_reduce restores the IFMA52 bound.
+    // Each folded product column is below 300*2^52. The 2048*p bias
+    // covers subtraction before the first carry, and the resulting sums
+    // fit below 2^63. ca_reduce restores the IFMA52 input bound.
     mov rax, 0x3fffffffffff6800
     vpbroadcastq zmm30, rax
     mov rax, 0x3ffffffffffff800
@@ -200,165 +199,33 @@ ed25519_simd_add_cached_ifma:
 .endr
     ret
 
-// ZMM0..4 and (for a pair) 5..9 are left operands. Accumulate exact columns
-// as lo+2^52*hi, folding degree >=5 by 19. ZMM10..19 hold output limbs until
-// all source limbs have been consumed. Interleave both products' low/high
-// accumulators in ZMM20/21 and ZMM22/23: four independent IFMA chains.
-//
-// The independent kernel reads different right operands at R8 and R8+320.
-// Both use memory operands to avoid spilling live inputs or partial outputs.
-// It returns product 1 in ZMM0..4 and product 0 in ZMM5..9. Limb0 is < 2^60
-// and limbs1..4 are < 2^51: the following additions and ca_reduce normalize
-// them, so carrying limb0 here would be redundant. This kernel is used only
-// for A/B and projective C/D, never for the final point coordinates.
-// With 52-bit inputs, the last carry is < 10*2^52+128; folding it by 19
-// gives limb0 < 191*2^52 < 2^60. The 2048*p subtraction bias covers it.
-//
-// Single and shared-RHS pair return strict products in the original order.
-// Single caches the right operand in ZMM5..9, with carry in ZMM24. Shared-RHS
-// pair caches right limbs0..4 in ZMM24/26/27/30/31. In both paired kernels,
-// the second product's carry is in ZMM25; the first after columns0..3 uses
-// ZMM16..19: each is a future second-product output, read before that output
-// is written. Column4 puts the final carry in ZMM24, after right limb0's
-// last use. Each shared right limb needs only one load per kernel call.
-.macro ca_memterm op, dst, lhs, offset
-    \op zmm\dst, zmm\lhs, [r8 + \offset]
-.endm
-.macro ca_term i, streams, right
-.irp high,0,1
-.irp s,0,1
-.if \s < \streams
-.if \high
-    ca_rrr vpmadd52huq, %(21+2*\s), %(5*\s+\i), \right
-.else
-    ca_rrr vpmadd52luq, %(20+2*\s), %(5*\s+\i), \right
-.endif
-.endif
-.endr
-.endr
-.endm
-
-.macro ca_column k, streams, independent=0
-.irp s,0,1
-.if \s < \streams
-    ca_rrr vpxorq, %(20+2*\s), %(20+2*\s), %(20+2*\s)
-    ca_rrr vpxorq, %(21+2*\s), %(21+2*\s), %(21+2*\s)
-.endif
-.endr
-.irp wrapped,1,0
-.irp i,0,1,2,3,4
-.irp j,0,1,2,3,4
-.if \i+\j == \k+5*\wrapped
-.if \independent
-.irp high,0,1
-.irp stream,0,1
-.if \high
-    ca_memterm vpmadd52huq, %(21+2*\stream), %(5*\stream+\i), %(64*\j + 320*\stream)
-.else
-    ca_memterm vpmadd52luq, %(20+2*\stream), %(5*\stream+\i), %(64*\j + 320*\stream)
-.endif
-.endr
-.endr
-.elseif \streams == 1
-    ca_term \i, 1, %(5+\j)
-.elseif \j == 0
-    ca_term \i, \streams, 24
-.elseif \j < 3
-    ca_term \i, \streams, %(25+\j)
-.else
-    ca_term \i, \streams, %(27+\j)
-.endif
-.endif
-.endr
-.endr
-.if \wrapped && (\k < 4)
-.irp s,0,1
-.if \s < \streams
-    ca_rrr vpmullq, %(20+2*\s), %(20+2*\s), 28
-    ca_rrr vpmullq, %(21+2*\s), %(21+2*\s), 28
-.endif
-.endr
-.endif
-.endr
-.irp s,0,1
-.if \s < \streams
-.if \k
-.if (\streams == 2) && (\s == 0)
-    // Consume the first product's carry before the second writes this slot.
-    ca_rrr vpaddq, 20, 20, %(15+\k)
-.else
-    ca_rrr vpaddq, %(20+2*\s), %(20+2*\s), %(24+\s)
-.endif
-.endif
-    ca_rrr vpandq, %(10+5*\s+\k), %(20+2*\s), 29
-.if (\streams == 2) && (\s == 0) && (\k < 4)
-    // Borrow the second product's next output slot; keep right limb0 live.
-    ca_rri vpsrlq, %(16+\k), 20, 51
-    ca_rri vpsllq, 21, 21, 1
-    ca_rrr vpaddq, %(16+\k), %(16+\k), 21
-.else
-    ca_rri vpsrlq, %(24+\s), %(20+2*\s), 51
-    ca_rri vpsllq, %(21+2*\s), %(21+2*\s), 1
-    ca_rrr vpaddq, %(24+\s), %(24+\s), %(21+2*\s)
-.endif
-.endif
-.endr
-.endm
-
-.macro ca_multiply_kernel streams, independent=0
-.if !\independent
-.if \streams == 1
+// Independent right operands are 320 bytes apart. Keep the second product
+// in its consumed right operand while the first uses the freed registers.
+// Return B/D in 0..4 and A/C in 5..9, as needed by the point formulas.
+.Lca_multiply_independent:
+    ca_load r8, 320, 22
+    fe51_product 5, 22, 22, ca_rrr, ca_rri, 1
     ca_load r8, 0, 5
-.else
-    vmovdqu64 zmm24, [r8]
-    vmovdqu64 zmm26, [r8 + 64]
-    vmovdqu64 zmm27, [r8 + 128]
-    vmovdqu64 zmm30, [r8 + 192]
-    vmovdqu64 zmm31, [r8 + 256]
-.endif
-.endif
-.irp k,0,1,2,3,4
-    ca_column \k, \streams, \independent
-.endr
-.irp s,0,1
-.if \s < \streams
-    ca_rrr vpmullq, %(24+\s), %(24+\s), 28
-    ca_rrr vpaddq, %(10+5*\s), %(10+5*\s), %(24+\s)
-.if \independent
-    ca_rr vmovdqa64, %(5*(1-\s)), %(10+5*\s)
-    ca_rr vmovdqa64, %(5*(1-\s)+1), %(10+5*\s+1)
-.else
-    ca_rri vpsrlq, %(24+\s), %(10+5*\s), 51
-    ca_rrr vpandq, %(5*\s), %(10+5*\s), 29
-    ca_rrr vpaddq, %(5*\s+1), %(10+5*\s+1), %(24+\s)
-.endif
-.irp i,2,3,4
-.if \independent
-    ca_rr vmovdqa64, %(5*(1-\s)+\i), %(10+5*\s+\i)
-.else
-    ca_rr vmovdqa64, %(5*\s+\i), %(10+5*\s+\i)
-.endif
-.endr
-.endif
+    fe51_product 0, 5, 5, ca_rrr, ca_rri, 1
+.irp i,0,1,2,3,4
+    ca_rr vmovdqa64, \i, %(22+\i)
 .endr
     ret
-.endm
-
-.Lca_multiply_independent:
-    ca_multiply_kernel 2, 1
 .Lca_multiply_pair:
-    ca_multiply_kernel 2
+    ca_load r8, 0, 22
+    fe51_product 0, 22, 0, ca_rrr, ca_rri
+    fe51_product 5, 22, 5, ca_rrr, ca_rri
+    ret
 .Lca_multiply_single:
-    ca_multiply_kernel 1
+    ca_load r8, 0, 22
+    fe51_product 0, 22, 0, ca_rrr, ca_rri
+    ret
 .noaltmacro
 .size ed25519_simd_add_cached_ifma, .-ed25519_simd_add_cached_ifma
 .purgem ca_load
 .purgem ca_store
 .purgem ca_reduce
-.purgem ca_memterm
-.purgem ca_term
-.purgem ca_column
-.purgem ca_multiply_kernel
+.purgem fe51_product
 .purgem ca_rrr
 .purgem ca_rri
 .purgem ca_rr

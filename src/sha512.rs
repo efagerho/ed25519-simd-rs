@@ -133,19 +133,7 @@ mod avx512 {
 
     const LANES: usize = SIMD_LANES;
 
-    /// Padding and length positions for one lane of a mixed-length SIMD hash.
-    ///
-    /// A shorter lane uses `length_start` to place its bit length
-    /// while longer lanes continue loading message bytes in the same SIMD pass.
-    #[derive(Clone, Copy)]
-    struct MessageLayout {
-        total_len: usize,
-        bit_len: u64,
-        length_start: usize,
-    }
-
-    /// Hash mixed-length challenges, bulk-reading full common blocks and
-    /// blending per-lane tails through `active_mask`.
+    /// Hash eight challenges, freezing each lane after its length trailer.
     #[inline(never)]
     pub(crate) fn hash_ed25519_challenge_words(
         r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
@@ -153,22 +141,10 @@ mod avx512 {
         messages: [&[u8]; LANES],
     ) -> [[u64; LANES]; 8] {
         unsafe {
-            let mut total_lens = [0usize; LANES];
-            let mut bit_lens = [0u64; LANES];
-            let mut length_starts = [0usize; LANES];
-            let mut block_counts = [0usize; LANES];
-            let mut max_block_count = 0usize;
-            let mut min_total = usize::MAX;
-            for lane in 0..LANES {
-                let total_len = 64 + messages[lane].len();
-                let block_count = challenge_block_count(messages[lane].len());
-                total_lens[lane] = total_len;
-                bit_lens[lane] = (total_len as u64) << 3;
-                length_starts[lane] = block_count * 128 - 16;
-                block_counts[lane] = block_count;
-                max_block_count = core::cmp::max(max_block_count, block_count);
-                min_total = core::cmp::min(min_total, total_len);
-            }
+            let total_lens = messages.map(|m| (64 + m.len()) as u64);
+            let counts = messages.map(|m| challenge_block_count(m.len()) as u64);
+            let last = loadu(counts.map(|count| count - 1));
+            let (length_hi, length_lo) = bit_lengths(total_lens);
 
             let mut state = [
                 _mm512_set1_epi64(IV[0] as i64),
@@ -181,37 +157,25 @@ mod avx512 {
                 _mm512_set1_epi64(IV[7] as i64),
             ];
 
-            for block_index in 0..max_block_count {
-                let block_start = block_index * 128;
-                // Common full-data blocks are active in every lane; skip blend work.
-                if block_start == 0 && min_total >= 128 {
-                    compress_block(
-                        &mut state,
-                        first_data_block_words(r_bytes, public_keys, messages),
-                    );
-                } else if block_start >= 128 && block_start + 128 <= min_total {
-                    compress_block(
-                        &mut state,
-                        message_data_block_words(messages, block_start - 64),
-                    );
+            for block in 0..*counts.iter().max().unwrap() as usize {
+                let index = _mm512_set1_epi64(block as i64);
+                let first = if block == 0 {
+                    encoded_prefix_words(r_bytes, public_keys)
                 } else {
-                    let active = active_mask(&block_counts, block_index);
-                    let old_state = state;
-                    let words = generic_mixed_block_words(
-                        r_bytes,
-                        public_keys,
-                        messages,
-                        &total_lens,
-                        &bit_lens,
-                        &length_starts,
-                        block_index,
-                    );
-                    compress_block(&mut state, words);
-                    if active != 0xff {
-                        for word in 0..8 {
-                            state[word] =
-                                _mm512_mask_blend_epi64(active, old_state[word], state[word]);
-                        }
+                    message_words(&messages, 128 * block - 64)
+                };
+                let second = message_words(&messages, 128 * block);
+                let mut words: [__m512i; 16] = [first, second].as_flattened().try_into().unwrap();
+                let ending = _mm512_cmpeq_epu64_mask(last, index);
+                words[14] = _mm512_mask_mov_epi64(words[14], ending, length_hi);
+                words[15] = _mm512_mask_mov_epi64(words[15], ending, length_lo);
+
+                let active = _mm512_cmpge_epu64_mask(last, index);
+                let previous = state;
+                compress_block(&mut state, words);
+                if active != 0xff {
+                    for word in 0..8 {
+                        state[word] = _mm512_mask_blend_epi64(active, previous[word], state[word]);
                     }
                 }
             }
@@ -220,137 +184,58 @@ mod avx512 {
         }
     }
 
-    fn active_mask(block_counts: &[usize; LANES], block_index: usize) -> __mmask8 {
-        let mut mask = 0u8;
-        for (lane, &count) in block_counts.iter().enumerate() {
-            if block_index < count {
-                mask |= 1 << lane;
-            }
+    fn bit_lengths(total_lens: [u64; LANES]) -> (__m512i, __m512i) {
+        let lengths = loadu(total_lens);
+        unsafe {
+            (
+                _mm512_srli_epi64::<61>(lengths),
+                _mm512_slli_epi64::<3>(lengths),
+            )
         }
-        mask as __mmask8
     }
 
-    fn generic_mixed_block_words(
-        r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
-        public_keys: &[[u8; PUBLIC_KEY_LEN]; LANES],
-        messages: [&[u8]; LANES],
-        total_lens: &[usize; LANES],
-        bit_lens: &[u64; LANES],
-        length_starts: &[usize; LANES],
-        block_index: usize,
-    ) -> [__m512i; 16] {
-        let block_start = block_index * 128;
-        let encoded_prefix = if block_index == 0 {
-            Some(encoded_prefix_words(r_bytes, public_keys))
-        } else {
-            None
-        };
-        core::array::from_fn(|word| {
-            if let Some(prefix) = &encoded_prefix
-                && word < 8
-            {
-                return prefix[word];
-            }
-            let mut lanes = [0u64; LANES];
-            let word_offset = block_start + word * 8;
-            for lane in 0..LANES {
-                let layout = MessageLayout {
-                    total_len: total_lens[lane],
-                    bit_len: bit_lens[lane],
-                    length_start: length_starts[lane],
-                };
-                lanes[lane] =
-                    mixed_block_word(r_bytes, public_keys, messages, lane, word_offset, layout);
-            }
-            loadu(lanes)
-        })
-    }
-
-    fn mixed_block_word(
-        r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
-        public_keys: &[[u8; PUBLIC_KEY_LEN]; LANES],
-        messages: [&[u8]; LANES],
-        lane: usize,
-        word_offset: usize,
-        layout: MessageLayout,
-    ) -> u64 {
-        let word_end = word_offset + 8;
-        if word_end <= 32 {
-            return read_be_u64(&r_bytes[lane], word_offset);
-        }
-        if word_offset >= 32 && word_end <= 64 {
-            return read_be_u64(&public_keys[lane], word_offset - 32);
-        }
-        if word_offset >= 64 && word_end <= layout.total_len {
-            return read_be_u64_slice(messages[lane], word_offset - 64);
-        }
-        if word_offset == layout.length_start + 8 {
-            return layout.bit_len;
-        }
-        // This zero-padding range includes the high length word.
-        if word_offset > layout.total_len && word_end <= layout.length_start + 8 {
-            return if word_offset == layout.length_start {
-                (layout.total_len >> 61) as u64
-            } else {
-                0
-            };
-        }
-
-        mixed_message_tail_word(messages[lane], word_offset, layout)
-    }
-
-    fn mixed_message_tail_word(message: &[u8], word_offset: usize, layout: MessageLayout) -> u64 {
-        debug_assert!(word_offset >= 64);
-        let mut bytes = [0u8; 8];
-        for (j, byte) in bytes.iter_mut().enumerate() {
-            let offset = word_offset + j;
-            *byte = if offset < layout.total_len {
-                message[offset - 64]
-            } else if offset == layout.total_len {
-                0x80
-            } else {
-                0
-            };
-        }
-        u64::from_be_bytes(bytes)
-    }
-    fn first_data_block_words(
-        r_bytes: &[[u8; R_ENCODING_LEN]; LANES],
-        public_keys: &[[u8; PUBLIC_KEY_LEN]; LANES],
-        messages: [&[u8]; LANES],
-    ) -> [__m512i; 16] {
-        let prefix = encoded_prefix_words(r_bytes, public_keys);
-        // Called only when each message has its first 64 bytes; convert once
-        // so bounds are checked once per lane.
-        let message_heads: [[u8; 64]; LANES] =
-            core::array::from_fn(|lane| messages[lane][..64].try_into().unwrap());
-        core::array::from_fn(|word| {
-            if word < 8 {
-                prefix[word]
-            } else {
-                let mut lanes = [0u64; LANES];
-                for lane in 0..LANES {
-                    lanes[lane] = read_be_u64(&message_heads[lane], (word - 8) * 8);
+    /// Load one half-block per lane. Only the half containing the end of the
+    /// message receives the padding bit, including at an exact 64-byte boundary.
+    fn message_words(messages: &[&[u8]; LANES], offset: usize) -> [__m512i; 8] {
+        let rows = messages.map(|message| unsafe {
+            match message.get(offset..) {
+                Some(tail) if tail.len() >= 64 => _mm512_loadu_si512(tail.as_ptr().cast()),
+                Some(tail) => {
+                    let pad = 1u64 << tail.len();
+                    // Masked-off bytes are never read, including for an empty slice.
+                    let data = _mm512_maskz_loadu_epi8(pad - 1, tail.as_ptr().cast());
+                    _mm512_mask_set1_epi8(data, pad, -128)
                 }
-                loadu(lanes)
+                None => _mm512_setzero_si512(),
             }
-        })
-    }
-    fn message_data_block_words(messages: [&[u8]; LANES], message_offset: usize) -> [__m512i; 16] {
-        // Caller guarantees a full block; convert once to bound-check once per lane.
-        let blocks: [[u8; 128]; LANES] = core::array::from_fn(|lane| {
-            messages[lane][message_offset..message_offset + 128]
-                .try_into()
-                .unwrap()
         });
-        core::array::from_fn(|word| {
-            let mut lanes = [0u64; LANES];
-            let offset = word * 8;
-            for (lane, block) in blocks.iter().enumerate() {
-                lanes[lane] = read_be_u64(block, offset);
-            }
-            loadu(lanes)
-        })
+        transpose_message_words(rows)
+    }
+
+    /// Unpack adjacent rows, then join pairs and quartets into eight columns.
+    fn transpose_message_words(rows: [__m512i; 8]) -> [__m512i; 8] {
+        unsafe {
+            let even =
+                core::array::from_fn(|i| _mm512_unpacklo_epi64(rows[2 * i], rows[2 * i + 1]));
+            let odd = core::array::from_fn(|i| _mm512_unpackhi_epi64(rows[2 * i], rows[2 * i + 1]));
+            let [w0, w4] = columns::<0x88>(even);
+            let [w2, w6] = columns::<0xdd>(even);
+            let [w1, w5] = columns::<0x88>(odd);
+            let [w3, w7] = columns::<0xdd>(odd);
+            [w0, w1, w2, w3, w4, w5, w6, w7].map(byte_swap_lanes)
+        }
+    }
+
+    #[inline(always)]
+    fn columns<const SELECT: i32>([a, b, c, d]: [__m512i; 4]) -> [__m512i; 2] {
+        unsafe {
+            let low = _mm512_shuffle_i64x2::<SELECT>(a, b);
+            let high = _mm512_shuffle_i64x2::<SELECT>(c, d);
+            [
+                _mm512_shuffle_i64x2::<0x88>(low, high),
+                _mm512_shuffle_i64x2::<0xdd>(low, high),
+            ]
+        }
     }
 
     fn encoded_prefix_words(
@@ -417,73 +302,42 @@ mod avx512 {
         }
     }
 
-    // Array references let fixed-size windows use a monomorphized bounds check.
-    #[inline(always)]
-    fn read_be_u64<const N: usize>(bytes: &[u8; N], offset: usize) -> u64 {
-        u64::from_be_bytes(bytes[offset..offset + 8].try_into().unwrap())
-    }
-
-    #[inline(always)]
-    fn read_be_u64_slice(bytes: &[u8], offset: usize) -> u64 {
-        u64::from_be_bytes(bytes[offset..offset + 8].try_into().unwrap())
-    }
-
     fn compress_block(state: &mut [__m512i; 8], block_words: [__m512i; 16]) {
-        // A 16-word rolling buffer is enough for SHA-512's schedule lookback.
         let mut w = block_words;
+        let mut working = *state;
 
-        let mut a = state[0];
-        let mut b = state[1];
-        let mut c = state[2];
-        let mut d = state[3];
-        let mut e = state[4];
-        let mut f = state[5];
-        let mut g = state[6];
-        let mut h = state[7];
-
-        let mut i = 0;
-        while i < 80 {
-            let word = if i < 16 {
-                w[i]
-            } else {
-                let next = add4(
-                    small_sigma1(w[(i - 2) & 15]),
-                    w[(i - 7) & 15],
-                    small_sigma0(w[(i - 15) & 15]),
-                    w[(i - 16) & 15],
-                );
-                w[i & 15] = next;
-                next
-            };
-
-            let t1 = add5(
-                h,
-                big_sigma1(e),
-                ch(e, f, g),
-                unsafe { _mm512_set1_epi64(K[i] as i64) },
-                word,
-            );
-            let t2 = add(big_sigma0(a), maj(a, b, c));
-            h = g;
-            g = f;
-            f = e;
-            e = add(d, t1);
-            d = c;
-            c = b;
-            b = a;
-            a = add(t1, t2);
-            i += 1;
+        // One full turn of the ring gives the compiler constant register
+        // indices for all four schedule operands and the eight working words.
+        macro_rules! rounds {
+            ($($i:literal),*) => {{
+                $(working = round(working, w[$i], K[$i]);)*
+                for base in (16..80).step_by(16) {
+                    $(
+                        w[$i] = add4(
+                            small_sigma1(w[($i + 14) % 16]),
+                            w[($i + 9) % 16],
+                            small_sigma0(w[($i + 1) % 16]),
+                            w[$i],
+                        );
+                        working = round(working, w[$i], K[base + $i]);
+                    )*
+                }
+            }};
         }
-
-        state[0] = add(state[0], a);
-        state[1] = add(state[1], b);
-        state[2] = add(state[2], c);
-        state[3] = add(state[3], d);
-        state[4] = add(state[4], e);
-        state[5] = add(state[5], f);
-        state[6] = add(state[6], g);
-        state[7] = add(state[7], h);
+        rounds!(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+        for (word, result) in state.iter_mut().zip(working) {
+            *word = add(*word, result);
+        }
     }
+
+    #[inline(always)]
+    fn round([a, b, c, d, e, f, g, h]: [__m512i; 8], word: __m512i, constant: u64) -> [__m512i; 8] {
+        let kw = add(word, unsafe { _mm512_set1_epi64(constant as i64) });
+        let t1 = add(add(h, kw), add(big_sigma1(e), ch(e, f, g)));
+        let t2 = add(big_sigma0(a), maj(a, b, c));
+        [add(t1, t2), a, b, c, add(d, t1), e, f, g]
+    }
+
     /// Digest words pre-swapped to the little-endian integer reduced by RFC 8032.
     fn digest_words_from_state(state: [__m512i; 8]) -> [[u64; LANES]; 8] {
         let mut words = [[0u64; LANES]; 8];
@@ -504,45 +358,34 @@ mod avx512 {
     }
 
     #[inline]
-    fn add5(a: __m512i, b: __m512i, c: __m512i, d: __m512i, e: __m512i) -> __m512i {
-        add(add4(a, b, c, d), e)
-    }
-
-    #[inline]
     fn ch(x: __m512i, y: __m512i, z: __m512i) -> __m512i {
         unsafe { _mm512_xor_si512(_mm512_and_si512(x, y), _mm512_andnot_si512(x, z)) }
     }
 
     #[inline]
     fn maj(x: __m512i, y: __m512i, z: __m512i) -> __m512i {
-        unsafe {
-            _mm512_xor_si512(
-                _mm512_xor_si512(_mm512_and_si512(x, y), _mm512_and_si512(x, z)),
-                _mm512_and_si512(y, z),
-            )
-        }
+        // Bit i of 0xe8 is one when at least two of the three inputs are one.
+        unsafe { _mm512_ternarylogic_epi64::<0xe8>(x, y, z) }
     }
 
     #[inline]
     fn big_sigma0(x: __m512i) -> __m512i {
-        xor3(ror::<28, 36>(x), ror::<34, 30>(x), ror::<39, 25>(x))
+        xor3(ror::<28>(x), ror::<34>(x), ror::<39>(x))
     }
 
     #[inline]
     fn big_sigma1(x: __m512i) -> __m512i {
-        xor3(ror::<14, 50>(x), ror::<18, 46>(x), ror::<41, 23>(x))
+        xor3(ror::<14>(x), ror::<18>(x), ror::<41>(x))
     }
 
     #[inline]
     fn small_sigma0(x: __m512i) -> __m512i {
-        xor3(ror::<1, 63>(x), ror::<8, 56>(x), unsafe {
-            _mm512_srli_epi64(x, 7)
-        })
+        xor3(ror::<1>(x), ror::<8>(x), unsafe { _mm512_srli_epi64(x, 7) })
     }
 
     #[inline]
     fn small_sigma1(x: __m512i) -> __m512i {
-        xor3(ror::<19, 45>(x), ror::<61, 3>(x), unsafe {
+        xor3(ror::<19>(x), ror::<61>(x), unsafe {
             _mm512_srli_epi64(x, 6)
         })
     }
@@ -553,8 +396,8 @@ mod avx512 {
     }
 
     #[inline]
-    fn ror<const R: u32, const L: u32>(x: __m512i) -> __m512i {
-        unsafe { _mm512_or_si512(_mm512_srli_epi64::<R>(x), _mm512_slli_epi64::<L>(x)) }
+    fn ror<const R: i32>(x: __m512i) -> __m512i {
+        unsafe { _mm512_ror_epi64::<R>(x) }
     }
 
     fn loadu(values: [u64; LANES]) -> __m512i {
@@ -570,27 +413,27 @@ mod avx512 {
 
         #[test]
         fn length_trailer_includes_the_high_word() {
-            let total_len = 1usize << 61;
-            let layout = MessageLayout {
-                total_len,
-                bit_len: (total_len as u64) << 3,
-                length_start: total_len + 112,
-            };
-            let r_bytes = [[0u8; R_ENCODING_LEN]; LANES];
-            let public_keys = [[0u8; PUBLIC_KEY_LEN]; LANES];
-            let messages = [&[][..]; LANES];
-
-            let trailer = core::array::from_fn(|word| {
-                mixed_block_word(
-                    &r_bytes,
-                    &public_keys,
-                    messages,
-                    0,
-                    layout.length_start + word * 8,
-                    layout,
-                )
-            });
-            assert_eq!(trailer, [1, 0]);
+            let totals = [
+                0,
+                1,
+                (1 << 61) - 1,
+                1 << 61,
+                (1 << 61) + 1,
+                1 << 62,
+                3 << 61,
+                1 << 63,
+            ];
+            let (high, low) = bit_lengths(totals);
+            let mut hi = [0; LANES];
+            let mut lo = [0; LANES];
+            storeu(high, &mut hi);
+            storeu(low, &mut lo);
+            for lane in 0..LANES {
+                assert_eq!(
+                    (u128::from(hi[lane]) << 64) | u128::from(lo[lane]),
+                    u128::from(totals[lane]) * 8
+                );
+            }
         }
     }
 }
@@ -613,6 +456,15 @@ mod tests {
             hash_slices(&[&r[lane], &public_keys[lane], storage[lane].as_slice()])
         });
         assert_eq!(wide, scalar, "scenario {name}, lengths {lengths:?}");
+    }
+
+    #[test]
+    fn every_masked_tail_position_matches_sha2() {
+        // The lanes finish in different half-blocks and at different byte positions.
+        for offset in 0..64 {
+            let lengths = core::array::from_fn(|lane| 64 * lane + (offset + 7 * lane) % 64);
+            assert_challenge_hashes_match("masked load", lengths);
+        }
     }
 
     #[test]

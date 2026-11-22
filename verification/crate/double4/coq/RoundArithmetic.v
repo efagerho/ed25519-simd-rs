@@ -8,7 +8,7 @@ Import ListNotations. Open Scope Z_scope.
 Local Opaque code.
 Definition operand_fields k x y := match k with
  | AddReduce | SquarePair=>loose x /\ loose y
- | SubtractReduce=>squared x /\ squared y
+ | SubtractReduce=>folded_columns x /\ folded_columns y
  | _=>split_field x /\ split_field y end.
 Lemma fields_operands k s : operand_fields k (rfield s 0) (rfield s 5) -> constants s ->
  (match k with SubtractReduce=>registers s 30%nat=bias 0 /\ registers s 31%nat=bias 1 | _=>True end) ->
@@ -65,7 +65,7 @@ Proof.
 Qed.
 Lemma call_square j s start : lane_words s -> constants s -> loose(rfield s 0) -> loose(rfield s 5) ->
  (start=0%nat \/ start=5%nat) ->
- squared(rfield(call j SquarePair (scratch,0) s)start) /\
+ folded_columns(rfield(call j SquarePair (scratch,0) s)start) /\
  represents (limbs(rfield(call j SquarePair (scratch,0) s)start)) (limbs(rfield s start)*limbs(rfield s start)).
 Proof.
  intros W C X Y Start.
@@ -77,8 +77,8 @@ Proof.
  destruct Start as[-> | ->];intros i I;do 5(destruct i as[|i];[apply B;lia|]);lia.
 Qed.
 Lemma call_subtract j s start : lane_words s -> constants s ->
- squared(rfield s 0) -> squared(rfield s 5) ->
- squared(field s scratch 0) -> squared(field s scratch 5) ->
+ folded_columns(rfield s 0) -> folded_columns(rfield s 5) ->
+ folded_columns(field s scratch 0) -> folded_columns(field s scratch 5) ->
  registers s 30%nat=bias 0 -> registers s 31%nat=bias 1 ->
  In start [0%nat;5%nat;10%nat;15%nat] ->
  ready(rfield(call j SubtractReduce (scratch,0) s)start) /\
@@ -96,7 +96,8 @@ Lemma call_multiply j (paired:bool) base s : lane_words s -> constants s ->
  split_field(rfield s 0) -> split_field(rfield s 5) ->
  split_field(fun i=>cells s(offset base (64*Z.of_nat i))) ->
  forall start, In start (if paired then [0%nat;5%nat] else [0%nat]) ->
- reduced(rfield(call j (if paired then MultiplyPair else MultiplySingle) base s)start) /\
+ field_bound (if paired then output_bound else fun _=>ready_bound)
+   (rfield(call j (if paired then MultiplyPair else MultiplySingle) base s)start) /\
  represents (limbs(rfield(call j (if paired then MultiplyPair else MultiplySingle) base s)start))
  (limbs(rfield s start)*limbs(fun i=>cells s(offset base(64*Z.of_nat i)))).
 Proof.

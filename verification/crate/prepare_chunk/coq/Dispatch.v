@@ -8,18 +8,16 @@ Import ListNotations. Local Open Scope Z_scope.
 
 Definition bit m j := Z.testbit m (Z.of_nat j).
 Definition key_mask decoded := octet decoded 0.
-Definition eligible_mask scalars decoded := Z.land scalars (key_mask decoded).
+Definition eligible_mask scalars decoded := Z.land (Z.land scalars (key_mask decoded)) (octet decoded 1).
 Definition selected_ptr p decoded j := if bit (key_mask decoded) j
  then scratch p+table_offset j else identity_ptr p.
 Definition flag_byte m j := Z.abs (if bit m j then -1 else 0).
 Definition flags m j := negb (flag_byte m j=?0).
 Lemma flag_exact m j : flag_byte m j=Z.b2z(bit m j) /\ flags m j=bit m j.
 Proof. unfold flags,flag_byte;destruct(bit m j);split;reflexivity. Qed.
-Lemma eligible_bit s d j : (j<8)%nat ->
- bit (eligible_mask s d) j=(bit s j && bit d j)%bool.
-Proof. intros J;unfold bit,eligible_mask,key_mask;rewrite Z.land_spec,octet_bit by assumption;reflexivity. Qed.
-Lemma selected_bit d j : (j<8)%nat -> bit (key_mask d) j=bit d j.
-Proof. intro J;apply octet_bit,J. Qed.
+Lemma eligible_bit s d j :
+ bit (eligible_mask s d) j=(bit s j && bit (key_mask d) j && bit (octet d 1) j)%bool.
+Proof. unfold bit,eligible_mask;now rewrite !Z.land_spec. Qed.
 
 (* A zero qword iff every stored 0/1 byte is zero. *)
 Definition flag_word f := read_word (fun a=>Z.b2z(f (Z.to_nat a))) 0.
@@ -70,14 +68,14 @@ Proof.
  assert (KeyBranch:forall z,reaches common Decode z Reject=z) by (destruct z;reflexivity).
  rewrite ScalarBranch,KeyBranch.
  assert (B:0<=eligible_mask s d<256).
- { unfold eligible_mask,key_mask,octet;change 256 with (2^8).
+ { unfold eligible_mask,octet;change 256 with (2^8).
    rewrite <-Z.land_ones,Z.land_assoc,Z.land_ones by lia;apply Z.mod_pos_bound;lia. }
  assert (Zero:eligible_mask s d=0 -> forall j, final_flag mode cpu s d j=false).
  { intros E j;unfold final_flag;rewrite E.
    assert (Zr:flags 0 j=false) by (rewrite (proj2(flag_exact _ _));apply Z.bits_0).
    destruct mode;[apply filter_clears|];exact Zr. }
  destruct (Z.eqb_spec s 0) as [V|N].
- { assert (E:eligible_mask s d=0) by (unfold eligible_mask;rewrite V;apply Z.land_0_l).
+ { assert (E:eligible_mask s d=0) by (unfold eligible_mask;rewrite V,!Z.land_0_l;reflexivity).
    split;[discriminate|intros [j [_ F]];rewrite (Zero E) in F;discriminate]. }
  destruct (Z.eqb_spec (eligible_mask s d) 0) as [E|E].
  { split;[discriminate|intros [j [_ F]];rewrite (Zero E) in F;discriminate]. }

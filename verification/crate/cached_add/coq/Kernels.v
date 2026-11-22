@@ -13,9 +13,8 @@ Definition kernel_id k := match k with PrepareAB=>0%nat | PrepareFG=>2%nat | Pre
  Independent=>10%nat | Pair=>11%nat | Single=>12%nat end.
 Definition code k := fragment_code add_cached_program (kernel_id k).
 Definition bias i := if Nat.eqb i 0 then 0x3fffffffffff6800 else 0x3ffffffffffff800.
-Definition loose_bound i := if Nat.eqb (i mod 5) 0 then 2^60-1 else 2^53-1.
 Definition input_bound k i := if Nat.ltb i 10 then
- match k with PrepareFG=>loose_bound i | PrepareAB | PrepareEH=>2^64-1 | Single=>if Nat.ltb i 5 then split-1 else 2^64-1 | _=>split-1 end else 2^64-1.
+ match k with PrepareFG=>folded_column_bound | PrepareAB | PrepareEH=>2^64-1 | Single=>if Nat.ltb i 5 then split-1 else 2^64-1 | _=>split-1 end else 2^64-1.
 Definition needs_bias k := match k with PrepareAB | PrepareFG | PrepareEH=>true | _=>false end.
 Definition initial k i :=
  if Nat.eqb i 28 then I(C 19)19 19 else
@@ -23,7 +22,7 @@ Definition initial k i :=
  if needs_bias k && Nat.leb 30 i && Nat.ltb i 32 then I(C(bias(i-30)))(bias(i-30))(bias(i-30))
  else I(regvar i)0(input_bound k i).
 Definition loads k (b:nat) d := I(memvar(Z.to_nat(d/64)))0
- (match k with PrepareEH=>loose_bound(Z.to_nat(d/64)) | _=>split-1 end).
+ (match k with PrepareEH=>folded_column_bound | _=>split-1 end).
 Definition hints (k:kernel) : list interval := [].
 Definition target k start :=
  match k with
@@ -40,7 +39,7 @@ Definition output_starts k := match k with
  | PrepareFG | PrepareEH=>[0%nat;10%nat] | Single=>[0%nat] | _=>[0%nat;5%nat] end.
 Definition bound k i := match k with
  | PrepareAB | PrepareFG | PrepareEH=>split-1
- | Independent=>loose_bound i | _=>output_bound i end.
+ | Independent=>folded_column_bound | _=>output_bound i end.
 Definition check_kernel k := FieldKernel.check_kernel
  (code k) (initial k) (hints k) (loads k) (output_starts k) (bound k) (target k).
 Local Opaque code hints loads.
