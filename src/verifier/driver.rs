@@ -75,8 +75,11 @@ impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
         let mut decoded_r = None;
         let mut decoded_key_lanes = [false; SIMD_LANES];
         if any_lane(&missing_key_lanes) {
-            let (key_valid_bits, r_points, r_valid_bits) =
-                P::decode_keys_and_r(&public_keys, &r_bytes, &mut self.scratch.key_tables);
+            let (key_valid_bits, r_points, r_valid_bits) = avx512ifma::decode_keys_and_decompress_r(
+                &public_keys,
+                &r_bytes,
+                &mut self.scratch.key_tables,
+            );
             decoded_key_lanes = avx512ifma::mask_to_lanes(key_valid_bits);
             decoded_r = Some((r_points, r_valid_bits));
         }
@@ -173,8 +176,11 @@ impl<P: VerificationPolicy> Verifier<P, NullKeyCache> {
             return;
         }
 
-        let (key_valid_bits, r_points, r_valid_bits) =
-            P::decode_keys_and_r(&public_keys, &r_bytes, &mut self.scratch.key_tables);
+        let (key_valid_bits, r_points, r_valid_bits) = avx512ifma::decode_keys_and_decompress_r(
+            &public_keys,
+            &r_bytes,
+            &mut self.scratch.key_tables,
+        );
         let decoded_key_lanes = avx512ifma::mask_to_lanes(key_valid_bits);
 
         let public_key_tables: [&PointTable; SIMD_LANES] = core::array::from_fn(|lane| {

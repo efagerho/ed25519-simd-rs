@@ -19,7 +19,7 @@ the integer sum of `digit[k] * 16^k` for k from 0 through 63 equals
    significant. RDI designates a disjoint 512-byte output, with arbitrary byte
    alignment. Read `signed_digits` and the reconstruction equality in
    `run_correct`. The digit weights and the signed-byte range specify the
-   unique balanced encoding. [Rust boundary](../../../src/scalar/asm.rs) · [Canonical scalar recoding](../../curve25519/SignedRadix16.v)
+   unique balanced encoding. [Candidate call](../../../src/wide/avx512ifma/post_hash.inc) · [Canonical scalar recoding](../../curve25519/SignedRadix16.v)
 3. Check the entry and return conditions. The SysV stack allows 16 private
    bytes below entry RSP for saved RDI and the nested return address. The
    code and buffers are disjoint from the stack. The theorem requires a

@@ -16,7 +16,7 @@ three linked dependency symbols to one ELF. [Public theorem](coq/Object.v) · [C
    nonzero Z. T can be arbitrary. Check that `compress` uses canonical affine
    y and the low bit of canonical affine x as bit 255. Compare the direction
    of the cofactor test and the mapping from chunk and lane to the result bit
-   with the Rust caller. [Rust ABI](../../../src/wide/avx512ifma/multiscalar.rs) · [Encoding](coq/Encoding.v) · [Small-order theorem](../small_order/README.md)
+   with both queue flush routines. [Dalek caller](../../../src/wide/avx512ifma/dalek.S) · [ZIP-215 caller](../../../src/wide/avx512ifma/zip215.S) · [Encoding](coq/Encoding.v) · [Small-order theorem](../small_order/README.md)
 2. **Arithmetic and shortcuts.** The field checker evaluates the lifted IFMA
    instructions for the fused comparison, multiplication and squaring. It
    proves that the biased difference lies in the range where the digit test

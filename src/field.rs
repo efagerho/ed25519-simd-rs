@@ -1,9 +1,12 @@
+#[cfg(test)]
 const LIMB_BITS: usize = 51;
+#[cfg(test)]
 const MASK: u64 = (1u64 << LIMB_BITS) - 1;
 // Number of 51-bit limbs needed to represent a value modulo p = 2^255 - 19.
 pub(crate) const LIMB_COUNT: usize = 5;
 
 // 51-bit curve constants broadcast by the SIMD field path.
+#[cfg(test)]
 pub(crate) const D_LIMBS: [u64; LIMB_COUNT] = [
     929_955_233_495_203,
     466_365_720_129_213,
@@ -18,6 +21,7 @@ pub(crate) const TWO_D_LIMBS: [u64; LIMB_COUNT] = [
     1_815_898_335_770_999,
     633_789_495_995_903,
 ];
+#[cfg(test)]
 pub(crate) const SQRT_M1_LIMBS: [u64; LIMB_COUNT] = [
     1_718_705_420_411_056,
     234_908_883_556_509,
@@ -63,6 +67,7 @@ impl Fe51 {
 
     // "Unchecked" means canonicality only; limb masking still yields `< 2^51`
     // limbs, safe for every field op here.
+    #[cfg(test)]
     pub(crate) fn from_bytes_unchecked(bytes: &[u8; 32]) -> Self {
         Self {
             limbs: [
@@ -82,6 +87,7 @@ impl Fe51 {
     }
 }
 
+#[cfg(test)]
 fn load_u64_le(bytes: &[u8; 32], offset: usize) -> u64 {
     u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap())
 }

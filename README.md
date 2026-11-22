@@ -14,9 +14,8 @@ Formal verification of this crate is a work in progress. See the [verification o
 
 ## Requirements
 
-**This crate requires `x86_64` with AVX-512 (F, BW, DQ, IFMA) and has no scalar
-fallback.** All verification — including single-signature checks and partial
-batches — runs through the AVX-512 IFMA SIMD path. The crate fails at compile
+**This crate requires 64-bit x86-64 Linux with AVX-512F, BW, DQ, and IFMA.**
+Single-signature checks and partial batches also use the AVX-512 IFMA path. The crate fails at compile
 time unless the required target features are enabled.
 Build with the target CPU enabled, e.g.:
 
@@ -59,12 +58,11 @@ standard-library code before any `ed25519-simd` API is called. Running the
 binary on a host without the required CPU and OS support may therefore
 terminate with an illegal-instruction fault (`SIGILL`) at any point.
 
-On x86-64 Linux, the opt-in `asm` feature enables all assembly backends:
-paired field exponentiation, four in-place point doublings, cached point
-addition, scalar reduction, and radix-256 ladder steps. Without it, these
-operations use Rust. The per-routine `verify-asm-*` features enable `asm`,
-check the selected Coq proofs at build time, and embed those routines' certified
-bytes. The ladder-step proof checks the wrapper and both call targets after linking. See the
+Both verification policies use assembly in every build, including
+`--no-default-features`. The `asm` feature is retained for compatibility.
+The per-routine `verify-asm-*` features check the selected Coq proofs at
+build time and embed those routines' certified bytes. The ladder-step proof
+checks the wrapper and both call targets after linking. See the
 [verification contracts and release audits](verification/README.md).
 
 ## Scope

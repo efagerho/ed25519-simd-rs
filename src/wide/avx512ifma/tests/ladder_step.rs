@@ -47,11 +47,11 @@ fn reference_step(
     even: &[&CachedPoint; LANES],
     compute_t: bool,
 ) {
-    point.double_four_times_assign_rust();
-    point.add_cached_refs_assign_rust(odd, false);
-    point.double_four_times_assign_rust();
-    point.add_affine_cached_refs_assign_rust(base);
-    point.add_cached_refs_assign_rust(even, compute_t);
+    point.double_four_times_assign();
+    point.add_cached_refs_assign(odd, false);
+    point.double_four_times_assign();
+    point.add_affine_cached_refs_assign(base);
+    point.add_cached_refs_assign(even, compute_t);
 }
 
 // Make one real signed selection reproduce the supplied independent operands.
@@ -100,7 +100,7 @@ impl RoundFixture {
 }
 
 #[test]
-fn ladder_step_matches_rust_at_loose_bounds() {
+fn ladder_step_matches_its_leaf_calls_at_loose_bounds() {
     let mut rng = StdRng::seed_from_u64(0x0256_1add_e700);
     for iteration in 0..128 {
         let mut field = || {
@@ -166,7 +166,7 @@ fn ladder_step_matches_rust_at_loose_bounds() {
         let even = core::array::from_fn(|lane| &even[index(lane)]);
         let fixture = RoundFixture::new(&odd, &base, &even);
         let prepared = fixture.prepared();
-        let select = super::super::ladder_step::round_selector(&fixture.base, &prepared);
+        let select = super::ladder::round_selector(&fixture.base, &prepared);
         for compute_t in [false, true] {
             let mut actual = Guarded::new(input);
             let mut expected = input;
@@ -182,7 +182,7 @@ fn ladder_step_matches_rust_at_loose_bounds() {
 }
 
 #[test]
-fn ladder_matches_single_digit_horner_schedule() {
+fn full_ladder_matches_independent_scalar_multiplication() {
     let base_table = BasepointTable::new();
     let (basepoint, mask) = decompress_points_wide(&[BASEPOINT_COMPRESSED; LANES]);
     assert_eq!(mask, u8::MAX);
@@ -221,26 +221,20 @@ fn ladder_matches_single_digit_horner_schedule() {
             k_digits: &k_digits,
         };
 
-        // An independent 64-step schedule with one base digit per step avoids
-        // sharing the pair-folding, top-digit recovery or final-T decisions.
-        let mut reference = WidePoint {
-            x: WideFe::zero(),
-            y: WideFe::one(),
-            z: WideFe::one(),
-            t: WideFe::zero(),
+        // Lane j uses the public key [2^j]B. Interpret the signed digits
+        // modulo L using the independent library's scalar and group types.
+        use curve25519::{edwards::EdwardsPoint, scalar::Scalar};
+        let scalar = |digits: &[i8; 64]| {
+            digits.iter().rev().fold(Scalar::ZERO, |acc, &digit| {
+                let magnitude = Scalar::from(digit.unsigned_abs());
+                let signed = if digit < 0 { -magnitude } else { magnitude };
+                acc * Scalar::from(16u8) + signed
+            })
         };
-        for digit in (0..64).rev() {
-            reference.double_four_times_assign_rust();
-            let base = core::array::from_fn(|lane| {
-                select_signed_affine_cached_ref(base_table.entries(), s_digits[lane][digit] as i16)
-            });
-            reference.add_affine_cached_refs_assign_rust(&base);
-            let public = core::array::from_fn(|lane| {
-                tables[lane].select_signed_cached_ref(-k_digits[lane][digit])
-            });
-            reference.add_cached_refs_assign_rust(&public, true);
-        }
-        let expected = reference.compress();
+        let expected = core::array::from_fn(|lane| {
+            let q = scalar(&s_digits[lane]) - Scalar::from(1u64 << lane) * scalar(&k_digits[lane]);
+            EdwardsPoint::mul_base(&q).compress().to_bytes()
+        });
         let full = mul_s_base_minus_k_public::<true>(base_table.entries(), &prepared);
         let partial = mul_s_base_minus_k_public::<false>(base_table.entries(), &prepared);
         assert_eq!(full.compress(), expected, "full, case {case}");
@@ -253,10 +247,8 @@ fn ladder_matches_single_digit_horner_schedule() {
     }
 }
 
-#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
 core::arch::global_asm!(include_str!("ladder_step_abi.S"), options(raw));
 
-#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
 #[test]
 fn ladder_step_preserves_sysv_registers_and_staged_operands() {
     unsafe extern "C" {
@@ -325,7 +317,6 @@ fn ladder_step_preserves_sysv_registers_and_staged_operands() {
     }
 }
 
-#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
 #[test]
 fn full_ladder_preserves_sysv_frame_and_accepts_loose_top_cache() {
     use crate::edwards::PointTable;
@@ -401,7 +392,6 @@ fn full_ladder_preserves_sysv_frame_and_accepts_loose_top_cache() {
 /// ED25519_LADDER_PATH: stage (selection and transpose across all 32 pairs),
 /// selected (staging + wrapper), staged, or separate (Rust orchestration).
 /// ED25519_LADDER_ITERS sets the duration; ED25519_LADDER_T=1 retains T.
-#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
 #[test]
 #[ignore = "isolated eight-lane radix-256 ladder-step benchmark"]
 #[allow(clippy::assertions_on_constants)]
@@ -474,7 +464,7 @@ fn profile_ladder_step() {
                 }
             }
             let prepared = fixture.prepared();
-            let select = super::super::ladder_step::round_selector(&fixture.base, &prepared);
+            let select = super::ladder::round_selector(&fixture.base, &prepared);
             let mut pair = 31usize;
             measure(input, iterations, |_| {
                 black_box(&select(pair));
@@ -484,7 +474,7 @@ fn profile_ladder_step() {
         "selected" => {
             let fixture = RoundFixture::new(&odd, &base, &even);
             let prepared = fixture.prepared();
-            let select = super::super::ladder_step::round_selector(&fixture.base, &prepared);
+            let select = super::ladder::round_selector(&fixture.base, &prepared);
             measure(input, iterations, |p| {
                 select(black_box(0)).step(p, compute_t)
             })

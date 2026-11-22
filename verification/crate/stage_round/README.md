@@ -21,7 +21,7 @@ The destination is row `first+c`, qword `lane`. [Contract](coq/Audit.v) · [Theo
    eight rows of 64 digits. R9 is in 0–31. The four digits read per lane must
    be in −8 through 7. Check that the caller supplies readable input regions,
    a return slot, and writable output disjoint from all of them and the code.
-   [Full ladder caller](../../../src/wide/avx512ifma/mul_s_base_minus_k_public.S) · [Rust inputs](../../../src/wide/avx512ifma/ladder_step_asm.rs) · [Table layout and construction](../../../src/edwards.rs)
+   [Full ladder caller](../../../src/wide/avx512ifma/mul_s_base_minus_k_public.S) · [Staged layout in native tests](../../../src/wide/avx512ifma/tests/ladder.rs) · [Table layout and construction](../../../src/edwards.rs)
 2. Check `selected` against the table ordering. Projective entries store five
    words each of Y−X, Y+X, 2dT and 2Z. Affine entries omit 2Z. The theorem
    copies arbitrary limb bits. The mathematical point represented by a table

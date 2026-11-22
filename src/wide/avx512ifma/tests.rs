@@ -1,6 +1,5 @@
 use super::decode::decompress_points_wide;
 use super::field::{WideFe, loadu, storeu};
-use super::ladder_step::mul_s_base_minus_k_public;
 use super::point::WidePoint;
 use super::*;
 use crate::edwards::{
@@ -8,13 +7,16 @@ use crate::edwards::{
     select_signed_affine_cached_ref,
 };
 use crate::field::LIMB_COUNT;
-use crate::wide::PreparedChunk;
+use curve25519::edwards::CompressedEdwardsY;
+use ladder::{PreparedChunk, mul_s_base_minus_k_public};
 use serde_json::Value;
 
 mod cached_add;
 mod double4;
+mod ladder;
 mod ladder_step;
-#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
+mod point;
+mod recompress;
 mod torsion;
 
 const VECTOR_JSON: &str = include_str!("../../../tests/vectors/avx512ifma.json");
@@ -208,7 +210,7 @@ fn loose_limb0_bound_matches_vectors() {
 }
 
 #[test]
-fn square_repeat_variants_match_strict_simd_result() {
+fn square_repeat_matches_strict_simd_result() {
     let a = WideFe::constant(crate::field::D_LIMBS);
     let b = WideFe::constant(crate::field::SQRT_M1_LIMBS);
     macro_rules! check {
@@ -229,17 +231,6 @@ fn square_repeat_variants_match_strict_simd_result() {
                 "square_repeat::<{}> diverged for b",
                 $n
             );
-            let (xa, xb) = WideFe::square_repeat_x2::<$n>(&a, &b);
-            assert!(
-                xa.equals_lanes(&strict_square_n(&a, $n)).iter().all(|&v| v),
-                "square_repeat_x2::<{}> diverged for a",
-                $n
-            );
-            assert!(
-                xb.equals_lanes(&strict_square_n(&b, $n)).iter().all(|&v| v),
-                "square_repeat_x2::<{}> diverged for b",
-                $n
-            );
         };
     }
     check!(0);
@@ -252,17 +243,40 @@ fn square_repeat_variants_match_strict_simd_result() {
     check!(100);
 }
 
+fn pow_p_minus_5_over_8_x2(a: &WideFe, b: &WideFe) -> (WideFe, WideFe) {
+    unsafe extern "C" {
+        fn ed25519_simd_pow2_ifma(out: *mut u8, a: *const u8, b: *const u8);
+    }
+    const _: () = assert!(size_of::<WideFe>() == 320);
+    #[cfg(debug_assertions)]
+    debug_assert!(
+        super::field::limbs_are_ifma_operands(&a.limbs)
+            && super::field::limbs_are_ifma_operands(&b.limbs)
+    );
+    let mut out = core::mem::MaybeUninit::<[WideFe; 2]>::uninit();
+    // repr(C) places the five limb vectors at offsets 0,64,...,256.
+    // Both inputs are readable, and the distinct output holds ten vectors.
+    // Audit.pow2_contract's output_initialized guarantee covers all 640
+    // bytes before return, independently of the arithmetic limb bounds.
+    unsafe {
+        ed25519_simd_pow2_ifma(
+            out.as_mut_ptr().cast(),
+            core::ptr::from_ref(a).cast(),
+            core::ptr::from_ref(b).cast(),
+        );
+        let [x, y] = out.assume_init();
+        (x, y)
+    }
+}
+
 #[test]
-fn pow_variants_match_vectors() {
+fn paired_exponentiation_matches_vectors() {
     let vectors = vectors();
     let cases = vector_cases(&vectors, "field");
     let a = wide_from_case_inputs(cases, "a_limbs", 0);
     let b = wide_from_case_inputs(cases, "a_limbs", 3);
 
-    assert_wide_bytes(a.pow_p_minus_5_over_8(), cases, "pow_a", 0);
-    assert_wide_bytes(b.pow_p_minus_5_over_8(), cases, "pow_a", 3);
-
-    let (paired_a, paired_b) = WideFe::pow_p_minus_5_over_8_x2(&a, &b);
+    let (paired_a, paired_b) = pow_p_minus_5_over_8_x2(&a, &b);
     assert_wide_bytes(paired_a, cases, "pow_a", 0);
     assert_wide_bytes(paired_b, cases, "pow_a", 3);
 }
@@ -275,14 +289,6 @@ fn pow_variants_match_vectors() {
 fn profile_paired_exponentiation() {
     use std::{hint::black_box, time::Instant};
 
-    assert!(
-        cfg!(all(
-            feature = "asm",
-            target_os = "linux",
-            target_pointer_width = "64"
-        )),
-        "paired exponentiation benchmarks require the asm backend"
-    );
     assert!(!cfg!(debug_assertions), "benchmark in release mode");
     let iterations: usize = std::env::var("ED25519_POW2_ITERS")
         .map(|value| {
@@ -299,10 +305,7 @@ fn profile_paired_exponentiation() {
         core::array::from_fn(|j| ((8 * i + j + 57) as u64) * 196613)
     }));
     let run = || {
-        black_box(WideFe::pow_p_minus_5_over_8_x2(
-            black_box(&a),
-            black_box(&b),
-        ));
+        black_box(pow_p_minus_5_over_8_x2(black_box(&a), black_box(&b)));
     };
     for _ in 0..500 {
         run();
@@ -348,7 +351,6 @@ fn wide_decompression_matches_vectors() {
     }
 }
 
-#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
 #[test]
 fn deferred_zip215_decodes_single_and_paired_chunks() {
     use crate::field::Fe51;
@@ -403,7 +405,11 @@ fn deferred_zip215_decodes_single_and_paired_chunks() {
         let mut both = core::mem::MaybeUninit::uninit();
         let (points, masks) = decode::decompress_zip215(&input.chunks, &mut both);
         for ((paired, paired_mask), bytes) in points.iter().zip(masks).zip(&input.chunks) {
-            let (reference, expected) = decompress_points_wide(bytes);
+            let reference = bytes.map(|b| CompressedEdwardsY(b).decompress());
+            let expected = reference
+                .iter()
+                .enumerate()
+                .fold(0u8, |mask, (j, p)| mask | (u8::from(p.is_some()) << j));
             let mut one = core::mem::MaybeUninit::uninit();
             let ([single], [single_mask]) =
                 decode::decompress_zip215(core::array::from_ref(bytes), &mut one);
@@ -413,137 +419,22 @@ fn deferred_zip215_decodes_single_and_paired_chunks() {
                 for (i, row) in wide_rows(point.y).iter().enumerate() {
                     assert_eq!(*row, encoded_y.map(|limbs| limbs[i]));
                 }
-                for (actual, wanted) in [
-                    (point.x, reference.x),
-                    (point.y, reference.y),
-                    (point.z, reference.z),
-                    (point.t, reference.t),
-                ] {
-                    assert!(wide_rows(actual).into_iter().flatten().all(|v| v < 1 << 52));
-                    assert_eq!(actual.equals_mask(&wanted) & expected, expected);
+                for field in [point.x, point.y, point.z, point.t] {
+                    assert!(wide_rows(field).into_iter().flatten().all(|v| v < 1 << 52));
+                }
+                assert_eq!(point.z.equals_mask(&WideFe::one()), u8::MAX);
+                assert_eq!(
+                    point.t.equals_mask(&point.x.multiply(&point.y)) & expected,
+                    expected
+                );
+                let normalized = point.compress();
+                for (j, p) in reference.iter().enumerate() {
+                    if let Some(p) = p {
+                        assert_eq!(normalized[j], p.compress().to_bytes());
+                    }
                 }
             }
         }
-    }
-}
-
-#[test]
-fn deferred_dalek_recompression_matches_independent_inversions() {
-    let vectors = vectors();
-    let multiples = vector_cases(&vectors, "basepoint_multiples");
-    let mut candidates = Vec::new();
-    let mut encodings = Vec::new();
-    let mut expected = [0u8; DALEK_BATCH];
-    for i in 0..DALEK_BATCH {
-        let bytes = core::array::from_fn(|lane| {
-            hex_32(&multiples[(i * LANES + lane) % multiples.len()]["encoding"])
-        });
-        let (point, valid) = decompress_points_wide(&bytes);
-        assert_eq!(valid, u8::MAX);
-        // Choose independent, nontrivial projective representatives per lane and chunk.
-        let scale = WideFe::from_limbs_per_lane(|lane| [2 + (i * LANES + lane) as u64, 0, 0, 0, 0]);
-        let candidate = WidePoint {
-            x: point.x.multiply(&scale),
-            y: point.y.multiply(&scale),
-            z: scale,
-            t: WideFe::zero(),
-        };
-        let mut supplied = candidate.compress();
-        assert_eq!(supplied, bytes);
-        let small_order = candidate.is_small_order_lanes_rust();
-        for lane in 0..LANES {
-            if (lane + i) % 3 == 0 {
-                supplied[lane][(i * 7 + lane) % 32] ^= 0x80;
-            } else if !small_order[lane] {
-                expected[i] |= 1 << lane;
-            }
-        }
-        candidates.push(DalekCandidate(candidate));
-        encodings.push(supplied);
-    }
-    for depth in 0..=DALEK_BATCH {
-        let masks = check_dalek_candidates(&candidates[..depth], &encodings[..depth]);
-        assert_eq!(&masks[..depth], &expected[..depth], "depth {depth}");
-        assert!(masks[depth..].iter().all(|&mask| mask == 0));
-    }
-}
-
-#[test]
-fn deferred_dalek_requires_exact_canonical_bytes() {
-    // y = 3 is a non-small-order point; both encodings of its x sign are valid.
-    let bytes: [[u8; 32]; LANES] = core::array::from_fn(|lane| {
-        let mut bytes = [0; 32];
-        bytes[0] = 3;
-        bytes[31] = ((lane & 1) as u8) << 7;
-        bytes
-    });
-    let (point, valid) = decompress_points_wide(&bytes);
-    assert_eq!(valid, u8::MAX);
-    let candidate = [DalekCandidate(point)];
-    assert_eq!(check_dalek_candidates(&candidate, &[bytes])[0], 0xff);
-    // p+3 is the same field value with a noncanonical byte representation.
-    let noncanonical = bytes.map(|r| {
-        let mut alt = [0xff; 32];
-        alt[0] = 0xf0;
-        alt[31] = 0x7f | r[31];
-        alt
-    });
-    assert_eq!(check_dalek_candidates(&candidate, &[noncanonical])[0], 0);
-    for byte in 0..32 {
-        let mut changed = bytes;
-        for (bit, r) in changed.iter_mut().enumerate() {
-            r[byte] ^= 1 << bit;
-        }
-        assert_eq!(
-            check_dalek_candidates(&candidate, &[changed])[0],
-            0,
-            "byte {byte}"
-        );
-    }
-}
-
-#[test]
-fn deferred_dalek_finds_a_single_matching_lane_among_loose_points() {
-    // Both signs of a point with affine X = 2 exercise canonical parity near zero.
-    let mut encoded = [0u8; 32];
-    hex::decode_to_slice(
-        "3126711e11ef574692935381d2cd2bbab5dd113c4010f91fd7c4dd7b12bf431a",
-        &mut encoded,
-    )
-    .unwrap();
-    let bytes = core::array::from_fn(|lane| {
-        let mut r = encoded;
-        r[31] ^= ((lane & 1) as u8) << 7;
-        r
-    });
-    let (point, valid) = decompress_points_wide(&bytes);
-    assert_eq!(valid, u8::MAX);
-    assert_eq!(wide_rows(point.x.canonical())[0][0], 2);
-
-    let candidates: [_; DALEK_BATCH] = core::array::from_fn(|i| {
-        let z = WideFe::from_limbs_per_lane(|j| [2 + (i * LANES + j) as u64, 0, 0, 0, 0]);
-        DalekCandidate(WidePoint {
-            x: redundant(point.x.multiply(&z)),
-            y: redundant(point.y.multiply(&z)),
-            z: redundant(z),
-            t: WideFe::zero(),
-        })
-    });
-    let wrong_y = bytes.map(|mut r| {
-        r[0] ^= 1;
-        r
-    });
-    let mut supplied = [wrong_y; DALEK_BATCH];
-    assert_eq!(
-        check_dalek_candidates(&candidates, &supplied),
-        [0; DALEK_BATCH]
-    );
-    for i in 0..DALEK_BATCH {
-        supplied[i][i] = bytes[i];
-        let mut expected = [0; DALEK_BATCH];
-        expected[i] = 1 << i;
-        assert_eq!(check_dalek_candidates(&candidates, &supplied), expected);
-        supplied[i][i] = wrong_y[i];
     }
 }
 
@@ -625,53 +516,6 @@ fn wide_multiscalar_matches_nontrivial_basepoint_relation() {
     let combined = mul_s_base_minus_k_public::<true>(base_table.entries(), &prepared);
     // 2B - 1B = B exercises both signed-digit inputs and both tables.
     assert_eq!(combined.compress(), [BASEPOINT_COMPRESSED; LANES]);
-}
-
-/// Set ED25519_DALEK_DEPTH (chunks), ED25519_DALEK_ITERS and ED25519_DALEK_INPUT (valid, wrong-y, or wrong-sign).
-#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
-#[test]
-#[ignore = "isolated Dalek recompression benchmark"]
-fn profile_dalek_recompression() {
-    use std::{hint::black_box, time::Instant};
-
-    let depth = std::env::var("ED25519_DALEK_DEPTH")
-        .map(|v| v.parse().expect("integer chunk count"))
-        .unwrap_or(DALEK_BATCH);
-    let iterations = std::env::var("ED25519_DALEK_ITERS")
-        .map(|v| v.parse().expect("integer iteration count"))
-        .unwrap_or(20_000usize);
-    let input = std::env::var("ED25519_DALEK_INPUT").unwrap_or_else(|_| "valid".into());
-    assert!((1..=DALEK_BATCH).contains(&depth) && iterations > 0);
-
-    let mut point = decompress_points_wide(&[BASEPOINT_COMPRESSED; LANES]).0;
-    let mut candidates = Vec::new();
-    let mut encodings = Vec::new();
-    for _ in 0..depth {
-        point = point.double();
-        let mut bytes = point.compress();
-        for lane in &mut bytes {
-            match input.as_str() {
-                "valid" => {}
-                "wrong-y" => lane[0] ^= 1,
-                "wrong-sign" => lane[31] ^= 0x80,
-                _ => panic!("unknown ED25519_DALEK_INPUT"),
-            }
-        }
-        encodings.push(bytes);
-        candidates.push(DalekCandidate(point));
-    }
-
-    let run = || check_dalek_candidates(black_box(&candidates), black_box(&encodings));
-    let expected = if input == "valid" { 0xff } else { 0 };
-    assert!(run()[..depth].iter().all(|&mask| mask == expected));
-    let start = Instant::now();
-    for _ in 0..iterations {
-        black_box(run());
-    }
-    eprintln!(
-        "{depth} chunks, {input}, {:.2} ns/call",
-        start.elapsed().as_secs_f64() * 1e9 / iterations as f64
-    );
 }
 
 #[test]

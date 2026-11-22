@@ -63,10 +63,7 @@ pub(crate) struct CachedPoint {
 }
 
 impl CachedPoint {
-    #[cfg(any(
-        test,
-        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-    ))]
+    #[cfg(test)]
     pub(crate) fn coords(&self) -> (&Fe51, &Fe51, &Fe51, &Fe51) {
         (&self.y_plus_x, &self.y_minus_x, &self.z2, &self.t2d)
     }
@@ -139,10 +136,7 @@ impl AffineCachedPoint {
         }
     }
 
-    #[cfg(any(
-        test,
-        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-    ))]
+    #[cfg(test)]
     pub(crate) fn coords(&self) -> (&Fe51, &Fe51, &Fe51) {
         (&self.y_plus_x, &self.y_minus_x, &self.t2d)
     }
@@ -203,17 +197,13 @@ impl PointTable {
 
     /// The contiguous entry array begins at [-8]P. The enclosing table also
     /// carries debug-only initialization state outside the assembly ABI.
-    #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
     pub(crate) fn entries_ptr(&self) -> *const CachedPoint {
         self.debug_assert_fully_initialized();
         self.entries.as_ptr().cast()
     }
 
     /// Select the cached point for a signed digit in `-8..=8`.
-    #[cfg(any(
-        test,
-        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-    ))]
+    #[cfg(test)]
     pub(crate) fn select_signed_cached_ref(&self, digit: i8) -> &CachedPoint {
         debug_assert!((-8..=8).contains(&digit));
         self.debug_assert_fully_initialized();
@@ -269,10 +259,7 @@ impl BasepointTable {
     }
 }
 
-#[cfg(any(
-    test,
-    not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-))]
+#[cfg(test)]
 pub(crate) fn select_signed_affine_cached_ref(
     entries: &BasepointTableEntries,
     digit: i16,

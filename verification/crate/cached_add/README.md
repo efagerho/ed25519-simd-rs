@@ -108,9 +108,9 @@ export RUSTFLAGS="-C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma"
 cargo build --release --features verify-asm-pow2,verify-asm-double4,verify-asm-cached-add
 ```
 
-`asm` selects this and all other assembly backends without running Coq during
-the build. The proof features also enable `asm`; they certify only the named
-routines. Release auditing checks the final linked artifact from either build.
+The default build assembles the routine directly. The proof features certify
+the named routines at build time. Release auditing checks the final linked
+artifact from either build.
 
 ## Proof structure
 

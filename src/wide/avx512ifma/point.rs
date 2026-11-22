@@ -1,20 +1,5 @@
 use super::LANES;
 use super::field::WideFe;
-#[cfg(any(
-    test,
-    not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-))]
-use crate::edwards::CachedPoint;
-#[cfg(any(
-    test,
-    not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-))]
-use crate::edwards::{AffineCachedPoint, POINT_ENCODING_LEN};
-#[cfg(any(
-    test,
-    not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-))]
-use crate::field::Fe51;
 
 /// Eight extended Edwards points packed coordinate-wise for SIMD arithmetic.
 ///
@@ -44,73 +29,21 @@ const _: () = {
     assert!(offset_of!(WidePoint, t) == 960);
 };
 
-#[cfg(all(
-    feature = "asm",
-    not(feature = "verify-asm-double4"),
-    target_os = "linux",
-    target_pointer_width = "64"
-))]
+#[cfg(not(feature = "verify-asm-double4"))]
 core::arch::global_asm!(include_str!("double4.S"), options(raw));
 
-#[cfg(all(
-    feature = "verify-asm-double4",
-    target_os = "linux",
-    target_pointer_width = "64"
-))]
+#[cfg(feature = "verify-asm-double4")]
 core::arch::global_asm!(include_str!(concat!(env!("OUT_DIR"), "/double4-checked.S")));
 
-#[cfg(all(
-    test,
-    feature = "asm",
-    target_os = "linux",
-    target_pointer_width = "64"
-))]
-unsafe extern "C" {
-    /// SysV: RDI points to one exclusive, initialized `WidePoint`.
-    ///
-    /// For X, Y and Z, each lane must have limb 0 < 2^60,
-    /// limb 1 + (limb 0 >> 51) < 2^52, and limbs 2..4 < 2^52.
-    /// Incoming T is ignored, including its limb bounds. Writes all four
-    /// coordinates; output limbs 0, 2..4 are < 2^51 and limb 1 < 2^52.
-    /// See double4.S for the arithmetic, scratch and register contract.
-    // Use a byte pointer because Rust's SIMD vector types are not C types.
-    fn ed25519_simd_double4_ifma(point: *mut u8);
-}
-
-#[cfg(all(
-    feature = "asm",
-    not(feature = "verify-asm-cached-add"),
-    target_os = "linux",
-    target_pointer_width = "64"
-))]
+#[cfg(not(feature = "verify-asm-cached-add"))]
 core::arch::global_asm!(include_str!("add_cached.S"), options(raw));
 
-#[cfg(all(
-    feature = "verify-asm-cached-add",
-    target_os = "linux",
-    target_arch = "x86_64",
-    target_pointer_width = "64"
-))]
+#[cfg(feature = "verify-asm-cached-add")]
 core::arch::global_asm!(include_str!(concat!(
     env!("OUT_DIR"),
     "/cached-add-checked.S"
 )));
 
-#[cfg(all(
-    test,
-    feature = "asm",
-    target_os = "linux",
-    target_pointer_width = "64"
-))]
-unsafe extern "C" {
-    /// In-place addition with staged (Y-X), (Y+X), 2dT, and optional 2Z.
-    /// `affine` and `compute_t` are 0 or 1. Every input limb is < 2^52.
-    /// Buffers are disjoint and 64-byte aligned. See add_cached.S for the
-    /// complete ABI and arithmetic contract, proved in verification/crate/cached_add.
-    fn ed25519_simd_add_cached_ifma(point: *mut u8, cached: *const u8, compute_t: u64, affine: u64);
-}
-
-#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
 // These entries share private IFMA field kernels and the encoded-point layout.
 core::arch::global_asm!(
     include_str!("torsion.S"),
@@ -124,79 +57,6 @@ core::arch::global_asm!(
     options(raw)
 );
 
-#[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
-unsafe extern "C" {
-    #[cfg(test)]
-    fn ed25519_simd_check_8_torsion_ifma(point: *const u8, affine: *const u8) -> u8;
-    #[cfg(test)]
-    fn ed25519_simd_small_order_ifma(point: *const u8) -> u8;
-}
-
-#[cfg(any(
-    test,
-    not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-))]
-/// Per-lane cached points selected from either projective or affine tables.
-///
-/// The affine variant omits cached `2Z`; mixed addition substitutes
-/// a vector doubling while using the same coordinate-transposition path.
-#[derive(Clone, Copy)]
-enum SelectedCachedRefs<'a> {
-    Projective(&'a [&'a CachedPoint; LANES]),
-    Affine(&'a [&'a AffineCachedPoint; LANES]),
-}
-
-#[cfg(any(
-    test,
-    not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-))]
-impl SelectedCachedRefs<'_> {
-    /// Transpose one cached coordinate. The pickers differ because an affine
-    /// point omits `2*Z`, shifting `t2d` down a slot.
-    #[inline(always)]
-    fn transpose(
-        self,
-        projective: impl Fn(&CachedPoint) -> &Fe51,
-        affine: impl Fn(&AffineCachedPoint) -> &Fe51,
-    ) -> WideFe {
-        match self {
-            Self::Projective(points) => {
-                WideFe::from_field_refs(&core::array::from_fn(|lane| projective(points[lane])))
-            }
-            Self::Affine(points) => {
-                WideFe::from_field_refs(&core::array::from_fn(|lane| affine(points[lane])))
-            }
-        }
-    }
-
-    #[inline(always)]
-    fn y_plus_x(self) -> WideFe {
-        self.transpose(|p| p.coords().0, |p| p.coords().0)
-    }
-
-    #[inline(always)]
-    fn y_minus_x(self) -> WideFe {
-        self.transpose(|p| p.coords().1, |p| p.coords().1)
-    }
-
-    #[inline(always)]
-    fn t2d(self) -> WideFe {
-        self.transpose(|p| p.coords().3, |p| p.coords().2)
-    }
-
-    /// The cached `2*Z`, or `None` for an affine point whose `Z` is one.
-    #[inline(always)]
-    fn projective_z2(self) -> Option<WideFe> {
-        match self {
-            Self::Projective(points) => {
-                Some(WideFe::from_field_refs(&core::array::from_fn(|lane| {
-                    points[lane].coords().2
-                })))
-            }
-            Self::Affine(_) => None,
-        }
-    }
-}
 impl WidePoint {
     /// Pack lane zero from eight duplicated points into independent lanes.
     pub(super) fn from_lane0_points(points: &[Self; LANES]) -> Self {
@@ -211,92 +71,6 @@ impl WidePoint {
         }
     }
 
-    /// Recover `(X:Y:Z)` without `T`; callers must double before an
-    /// extended-coordinate operation.
-    #[inline(never)]
-    #[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
-    pub(super) fn from_cached_refs_without_t(points: &[&CachedPoint; LANES]) -> Self {
-        let field = |pick: fn(&CachedPoint) -> &Fe51| {
-            WideFe::from_field_refs(&core::array::from_fn(|lane| pick(points[lane])))
-        };
-        let y_minus_x = field(|p| p.coords().1);
-        let y_plus_x = field(|p| p.coords().0);
-        Self {
-            x: y_plus_x.subtract(&y_minus_x),
-            y: y_plus_x.add_loose(&y_minus_x),
-            z: field(|p| p.coords().2),
-            t: WideFe::zero(),
-        }
-    }
-    #[cfg(test)]
-    pub(super) fn compress(&self) -> [[u8; POINT_ENCODING_LEN]; LANES] {
-        let zinv = self.z.invert();
-        self.compress_with_z_inverse(&zinv)
-    }
-    #[cfg(any(
-        test,
-        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-    ))]
-    pub(super) fn compress_with_z_inverse(
-        &self,
-        zinv: &WideFe,
-    ) -> [[u8; POINT_ENCODING_LEN]; LANES] {
-        let x = self.x.multiply(zinv);
-        let y = self.y.multiply(zinv);
-        let x_odd_mask = x.is_odd_mask();
-        let mut bytes = y.to_bytes_lanes();
-        for (lane, encoding) in bytes.iter_mut().enumerate() {
-            encoding[31] |= ((x_odd_mask >> lane) & 1) << 7;
-        }
-        bytes
-    }
-    /// Compare with a freshly decompressed point whose `z` is one.
-    #[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
-    pub(super) fn equals_affine_lanes(&self, affine: &Self) -> [bool; LANES] {
-        debug_assert!(
-            affine.z.equals_lanes(&WideFe::one()).iter().all(|&eq| eq),
-            "equals_affine_lanes requires z == 1 in every lane"
-        );
-        let x = affine.x.multiply(&self.z);
-        let y = affine.y.multiply(&self.z);
-        let x_equal = self.x.equals_lanes(&x);
-        let y_equal = self.y.equals_lanes(&y);
-        core::array::from_fn(|lane| x_equal[lane] && y_equal[lane])
-    }
-    /// Return whether each point is killed by the Ed25519 cofactor.
-    #[cfg(any(
-        test,
-        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-    ))]
-    pub(super) fn is_small_order_lanes(&self) -> [bool; LANES] {
-        #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
-        {
-            #[cfg(debug_assertions)]
-            for field in [&self.x, &self.y] {
-                debug_assert!(super::field::limbs_are_ifma_operands(&field.limbs));
-            }
-            // SAFETY: The repr(C) layout above places X and Y first. Both
-            // the decoder and the ladder supply five 52-bit limbs per field.
-            let mask = unsafe { ed25519_simd_small_order_ifma(core::ptr::from_ref(self).cast()) };
-            super::mask_to_lanes(mask)
-        }
-        #[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
-        self.is_small_order_lanes_rust()
-    }
-
-    #[cfg(any(
-        test,
-        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-    ))]
-    pub(super) fn is_small_order_lanes_rust(&self) -> [bool; LANES] {
-        let p8 = self
-            .double_without_t()
-            .double_without_t()
-            .double_without_t();
-        let x_zero = p8.x.is_zero_lanes();
-        let y_equals_z = p8.y.equals_lanes(&p8.z);
-        core::array::from_fn(|lane| x_zero[lane] && y_equals_z[lane])
-    }
     // Table-building points are strict, so small-bias `subtract` is valid.
     pub(super) fn add(&self, rhs: &Self) -> Self {
         self.add_impl::<false>(rhs)
@@ -311,7 +85,7 @@ impl WidePoint {
     // Always inline: `cold_add` shares this body, and letting that third
     // caller outline it puts a call in the hot table builder's `add`.
     #[inline(always)]
-    pub(super) fn add_impl<const AFFINE_RHS: bool>(&self, rhs: &Self) -> Self {
+    fn add_impl<const AFFINE_RHS: bool>(&self, rhs: &Self) -> Self {
         let a = self.y.subtract(&self.x).multiply(&rhs.y.subtract(&rhs.x));
         let b = self.y.add_loose(&self.x).multiply(&rhs.y.add_loose(&rhs.x));
         let c = self.t.multiply(&rhs.t).multiply(&WideFe::two_d());
@@ -339,224 +113,15 @@ impl WidePoint {
     pub(super) fn cold_add(&self, rhs: &Self) -> Self {
         self.add_impl::<false>(rhs)
     }
-}
-
-#[cfg(any(
-    test,
-    not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-))]
-impl WidePoint {
-    /// Add the per-lane cached points selected for one digit.
-    ///
-    /// The Rust path transposes each cached field just before use. The
-    /// assembly path stages the fields contiguously for its pointer ABI.
-    #[inline(always)]
-    pub(super) fn add_cached_refs_assign(
-        &mut self,
-        points: &[&CachedPoint; LANES],
-        compute_t: bool,
-    ) {
-        self.add_selected_cached_refs_assign(SelectedCachedRefs::Projective(points), compute_t);
-    }
-    /// Mixed addition with an affine cached point. The cached point has
-    /// `Z = 1`, so `2*Z1*Z2` is just a doubling of the accumulator's `Z`.
-    #[inline(always)]
-    pub(super) fn add_affine_cached_refs_assign(&mut self, points: &[&AffineCachedPoint; LANES]) {
-        self.add_selected_cached_refs_assign(SelectedCachedRefs::Affine(points), true);
-    }
-    #[inline(never)]
-    fn add_selected_cached_refs_assign(&mut self, points: SelectedCachedRefs<'_>, compute_t: bool) {
-        #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
-        {
-            // Arrays of repr(C) WideFe values give the assembly consecutive
-            // 320-byte fields. The affine allocation has no fourth field.
-            // Tests can supply selected references directly to the addition.
-            match points {
-                SelectedCachedRefs::Projective(_) => {
-                    let fields = [
-                        points.y_minus_x(),
-                        points.y_plus_x(),
-                        points.t2d(),
-                        points.projective_z2().unwrap(),
-                    ];
-                    self.add_staged_cached_assign(&fields, compute_t);
-                }
-                SelectedCachedRefs::Affine(_) => {
-                    let fields = [points.y_minus_x(), points.y_plus_x(), points.t2d()];
-                    self.add_staged_cached_assign(&fields, compute_t);
-                }
-            }
-        }
-        #[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
-        self.add_selected_cached_refs_assign_rust(points, compute_t);
-    }
-}
-
-impl WidePoint {
-    #[cfg(all(
-        test,
-        feature = "asm",
-        target_os = "linux",
-        target_pointer_width = "64"
-    ))]
-    #[inline(always)]
-    fn add_staged_cached_assign<const N: usize>(&mut self, fields: &[WideFe; N], compute_t: bool) {
-        const {
-            assert!(N == 3 || N == 4);
-        }
-        #[cfg(debug_assertions)]
-        for field in [&self.x, &self.y, &self.z, &self.t]
-            .into_iter()
-            .chain(fields)
-        {
-            debug_assert!(super::field::limbs_are_ifma_operands(&field.limbs));
-        }
-        // SAFETY: the array length determines the affine flag and the exact
-        // readable extent. Its aligned fields are disjoint from the exclusive
-        // point borrow. Both producers supply 52-bit limbs.
-        unsafe {
-            ed25519_simd_add_cached_ifma(
-                core::ptr::from_mut(self).cast(),
-                fields.as_ptr().cast(),
-                u64::from(compute_t),
-                u64::from(N == 3),
-            );
-        }
-    }
-
-    #[cfg(any(
-        test,
-        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-    ))]
-    #[inline(always)]
-    fn add_selected_cached_refs_assign_rust(
-        &mut self,
-        points: SelectedCachedRefs<'_>,
-        compute_t: bool,
-    ) {
-        // Loose products feed additive ops; use loose-input subtracts for limb0
-        // values up to ~2^60.
-        let a = self.y.subtract(&self.x).multiply_loose(&points.y_minus_x());
-        let b = self.y.add_loose(&self.x).multiply_loose(&points.y_plus_x());
-        let e = b.subtract_loose(&a);
-        let h = b.add_loose(&a);
-        let c = self.t.multiply_loose(&points.t2d());
-        let d = match points.projective_z2() {
-            Some(z2) => self.z.multiply_loose(&z2),
-            None => self.z.double_loose(),
-        };
-        let f = d.subtract_loose(&c);
-        let g = d.add_loose(&c);
-
-        self.x = e.multiply(&f);
-        self.t = if compute_t {
-            e.multiply(&h)
-        } else {
-            WideFe::zero()
-        };
-        self.z = f.multiply(&g);
-        self.y = g.multiply(&h);
-    }
-
-    #[cfg(test)]
-    pub(super) fn add_cached_refs_assign_rust(
-        &mut self,
-        points: &[&CachedPoint; LANES],
-        compute_t: bool,
-    ) {
-        self.add_selected_cached_refs_assign_rust(
-            SelectedCachedRefs::Projective(points),
-            compute_t,
-        );
-    }
-
-    #[cfg(test)]
-    pub(super) fn add_affine_cached_refs_assign_rust(
-        &mut self,
-        points: &[&AffineCachedPoint; LANES],
-    ) {
-        self.add_selected_cached_refs_assign_rust(SelectedCachedRefs::Affine(points), true);
-    }
-    #[cfg(test)]
-    pub(super) fn subtract(&self, rhs: &Self) -> Self {
-        self.add(&rhs.negate())
-    }
-    /// Return whether `self - rhs` is killed by the Ed25519 cofactor.
-    ///
-    /// For `Q = self - rhs`, test `x(2Q)*y(2Q) == 0` via its numerator
-    /// `E*H`, avoiding materialization of `Q` or `2Q`. Requires `rhs.z == 1`.
-    #[cfg(any(
-        test,
-        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-    ))]
-    pub(super) fn subtract_affine_and_check_8_torsion(&self, rhs: &Self) -> [bool; LANES] {
-        debug_assert!(
-            rhs.z.equals_lanes(&WideFe::one()).iter().all(|&eq| eq),
-            "ZIP-215 R subtraction requires affine rhs"
-        );
-
-        #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
-        {
-            #[cfg(debug_assertions)]
-            for field in [&self.x, &self.y, &self.z, &self.t, &rhs.x, &rhs.y, &rhs.t] {
-                debug_assert!(super::field::limbs_are_ifma_operands(&field.limbs));
-            }
-            // SAFETY: Both borrows are readable WidePoints with the layout checked above.
-            // The ladder and decompressor produce 52-bit limbs in the fields read.
-            let mask = unsafe {
-                ed25519_simd_check_8_torsion_ifma(
-                    core::ptr::from_ref(self).cast(),
-                    core::ptr::from_ref(rhs).cast(),
-                )
-            };
-            super::mask_to_lanes(mask)
-        }
-        #[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
-        self.subtract_affine_and_check_8_torsion_rust(rhs)
-    }
-
-    #[cfg(any(
-        test,
-        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-    ))]
-    pub(super) fn subtract_affine_and_check_8_torsion_rust(&self, rhs: &Self) -> [bool; LANES] {
-        // Strongly-unified mixed subtraction.  Only X and Y are needed.
-        let a = self.y.subtract(&self.x).multiply(&rhs.y.add_loose(&rhs.x));
-        let b = self.y.add_loose(&self.x).multiply(&rhs.y.subtract(&rhs.x));
-        let c = self.t.multiply(&rhs.t).multiply(&WideFe::two_d());
-        let d = self.z.double_loose();
-        let e = b.subtract(&a);
-        let f = d.add_loose(&c);
-        let g = d.subtract(&c);
-        let h = b.add_loose(&a);
-        let x = e.multiply(&f);
-        let y = g.multiply(&h);
-
-        // T(2Q) = E*H, where E = 2XY and H = -(X^2+Y^2).
-        let xx = x.square_loose();
-        let yy = y.square_loose();
-        let double_e = x.add_loose(&y).square_loose().subtract_loose_sum(&xx, &yy);
-        let double_h = WideFe::negate_loose_sum(&xx, &yy);
-        double_e.multiply(&double_h).is_zero_lanes()
-    }
-    #[cfg(test)]
-    pub(super) fn negate(&self) -> Self {
-        Self {
-            x: self.x.negate(),
-            y: self.y,
-            z: self.z,
-            t: self.t.negate(),
-        }
-    }
     pub(super) fn double(&self) -> Self {
-        self.double_impl::<true, false>()
+        self.double_impl::<false>()
     }
     pub(super) fn double_from_affine(&self) -> Self {
         debug_assert!(
             self.z.equals_lanes(&WideFe::one()).iter().all(|&eq| eq),
             "double_from_affine requires z == 1 in every lane"
         );
-        self.double_impl::<true, true>()
+        self.double_impl::<true>()
     }
     /// Initialization-only affine doubling, isolated so using SIMD during
     /// setup does not outline this operation in the verification hot path.
@@ -566,60 +131,10 @@ impl WidePoint {
             self.z.equals_lanes(&WideFe::one()).iter().all(|&eq| eq),
             "cold_double_from_affine requires z == 1 in every lane"
         );
-        self.double_impl::<true, true>()
+        self.double_impl::<true>()
     }
-    #[cfg(any(
-        test,
-        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-    ))]
-    pub(super) fn double_without_t(&self) -> Self {
-        self.double_impl::<false, false>()
-    }
-
-    #[cfg(any(
-        test,
-        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-    ))]
-    /// In place so `acc = acc.double_four_times()`'s 1280-byte return
-    /// copy never happens; the last double writes straight into `self`.
-    #[inline(never)]
-    pub(super) fn double_four_times_assign(&mut self) {
-        #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
-        unsafe {
-            // The ladder's cached-point recovery and strict products satisfy
-            // the input bounds. `self` supplies exclusive access and layout.
-            ed25519_simd_double4_ifma(core::ptr::from_mut(self).cast());
-        }
-        #[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
-        self.double_four_times_assign_rust();
-    }
-
-    #[cfg(any(
-        test,
-        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-    ))]
     #[inline(always)]
-    pub(super) fn double_four_times_assign_rust(&mut self) {
-        let tripled = self
-            .double_without_t()
-            .double_without_t()
-            .double_without_t();
-        tripled.double_into(self);
-    }
-    /// Inlined body stores its result directly through `out`, which a
-    /// returned `Self` assigned across a call boundary does not.
-    #[cfg(any(
-        test,
-        not(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))
-    ))]
-    #[inline(always)]
-    pub(super) fn double_into(&self, out: &mut Self) {
-        *out = self.double_impl::<true, false>();
-    }
-    // Always inline: callers embed it exactly once each, and the inlined
-    // body lets an `_into` destination receive direct stores.
-    #[inline(always)]
-    pub(super) fn double_impl<const COMPUTE_T: bool, const AFFINE_Z: bool>(&self) -> Self {
+    fn double_impl<const AFFINE_Z: bool>(&self) -> Self {
         // Loose squares feed additive ops; use loose-input subtract/negate for
         // limb0 values up to ~2^60.
         let a = self.x.square_loose();
@@ -638,11 +153,7 @@ impl WidePoint {
         // `f = b - a - 2*z^2`; the factor of two rides along in the subtract.
         let f = b.subtract_loose_sum_with_doubled_rhs(&a, &z2);
         let h = WideFe::negate_loose_sum(&a, &b);
-        let t = if COMPUTE_T {
-            e.multiply(&h)
-        } else {
-            WideFe::zero()
-        };
+        let t = e.multiply(&h);
 
         Self {
             x: e.multiply(&f),

@@ -37,8 +37,8 @@ See [Audit.v](coq/Audit.v) and [Equation.v](coq/Equation.v). The shared [candida
   [Schedule.v](coq/Schedule.v).
 * For the predecoded entry check that the incoming decoder-valid bit
   describes the original R bytes, including the invalid case. The theorem
-  takes this as an input contract because the key-and-R decoder on this
-  path is supplied by Rust. Both entries take the eligibility flags,
+  takes this as an input contract. The Rust driver passes the R point and
+  validity mask from the paired assembly decoder. Both entries take the eligibility flags,
   indices and active count from the caller. Hashing, key preparation and
   cache policy remain caller responsibilities.
 

@@ -78,7 +78,8 @@ separate review.
 
 ## Build and audit
 
-On x86-64 Linux, the `asm` feature enables all assembly backends. Each
+Supported builds always use assembly. The `asm` feature is retained for
+compatibility. Each
 `verify-asm-*` feature also checks the named standalone routine during the
 build and embeds the bytes that passed. Staging, radix16, ladder, torsion,
 small-order, deferred decoding, Dalek recompression and both post-hash audits check the linked
@@ -88,7 +89,7 @@ Run the build commands from the repository root.
 
 ```sh
 export RUSTFLAGS="-C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma"
-cargo build --release --features asm
+cargo build --release
 cargo build --release --features verify-asm-pow2,verify-asm-double4,verify-asm-cached-add,verify-asm-scalar
 ```
 

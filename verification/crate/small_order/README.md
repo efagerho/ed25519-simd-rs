@@ -10,14 +10,14 @@ of point validity. [Public contract](coq/Audit.v) · [Theorem](coq/Object.v) · 
 
 ## What to audit
 
-1. Check the SysV argument and result against the Rust caller. RDI points
+1. Check the SysV argument and result against the strict-verification callers. RDI points
    to a read-only `WidePoint`. Only its first ten 64-byte rows are readable
    in the model. Rows 0–4 hold X and rows 5–9 hold Y in radix 2^51. Each
    input limb is unsigned and below 2^52. Bit zero corresponds to lane
    zero. The execution permits 24 bytes of private stack below the incoming
    RSP for saved RBP and two nested return addresses. It must return through
    the caller's slot with RBP restored for every incoming SysV alignment.
-   [Rust caller](../../../src/wide/avx512ifma/point.rs) · [Shared representation](../Wide51.v) · [Machine and memory trust boundary](../../README.md#shared-audit-surface)
+   [Decoded check](../../../src/wide/avx512ifma/dalek.S) · [Recompression check](../../../src/wide/avx512ifma/dalek_recompress.S) · [Shared representation](../Wide51.v) · [Machine and memory trust boundary](../../README.md#shared-audit-surface)
 2. Read `lane_result` and `run_correct`. Each lane tests whether any of
    iY, X, iY+X or iY−X is zero modulo p, where i² = −1. The 64-bit filter can
    return zero only when all eight lanes miss every window. If any lane falls
