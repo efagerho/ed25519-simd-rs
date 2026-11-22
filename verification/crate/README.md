@@ -6,6 +6,7 @@ README for its contract and release audit.
 
 | Routine | What the theorem covers |
 | --- | --- |
+| [dalek_post_hash/](dalek_post_hash/README.md) | Strict post-hash verification on key-cache hits and misses, including weak-key rejection, canonical R encoding and active-lane output placement. |
 | [zip215/](zip215/README.md) | Post-hash cofactored verification, deferred resolution, and active-lane output placement. |
 | [pow2/](pow2/README.md) | Paired field exponentiation. |
 | [double4/](double4/README.md) | Four in-place point doublings. |
@@ -72,6 +73,7 @@ separate review.
 | [Wide51.v](Wide51.v) | `cell` selects qword `8*i + lane`. Trace `field_at`, `point_values`, and `cache_values` to the Rust field order. Check which coordinates each bound covers. |
 | [PointFrame.v](PointFrame.v) | For double4 and cached addition, check the 1,280-byte scratch area, alignment padding, saved RBP, caller and nested return slots, and the writable byte interval. An overly broad interval weakens caller-memory preservation. |
 | [FieldSymbolic.v](FieldSymbolic.v), [FieldKernel.v](FieldKernel.v) | The shared checker for double4 and cached addition takes the decoded instructions, input intervals, output bounds, and target field expressions. Its soundness theorem requires the mask register, loads, initial values, and refinement hints to satisfy their specifications. Coq checks those obligations at each use. |
+| [post_hash/](post_hash/README.md) | Check the common queue layout, scalar-to-ladder handoff, and output lane mapping used by both post-hash policies. |
 | [field51/](field51/README.md) | The shared radix-51 circuit checker proves field congruence, limb bounds and positive representatives at the supplied cuts. Both mask routines use its [zero and mask lemmas](field51/RootMasks.v). |
 
 ## Build and audit
@@ -79,7 +81,7 @@ separate review.
 On x86-64 Linux, the `asm` feature enables all assembly backends. Each
 `verify-asm-*` feature also checks the named standalone routine during the
 build and embeds the bytes that passed. Staging, radix16, ladder, torsion,
-small-order, ZIP-215 decoding and Dalek recompression audits check the linked
+small-order, deferred decoding, Dalek recompression and both post-hash audits check the linked
 symbols in the release ELF.
 
 Run the build commands from the repository root.

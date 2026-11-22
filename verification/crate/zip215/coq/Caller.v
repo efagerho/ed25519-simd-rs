@@ -2,7 +2,7 @@ From Coq Require Import List ZArith Bool.
 From Machine Require Import isa.X86 isa.Instructions execution.MaskTrace.
 From Ed25519Simd.Decode Require Import Glue Image.
 From Ed25519Simd.Dalek Require Import Caller FieldOps.
-From Ed25519Simd.Zip215 Require Staging.
+From Ed25519Simd.PostHash Require Staging.
 Import ListNotations. Local Open Scope Z_scope.
 
 (* Each block includes the instructions setting its outgoing condition flags.
@@ -72,7 +72,7 @@ Definition probe_y d h := group [word_loads 6 (d+0xb00);y_limbs;
 Definition staging pc:=Staging.instr (fun c=>match c with Staging.Reduce=>pc Digest
  | Staging.MultiplyPoint=>pc Ladder | Staging.MakeCandidate=>pc Candidate end).
 Definition body (pc:symbol->Z) l : fragment := match l with
- | MakeProduct=>group(map (staging pc) Staging.candidate_ops)
+ | MakeProduct=>group(map (staging pc) (Staging.candidate_ops true))
  | LaneCount=>group [
    fixed [0x48;0x8b;0x4f;0x48] (* mov rcx,qword ptr [rdi+0x48] *);
    fixed [0x48;0x83;0xf9;0x08] (* cmp rcx,0x8 *)]
@@ -178,7 +178,7 @@ Definition body (pc:symbol->Z) l : fragment := match l with
    fixed [0x49;0x89;0xc4] (* mov r12,rax *);
    fixed [0x49;0x89;0xf6] (* mov r14,rsi *);
    fixed [0x49;0x89;0xd7] (* mov r15,rdx *);
-   staging pc Staging.ClearCount;
+   staging pc (Staging.ClearCount 3);
    fixed [0x31;0xc0] (* xor eax,eax *);
    fixed [0x49;0x83;0xfc;0x02] (* cmp r12,0x2 *)]
  | StartProbe=>group [

@@ -5,7 +5,7 @@ Import ListNotations. Local Open Scope nat_scope.
 (* (chunks submitted to scoring, occupancy after return). *)
 Definition flush_counts n := match successor Flush Count (n=?0) false with
  | Some Empty=>Some (0,n)
- | Some Setup=>let st:=Staging.step (Staging.step (Staging.initial n 0 true) (Staging.Mov 3 7)) Staging.ClearCount in
+ | Some Setup=>let st:=Staging.step (Staging.step (Staging.initial n 0 true) (Staging.Mov 3 7)) (Staging.ClearCount 3) in
    match Staging.occupancy st with Staging.Number z=>Some(n,Z.to_nat z) | _=>None end
  | _=>None end.
 Definition push_counts n pad :=
