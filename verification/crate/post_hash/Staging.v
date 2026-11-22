@@ -6,13 +6,13 @@ Import ListNotations. Local Open Scope Z_scope.
 Inductive callee := Reduce | MultiplyPoint | MakeCandidate.
 Inductive op := PushReg (r:nat) | PopReg (r:nat) | Mov (dst src:nat)
  | LoadInput (d:nat)(disp:Z) | SetReg (r:nat)(imm:Z)
- | Reserve | Release | LoadCount | StoreCount | ClearCount | IncCount | CompareFull
+ | Reserve | Release | LoadCount | StoreCount | ClearCount (base:nat) | IncCount | CompareFull
  | EncodingOffset | LaneOffset | PointOffset | AddQueue
  | ReadEncoding (i:nat) | WriteEncoding (i:nat) | ReadLanes | ReadLaneCount
  | WriteLanes | WriteLaneCount | Call (c:callee).
-Definition candidate_ops := [PushReg 3;PushReg 12;Reserve;Mov 3 7;Mov 12 6;
+Definition candidate_ops (full:bool) := [PushReg 3;PushReg 12;Reserve;Mov 3 7;Mov 12 6;
  Mov 7 4;LoadInput 6 80;Call Reduce;Mov 7 3;Mov 6 12;LoadInput 2 64;
- LoadInput 1 72;Mov 8 4;SetReg 9 1;Call MultiplyPoint;Release;PopReg 12;PopReg 3].
+ LoadInput 1 72;Mov 8 4;SetReg 9 (if full then 1 else 0);Call MultiplyPoint;Release;PopReg 12;PopReg 3].
 Definition push_ops := [PushReg 3;PushReg 12;PushReg 13;Mov 3 7;Mov 12 8;Mov 13 9;
  LoadCount;Mov 8 0;EncodingOffset] ++
  flat_map (fun i=>[ReadEncoding i;WriteEncoding i]) (seq 0 4) ++
@@ -22,11 +22,11 @@ Definition push_ops := [PushReg 3;PushReg 12;PushReg 13;Mov 3 7;Mov 12 8;Mov 13 
 Definition instr (address:callee->Z) command : fragment := match command with
  | PushReg r=>fixed(reg_byte 0x50 r) | PopReg r=>fixed(reg_byte 0x58 r)
  | Mov d s=>fixed(LinkedCalls.encoding 0 (Copy d s))
- | SetReg r v=>fixed(reg_byte 0xb8 r ++ X86.le32 v)
+ | SetReg r v=>if v=?0 then fixed((if (8<=?Z.of_nat r) then [0x45] else [])++[0x31;0xc0+9*(Z.of_nat r mod 8)]) else fixed(reg_byte 0xb8 r ++ X86.le32 v)
  | LoadInput d n=>fixed[0x49;0x8b;0x44+8*Z.of_nat d;0x24;n]
  | Reserve=>fixed[0x48;0x81;0xec;0x08;0x02;0;0] | Release=>fixed[0x48;0x81;0xc4;0x08;0x02;0;0]
  | LoadCount=>fixed([0x48;0x8b;0x83]++X86.le32 12928) | StoreCount=>fixed([0x48;0x89;0x83]++X86.le32 12928)
- | ClearCount=>fixed([0x48;0xc7;0x83]++X86.le32 12928++X86.le32 0)
+ | ClearCount base=>fixed([0x48;0xc7;0x80+Z.of_nat base]++X86.le32 12928++X86.le32 0)
  | IncCount=>fixed[0xff;0xc0] | CompareFull=>fixed[0x83;0xf8;8] | EncodingOffset=>fixed[0x49;0xc1;0xe0;8]
  | LaneOffset=>fixed[0x4c;0x6b;0xc0;80] | PointOffset=>fixed([0x48;0x69;0xf8]++X86.le32 1280)
  | AddQueue=>fixed[0x48;1;0xdf]
@@ -72,7 +72,8 @@ Definition step st op := let r:=regs st in let m:=saved st in let v:=simd st in
    | Ptr Inputs 80=>Ptr Digests 0 | Ptr Inputs 64=>Ptr BaseTable 0 | Ptr Inputs 72=>Ptr Digits 0 | _=>Unknown end)
  | LoadCount=>reg 0%nat (match r 3%nat with Ptr Queue 0=>n | _=>Unknown end)
  | StoreCount=>St r m v (r 0%nat) z (Occupied (off(r 3%nat)12928)(r 0%nat)::e)
- | ClearCount=>St r m v (Number 0) z (Occupied (off(r 3%nat)12928)(Number 0)::e)
+ | ClearCount base=>let dst:=off(r base)12928 in
+   St r m v (match dst with Ptr Queue 12928=>Number 0 | _=>n end) z (Occupied dst (Number 0)::e)
  | IncCount=>reg 0%nat (match r 0%nat with Number x=>Number ((x+1) mod 2^32) | _=>Unknown end)
  | CompareFull=>St r m v n (match r 0%nat with Number x=>x=?8 | _=>false end)e
  | EncodingOffset=>reg 8%nat (times(r 8%nat)256) | LaneOffset=>reg 8%nat (times(r 0%nat)80)
@@ -86,12 +87,12 @@ Definition step st op := let r:=regs st in let m:=saved st in let v:=simd st in
    St clobber m (fun _=>Unknown) n false (Invoke c args (r 4%nat)::e) end.
 Definition restored st pad := map(regs st)[3;5;12;13;14;15]%nat=map Incoming [3;5;12;13;14;15]%nat /\
  regs st 4%nat=Ptr Stack(8+16*Z.of_nat pad).
-Definition candidate_abi := forall pad,(pad<4)%nat ->
- let st:=fold_left step candidate_ops (initial 0 pad false) in
+Definition candidate_abi (full:bool) := forall pad,(pad<4)%nat ->
+ let st:=fold_left step (candidate_ops full) (initial 0 pad false) in
  let sp:=Ptr Stack(16*Z.of_nat pad-528) in
  restored st pad /\ rev(events st)=
  [Invoke Reduce [sp;Ptr Digests 0] sp;Invoke MultiplyPoint
-  [Ptr Result 0;Ptr Inputs 0;Ptr BaseTable 0;Ptr Digits 0;sp;Number 1] sp].
+  [Ptr Result 0;Ptr Inputs 0;Ptr BaseTable 0;Ptr Digits 0;sp;Number (if full then 1 else 0)] sp].
 Definition push_abi := forall n pad,(n<8)%nat -> (pad<4)%nat ->
  let st:=fold_left step push_ops (initial n pad true) in let i:=Z.of_nat n in
  restored st pad /\ map(regs st)[7;6;2]%nat=[Ptr Queue 0;Ptr Output 0;Incoming 9] /\
@@ -101,8 +102,8 @@ Definition push_abi := forall n pad,(n<8)%nat -> (pad<4)%nat ->
  [Transfer 64 (Ptr Metadata 0)(Ptr Queue(12288+i*80));Transfer 16 (Ptr Metadata 64)(Ptr Queue(12352+i*80));
   Invoke MakeCandidate [Ptr Queue(i*1280);Ptr Inputs 0](Ptr Stack (16*Z.of_nat pad-16));
   Occupied (Ptr Queue 12928)(Number(i+1))].
-Lemma candidate_abi_ok : candidate_abi.
-Proof. intros pad P;do 4 (destruct pad;[vm_compute;auto|]);lia. Qed.
+Lemma candidate_abi_ok full : candidate_abi full.
+Proof. destruct full;intros pad P;do 4 (destruct pad;[vm_compute;auto|]);lia. Qed.
 Lemma push_abi_ok : push_abi.
 Proof.
  intros n pad N P; do 8 (destruct n as [|n];[do 4 (destruct pad as [|pad];[vm_compute;auto 8|]);lia|]);lia.

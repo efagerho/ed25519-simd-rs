@@ -4,10 +4,10 @@ linked_checks := $(addsuffix -conformance,$(routines))
 timed = /usr/bin/time -f '$@ elapsed %E'
 export XED_KIT := $(RUNNER_TEMP)/xed-kit
 
-.PHONY: zip215 zip215-mutations dalek-recompress dalek-recompress-mutations decompress-r decompress-r-mutations full-ladder stage-round stage-round-mutations radix16 radix16-mutations verify certificates ladder-mutations ladder torsion torsion-mutations small-order small-order-mutations pow2-z3 xed-kit fixed-conformance \
+.PHONY: dalek-post-hash dalek-post-hash-mutations zip215 zip215-mutations dalek-recompress dalek-recompress-mutations decompress-r decompress-r-mutations full-ladder stage-round stage-round-mutations radix16 radix16-mutations verify certificates ladder-mutations ladder torsion torsion-mutations small-order small-order-mutations pow2-z3 xed-kit fixed-conformance \
         $(routines) $(linked_checks) cached-add-mutations scalar-mutations
 
-verify: zip215-mutations dalek-recompress-mutations decompress-r-mutations full-ladder stage-round-mutations radix16-mutations ladder-mutations certificates cached-add-mutations $(linked_checks) \
+verify: dalek-post-hash-mutations zip215-mutations dalek-recompress-mutations decompress-r-mutations full-ladder stage-round-mutations radix16-mutations ladder-mutations certificates cached-add-mutations $(linked_checks) \
         scalar-mutations torsion-mutations small-order-mutations fixed-conformance pow2-z3
 
 certificates:
@@ -106,3 +106,16 @@ zip215: full-ladder radix16 torsion decompress-r
 
 zip215-mutations: zip215
 	$(timed) python3 -B verification/crate/zip215/mutations.py "$(ZIP_ELF)" --audit "$(RUNNER_TEMP)/zip215-audit"
+
+# Callee proofs bind absolute addresses and relative operands in this ELF.
+dalek_dependencies := $(addprefix $(RUNNER_TEMP)/dalek-callees/,$(addsuffix -audit/manifest.json,radix16 full-ladder decompress-r))
+$(dalek_dependencies): $(RUNNER_TEMP)/dalek-callees/%-audit/manifest.json:
+	$(timed) python3 -B verification/crate/$(subst -,_,$*)/audit.py "$(DALEK_ELF)" --output "$(@D)"
+
+dalek-post-hash: dalek-recompress $(dalek_dependencies)
+	$(timed) python3 -B verification/crate/dalek_post_hash/audit.py "$(DALEK_ELF)" \
+		--output "$(RUNNER_TEMP)/dalek-post-hash-audit" --dependencies "$(RUNNER_TEMP)/dalek-callees" \
+		--recompress-dependencies "$(RUNNER_TEMP)"
+
+dalek-post-hash-mutations: dalek-post-hash
+	$(timed) python3 -B verification/crate/dalek_post_hash/mutations.py "$(DALEK_ELF)" --audit "$(RUNNER_TEMP)/dalek-post-hash-audit"

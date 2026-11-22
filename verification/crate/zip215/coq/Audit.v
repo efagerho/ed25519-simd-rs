@@ -2,7 +2,8 @@ From Coq Require Import List Bool ZArith Lia.
 From Machine Require Import memory.ByteMemory.
 From Curve25519.group Require Import Affine Representation PrimeField.
 From Ed25519Simd.Dalek Require Import Batch.
-From Ed25519Simd.Zip215 Require Import Staging Caller Binding Equation Calls Schedule.
+From Ed25519Simd.PostHash Require Import Staging Product.
+From Ed25519Simd.Zip215 Require Import Caller Binding Equation Calls Schedule.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition resolve_byte exact (slow:nat->bool->option Z) src :=
@@ -58,11 +59,11 @@ Definition direct_correct := forall q r Q raw valid meta len out pad init,
 
 Record zip215_contract : Prop := {
  caller_image : linked_image;
- staged_calls : candidate_abi /\ push_abi /\
+ staged_calls : candidate_abi true /\ push_abi /\
    exit_of Enqueue=Jump Eq false (Entry Flush) /\ exit_of Queued=Ret /\
    exit_of DecodedCheck=Jump Always false (Entry Scatter);
  queue_occupancy : queue_lifecycle;
- candidate_result : product_correct;
+ candidate_result : product_correct true;
  decoded_result : direct_correct;
  deferred_result : exists fast decode,
  Dalek.Audit.shared_image fast Decode.DecoderBytes.address Decode.DecoderBytes.symbol_bytes

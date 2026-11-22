@@ -191,7 +191,8 @@ class ReleaseEvidenceTests(unittest.TestCase):
                                             (scalar_audit, "reduce", "Scalar", "sources/scalar/audit.py"),
                                             (evidence, "ladder_step", "LadderStep", "sources/ladder_step/audit.py"),
                                             (evidence, "digest_to_radix16", "Radix16", "sources/radix16/audit.py"),
-                                            (evidence, "dalek_recompress", "Dalek", "sources/dalek_recompress/audit.py")):
+                                            (evidence, "dalek_recompress", "Dalek", "sources/dalek_recompress/audit.py"),
+                                            (evidence, "dalek_post_hash", "DalekPostHash", "sources/dalek_post_hash/audit.py")):
             with self.subTest(routine=routine):
                 self.check_manifest(module, routine, namespace, generator)
 
@@ -219,7 +220,7 @@ class ReleaseEvidenceTests(unittest.TestCase):
             symbols = [(routine, 4096, b"\xc3")]
             if component == "ladder_step":
                 symbols.extend([("double4", 8192, b"a"), ("add_cached", 12288, b"b")])
-            elif component == "dalek_recompress":
+            elif component in ("dalek_post_hash", "dalek_recompress"):
                 symbols.extend([("decoder", 8192, b"d"), ("helper", 12288, b"h"), ("small", 16384, b"s")])
             elif component == "radix16":
                 symbols.append(("scalar_reduce", 8192, b"a"))
@@ -250,6 +251,10 @@ class ReleaseEvidenceTests(unittest.TestCase):
                 for dependency in ("decompress_r", "small_order"):
                     self.assertIn(f"sources/{dependency}/audit.py", manifest["files"])
                 self.assertIn("sources/mask_listing.py", manifest["files"])
+            if component == "dalek_post_hash":
+                for dependency in ("radix16", "full_ladder", "decompress_r", "dalek_recompress"):
+                    self.assertIn(f"sources/{dependency}/audit.py", manifest["files"])
+                self.assertIn("sources/post_hash/build.py", manifest["files"])
             project = (work / "_CoqProject").read_text().splitlines()
             self.assertIn(f"-Q {namespace} Ed25519Simd.{namespace}", project)
             self.assertIn(f"{namespace}/Program.v", project)

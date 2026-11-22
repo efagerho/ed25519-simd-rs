@@ -2,11 +2,10 @@
 import argparse
 from pathlib import Path
 import shutil
-import subprocess
 import tempfile
 
 from audit import FLAGS, inputs
-from elf import executable_offset, symbol_extent
+from crate.post_hash.check_mutations import compile_module, mutate
 
 # Original instruction bytes must occur exactly once within their symbol.
 CASES = (
@@ -26,31 +25,16 @@ def check(elf, audit, work):
     dest = work / "Zip215"
     shutil.copytree(audit / "Zip215", dest)
 
-    def compile_module(name, reject=False):
-        result = subprocess.run(["coqc", *FLAGS, f"Zip215/{name}.v"], cwd=work,
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        if reject and result.returncode and "Unable to unify" in result.stdout:
-            return
-        if reject or result.returncode:
-            raise AssertionError(f"unexpected result compiling {name}: {result.stdout[-1200:]}")
+    def compile_local(name, reject=False):
+        compile_module(work, FLAGS, "Zip215", name, reject)
 
     for description, suffix, old, new in CASES:
         mutated = work / "mutated"
-        shutil.copyfile(elf, mutated)
-        pc, size = symbol_extent(elf, "ed25519_simd_zip215_" + suffix)
-        original, replacement = bytes.fromhex(old), bytes.fromhex(new)
-        with mutated.open("r+b") as f:
-            start = executable_offset(f, pc, size)
-            f.seek(start)
-            data = f.read(size)
-            if data.count(original) != 1 or len(original) != len(replacement):
-                raise AssertionError(description)
-            f.seek(start + data.index(original))
-            f.write(replacement)
+        mutate(elf, mutated, "ed25519_simd_zip215_" + suffix, old, new)
         _, modules = inputs(mutated, dest)
         for name in (*modules, "Binding", "Audit"):
-            compile_module(name)
-        compile_module("Object", reject=True)
+            compile_local(name)
+        compile_local("Object", reject=True)
         print(f"Public ZIP-215 theorem rejected mutation: {description}", flush=True)
 
     # A mutation of the grouped semantics can keep the bytes identical.
@@ -60,7 +44,7 @@ def check(elf, audit, work):
     before = "go (full i) false i pair stack writes"
     assert original.count(before) == 1
     source.write_text(original.replace(before, "go (negb (full i)) false i pair stack writes"))
-    compile_module("Schedule", reject=True)
+    compile_local("Schedule", reject=True)
     print("Queue proof rejected inverted exact-match semantics", flush=True)
 
 

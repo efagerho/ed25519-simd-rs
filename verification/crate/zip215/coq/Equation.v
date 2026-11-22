@@ -5,6 +5,7 @@ From ProofArithmetic Require Import Radix.
 From Curve25519 Require Import Field Scalar Edwards Radix51.
 From Curve25519.group Require Import PrimeField Affine Representation Decompression SignedMultiple.
 From Ed25519Simd Require Import Wide51.
+From Ed25519Simd.PostHash Require Export Lanes.
 From Ed25519Simd.Dalek Require Import Encoding.
 From Ed25519Simd.Decode Require Import Decode Chunks.
 From Ed25519Simd.Scalar Require Import ScalarSpec.
@@ -28,46 +29,9 @@ Proof.
  - rewrite plus_negative. cbn [multiple]; now rewrite !plus_identity.
 Qed.
 
-(* Combine the reducer's actual return memory and the full ladder execution.
-   The call boundary passes the same 512 digit bytes to R8. *)
-Module D := Ed25519Simd.Radix16.Audit.
-Module F := Ed25519Simd.FullLadder.Audit.
-Definition challenge s j := lane_input (buffer_words (LinkedCalls.mem s) (LinkedCalls.regs s 6%nat)) j mod L.
-Definition candidate s l B A j :=
- plus (scale (number 16 (digit_list l 1 j)) B) (scale (-challenge s j) (A j)).
-
-Definition product_correct :=
- forall slide s l mid out B A ip,
- let target := Ed25519Simd.Radix16.LinkedBytes.reducer_pc in
- let pc := Ed25519Simd.Radix16.LinkedBytes.wrapper_pc in
- let bytes := Ed25519Simd.Radix16.LinkedBytes.symbol_bytes in
- let n := D.size bytes in let dst := LinkedCalls.regs s 7%nat in
- D.placement (LinkedCalls.regs s 4%nat) dst (LinkedCalls.regs s 6%nat) (slide+pc) n (slide+target)
-    (D.size Ed25519Simd.Scalar.ObjectBytes.symbol_bytes) -> LinkedCalls.well_formed s ->
- D.run slide pc target n s ip mid ->
- (forall j, (j<8)%nat -> digit_list l 8 j = D.signed_digits (LinkedCalls.mem mid) dst j) ->
- F.placement slide l -> LinkedCalls.regs l 9%nat=1 ->
- valid_inputs (slide+Ed25519Simd.FullLadder.LinkedBytes.stage_pc) (F.pad_of l) l ->
- valid_tables l B A -> F.execution slide l true out ->
- strict out /\ forall j,(j<8)%nat -> represents_point true (point_values out j) (candidate s l B A j).
-Lemma product_ok : product_correct.
-Proof.
- intros slide s l mid out B A ip target pc bytes n dst P W Run Dig PL T I V LRun.
- destruct (D.run_correct _ _ _ _ Ed25519Simd.Radix16.Object.assembled_digest_to_radix16_correct
-    slide s P W) as [v [_ [Unique [_ [_ [_ [_ Digits]]]]]]].
- destruct (Unique _ _ Run) as [_ ->].
- destruct (F.full_product Ed25519Simd.FullLadder.Object.assembled_full_ladder_correct
-  slide l true B A PL T I V) as [_ Result].
- destruct (Result out LRun) as [Bound [Reps _]]. split;[exact Bound|].
- intros j J. specialize (Reps j J). rewrite Dig in Reps by exact J.
- unfold dst in Reps; rewrite (proj2 (Digits j J)) in Reps. exact Reps.
-Qed.
-
 Definition cofactor Q R := multiple 8 (plus Q (negative R))=identity.
 (* Interface for the point written by the decoder. All four coordinates have
    their specified field values even if the decode-valid bit is clear. *)
-Definition coordinates_of (o:output) := Coordinates (Limbs.pack (ox o)) (Limbs.pack (oy o))
-  (Limbs.pack (oz o)) (Limbs.pack (ot o)).
 Lemma decoded_accepts k flat ptr pair j w Q q mask lane :
  Chunks.lane_claim k flat ptr pair j ->
  w=read_le 32 flat (ptr+32*Z.of_nat j) ->

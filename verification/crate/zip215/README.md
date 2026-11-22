@@ -2,12 +2,12 @@
 
 Audit `assembled_zip215_correct` against `zip215_contract`. A lane accepts
 an encoding of R exactly when there is a signed Edwards point represented
-by those bytes and **[8](Q − R) = 0**, where **Q = [s]B − [digest mod L]A**.
+by those bytes and **`[8](Q − R) = 0`**, where **Q = [s]B − [digest mod L]A**.
 The y-coordinate is reduced modulo p. The decoder’s signed-root convention
 admits either sign for zero. The scatter additionally requires the lane’s
 input-valid bit and only writes active indices. Later active writes take
 precedence when callers supply repeated indices.
-See [Audit.v](coq/Audit.v) and [Equation.v](coq/Equation.v).
+See [Audit.v](coq/Audit.v) and [Equation.v](coq/Equation.v). The shared [candidate proof](../post_hash/Product.v) connects the digest and signed S digits to Q.
 
 ## What to audit
 
@@ -23,7 +23,7 @@ See [Audit.v](coq/Audit.v) and [Equation.v](coq/Equation.v).
   require. The mutable queue begins empty and the incoming count at push
   is below eight. The ABI proof follows register moves, stack offsets,
   caller-saved clobbers, six SIMD transfers, the occupied count and the
-  tail-call arguments. See [Staging.v](coq/Staging.v) and
+  tail-call arguments. See [Staging.v](../post_hash/Staging.v) and
   [the Rust layout assertions](../../../src/wide/avx512ifma/post_hash_asm.rs).
 * Check the grouped semantics of the remaining scalar and SIMD glue.
   Compare each named block’s effects, argument offsets, flags, stack

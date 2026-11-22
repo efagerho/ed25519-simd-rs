@@ -12,28 +12,6 @@ From Ed25519Simd.Torsion Require Audit Object Program ObjectBytes.
 From Ed25519Simd.Zip215 Require Import Equation.
 Local Open Scope Z_scope.
 
-Definition octet (w:Z) i := Z.shiftr w (8*Z.of_nat i) mod 256.
-Lemma octet_bit w i j : (j<8)%nat ->
- Z.testbit(octet w i)(Z.of_nat j)=Z.testbit w (8*Z.of_nat i+Z.of_nat j).
-Proof. intro J;unfold octet;change 256 with (2^8).
- rewrite Z.mod_pow2_bits_low,Z.shiftr_spec by lia;f_equal;lia. Qed.
-
-Definition component (o:output) c := match c with
- | O=>ox o | S O=>oy o | S(S O)=>oz o | _=>ot o end.
-Definition words (os:nat->output) (w:nat) :=
- let row:=(w/8)%nat in component (os (w mod 8)%nat) (row/5)%nat (row mod 5)%nat.
-Lemma word_cell os i j : (j<8)%nat -> cell(words os)i j=
- component (os j) (i/5)%nat (i mod 5)%nat.
-Proof.
- intro J;unfold cell,words. replace ((i*8+j)/8)%nat with i by
- (apply Nat.div_unique with (r:=j);lia).
- now replace ((i*8+j) mod 8)%nat with j by (apply Nat.mod_unique with (q:=i);lia).
-Qed.
-Lemma word_coords os j : (j<8)%nat -> point_values (words os) j=coordinates_of(os j).
-Proof.
- intro J. unfold point_values,point_from_fields,word_coordinate,field_at,coordinates_of,Limbs.pack,limbs.
- now rewrite !word_cell by exact J.
-Qed.
 Definition torsion_run pad q r init := result (program_tree 1500 1032 20 Ed25519Simd.Torsion.Program.code pad)
  (Torsion.Audit.inputs q r) init.
 Definition candidate_chunk q Q := strict q /\ forall j,(j<8)%nat ->
