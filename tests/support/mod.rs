@@ -3,10 +3,7 @@
 use core::convert::TryFrom;
 
 use curve25519::ed_sigs::{Signature, SigningKey, VerificationKey, VerificationKeyBytes};
-use ed25519_simd::{
-    HotKeyCache, NullKeyCache, PUBLIC_KEY_LEN, RuntimeVerifier, SIGNATURE_LEN, VerifyInput,
-    VerifyPolicy,
-};
+use ed25519_simd::{PUBLIC_KEY_LEN, RuntimeVerifier, SIGNATURE_LEN, VerifyInput, VerifyPolicy};
 
 pub fn hex_vec(s: &str) -> Vec<u8> {
     hex::decode(s).expect("valid test vector hex")
@@ -19,24 +16,14 @@ pub fn hex_array<const N: usize>(s: &str) -> [u8; N] {
 }
 
 pub fn verify(policy: VerifyPolicy, input: VerifyInput<'_>) -> bool {
-    let mut verifier = RuntimeVerifier::with_cache(policy, NullKeyCache::new());
+    let mut verifier = RuntimeVerifier::with_policy(policy);
     let mut out = [false];
-    verifier.verify_batch(&[input], &mut out);
-    out[0]
-}
-
-/// Verify twice and return the warm-cache result, exercising Dalek's byte
-/// comparison instead of its cold-cache projective comparison.
-pub fn verify_warm(policy: VerifyPolicy, input: VerifyInput<'_>) -> bool {
-    let mut verifier = RuntimeVerifier::with_cache(policy, HotKeyCache::with_capacity(8));
-    let mut out = [false];
-    verifier.verify_batch(&[input], &mut out);
     verifier.verify_batch(&[input], &mut out);
     out[0]
 }
 
 pub fn verify_batch(policy: VerifyPolicy, inputs: &[VerifyInput<'_>]) -> Vec<bool> {
-    let mut verifier = RuntimeVerifier::with_cache(policy, NullKeyCache::new());
+    let mut verifier = RuntimeVerifier::with_policy(policy);
     let mut out = vec![false; inputs.len()];
     verifier.verify_batch(inputs, &mut out);
     out

@@ -97,13 +97,14 @@ expectations for ZIP-215, but use `solana-ed25519` itself as the oracle for the
 Dalek policy.
 
 Selecting the policy in the verifier's type lets a normal application contain
-only the chosen decoding, scoring, and deferral path. If an application truly
+only the chosen verification path. If an application truly
 needs to select the policy at runtime, `RuntimeVerifier` is an explicit wrapper
 that includes both monomorphized implementations.
 
 ## Batch Verification
 
-A `Verifier` reuses its scratch buffers and configured key cache across batches.
+A `Verifier` decodes public keys alongside the signature points and rebuilds their
+multiplication tables in reusable scratch space for each SIMD chunk.
 Both policies share the read-only basepoint table embedded in the library.
 
 ```rust,no_run
@@ -127,59 +128,7 @@ verifier.verify_batch(&inputs, &mut out);
 
 Each output entry corresponds to the input at the same index, so callers can see
 which signatures passed or failed. `out` must be the same length as `inputs`;
-`verify_batch` panics otherwise. `Zip215Verifier::new()` uses no retained-key
-cache; `DalekVerifier::new()` selects the other policy at compile time. See
-[Verification Policies](#verification-policies) and [Key
-Caching](#key-caching) for the cache-selecting constructor.
-
-## Key Caching
-
-Verification repeatedly needs a decoded public key and a precomputed
-variable-base multiplication table. `Zip215Verifier::new()` and
-`DalekVerifier::new()` use `NullKeyCache`, so decoded keys are not retained
-across batches. **`NullKeyCache` is the recommended default** for most
-workloads: it keeps cold or mostly-distinct-key workloads from paying for
-cache bookkeeping they do not use, and it needs no assumptions about the
-shape of the workload to be safe.
-
-Only reach for `HotKeyCache` if you have actual knowledge of your key
-distribution — specifically, that a small set of keys repeats often enough
-across batches to be worth retaining. Caching a hot set you don't actually
-have wastes memory and bookkeeping for no benefit. The [Hot Key
-Repeats](#hot-key-repeats) benchmark below quantifies the win on a workload
-that does repeat a small key set; measure your own workload before relying on
-it, since the win shrinks or disappears as the hot set gets larger or less
-repetitive:
-
-- `HotKeyCache::with_capacity(n)` is the only constructor: the bound is
-  mandatory. Public keys are attacker-supplied and each retained one costs
-  about 2.8 KB, nearly all of it the 17-entry multiplication table that makes
-  a hit worthwhile, so an unbounded cache would be a memory-exhaustion vector.
-  Requiring a bound also forces the question that decides whether this cache
-  helps at all — how many keys actually repeat. If you can't answer it, use
-  `NullKeyCache`.
-- **Keep the bound tight.** `with_capacity` reserves allocator capacity for the
-  whole bound, but the backing pages generally become resident as entries are
-  written. A full cache costs about `n * 2.8 KB`: 11 MB at 4096 and 2.8 GB at
-  1,000,000. Size `n` from measured key reuse.
-- Eviction is exact least-recently-used, and both lookup and eviction are
-  O(1), so a caller feeding the verifier nothing but distinct keys cannot
-  amplify eviction cost.
-- `HotKeyCache::set_capacity(n)` re-bounds an existing cache, evicting
-  immediately down to the new bound and requesting smaller backing allocations.
-  The allocator may retain freed memory, so process RSS is not guaranteed to
-  fall. `n` is clamped to at least one.
-- Successful key decodes are retained after verification, so reuse the same
-  verifier across batches when the key distribution is hot.
-
-The verifier keeps any per-chunk decoded tables in local scratch while a chunk
-is being verified, even with `NullKeyCache`:
-
-```rust,no_run
-use ed25519_simd::{HotKeyCache, Zip215Verifier};
-
-let mut verifier = Zip215Verifier::with_cache(HotKeyCache::with_capacity(256));
-```
+`verify_batch` panics otherwise. Use `DalekVerifier::new()` for the strict policy.
 
 ## SIMD Path
 
@@ -202,8 +151,7 @@ are logical array positions—the compiler chooses the physical `zmm` registers.
 ## Benchmark Snapshot
 
 The following numbers are Criterion estimates in microseconds per signature for
-distinct-key batches. The `ed25519-simd` rows use `NullKeyCache`, so decoded keys
-are not retained across batches.
+distinct-key batches.
 
 The `ed25519-simd` and `solana-ed25519` 0.2.4 rows were refreshed independently
 on an AMD EPYC 9555P with rustc 1.95.0, pinned to CPU 4. The other comparison
@@ -212,11 +160,9 @@ from the same execution. Criterion used its default 3-second warm-up, 5-second
 measurement, and 100 samples.
 
 The comparison benches live in the `benches-compare` workspace member. Each
-policy/cache combination used below has its own self-only executable
-(`zip215_cold_self`, `dalek_cold_self`, `zip215_hot`, and `dalek_hot`) so each
-executable registers and instantiates only one benchmark configuration. The
-`zip215_cold` and `dalek_cold` executables retain the full comparison matrix.
-These commands refresh only this crate's null-cache rows used below:
+policy has a self-only executable (`zip215_cold_self` or `dalek_cold_self`).
+The `zip215_cold` and `dalek_cold` executables retain the full comparison matrix.
+These commands refresh this crate's distinct-key rows:
 
 ```sh
 cd benches-compare
@@ -239,8 +185,8 @@ Message length 1:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 3.56 | 3.56 | 3.56 | 3.56 |
-| ed25519-simd Dalek null-cache | 3.57 | 3.57 | 3.57 | 3.57 |
+| ed25519-simd Zip215 | 3.56 | 3.56 | 3.56 | 3.56 |
+| ed25519-simd Dalek | 3.57 | 3.57 | 3.57 | 3.57 |
 | solana-ed25519 Zip215 batch[^batch-api] | 13.22 | 12.21 | 11.74 | 11.52 |
 | solana-ed25519 Dalek loop | 23.63 | 23.58 | 23.60 | 23.59 |
 | ed25519-dalek batch[^batch-api] | 14.30 | 13.21 | 12.68 | 12.44 |
@@ -254,8 +200,8 @@ Message length 1024:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 3.84 | 3.84 | 3.84 | 3.84 |
-| ed25519-simd Dalek null-cache | 3.85 | 3.85 | 3.86 | 3.85 |
+| ed25519-simd Zip215 | 3.84 | 3.84 | 3.84 | 3.84 |
+| ed25519-simd Dalek | 3.85 | 3.85 | 3.86 | 3.85 |
 | solana-ed25519 Zip215 batch[^batch-api] | 14.28 | 13.23 | 12.73 | 12.53 |
 | solana-ed25519 Dalek loop | 24.57 | 24.63 | 24.64 | 24.66 |
 | ed25519-dalek batch[^batch-api] | 15.33 | 14.26 | 13.67 | 13.40 |
@@ -269,8 +215,8 @@ Mixed message lengths:
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 3.70 | 3.65 | 3.66 | 3.63 |
-| ed25519-simd Dalek null-cache | 3.71 | 3.67 | 3.67 | 3.65 |
+| ed25519-simd Zip215 | 3.70 | 3.65 | 3.66 | 3.63 |
+| ed25519-simd Dalek | 3.71 | 3.67 | 3.67 | 3.65 |
 | solana-ed25519 Zip215 batch[^batch-api] | 13.42 | 12.38 | 11.93 | 11.71 |
 | solana-ed25519 Dalek loop | 23.69 | 23.76 | 23.77 | 23.76 |
 | ed25519-dalek batch[^batch-api] | 14.39 | 13.40 | 12.84 | 12.60 |
@@ -290,7 +236,7 @@ To rerun only this crate's hot-key cases:
 
 ```sh
 cd benches-compare
-for bench in zip215_cold_self zip215_hot dalek_cold_self dalek_hot
+for bench in zip215_cold_self dalek_cold_self
 do
   taskset -c 4 env \
     RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma" \
@@ -300,18 +246,12 @@ done
 ```
 
 This scenario cycles through 4 distinct keys to fill each batch and reuses
-the same `Verifier` across benchmark iterations. The cold binary supplies the
-`NullKeyCache` row; in the hot binary, `HotKeyCache` is warm (all hits) after
-the first iteration. Together they quantify the `HotKeyCache` win referenced
-in [Key Caching](#key-caching) for a workload that actually repeats a small key
-set:
+the same `Verifier` across benchmark iterations.
 
 | Backend | 8 | 16 | 32 | 64 |
 |---|---:|---:|---:|---:|
-| ed25519-simd Zip215 null-cache | 3.56 | 3.56 | 3.56 | 3.56 |
-| ed25519-simd Zip215 hot-key cache (warm) | 3.47 | 3.25 | 3.25 | 3.25 |
-| ed25519-simd Dalek null-cache | 3.57 | 3.58 | 3.58 | 3.58 |
-| ed25519-simd Dalek hot-key cache (warm) | 3.47 | 3.28 | 3.18 | 3.13 |
+| ed25519-simd Zip215 | 3.56 | 3.56 | 3.56 | 3.56 |
+| ed25519-simd Dalek | 3.57 | 3.58 | 3.58 | 3.58 |
 
 ## Compatibility Target
 

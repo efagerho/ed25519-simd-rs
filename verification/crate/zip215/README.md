@@ -9,6 +9,9 @@ input-valid bit and only writes active indices. Later active writes take
 precedence when callers supply repeated indices.
 See [Audit.v](coq/Audit.v) and [Equation.v](coq/Equation.v). The shared [candidate proof](../post_hash/Product.v) connects the digest and signed S digits to Q.
 
+The Rust verifier calls the predecoded entry for every eligible chunk. The
+theorem also covers the standalone queue entries.
+
 ## What to audit
 
 * Check the release ELF and the six symbol extents in the manifest.
@@ -16,15 +19,16 @@ See [Audit.v](coq/Audit.v) and [Equation.v](coq/Equation.v). The shared [candida
   encoder resolves external call targets, private helper and constant
   addresses, internal branches and their signed displacement limits.
   See [Binding.v](coq/Binding.v) and [Caller.v](coq/Caller.v).
-* Check the SysV and Rust boundary. Inputs supply SHA-512 digest rows,
+* Check the SysV inputs. Inputs supply SHA-512 digest rows,
   lane-major signed S digits, a valid affine base table and eight valid
-  key tables. Input, stack, queue and output allocations have the
+  key tables. Input, stack and output allocations have the
   alignment, sizes and disjointness their respective callee contracts
-  require. The mutable queue begins empty and the incoming count at push
-  is below eight. The ABI proof follows register moves, stack offsets,
+  require. Standalone queue callers supply aligned, disjoint queue storage,
+  initialize its count to zero, and enter each push with a count below eight.
+  The ABI proof follows register moves, stack offsets,
   caller-saved clobbers, six SIMD transfers, the occupied count and the
   tail-call arguments. See [Staging.v](../post_hash/Staging.v) and
-  [the Rust layout assertions](../../../src/wide/avx512ifma/post_hash_asm.rs).
+  [the Rust input and scatter layout assertions](../../../src/wide/avx512ifma/post_hash_asm.rs).
 * Check the grouped semantics of the remaining scalar and SIMD glue.
   Compare each named block’s effects, argument offsets, flags, stack
   scratch and register preservation to its instruction expansion. The
@@ -39,8 +43,8 @@ See [Audit.v](coq/Audit.v) and [Equation.v](coq/Equation.v). The shared [candida
   describes the original R bytes, including the invalid case. The theorem
   takes this as an input contract. The Rust driver passes the R point and
   validity mask from the paired assembly decoder. Both entries take the eligibility flags,
-  indices and active count from the caller. Hashing, key preparation and
-  cache policy remain caller responsibilities.
+  indices and active count from the caller. Hashing and key preparation
+  are caller responsibilities.
 
 This is a functional proof in the crate’s grouped-instruction model. The
 mapping from grouped operations to native register and memory effects is
@@ -51,7 +55,17 @@ machine and memory semantics are described in the
 
 ## Replay
 
-Build the release `hot_profile_zip215` executable with the `asm` feature.
+Build the release audit executable with the standalone push entry retained.
+Its references also retain flush and the deferred callees.
+
+```sh
+export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma"
+cargo rustc --locked --release --features asm --bench cold_profile_zip215 \
+  --target x86_64-unknown-linux-gnu --message-format=json -- \
+  -C link-arg=-Wl,--undefined=ed25519_simd_zip215_push > /tmp/zip215-build.json
+elf=$(jq -r 'select(.target.name=="cold_profile_zip215" and .executable != null) | .executable' /tmp/zip215-build.json)
+```
+
 Run the following commands with its path in `elf`. The audit builds missing
 callee proofs. Pass `--dependencies DIR` to reuse the five audit directories
 from the same executable. The final check requires a closed theorem and

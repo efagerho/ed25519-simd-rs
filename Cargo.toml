@@ -34,7 +34,7 @@ sha2 = "0.11"
 [workspace]
 # The comparison bench against other Ed25519 libraries needs a handful of
 # heavy C/asm-backed crates (openssl, sodiumoxide, aws-lc-rs, ring,
-# ed25519-dalek) that the correctness test suite and cold-cache profiling
+# ed25519-dalek) that the correctness test suite and profiling
 # harness don't; keeping it a separate workspace member means `cargo test`
 # and `cargo bench --bench cold_profile_zip215` don't pull in that toolchain.
 members = ["benches-compare"]
@@ -49,14 +49,6 @@ harness = false
 
 [[bench]]
 name = "cold_profile_dalek"
-harness = false
-
-[[bench]]
-name = "hot_profile_zip215"
-harness = false
-
-[[bench]]
-name = "hot_profile_dalek"
 harness = false
 
 [[bench]]

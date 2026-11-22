@@ -55,10 +55,17 @@ jobs:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --no-deps --locked
 
-      - name: Build all assembly backends
+      - name: Link release binaries for the assembly audits
         run: |
-          cargo build --locked --release --features asm --bench cold_profile_dalek --bench hot_profile_zip215 --bench hot_profile_dalek \
-            --target x86_64-unknown-linux-gnu --message-format=json > "$RUNNER_TEMP/pow2-build.json"
+          cargo build --locked --release --features asm --bench cold_profile_dalek \
+            --target x86_64-unknown-linux-gnu --message-format=json > "$RUNNER_TEMP/release-build.json"
+          # The post-hash theorems also certify standalone queue entry points.
+          # Keep those sections in the audit binaries so their bytes can be checked.
+          for policy in zip215 dalek; do
+            cargo rustc --locked --release --features asm --bench "cold_profile_$policy" \
+              --target x86_64-unknown-linux-gnu --message-format=json -- \
+              -C "link-arg=-Wl,--undefined=ed25519_simd_${policy}_push" > "$RUNNER_TEMP/$policy-build.json"
+          done
 
       - name: Build shared Coq libraries
         run: |
@@ -72,9 +79,9 @@ jobs:
 
       - name: Verify release proofs, mutation rejection and machine conformance
         run: |
-          artifact=$(jq -r 'select(.target.name == "cold_profile_dalek" and .executable != null) | .executable' "$RUNNER_TEMP/pow2-build.json")
-          zip_elf=$(jq -r 'select(.target.name == "hot_profile_zip215" and .executable != null) | .executable' "$RUNNER_TEMP/pow2-build.json")
-          dalek_elf=$(jq -r 'select(.target.name == "hot_profile_dalek" and .executable != null) | .executable' "$RUNNER_TEMP/pow2-build.json")
+          artifact=$(jq -r 'select(.target.name == "cold_profile_dalek" and .executable != null) | .executable' "$RUNNER_TEMP/release-build.json")
+          zip_elf=$(jq -r 'select(.target.name == "cold_profile_zip215" and .executable != null) | .executable' "$RUNNER_TEMP/zip215-build.json")
+          dalek_elf=$(jq -r 'select(.target.name == "cold_profile_dalek" and .executable != null) | .executable' "$RUNNER_TEMP/dalek-build.json")
           test -x "$artifact" && test -x "$zip_elf" && test -x "$dalek_elf"
           backend=xed
           if grep -qw avx512ifma /proc/cpuinfo && grep -qw avx512dq /proc/cpuinfo && grep -qw avx512bw /proc/cpuinfo && grep -qw avx512f /proc/cpuinfo; then

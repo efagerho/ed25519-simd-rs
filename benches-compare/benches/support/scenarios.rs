@@ -1,9 +1,7 @@
 use std::hint::black_box;
 
 use criterion::{BenchmarkGroup, BenchmarkId, Criterion, Throughput, measurement::WallTime};
-use ed25519_simd::{
-    HotKeyCache, NullKeyCache, VerificationPolicy, Verifier, VerifyInput, VerifyPolicy,
-};
+use ed25519_simd::{VerificationPolicy, Verifier, VerifyInput, VerifyPolicy};
 
 use super::backends::*;
 use super::cases::*;
@@ -15,14 +13,14 @@ fn policy_name<P: VerificationPolicy>() -> &'static str {
     }
 }
 
-fn bench_ours_nocache<P: VerificationPolicy>(
+fn bench_ours<P: VerificationPolicy>(
     group: &mut BenchmarkGroup<'_, WallTime>,
     name: &str,
     n: usize,
     inputs: &[VerifyInput<'_>],
 ) {
     group.bench_with_input(BenchmarkId::new(name, n), &n, |b, _| {
-        let mut verifier = Verifier::<P, _>::with_cache(NullKeyCache::new());
+        let mut verifier = Verifier::<P>::new();
         let mut out = vec![false; inputs.len()];
         b.iter(|| {
             verifier.verify_batch(black_box(inputs), &mut out);
@@ -31,25 +29,6 @@ fn bench_ours_nocache<P: VerificationPolicy>(
     });
 }
 
-/// Reuse one verifier/cache so iterations measure steady-state hot-key hits.
-fn bench_ours_hot_key_cache<P: VerificationPolicy>(
-    group: &mut BenchmarkGroup<'_, WallTime>,
-    name: &str,
-    n: usize,
-    hot_key_count: usize,
-    inputs: &[VerifyInput<'_>],
-) {
-    group.bench_with_input(BenchmarkId::new(name, n), &n, |b, _| {
-        let mut verifier = Verifier::<P, _>::with_cache(HotKeyCache::with_capacity(hot_key_count));
-        let mut out = vec![false; inputs.len()];
-        b.iter(|| {
-            verifier.verify_batch(black_box(inputs), &mut out);
-            black_box(out.iter().all(|accepted| *accepted))
-        })
-    });
-}
-
-/// Measure the null-cache configuration on `hot_key_count` repeating keys.
 fn bench_cold_hot_keys_scenario<P: VerificationPolicy>(
     c: &mut Criterion,
     group_name: &str,
@@ -61,33 +40,10 @@ fn bench_cold_hot_keys_scenario<P: VerificationPolicy>(
         let inputs = inputs_of(&cases);
         group.throughput(Throughput::Elements(n as u64));
 
-        bench_ours_nocache::<P>(
+        bench_ours::<P>(
             &mut group,
-            &format!("ed25519_simd_nullcache/{}", policy_name::<P>()),
+            &format!("ed25519_simd/{}", policy_name::<P>()),
             n,
-            &inputs,
-        );
-    }
-    group.finish();
-}
-
-/// Measure steady-state hot-cache hits on `hot_key_count` repeating keys.
-fn bench_hot_keys_scenario<P: VerificationPolicy>(
-    c: &mut Criterion,
-    group_name: &str,
-    hot_key_count: usize,
-) {
-    let mut group = c.benchmark_group(group_name);
-    for n in SIZES {
-        let cases = generate_hot_key_cases(n, hot_key_count, MsgLen::Fixed(1));
-        let inputs = inputs_of(&cases);
-        group.throughput(Throughput::Elements(n as u64));
-
-        bench_ours_hot_key_cache::<P>(
-            &mut group,
-            &format!("ed25519_simd_hotcache/{}", policy_name::<P>()),
-            n,
-            hot_key_count,
             &inputs,
         );
     }
@@ -105,9 +61,9 @@ fn bench_cold_scenario<P: VerificationPolicy, const COMPARISONS: bool>(
         let inputs = inputs_of(&cases);
         group.throughput(Throughput::Elements(n as u64));
 
-        bench_ours_nocache::<P>(
+        bench_ours::<P>(
             &mut group,
-            &format!("ed25519_simd_nocache/{}", policy_name::<P>()),
+            &format!("ed25519_simd/{}", policy_name::<P>()),
             n,
             &inputs,
         );
@@ -154,27 +110,9 @@ fn bench_cold_ragged_batches<P: VerificationPolicy>(c: &mut Criterion) {
         let inputs = inputs_of(&cases);
         group.throughput(Throughput::Elements(n as u64));
 
-        bench_ours_nocache::<P>(
+        bench_ours::<P>(
             &mut group,
-            &format!("ed25519_simd_nullcache/{}", policy_name::<P>()),
-            n,
-            &inputs,
-        );
-    }
-    group.finish();
-}
-
-fn bench_hot_ragged_batches<P: VerificationPolicy>(c: &mut Criterion) {
-    let mut group = c.benchmark_group("ragged_batches/msg_len_1");
-    for n in RAGGED_SIZES {
-        let cases = generate_distinct_key_cases(n, MsgLen::Fixed(1));
-        let inputs = inputs_of(&cases);
-        group.throughput(Throughput::Elements(n as u64));
-
-        bench_ours_hot_key_cache::<P>(
-            &mut group,
-            &format!("ed25519_simd_hotcache/{}", policy_name::<P>()),
-            n,
+            &format!("ed25519_simd/{}", policy_name::<P>()),
             n,
             &inputs,
         );
@@ -195,9 +133,9 @@ fn bench_cold_invalid_scenario<P: VerificationPolicy, const COMPARISONS: bool>(
         let inputs = inputs_of(&cases);
         group.throughput(Throughput::Elements(n as u64));
 
-        bench_ours_nocache::<P>(
+        bench_ours::<P>(
             &mut group,
-            &format!("ed25519_simd_nocache/{}", policy_name::<P>()),
+            &format!("ed25519_simd/{}", policy_name::<P>()),
             n,
             &inputs,
         );
@@ -286,12 +224,4 @@ pub fn cold_ragged_batches<P: VerificationPolicy>(c: &mut Criterion) {
 
 pub fn cold_hot_keys_4<P: VerificationPolicy>(c: &mut Criterion) {
     bench_cold_hot_keys_scenario::<P>(c, "hot_keys/distinct_4", 4);
-}
-
-pub fn hot_ragged_batches<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_hot_ragged_batches::<P>(c);
-}
-
-pub fn hot_keys_4<P: VerificationPolicy>(c: &mut Criterion) {
-    bench_hot_keys_scenario::<P>(c, "hot_keys/distinct_4", 4);
 }

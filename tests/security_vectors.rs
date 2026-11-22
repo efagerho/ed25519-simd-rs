@@ -7,7 +7,7 @@ use ed25519_simd::{SIGNATURE_LEN, VerifyInput, VerifyPolicy};
 use serde_json::Value;
 use support::{
     Case, hex_array, hex_vec, signing_key_from_index, solana_ed25519_verify_dalek,
-    solana_ed25519_verify_zebra, verify, verify_batch, verify_warm,
+    solana_ed25519_verify_zebra, verify, verify_batch,
 };
 
 const L_BYTES: [u8; 32] = [
@@ -36,12 +36,7 @@ fn assert_vector_paths(
     expected: bool,
     fillers: &[Case],
 ) {
-    assert_eq!(verify(policy, input), expected, "{name}, cold {policy:?}");
-    assert_eq!(
-        verify_warm(policy, input),
-        expected,
-        "{name}, warm {policy:?}"
-    );
+    assert_eq!(verify(policy, input), expected, "{name}, single {policy:?}");
 
     let mut inputs = vec![input];
     inputs.extend(fillers.iter().map(Case::input));

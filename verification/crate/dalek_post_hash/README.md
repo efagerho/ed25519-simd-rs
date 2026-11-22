@@ -6,8 +6,8 @@ and the lane predicate `accepts` first. For each active lane let
 of s and the reducer reads the digest words. The lane scores true exactly
 when its input eligibility flag is set, **[8]A ≠ 0**, the original 32 bytes
 of R equal the canonical compression of Q, and **[8]Q ≠ 0**. The zero
-here is the Edwards identity. Both the all-keys-hit path and the
-miss/cache-disabled path use this predicate. [Public contract](coq/Audit.v) ·
+here is the Edwards identity. The Rust verifier calls the decoded entry. The theorem also covers
+standalone queue entries with the same acceptance predicate. [Public contract](coq/Audit.v) ·
 [Theorem](coq/Object.v)
 
 ## What to audit
@@ -18,7 +18,7 @@ miss/cache-disabled path use this predicate. [Public contract](coq/Audit.v) ·
   when the first one fails in every lane. The proof checks the table
   offsets, the biased subtractions and carry bounds, and the two field
   equalities against the cached point representation. [Keys.v](coq/Keys.v)
-* **All keys hit.** Push may immediately score a whole chunk false.
+* **Standalone queue.** Push may immediately score a whole chunk false.
   The low-word shortcut can only send work to the queue or to the full
   eight-encoding screen. A rejecting screen excludes a strict match for
   every lane, for either sign bit. Otherwise push saves the candidate,
@@ -27,7 +27,7 @@ miss/cache-disabled path use this predicate. [Public contract](coq/Audit.v) ·
   the low mask byte first in queue order. Check the occupied-slot premises
   in `flush_result` and the copy destinations in `push_abi`.
   [Screen.v](coq/Screen.v) · [Queue.v](coq/Queue.v) · [Staging.v](../post_hash/Staging.v)
-* **Any miss or cache disabled.** Rust passes the second point chunk and
+* **Decoded entry.** Rust passes the second point chunk and
   second validity byte from the paired key/R decoder. Trace that handoff
   at the FFI. The proof obtains both from the linked decoder certificate,
   uses the original radix-51 Y digits for canonicality, rejects small
@@ -49,18 +49,19 @@ for B and the eight public keys, initial eligibility flags, and aligned,
 valid, disjoint allocations as required by the callee contracts. The
 candidate existence clause guarantees a return for well-formed calls with
 the reducer's digit bytes passed to the ladder. The call observation ties
-that return to the point being scored. The Rust driver hashes the inputs,
-manages the cache, and calls assembly to prepare keys and check and recode S.
+that return to the point being scored. The Rust driver hashes the inputs and calls assembly to prepare keys and
+check and recode S.
 The post-hash theorem takes the resulting S digits and eligibility as inputs.
-The queue starts
-empty and the driver flushes its final partial batch. For in-range active
+Standalone queue callers must start with an empty queue and flush the final
+partial batch. For in-range active
 indices the proof specifies each write in order, preserving every other
 output. If multiple chunks target the same index, the last actual store
 wins. [Call observation](../post_hash/Product.v) · [Rust ABI and layout](../../../src/wide/avx512ifma/post_hash_asm.rs) · [Rust driver](../../../src/verifier/driver.rs)
 
 ## Replay
 
-Build the release `hot_profile_dalek` executable with all assembly enabled.
+Build the release audit executable with the standalone push entry retained
+as shown in the [recompression replay instructions](../dalek_recompress/README.md#replay).
 Set `elf` to its path and use a fresh audit directory. The audit builds
 missing callee certificates or reuses them from `--dependencies DIR`
 after checking them against the same ELF. It checks the public theorem's

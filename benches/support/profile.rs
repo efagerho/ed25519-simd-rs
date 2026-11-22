@@ -1,9 +1,9 @@
-//! Shared setup for the four configuration-specific profiling binaries.
+//! Shared setup for the two policy-specific profiling binaries.
 
 use std::time::Instant;
 
 use curve25519::ed_sigs::{SigningKey, VerificationKeyBytes};
-use ed25519_simd::{HotKeyCache, NullKeyCache, VerificationPolicy, Verifier, VerifyInput};
+use ed25519_simd::{VerificationPolicy, Verifier, VerifyInput};
 use rand::{RngCore, SeedableRng, rngs::StdRng};
 
 fn signing_key_from_index(index: u64) -> SigningKey {
@@ -48,7 +48,7 @@ impl InvalidMode {
     }
 }
 
-pub fn run_cold<P: VerificationPolicy>() {
+pub fn run<P: VerificationPolicy>() {
     let args: Vec<String> = std::env::args().collect();
     let usage = format!(
         "usage: {} [keys] [iters] [msglen|mixed] [invalid_pct] \
@@ -127,7 +127,7 @@ pub fn run_cold<P: VerificationPolicy>() {
         .collect();
 
     let selected_policy = P::POLICY;
-    let mut verifier = Verifier::<P, _>::with_cache(NullKeyCache::new());
+    let mut verifier = Verifier::<P>::new();
     let mut out = vec![false; inputs.len()];
     let mut accepted = 0u64;
     verifier.verify_batch(&inputs, &mut out);
@@ -153,65 +153,5 @@ pub fn run_cold<P: VerificationPolicy>() {
         elapsed.as_secs_f64(),
         per_signature_ns,
         1e9 / per_signature_ns
-    );
-}
-
-pub fn run_hot<P: VerificationPolicy>() {
-    let args: Vec<String> = std::env::args().collect();
-    let usage = format!("usage: {} [keys] [iters] [hot_keys] [msglen]", args[0]);
-    if args.len() == 1 {
-        eprintln!("{usage}");
-        return;
-    }
-    if args.len() > 5 {
-        usage_error("too many arguments", &usage);
-    }
-
-    let keys = usize_arg(&args, 1, 512, "key count", &usage);
-    let iters = usize_arg(&args, 2, 4000, "iteration count", &usage);
-    let hot_keys = usize_arg(&args, 3, 4, "hot-key count", &usage);
-    let message_len = usize_arg(&args, 4, 1, "message length", &usage);
-    if keys == 0 || iters == 0 || hot_keys == 0 {
-        usage_error("key and iteration counts must be nonzero", &usage);
-    }
-
-    let mut messages = Vec::with_capacity(keys);
-    let mut public_keys = Vec::with_capacity(keys);
-    let mut signatures = Vec::with_capacity(keys);
-    for i in 0..keys {
-        let signing_key = signing_key_from_index((i % hot_keys) as u64);
-        let message = vec![(i & 0xff) as u8; message_len];
-        public_keys.push(<[u8; 32]>::from(VerificationKeyBytes::from(&signing_key)));
-        signatures.push(signing_key.sign(&message).to_bytes());
-        messages.push(message);
-    }
-    let inputs: Vec<VerifyInput<'_>> = (0..keys)
-        .map(|i| VerifyInput {
-            public_key: public_keys[i],
-            signature: signatures[i],
-            message: &messages[i],
-        })
-        .collect();
-
-    let selected_policy = P::POLICY;
-    let mut verifier = Verifier::<P, _>::with_cache(HotKeyCache::with_capacity(hot_keys));
-    let mut out = vec![false; keys];
-    verifier.verify_batch(&inputs, &mut out);
-
-    let start = Instant::now();
-    let mut accepted = 0u64;
-    for _ in 0..iters {
-        verifier.verify_batch(&inputs, &mut out);
-        accepted += out.iter().filter(|&&accepted| accepted).count() as u64;
-    }
-    let elapsed = start.elapsed();
-    let per_signature_ns = elapsed.as_nanos() as f64 / (keys * iters) as f64;
-    eprintln!(
-        "{selected_policy:?} keys={keys} iters={iters} hot_keys={hot_keys} \
-         msglen={message_len} accepted={accepted} total={:.2}s  \
-         {:.1} ns/sig  {:.0} sigs/s",
-        elapsed.as_secs_f64(),
-        per_signature_ns,
-        1e9 / per_signature_ns,
     );
 }

@@ -23,9 +23,9 @@ pub(crate) struct PendingLanes {
 }
 
 impl PendingLanes {
-    pub(crate) fn score(&self, out: &mut [bool], accepts: impl Fn(usize) -> bool) {
-        for lane in 0..self.active_lane_count {
-            out[self.output_indices[lane]] = self.valid[lane] && accepts(lane);
+    pub(crate) fn reject(&self, out: &mut [bool]) {
+        for &index in &self.output_indices[..self.active_lane_count] {
+            out[index] = false;
         }
     }
 }

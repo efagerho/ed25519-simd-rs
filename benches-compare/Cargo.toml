@@ -33,11 +33,3 @@ harness = false
 [[bench]]
 name = "dalek_cold_self"
 harness = false
-
-[[bench]]
-name = "zip215_hot"
-harness = false
-
-[[bench]]
-name = "dalek_hot"
-harness = false

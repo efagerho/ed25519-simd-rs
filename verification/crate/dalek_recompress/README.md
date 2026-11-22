@@ -43,15 +43,16 @@ three linked dependency symbols to one ELF. [Public theorem](coq/Object.v) · [C
 
 ## Replay
 
-Use the all-assembly Dalek hot-profile ELF, which retains the recompression
-entry and the shared code reached through local labels. Both commands use
-the same release artifact.
+Link the Dalek profiling executable with the standalone push entry retained.
+Its flush routine calls recompression. CI uses this binary to check both
+the verifier entry and the standalone entries against one release artifact.
 
 ```sh
 export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C target-feature=+avx512f,+avx512bw,+avx512dq,+avx512ifma"
-cargo build --locked --release --target x86_64-unknown-linux-gnu --features asm \
-  --bench hot_profile_dalek --message-format=json > /tmp/dalek-build.json
-elf=$(jq -r 'select(.target.name=="hot_profile_dalek" and .executable != null) | .executable' /tmp/dalek-build.json)
+cargo rustc --locked --release --target x86_64-unknown-linux-gnu --features asm \
+  --bench cold_profile_dalek --message-format=json -- \
+  -C link-arg=-Wl,--undefined=ed25519_simd_dalek_push > /tmp/dalek-build.json
+elf=$(jq -r 'select(.target.name=="cold_profile_dalek" and .executable != null) | .executable' /tmp/dalek-build.json)
 python3 -B verification/crate/dalek_recompress/audit.py "$elf" --output /tmp/dalek-audit
 python3 -B verification/crate/dalek_recompress/mutations.py "$elf" --audit /tmp/dalek-audit
 ```

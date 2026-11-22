@@ -6,7 +6,7 @@ README for its contract and release audit.
 
 | Routine | What the theorem covers |
 | --- | --- |
-| [dalek_post_hash/](dalek_post_hash/README.md) | Strict post-hash verification on key-cache hits and misses, including weak-key rejection, canonical R encoding and active-lane output placement. |
+| [dalek_post_hash/](dalek_post_hash/README.md) | Strict post-hash verification, including weak-key rejection, canonical R encoding and active-lane output placement. |
 | [zip215/](zip215/README.md) | Post-hash cofactored verification, deferred resolution, and active-lane output placement. |
 | [pow2/](pow2/README.md) | Paired field exponentiation. |
 | [double4/](double4/README.md) | Four in-place point doublings. |

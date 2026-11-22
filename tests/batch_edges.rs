@@ -1,7 +1,7 @@
 mod support;
 
 use curve25519::ed_sigs::VerificationKeyBytes;
-use ed25519_simd::{HotKeyCache, NullKeyCache, RuntimeVerifier, VerifyInput, VerifyPolicy};
+use ed25519_simd::{RuntimeVerifier, VerifyInput, VerifyPolicy};
 use rand::{RngCore, SeedableRng, rngs::StdRng};
 use support::{
     Case, signing_key_from_index, solana_ed25519_verify_dalek, solana_ed25519_verify_zebra,
@@ -67,14 +67,8 @@ fn block_sorted_batch_shapes_match_solana_ed25519() {
             assert_eq!(
                 verify_batch(policy, &inputs),
                 expected,
-                "{name}, null-cache {policy:?}"
+                "{name}, {policy:?}"
             );
-
-            let mut verifier =
-                RuntimeVerifier::with_cache(policy, HotKeyCache::with_capacity(1024));
-            let mut out = vec![false; inputs.len()];
-            verifier.verify_batch(&inputs, &mut out);
-            assert_eq!(out, expected, "{name}, hot-key cache {policy:?}");
         }
     }
 }
@@ -82,7 +76,7 @@ fn block_sorted_batch_shapes_match_solana_ed25519() {
 #[test]
 fn each_lane_failure_is_isolated_across_small_batches() {
     for policy in [VerifyPolicy::Zip215, VerifyPolicy::Dalek] {
-        let mut verifier = RuntimeVerifier::with_cache(policy, NullKeyCache::new());
+        let mut verifier = RuntimeVerifier::with_policy(policy);
         let empty: [VerifyInput<'_>; 0] = [];
         let mut empty_out: [bool; 0] = [];
         verifier.verify_batch(&empty, &mut empty_out);
@@ -94,7 +88,6 @@ fn each_lane_failure_is_isolated_across_small_batches() {
                 cases[bad_lane].signature[40] ^= 1;
                 let inputs: Vec<VerifyInput<'_>> = cases.iter().map(Case::input).collect();
                 let mut out = vec![false; size];
-                let mut verifier = RuntimeVerifier::with_cache(policy, NullKeyCache::new());
 
                 verifier.verify_batch(&inputs, &mut out);
 
@@ -132,13 +125,37 @@ fn fill_message(message: &mut [u8], seed: u64) {
 }
 
 #[test]
-fn zip215_scatter_across_deferred_pairs_misses_and_a_tail() {
-    use ed25519_simd::{CachedPublicKey, KeyCache, Zip215Verifier};
+fn reused_verifier_rechecks_keys_and_scalars_in_every_lane() {
+    let cases = valid_cases(8);
+    let inputs: Vec<_> = cases.iter().map(Case::input).collect();
+    let mut rejected = inputs.clone();
+    for (lane, input) in rejected.iter_mut().enumerate() {
+        if lane % 2 == 0 {
+            // y = 2 has no Edwards x.
+            input.public_key = [0; 32];
+            input.public_key[0] = 2;
+        } else {
+            input.signature[32..].fill(0xff);
+        }
+    }
 
-    // Each group of eight is a distinct SHA block count. Queue the first,
-    // score the mixed-hit second immediately, pair the third with the first,
-    // and flush the three-lane tail on its own.
-    let mut cache = HotKeyCache::with_capacity(32);
+    for policy in [VerifyPolicy::Zip215, VerifyPolicy::Dalek] {
+        let mut verifier = RuntimeVerifier::with_policy(policy);
+        let mut out = [false; 8];
+        verifier.verify_batch(&inputs, &mut out);
+        assert_eq!(out, [true; 8]);
+        verifier.verify_batch(&rejected, &mut out);
+        assert_eq!(out, [false; 8]);
+        verifier.verify_batch(&inputs, &mut out);
+        assert_eq!(out, [true; 8]);
+    }
+}
+
+#[test]
+fn zip215_scatter_across_sorted_chunks_and_a_tail() {
+    use ed25519_simd::Zip215Verifier;
+
+    // Give each group of eight a distinct SHA-512 block count.
     let mut cases = Vec::new();
     for i in 0..27 {
         let key = signing_key_from_index(0x2150 + i as u64);
@@ -154,9 +171,6 @@ fn zip215_scatter_across_deferred_pairs_misses_and_a_tail() {
             signature = [0; 64];
             signature[..32].fill(0xff);
             signature[0] = 0xee;
-        }
-        if i != 10 {
-            cache.insert(CachedPublicKey::from_encoded(public_key).unwrap());
         }
         match i {
             2 | 11 | 19 | 25 => signature[32..].fill(0xff), // S >= L
@@ -180,22 +194,14 @@ fn zip215_scatter_across_deferred_pairs_misses_and_a_tail() {
         .iter()
         .map(|v| solana_ed25519_verify_zebra(v.public_key, v.signature, v.message))
         .collect();
-    let mut hot = Zip215Verifier::with_cache(cache);
-    let mut cold = Zip215Verifier::new();
-    for path in ["mixed", "all hit", "uncached"] {
-        let mut out: Vec<_> = expected.iter().map(|v| !v).collect();
-        if path == "uncached" {
-            cold.verify_batch(&inputs, &mut out);
-        } else {
-            hot.verify_batch(&inputs, &mut out);
-        }
-        assert_eq!(out, expected, "{path}");
-    }
+    let mut out: Vec<_> = expected.iter().map(|v| !v).collect();
+    Zip215Verifier::new().verify_batch(&inputs, &mut out);
+    assert_eq!(out, expected);
 }
 
 #[test]
-fn zip215_recompression_preserves_cofactored_acceptance() {
-    use ed25519_simd::{CachedPublicKey, KeyCache, Zip215Verifier};
+fn zip215_preserves_cofactored_acceptance() {
+    use ed25519_simd::Zip215Verifier;
 
     let mut cases = valid_cases(67);
     let mut identity = [0; 32];
@@ -227,11 +233,7 @@ fn zip215_recompression_preserves_cofactored_acceptance() {
         );
     }
 
-    let mut cache = HotKeyCache::with_capacity(cases.len());
-    for case in &cases {
-        cache.insert(CachedPublicKey::from_encoded(case.public_key).unwrap());
-    }
-    let mut verifier = Zip215Verifier::with_cache(cache);
+    let mut verifier = Zip215Verifier::new();
     let inputs: Vec<_> = cases.iter().map(Case::input).collect();
     let expected: Vec<_> = inputs
         .iter()
@@ -240,13 +242,13 @@ fn zip215_recompression_preserves_cofactored_acceptance() {
     for n in [8, 16, 24, 32, 56, 63, 64, 67] {
         let mut out: Vec<_> = expected[..n].iter().map(|v| !v).collect();
         verifier.verify_batch(&inputs[..n], &mut out);
-        assert_eq!(out, expected[..n], "warm batch of {n}");
+        assert_eq!(out, expected[..n], "batch of {n}");
     }
 }
 
 #[test]
-fn dalek_deferred_queue_and_mixed_hits_match_strict_verification() {
-    use ed25519_simd::{CachedPublicKey, DalekVerifier, KeyCache};
+fn dalek_reused_verifier_matches_strict_verification() {
+    use ed25519_simd::DalekVerifier;
 
     let mut cases = valid_cases(73);
     for (i, case) in cases.iter_mut().enumerate() {
@@ -266,37 +268,23 @@ fn dalek_deferred_queue_and_mixed_hits_match_strict_verification() {
             _ => {}
         }
     }
-    let mut cache = HotKeyCache::with_capacity(cases.len());
-    for (i, case) in cases.iter().enumerate() {
-        if i != 18 {
-            cache.insert(CachedPublicKey::from_encoded(case.public_key).unwrap());
-        }
-    }
-    let mut hot = DalekVerifier::with_cache(cache);
-    let mut cold = DalekVerifier::new();
+    let mut verifier = DalekVerifier::new();
     let inputs: Vec<_> = cases.iter().map(Case::input).collect();
     let expected: Vec<_> = inputs
         .iter()
         .map(|v| solana_ed25519_verify_dalek(v.public_key, v.signature, v.message))
         .collect();
 
-    // First interleave a decoded chunk with queued hits. Subsequent calls
-    // exercise queue reuse, all eight occupancies, automatic flush and a tail.
     for n in [73, 0, 1, 15, 24, 31, 40, 47, 56, 63, 64, 65, 73] {
         let mut out: Vec<_> = expected[..n].iter().map(|ok| !ok).collect();
-        hot.verify_batch(&inputs[..n], &mut out);
-        assert_eq!(out, expected[..n], "cached, count {n}");
-        for result in &mut out {
-            *result = !*result;
-        }
-        cold.verify_batch(&inputs[..n], &mut out);
-        assert_eq!(out, expected[..n], "uncached, count {n}");
+        verifier.verify_batch(&inputs[..n], &mut out);
+        assert_eq!(out, expected[..n], "count {n}");
     }
 }
 
 #[test]
 fn dalek_rejected_chunks_and_padded_tails_match_strict_verification() {
-    use ed25519_simd::{CachedPublicKey, DalekVerifier, KeyCache};
+    use ed25519_simd::DalekVerifier;
 
     let mut cases = valid_cases(32);
     for (i, case) in cases.iter_mut().enumerate() {
@@ -329,18 +317,10 @@ fn dalek_rejected_chunks_and_padded_tails_match_strict_verification() {
         .collect();
     assert_eq!(expected.iter().filter(|ok| **ok).count(), 1);
     assert!(expected[31]);
-    let mut cache = HotKeyCache::with_capacity(cases.len());
-    for case in &cases {
-        cache.insert(CachedPublicKey::from_encoded(case.public_key).unwrap());
-    }
-    let mut hot = DalekVerifier::with_cache(cache);
-    let mut cold = DalekVerifier::new();
+    let mut verifier = DalekVerifier::new();
     for n in [1, 7, 8, 11, 16, 19, 24, 25, 31, 32] {
         let mut out: Vec<_> = expected[..n].iter().map(|ok| !ok).collect();
-        cold.verify_batch(&inputs[..n], &mut out);
+        verifier.verify_batch(&inputs[..n], &mut out);
         assert_eq!(out, expected[..n], "decoded batch of {n}");
-        out.iter_mut().for_each(|ok| *ok = !*ok);
-        hot.verify_batch(&inputs[..n], &mut out);
-        assert_eq!(out, expected[..n], "cached batch of {n}");
     }
 }

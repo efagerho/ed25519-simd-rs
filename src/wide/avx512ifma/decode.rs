@@ -2,7 +2,6 @@ use super::LANES;
 use super::point::WidePoint;
 use crate::batch::EncodedPointChunk;
 use crate::edwards::PointTable;
-use crate::input::PUBLIC_KEY_LEN;
 use core::mem::MaybeUninit;
 
 /// The eight affine R points returned by the paired key/signature decoder.
@@ -76,17 +75,4 @@ pub(crate) fn decode_keys_and_decompress_r<'a>(
         r: WideRPoint { point: *r },
         r_valid: rmask,
     }
-}
-
-pub(super) fn decompress_points_wide(bytes: &EncodedPointChunk) -> (WidePoint, u8) {
-    let mut storage = MaybeUninit::uninit();
-    let ([point], [mask]) = decompress_zip215(core::array::from_ref(bytes), &mut storage);
-    (*point, mask)
-}
-
-/// Decode a single public key and materialize lane zero into its cached table.
-pub(crate) fn decode_public_key_table(encoded: &[u8; PUBLIC_KEY_LEN]) -> Option<PointTable> {
-    let (mut point, mask) = decompress_points_wide(&[*encoded; LANES]);
-    (mask & 1 != 0)
-        .then(|| build_key_tables::<1>(&mut point, &mut MaybeUninit::uninit())[0].clone())
 }

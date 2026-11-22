@@ -53,7 +53,7 @@ chunk. [Public theorem](coq/Object.v) · [Contract](coq/Audit.v) · [Lane result
 ## Replay
 
 Use a linked release ELF that contains the deferred decoder. CI builds
-`hot_profile_zip215` with the `asm` feature and retains the symbol images,
+`cold_profile_zip215` with the `asm` feature and retains the symbol images,
 Coq sources, manifest, assumption report and kernel replay log.
 
 ```sh
