@@ -1,30 +1,10 @@
-use super::{LANES, mask_to_lanes};
-#[cfg(test)]
+//! Reference field arithmetic for testing the assembly kernels.
+use super::{LANES, WideFe, mask_to_lanes};
 use crate::edwards::POINT_ENCODING_LEN;
 use crate::field::{Fe51, LIMB_COUNT};
 use std::arch::x86_64::*;
 
 const LIMB_MASK: u64 = (1u64 << 51) - 1;
-
-/// Eight field elements packed by limb for AVX-512 IFMA arithmetic.
-///
-/// `limbs[0]` contains the low limb of eight independent values,
-/// so one vector multiply advances eight point operations at once.
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub(super) struct WideFe {
-    pub(super) limbs: [__m512i; LIMB_COUNT],
-}
-
-#[cfg(not(feature = "verify-asm-pow2"))]
-core::arch::global_asm!(
-    include_str!("pow22523.inc"),
-    include_str!("pow2.S"),
-    options(raw)
-);
-
-#[cfg(feature = "verify-asm-pow2")]
-core::arch::global_asm!(include_str!(concat!(env!("OUT_DIR"), "/pow2-checked.S")));
 
 impl WideFe {
     pub(super) fn zero() -> Self {
@@ -44,7 +24,6 @@ impl WideFe {
         }
     }
     /// Transpose eight lanes of scalar limbs.
-    #[cfg(test)]
     #[inline(always)]
     pub(super) fn from_limbs_per_lane(limbs_of: impl Fn(usize) -> [u64; LIMB_COUNT]) -> Self {
         let mut by_limb = [[0u64; LANES]; LIMB_COUNT];
@@ -69,7 +48,6 @@ impl WideFe {
             ],
         }
     }
-    #[cfg(test)]
     pub(super) fn from_field_refs(fields: &[&Fe51; LANES]) -> Self {
         Self::from_limbs_per_lane(|lane| fields[lane].loose_limbs())
     }
@@ -80,27 +58,6 @@ impl WideFe {
             }))
         }
     }
-    /// Like `to_fields` but stores loosely-reduced limbs (no canonicalize);
-    /// valid because a reduce leaves each limb `< 2^52`.
-    pub(super) fn to_fields_loose(self) -> [Fe51; LANES] {
-        let mut by_limb = [[0u64; LANES]; LIMB_COUNT];
-        storeu(self.limbs[0], &mut by_limb[0]);
-        storeu(self.limbs[1], &mut by_limb[1]);
-        storeu(self.limbs[2], &mut by_limb[2]);
-        storeu(self.limbs[3], &mut by_limb[3]);
-        storeu(self.limbs[4], &mut by_limb[4]);
-
-        core::array::from_fn(|lane| {
-            Fe51::from_limbs_unchecked([
-                by_limb[0][lane],
-                by_limb[1][lane],
-                by_limb[2][lane],
-                by_limb[3][lane],
-                by_limb[4][lane],
-            ])
-        })
-    }
-    #[cfg(test)]
     pub(super) fn to_bytes_lanes(self) -> [[u8; POINT_ENCODING_LEN]; LANES] {
         unsafe {
             let c = self.canonical();
@@ -329,7 +286,6 @@ impl WideFe {
             (lo, hi)
         }
     }
-    #[cfg(test)]
     pub(super) fn multiply_loose(&self, rhs: &Self) -> Self {
         let (lo, hi) = self.multiply_accum(rhs);
         Self::reduce_ifma_loose(lo, hi)
@@ -441,7 +397,6 @@ impl WideFe {
     pub(super) fn equals_mask(self, rhs: &Self) -> u8 {
         self.subtract(rhs).is_zero_mask()
     }
-    #[cfg(test)]
     pub(super) fn is_zero_lanes(self) -> [bool; LANES] {
         mask_to_lanes(self.is_zero_mask())
     }
@@ -460,18 +415,15 @@ impl WideFe {
                 & _mm512_cmpeq_epu64_mask(self.limbs[4], zero)
         }
     }
-    #[cfg(test)]
     pub(super) fn is_odd_lanes(self) -> [bool; LANES] {
         mask_to_lanes(self.is_odd_mask())
     }
-    #[cfg(test)]
     pub(super) fn limb_below(&self, index: usize, bits: u32) -> bool {
         let mut lanes = [0u64; LANES];
         storeu(self.limbs[index], &mut lanes);
         lanes.iter().all(|&limb| limb < (1u64 << bits))
     }
 
-    #[cfg(test)]
     pub(super) fn is_odd_mask(self) -> u8 {
         unsafe {
             let c = self.canonical();
@@ -506,7 +458,6 @@ impl WideFe {
             }
         }
     }
-    #[cfg(test)]
     pub(super) fn blend(&self, mask: u8, rhs: &Self) -> Self {
         unsafe {
             let mask = mask as __mmask8;
@@ -577,7 +528,6 @@ impl WideFe {
         }
     }
     // Broadcast the shared scalar/SIMD constants from `field.rs`.
-    #[cfg(test)]
     pub(super) fn sqrt_m1() -> Self {
         Self::constant(crate::field::SQRT_M1_LIMBS)
     }
@@ -620,7 +570,6 @@ fn add_wrap19(lo: &mut __m512i, hi: &mut __m512i, wrap_lo: __m512i, wrap_hi: __m
         *hi = _mm512_add_epi64(*hi, _mm512_mullo_epi64(wrap_hi, nineteen));
     }
 }
-#[cfg(test)]
 pub(super) fn loadu(values: [u64; LANES]) -> __m512i {
     unsafe { _mm512_loadu_si512(values.as_ptr() as *const __m512i) }
 }

@@ -1,4 +1,15 @@
-use super::field::WideFe;
+use crate::field::LIMB_COUNT;
+use std::arch::x86_64::__m512i;
+
+/// Eight field elements packed by limb for AVX-512 IFMA arithmetic.
+///
+/// `limbs[0]` contains the low limb of eight independent values,
+/// so one vector multiply advances eight point operations at once.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub(super) struct WideFe {
+    pub(super) limbs: [__m512i; LIMB_COUNT],
+}
 
 /// Eight extended Edwards points packed coordinate-wise for SIMD arithmetic.
 ///
@@ -52,82 +63,7 @@ core::arch::global_asm!(
     include_str!("post_hash.inc"),
     include_str!("zip215.S"),
     include_str!("dalek.S"),
+    include_str!("key_table.S"),
     include_str!("decompress_r.S"),
     options(raw)
 );
-
-impl WidePoint {
-    // Table-building points are strict, so small-bias `subtract` is valid.
-    pub(super) fn add(&self, rhs: &Self) -> Self {
-        self.add_impl::<false>(rhs)
-    }
-    pub(super) fn add_affine_rhs(&self, rhs: &Self) -> Self {
-        debug_assert!(
-            rhs.z.equals_lanes(&WideFe::one()).iter().all(|&eq| eq),
-            "add_affine_rhs requires rhs.z == 1 in every lane"
-        );
-        self.add_impl::<true>(rhs)
-    }
-    #[inline(always)]
-    fn add_impl<const AFFINE_RHS: bool>(&self, rhs: &Self) -> Self {
-        let a = self.y.subtract(&self.x).multiply(&rhs.y.subtract(&rhs.x));
-        let b = self.y.add_loose(&self.x).multiply(&rhs.y.add_loose(&rhs.x));
-        let c = self.t.multiply(&rhs.t).multiply(&WideFe::two_d());
-        let d = if AFFINE_RHS {
-            self.z.double_loose()
-        } else {
-            self.z.multiply(&rhs.z).double_loose()
-        };
-        let e = b.subtract(&a);
-        let f = d.subtract(&c);
-        let g = d.add_loose(&c);
-        let h = b.add_loose(&a);
-
-        Self {
-            x: e.multiply(&f),
-            y: g.multiply(&h),
-            t: e.multiply(&h),
-            z: f.multiply(&g),
-        }
-    }
-
-    pub(super) fn double(&self) -> Self {
-        self.double_impl::<false>()
-    }
-    pub(super) fn double_from_affine(&self) -> Self {
-        debug_assert!(
-            self.z.equals_lanes(&WideFe::one()).iter().all(|&eq| eq),
-            "double_from_affine requires z == 1 in every lane"
-        );
-        self.double_impl::<true>()
-    }
-    #[inline(always)]
-    fn double_impl<const AFFINE_Z: bool>(&self) -> Self {
-        // Loose squares feed additive ops; use loose-input subtract/negate for
-        // limb0 values up to ~2^60.
-        let a = self.x.square_loose();
-        let b = self.y.square_loose();
-        let z2 = if AFFINE_Z {
-            WideFe::one()
-        } else {
-            self.z.square_loose()
-        };
-        let e = self
-            .x
-            .add_loose(&self.y)
-            .square_loose()
-            .subtract_loose_sum(&a, &b);
-        let g = b.subtract_loose(&a);
-        // `f = b - a - 2*z^2`; the factor of two rides along in the subtract.
-        let f = b.subtract_loose_sum_with_doubled_rhs(&a, &z2);
-        let h = WideFe::negate_loose_sum(&a, &b);
-        let t = e.multiply(&h);
-
-        Self {
-            x: e.multiply(&f),
-            y: g.multiply(&h),
-            t,
-            z: f.multiply(&g),
-        }
-    }
-}

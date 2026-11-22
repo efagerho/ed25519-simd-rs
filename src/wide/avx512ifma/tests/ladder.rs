@@ -108,7 +108,7 @@ impl StagedLadderStep {
     pub(super) fn step(&self, point: &mut WidePoint, compute_t: bool) {
         #[cfg(debug_assertions)]
         for field in self.odd.iter().chain(&self.base).chain(&self.even) {
-            debug_assert!(super::super::field::limbs_are_ifma_operands(&field.limbs));
+            debug_assert!(super::field::limbs_are_ifma_operands(&field.limbs));
         }
         // SAFETY: the accumulator and staged operands are disjoint and
         // aligned. Tables supply 52-bit cached limbs. Each ladder result

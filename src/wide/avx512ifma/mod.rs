@@ -1,10 +1,18 @@
 mod decode;
-mod field;
 mod point;
 mod post_hash_asm;
-mod tables;
 #[cfg(test)]
 mod tests;
+
+#[cfg(not(feature = "verify-asm-pow2"))]
+core::arch::global_asm!(
+    include_str!("pow22523.inc"),
+    include_str!("pow2.S"),
+    options(raw)
+);
+
+#[cfg(feature = "verify-asm-pow2")]
+core::arch::global_asm!(include_str!(concat!(env!("OUT_DIR"), "/pow2-checked.S")));
 
 core::arch::global_asm!(include_str!("stage_round.S"), options(raw));
 core::arch::global_asm!(include_str!("ladder_step.S"), options(raw));
@@ -23,7 +31,7 @@ pub(crate) use decode::{WideRPoint, decode_keys_and_decompress_r, decode_public_
 const LANES: usize = crate::batch::SIMD_LANES;
 const _: () = assert!(LANES == 8, "avx512ifma assumes exactly 8 SIMD lanes");
 
-/// Expand a per-lane bitmask into bools; shared with the scalar driver.
-pub(crate) fn mask_to_lanes(mask: u8) -> [bool; LANES] {
+/// Expand the decoder's per-lane validity mask.
+fn mask_to_lanes(mask: u8) -> [bool; LANES] {
     core::array::from_fn(|lane| (mask & (1 << lane)) != 0)
 }

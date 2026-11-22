@@ -1,15 +1,17 @@
 use super::decode::decompress_points_wide;
-use super::field::{WideFe, loadu, storeu};
-use super::point::WidePoint;
+use super::point::{WideFe, WidePoint};
 use super::*;
 use crate::edwards::{AffineCachedPoint, BASEPOINT_TABLE, CachedPoint, POINT_ENCODING_LEN};
 use crate::field::LIMB_COUNT;
 use curve25519::edwards::CompressedEdwardsY;
+use field::{loadu, storeu};
 use ladder::{PreparedChunk, mul_s_base_minus_k_public};
 use serde_json::Value;
 
 mod cached_add;
 mod double4;
+mod field;
+mod key_table;
 mod ladder;
 mod ladder_step;
 mod point;
@@ -205,8 +207,7 @@ fn pow_p_minus_5_over_8_x2(a: &WideFe, b: &WideFe) -> (WideFe, WideFe) {
     const _: () = assert!(size_of::<WideFe>() == 320);
     #[cfg(debug_assertions)]
     debug_assert!(
-        super::field::limbs_are_ifma_operands(&a.limbs)
-            && super::field::limbs_are_ifma_operands(&b.limbs)
+        field::limbs_are_ifma_operands(&a.limbs) && field::limbs_are_ifma_operands(&b.limbs)
     );
     let mut out = core::mem::MaybeUninit::<[WideFe; 2]>::uninit();
     // repr(C) places the five limb vectors at offsets 0,64,...,256.

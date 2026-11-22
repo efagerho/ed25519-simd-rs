@@ -8,6 +8,7 @@ use crate::input::{PUBLIC_KEY_LEN, VerifyInput};
 use crate::scalar::{self, CanonicalScalar, Radix16};
 use crate::sha512;
 use crate::wide::{HashedChunk, avx512ifma};
+use core::mem::MaybeUninit;
 
 /// One input chunk parsed into the structure-of-arrays layout used by SIMD code.
 ///
@@ -27,13 +28,13 @@ struct ParsedChunk<'a> {
 /// a fresh table array before its multiscalar ladder.
 #[derive(Debug)]
 pub(super) struct ChunkScratch {
-    key_tables: [Option<PointTable>; SIMD_LANES],
+    key_tables: MaybeUninit<[PointTable; SIMD_LANES]>,
 }
 
 impl ChunkScratch {
     pub(super) fn new() -> Self {
         Self {
-            key_tables: core::array::from_fn(|_| None),
+            key_tables: MaybeUninit::uninit(),
         }
     }
 }
@@ -72,31 +73,21 @@ impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
             core::array::from_fn(|lane| cached_keys[lane].is_none());
 
         // Decode missing keys and their R points together.
-        let mut decoded_r = None;
-        let mut decoded_key_lanes = [false; SIMD_LANES];
-        if any_lane(&missing_key_lanes) {
-            let (key_valid_bits, r_points, r_valid_bits) = avx512ifma::decode_keys_and_decompress_r(
+        let decoded = any_lane(&missing_key_lanes).then(|| {
+            avx512ifma::decode_keys_and_decompress_r(
                 &public_keys,
                 &r_bytes,
                 &mut self.scratch.key_tables,
-            );
-            decoded_key_lanes = avx512ifma::mask_to_lanes(key_valid_bits);
-            decoded_r = Some((r_points, r_valid_bits));
-        }
-
+            )
+        });
         let public_key_tables: [&PointTable; SIMD_LANES] = core::array::from_fn(|lane| {
             if let Some(key) = cached_keys[lane] {
                 &key.table
+            } else if let Some(batch) = decoded.as_ref().filter(|batch| batch.valid[lane]) {
+                &batch.tables[lane]
             } else {
-                // Cache misses populate `self.scratch.key_tables` above.
-                if decoded_key_lanes[lane] {
-                    self.scratch.key_tables[lane]
-                        .as_ref()
-                        .expect("a valid decoded lane has a table")
-                } else {
-                    lanes.valid[lane] = false;
-                    self.identity_table
-                }
+                lanes.valid[lane] = false;
+                self.identity_table
             }
         });
         P::reject_small_order_keys(&public_key_tables, &mut lanes.valid);
@@ -110,36 +101,21 @@ impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
                 digests: &digests,
                 r_bytes: &r_bytes,
             };
-            match decoded_r {
-                Some((r, mask)) => P::verify_decoded(&chunk, &r, mask, &lanes, out),
+            match &decoded {
+                Some(batch) => P::verify_decoded(&chunk, &batch.r, batch.r_valid, &lanes, out),
                 None => P::verify_encoded(&chunk, lanes, queues, out),
             }
         } else {
             lanes.score(out, |_| false);
         }
-        self.retain_decoded_keys(&missing_key_lanes, &decoded_key_lanes, &public_keys);
-    }
-
-    /// Offer freshly decoded tables to the cache, emptying the scratch slots.
-    fn retain_decoded_keys(
-        &mut self,
-        missing_key_lanes: &[bool; SIMD_LANES],
-        decoded_key_lanes: &[bool; SIMD_LANES],
-        public_keys: &[[u8; PUBLIC_KEY_LEN]; SIMD_LANES],
-    ) {
-        // Only a decode fills slots, and it runs exactly when a lane missed.
-        if !any_lane(missing_key_lanes) {
-            return;
-        }
-        for lane in 0..SIMD_LANES {
-            let table = self.scratch.key_tables[lane]
-                .take()
-                .expect("a decode fills every lane's slot");
-            if missing_key_lanes[lane] && decoded_key_lanes[lane] {
-                self.cache.insert(CachedPublicKey {
-                    encoded: public_keys[lane],
-                    table,
-                });
+        if let Some(batch) = decoded {
+            for lane in 0..SIMD_LANES {
+                if missing_key_lanes[lane] && batch.valid[lane] {
+                    self.cache.insert(CachedPublicKey {
+                        encoded: public_keys[lane],
+                        table: batch.tables[lane].clone(),
+                    });
+                }
             }
         }
     }
@@ -174,18 +150,15 @@ impl<P: VerificationPolicy> Verifier<P, NullKeyCache> {
             return;
         }
 
-        let (key_valid_bits, r_points, r_valid_bits) = avx512ifma::decode_keys_and_decompress_r(
+        let batch = avx512ifma::decode_keys_and_decompress_r(
             &public_keys,
             &r_bytes,
             &mut self.scratch.key_tables,
         );
-        let decoded_key_lanes = avx512ifma::mask_to_lanes(key_valid_bits);
 
         let public_key_tables: [&PointTable; SIMD_LANES] = core::array::from_fn(|lane| {
-            if decoded_key_lanes[lane] {
-                self.scratch.key_tables[lane]
-                    .as_ref()
-                    .expect("a valid decoded lane has a table")
+            if batch.valid[lane] {
+                &batch.tables[lane]
             } else {
                 lanes.valid[lane] = false;
                 self.identity_table
@@ -201,14 +174,9 @@ impl<P: VerificationPolicy> Verifier<P, NullKeyCache> {
                 digests: &digests,
                 r_bytes: &r_bytes,
             };
-            P::verify_decoded(&chunk, &r_points, r_valid_bits, &lanes, out);
+            P::verify_decoded(&chunk, &batch.r, batch.r_valid, &lanes, out);
         } else {
             lanes.score(out, |_| false);
-        }
-
-        // Decoding fills every scratch slot. NullKeyCache retains none of them.
-        for table in &mut self.scratch.key_tables {
-            let _ = table.take().expect("a decode fills every lane's slot");
         }
     }
 }
