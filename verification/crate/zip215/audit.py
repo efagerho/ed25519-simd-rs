@@ -87,7 +87,7 @@ def replay(elf, work, dependencies, recompress_dependencies=None):
     checks = check_object(work, FLAGS, "zip215")
     asm = VERIFY.parent / "src/wide/avx512ifma"
     write_evidence(elf, work, "zip215", checks, symbols + list(dep_symbols.values()),
-                   [asm / "zip215.S", asm / "point_encoding.inc"], FLAGS)
+                   [asm / "zip215.S", asm / "post_hash.inc", asm / "point_encoding.inc"], FLAGS)
     print(f"Checked {checks['theorem']} against {elf}")
 
 

@@ -1,7 +1,9 @@
+use super::LANES;
 use super::field::WideFe;
+#[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
+use super::mask_to_lanes;
 use super::point::WidePoint;
 use super::tables::{build_lane0_table_from_point, build_tables_from_point};
-use super::{LANES, mask_to_lanes};
 use crate::batch::EncodedPointChunk;
 use crate::edwards::{POINT_ENCODING_LEN, PointTable};
 use crate::field::Fe51;
@@ -13,8 +15,10 @@ use crate::input::PUBLIC_KEY_LEN;
 /// negative zero while the packed point continues through the SIMD ladder.
 pub(crate) struct WideRPoint {
     pub(super) point: WidePoint,
+    #[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
     x_zero_mask: Option<u8>,
 }
+#[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
 impl WideRPoint {
     /// Dalek-invalid negative-zero lanes.
     pub(crate) fn x_zero_lanes(&self) -> [bool; LANES] {
@@ -31,6 +35,8 @@ impl WideRPoint {
 }
 
 /// Decode one or two ZIP-215 chunks into the caller’s aligned output.
+/// The assembly Dalek check reads the original low 255 input bits from Y's
+/// five radix-51 digits to distinguish noncanonical encodings.
 pub(super) fn decompress_zip215<'a, const N: usize>(
     bytes: &[EncodedPointChunk; N],
     out: &'a mut core::mem::MaybeUninit<[WidePoint; N]>,
@@ -83,6 +89,13 @@ pub(crate) fn decode_keys_and_decompress_r<const DALEK: bool>(
     r_bytes: &EncodedPointChunk,
     key_tables: &mut [Option<PointTable>; LANES],
 ) -> (u8, WideRPoint, u8) {
+    #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
+    let ((kp, kmask), (rp, rmask)) = {
+        let mut storage = core::mem::MaybeUninit::uninit();
+        let ([key, r], [kmask, rmask]) = decompress_zip215(&[*keys, *r_bytes], &mut storage);
+        ((*key, kmask), (*r, rmask))
+    };
+    #[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
     let ((kp, kmask), (rp, rmask, x_zero_mask)) = if DALEK {
         decompress_two_point_chunks_wide::<true>(keys, r_bytes)
     } else {
@@ -95,6 +108,7 @@ pub(crate) fn decode_keys_and_decompress_r<const DALEK: bool>(
         kmask,
         WideRPoint {
             point: rp,
+            #[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
             x_zero_mask,
         },
         rmask,
@@ -221,6 +235,7 @@ pub(super) fn cold_decompress_points_wide(
 
 /// Decompress two independent SIMD chunks, interleaving the two
 /// inverse-square-root chains so each fills the other's IFMA latency gaps.
+#[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
 fn decompress_two_point_chunks_wide<const MINIMIZE_B_FOR_DALEK: bool>(
     a_bytes: &[[u8; POINT_ENCODING_LEN]; LANES],
     b_bytes: &[[u8; POINT_ENCODING_LEN]; LANES],

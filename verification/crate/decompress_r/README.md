@@ -6,8 +6,9 @@ type is `decode_contract`. Given one or two chunks of eight arbitrary
 encoding *j*, interpreted little-endian and reduced modulo *p*, are the
 y-coordinate of an Edwards point. In an accepted lane, X is the unique root
 with the encoded sign. Either sign is valid for X = 0. Every lane has
-Y equal to the encoded field element, Z = 1, T = XY and all twenty coordinate
-limbs below 2⁵². The high byte of the two-chunk mask belongs to the second
+Z = 1, T = XY and all twenty coordinate limbs below 2⁵². The five Y limbs
+are each below 2⁵¹ and pack to the original low 255 bits, including encodings
+from *p* through *p* + 18. Dalek uses these limbs to check canonicality. The high byte of the two-chunk mask belongs to the second
 chunk. [Public theorem](coq/Object.v) · [Contract](coq/Audit.v) · [Lane result](coq/Chunks.v)
 
 ## What to audit

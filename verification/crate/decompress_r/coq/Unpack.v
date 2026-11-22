@@ -27,6 +27,15 @@ Definition unpack flat base lane :=
  five (masked(w 0%nat)) (splice (w 0%nat) (w 1%nat) 51 13)
   (splice (w 1%nat) (w 2%nat) 38 26) (splice (w 2%nat) (w 3%nat) 25 39)
   (masked(vpsrlq (w 3%nat) 12)).
+
+Lemma unpack_strict flat ptr j : field_bound (fun _=>radix-1) (unpack flat ptr j).
+Proof.
+ assert (M:forall z,0<=masked z<=radix-1).
+ { intro;unfold masked;rewrite Z.land_ones by lia. pose proof(Z.mod_pos_bound z radix ltac:(unfold radix;lia)).
+   change (2^51) with radix;lia. }
+ intros [|[|[|[|i]]]] H; apply M.
+Qed.
+
 Definition sign flat base lane := Z.testbit (qword flat base 3 lane) 63.
 Definition encoded flat base lane := read_le 32 flat (base+32*Z.of_nat lane).
 Definition slice z offset width := (Z.shiftr z offset) mod 2^width.

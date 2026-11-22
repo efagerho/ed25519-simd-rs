@@ -2,78 +2,9 @@
 // the lane-major S digits and eight SHA-512 digest word rows. All scalars
 // and indices are public. The three entries return 1 on success or 0 for
 // invalid scatter metadata. Stack scratch and output must be disjoint from
-// all input buffers. Layout assertions are in zip215_asm.rs.
-// Separate arrays let both recompression and decoding read contiguous chunks.
-.equ .Lzip_chunks, 8
-.equ .Lzip_point_size, 1280
-.equ .Lzip_lane_size, 80
-.equ .Lzip_encodings, .Lzip_chunks * .Lzip_point_size
-.equ .Lzip_lanes, .Lzip_encodings + .Lzip_chunks * 256
-.equ .Lzip_count, .Lzip_lanes + .Lzip_chunks * .Lzip_lane_size
+// all input buffers. Layout assertions are in post_hash_asm.rs.
 
-.pushsection .text.ed25519_simd_zip215_candidate,"ax",@progbits
-.p2align 4
-
-// RDI = aligned, uninitialized WidePoint; RSI = borrowed Inputs.
-// Compute Q = [s]B - [k]A with T, which the cofactor check consumes.
-.type ed25519_simd_zip215_candidate,@function
-ed25519_simd_zip215_candidate:
-    push rbx
-    push r12
-    sub rsp, 520                        // 512 digit bytes, 16-byte call alignment
-    mov rbx, rdi
-    mov r12, rsi
-    mov rdi, rsp
-    mov rsi, [r12 + 80]
-    call ed25519_simd_digest_to_radix16
-    mov rdi, rbx
-    mov rsi, r12
-    mov rdx, [r12 + 64]
-    mov rcx, [r12 + 72]
-    mov r8, rsp
-    mov r9d, 1
-    call ed25519_simd_mul_s_base_minus_k_public
-    add rsp, 520
-    pop r12
-    pop rbx
-    ret
-
-.size ed25519_simd_zip215_candidate,.-ed25519_simd_zip215_candidate
-.popsection
-
-.pushsection .text.ed25519_simd_zip215_scatter,"ax",@progbits
-.p2align 4
-// EAX holds equation & R-valid. RDI = PendingLanes, RSI = output, RDX = length.
-// Write exactly the active lanes. In particular, repeated indices used to
-// pad the last SIMD chunk cannot overwrite a real signature's result.
-.type ed25519_simd_zip215_scatter,@function
-ed25519_simd_zip215_scatter:
-    mov rcx, [rdi + 72]
-    cmp rcx, 8
-    ja .Lzip_bad
-    xor r8d, r8d
-    test rcx, rcx
-    jz .Lzip_ok
-.Lzip_lane:
-    mov r9, [rdi + 8 + 8*r8]
-    cmp r9, rdx
-    jae .Lzip_bad
-    mov r10b, [rdi + r8]               // valid is a Rust bool (0 or 1)
-    and r10b, al
-    mov [rsi + r9], r10b
-    shr eax, 1
-    inc r8
-    cmp r8, rcx
-    jb .Lzip_lane
-.Lzip_ok:
-    mov eax, 1
-    ret
-.Lzip_bad:
-    xor eax, eax
-    ret
-
-.size ed25519_simd_zip215_scatter,.-ed25519_simd_zip215_scatter
-.popsection
+post_candidate ed25519_simd_zip215_candidate, 1
 
 .pushsection .text.ed25519_simd_zip215_decoded,"ax",@progbits
 // (Inputs, decoded affine R, R-valid mask, PendingLanes, output, length).
@@ -90,7 +21,7 @@ ed25519_simd_zip215_decoded:
     push r14
     push r15
     and rsp, -64
-    sub rsp, .Lzip_point_size
+    sub rsp, .Lpost_point_size
     mov rbx, rsi
     movzx r12d, dl
     mov r13, rcx
@@ -118,51 +49,7 @@ ed25519_simd_zip215_decoded:
 
 .popsection
 
-.pushsection .text.ed25519_simd_zip215_push,"ax",@progbits
-// (queue, Inputs, encoded R chunk, PendingLanes, output, length).
-// Compute the candidate while the key tables are still borrowed.
-.p2align 4
-.globl ed25519_simd_zip215_push
-.hidden ed25519_simd_zip215_push
-.type ed25519_simd_zip215_push,@function
-ed25519_simd_zip215_push:
-    push rbx
-    push r12
-    push r13
-    mov rbx, rdi
-    mov r12, r8
-    mov r13, r9
-    mov rax, [rbx + .Lzip_count]
-    mov r8, rax
-    shl r8, 8
-.irp offset,0,64,128,192
-    vmovdqu64 zmm0, [rdx + \offset]
-    vmovdqa64 [rbx + r8 + .Lzip_encodings + \offset], zmm0
-.endr
-    imul r8, rax, .Lzip_lane_size
-    vmovdqu64 zmm0, [rcx]
-    vmovdqu xmm1, [rcx + 64]
-    vmovdqu64 [rbx + r8 + .Lzip_lanes], zmm0
-    vmovdqu [rbx + r8 + .Lzip_lanes + 64], xmm1
-    imul rdi, rax, .Lzip_point_size
-    add rdi, rbx
-    call ed25519_simd_zip215_candidate
-    mov rax, [rbx + .Lzip_count]
-    inc eax
-    mov [rbx + .Lzip_count], rax
-    cmp eax, .Lzip_chunks
-    mov rdi, rbx
-    mov rsi, r12
-    mov rdx, r13
-    pop r13
-    pop r12
-    pop rbx
-    je ed25519_simd_zip215_flush
-    mov eax, 1
-    ret
-.size ed25519_simd_zip215_push,.-ed25519_simd_zip215_push
-
-.popsection
+post_push ed25519_simd_zip215_push, ed25519_simd_zip215_candidate, ed25519_simd_zip215_flush
 
 .pushsection .text.ed25519_simd_zip215_check_r,"ax",@progbits
 .p2align 4
@@ -176,7 +63,7 @@ ed25519_simd_zip215_check_r:
     push r12
     push r13
     and rsp, -64
-    sub rsp, 2 * .Lzip_point_size
+    sub rsp, 2 * .Lpost_point_size
     mov rbx, rdi
     mov r12d, edx
     mov rdi, rsp
@@ -188,8 +75,8 @@ ed25519_simd_zip215_check_r:
     and r13b, al
     cmp r12d, 1
     je .Lzip_checked
-    lea rdi, [rbx + .Lzip_point_size]
-    lea rsi, [rsp + .Lzip_point_size]
+    lea rdi, [rbx + .Lpost_point_size]
+    lea rsi, [rsp + .Lpost_point_size]
     call ed25519_simd_check_8_torsion_ifma
     movzx eax, al
     shl eax, 8
@@ -216,7 +103,7 @@ ed25519_simd_zip215_check_r:
 .hidden ed25519_simd_zip215_flush
 .type ed25519_simd_zip215_flush,@function
 ed25519_simd_zip215_flush:
-    mov rax, [rdi + .Lzip_count]
+    mov rax, [rdi + .Lpost_count]
     test rax, rax
     jnz .Lzip_nonempty
     mov eax, 1
@@ -232,7 +119,7 @@ ed25519_simd_zip215_flush:
     mov r12, rax
     mov r14, rsi
     mov r15, rdx
-    mov qword ptr [rbx + .Lzip_count], 0
+    mov qword ptr [rbx + .Lpost_count], 0
     xor eax, eax
     cmp r12, 2
     jb .Lzip_resolve                // a single chunk cannot share an inversion
@@ -240,7 +127,7 @@ ed25519_simd_zip215_flush:
     // sharing an inversion if at least two chunks can avoid decompression.
     // This test chooses a schedule; only the full predicates below score lanes.
     mov rdi, rbx
-    lea rsi, [rbx + .Lzip_encodings]
+    lea rsi, [rbx + .Lpost_encodings]
     mov rdx, r12
     mov ecx, 2
     fe51_constants
@@ -254,7 +141,7 @@ ed25519_simd_zip215_flush:
     dec ecx
     jz .Lzip_exact
 .Lzip_probe_next:
-    add rdi, .Lzip_point_size
+    add rdi, .Lpost_point_size
     add rsi, 256
     dec edx
     jnz .Lzip_probe
@@ -262,7 +149,7 @@ ed25519_simd_zip215_flush:
     jmp .Lzip_resolve
 .Lzip_exact:
     mov rdi, rbx
-    lea rsi, [rbx + .Lzip_encodings]
+    lea rsi, [rbx + .Lpost_encodings]
     mov rdx, r12
     call ed25519_simd_dalek_recompress
 .Lzip_resolve:
@@ -281,11 +168,11 @@ ed25519_simd_zip215_flush:
     je .Lzip_check
     inc edx
 .Lzip_check:
-    imul rdi, r13, .Lzip_point_size
+    imul rdi, r13, .Lpost_point_size
     add rdi, rbx
     mov rsi, r13
     shl rsi, 8
-    lea rsi, [rbx + rsi + .Lzip_encodings]
+    lea rsi, [rbx + rsi + .Lpost_encodings]
     call ed25519_simd_zip215_check_r
     cmp edx, 2
     je .Lzip_save_pair
@@ -298,7 +185,7 @@ ed25519_simd_zip215_flush:
     inc r13
     cmp r13, r12
     jb .Lzip_chunk
-    lea rbx, [rbx + .Lzip_lanes]
+    lea rbx, [rbx + .Lpost_lanes]
     xor r13d, r13d
 .Lzip_score:
     movzx eax, byte ptr [rsp + r13]
@@ -308,7 +195,7 @@ ed25519_simd_zip215_flush:
     call ed25519_simd_zip215_scatter
     test eax, eax
     jz .Lzip_done
-    add rbx, .Lzip_lane_size
+    add rbx, .Lpost_lane_size
     inc r13
     cmp r13, r12
     jb .Lzip_score

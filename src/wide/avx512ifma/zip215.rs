@@ -26,19 +26,19 @@ fn score(q: &WidePoint, r: &WidePoint, r_valid: u8, lanes: &PendingLanes, out: &
     lanes.score(out, |j| equation[j] && r_valid & (1 << j) != 0);
 }
 
-pub(crate) fn check_decoded(
-    chunk: &HashedChunk<'_>,
-    base: &BasepointTableEntries,
-    r: &WideRPoint,
-    r_valid: u8,
-    lanes: &PendingLanes,
-    out: &mut [bool],
-) {
-    let q = chunk.with_digits(|p| mul_s_base_minus_k_public::<true>(base, p));
-    score(&q, &r.point, r_valid, lanes, out);
-}
-
 impl Queue {
+    pub(crate) fn check_decoded(
+        chunk: &HashedChunk<'_>,
+        base: &BasepointTableEntries,
+        r: &WideRPoint,
+        r_valid: u8,
+        lanes: &PendingLanes,
+        out: &mut [bool],
+    ) {
+        let q = chunk.with_digits(|p| mul_s_base_minus_k_public::<true>(base, p));
+        score(&q, &r.point, r_valid, lanes, out);
+    }
+
     pub(crate) fn push(
         &mut self,
         chunk: &HashedChunk<'_>,

@@ -24,7 +24,7 @@ See [Audit.v](coq/Audit.v) and [Equation.v](coq/Equation.v).
   is below eight. The ABI proof follows register moves, stack offsets,
   caller-saved clobbers, six SIMD transfers, the occupied count and the
   tail-call arguments. See [Staging.v](coq/Staging.v) and
-  [the Rust layout assertions](../../../src/wide/avx512ifma/zip215_asm.rs).
+  [the Rust layout assertions](../../../src/wide/avx512ifma/post_hash_asm.rs).
 * Check the grouped semantics of the remaining scalar and SIMD glue.
   Compare each named block’s effects, argument offsets, flags, stack
   scratch and register preservation to its instruction expansion. The

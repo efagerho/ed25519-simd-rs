@@ -1,9 +1,13 @@
 use super::LANES;
+#[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
 use super::decode::WideRPoint;
+#[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
 use super::ladder_step::mul_s_base_minus_k_public;
 use super::point::WidePoint;
 use crate::batch::R_ENCODING_LEN;
+#[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
 use crate::edwards::{BasepointTableEntries, PointTable};
+#[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
 use crate::wide::PreparedChunk;
 
 /// Chunks whose final inversion is shared. Each doubling halves the
@@ -27,6 +31,7 @@ impl core::fmt::Debug for DalekCandidate {
 }
 
 #[inline(never)]
+#[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
 pub(crate) fn prepare_dalek_candidate(
     prepared: &PreparedChunk<'_>,
     base_table: &BasepointTableEntries,
@@ -105,6 +110,7 @@ fn check_dalek_candidates_rust(
 }
 
 /// Identify small-order public keys from the already-built `[8]A` table entry.
+#[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
 pub(crate) fn public_key_small_order_lanes(
     public_key_tables: &[&PointTable; LANES],
 ) -> [bool; LANES] {
@@ -117,6 +123,7 @@ pub(crate) fn public_key_small_order_lanes(
 }
 
 #[inline(never)]
+#[cfg(not(all(feature = "asm", target_os = "linux", target_pointer_width = "64")))]
 pub(crate) fn verify_prepared_dalek_decompressed_r(
     prepared: &PreparedChunk<'_>,
     r: &WideRPoint,

@@ -58,6 +58,8 @@ Qed.
 Definition lane_claim k flat ptr pair j :=
  let o:=lane_output k flat ptr pair j in let z:=read_le 32 flat (ptr+32*Z.of_nat j) in
  let x:=value(ox o) in let y:=residue(z mod 2^255) in
+ (* Strict consumers distinguish the 19 noncanonical encodings using Y. *)
+ (field_bound (fun _=>radix-1) (oy o) /\ pack (oy o)=z mod 2^255) /\
  split_field(ox o) /\ split_field(oy o) /\ split_field(oz o) /\ split_field(ot o) /\
  value(oy o)=y /\ value(oz o)=1%fp /\ value(ot o)=(x*y)%fp /\
  if Z.testbit (returned k flat ptr pair) (Z.of_nat j)
@@ -97,7 +99,10 @@ Proof.
  assert (Eq:Z.testbit (returned k flat ptr pair) (Z.of_nat j)=valid(lane_output k flat ptr pair j)).
  { destruct (valid(lane_output k flat ptr pair j)),
    (Z.testbit (returned k flat ptr pair) (Z.of_nat j)); try reflexivity; exfalso; first [pose proof (proj1 Bits eq_refl);discriminate | pose proof (proj2 Bits eq_refl);discriminate]. }
- rewrite Eq. destruct F as [X [Yb [Zb [Tb [Ey [Ez [Et Meaning]]]]]]].
+ rewrite Eq.
+ assert (Raw: field_bound (fun _=>radix-1) y /\ pack y = read_le 32 flat (ptr+32*Z.of_nat j) mod 2^255).
+ { split;[apply unpack_strict|exact Val]. }
+ split;[exact Raw|]. destruct F as [X [Yb [Zb [Tb [Ey [Ez [Et Meaning]]]]]]].
  split;[exact X|]. split;[exact Yb|]. split;[exact Zb|]. split;[exact Tb|].
  split;[exact Ey|]. split;[exact Ez|]. split;[exact Et|].
  destruct (valid(lane_output k flat ptr pair j));[|exact Meaning].

@@ -351,6 +351,7 @@ fn wide_decompression_matches_vectors() {
 #[cfg(all(feature = "asm", target_os = "linux", target_pointer_width = "64"))]
 #[test]
 fn deferred_zip215_decodes_single_and_paired_chunks() {
+    use crate::field::Fe51;
     use rand::{RngCore, SeedableRng, rngs::StdRng};
 
     #[repr(C, align(64))]
@@ -407,7 +408,11 @@ fn deferred_zip215_decodes_single_and_paired_chunks() {
             let ([single], [single_mask]) =
                 decode::decompress_zip215(core::array::from_ref(bytes), &mut one);
             assert_eq!((paired_mask, single_mask), (expected, expected));
+            let encoded_y = bytes.map(|b| Fe51::from_bytes_unchecked(&b).loose_limbs());
             for point in [paired, single] {
+                for (i, row) in wide_rows(point.y).iter().enumerate() {
+                    assert_eq!(*row, encoded_y.map(|limbs| limbs[i]));
+                }
                 for (actual, wanted) in [
                     (point.x, reference.x),
                     (point.y, reference.y),
@@ -667,4 +672,25 @@ fn profile_dalek_recompression() {
         "{depth} chunks, {input}, {:.2} ns/call",
         start.elapsed().as_secs_f64() * 1e9 / iterations as f64
     );
+}
+
+#[test]
+fn dalek_key_filter_preserves_eligibility_for_every_lane_mask() {
+    let regular = decode_public_key_table(&BASEPOINT_COMPRESSED).unwrap();
+    // y=0 represents an order-four point, so [8]A is the identity.
+    let small = decode_public_key_table(&[0; 32]).unwrap();
+    for mask in 0..=u8::MAX {
+        let tables = core::array::from_fn(|j| {
+            if mask & (1 << j) != 0 {
+                &small
+            } else {
+                &regular
+            }
+        });
+        for initial in [0xff_u8, 0xa5] {
+            let mut valid = mask_to_lanes(initial);
+            dalek::reject_small_order_keys(&tables, &mut valid);
+            assert_eq!(valid, mask_to_lanes(initial & !mask));
+        }
+    }
 }

@@ -31,28 +31,6 @@ pub struct Zip215Policy;
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DalekPolicy;
 
-/// The Ed25519 field modulus `p = 2^255 - 19`, encoded little-endian.
-const FIELD_P_BYTES: [u8; 32] = [
-    0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f,
-];
-
-pub(crate) fn r_encoding_has_canonical_y(r_bytes: &[u8; R_ENCODING_LEN]) -> bool {
-    let mut y = *r_bytes;
-    y[31] &= 0x7f;
-    let mut i = 32;
-    while i > 0 {
-        i -= 1;
-        if y[i] < FIELD_P_BYTES[i] {
-            return true;
-        }
-        if y[i] > FIELD_P_BYTES[i] {
-            return false;
-        }
-    }
-    false
-}
-
 /// Reusable storage for deferred ZIP-215 candidates, encodings and output positions.
 #[doc(hidden)]
 #[derive(Debug, Default)]
@@ -64,11 +42,7 @@ pub struct Zip215Queues(avx512ifma::zip215::Queue);
 /// comparison with the original signature encodings.
 #[doc(hidden)]
 #[derive(Debug, Default)]
-pub struct DalekQueues {
-    dalek_candidates: Vec<avx512ifma::DalekCandidate>,
-    dalek_r_bytes: Vec<[[u8; R_ENCODING_LEN]; SIMD_LANES]>,
-    dalek_pending: Vec<PendingLanes>,
-}
+pub struct DalekQueues(avx512ifma::dalek::Queue);
 
 mod sealed {
     /// Prevents downstream crates from defining verification policies.
@@ -207,7 +181,7 @@ impl PolicyOps for Zip215Policy {
         lanes: &PendingLanes,
         out: &mut [bool],
     ) {
-        avx512ifma::zip215::check_decoded(chunk, base, r, r_valid, lanes, out);
+        avx512ifma::zip215::Queue::check_decoded(chunk, base, r, r_valid, lanes, out);
     }
 
     fn flush_queue(queues: &mut Self::Queues, out: &mut [bool]) {
@@ -254,10 +228,7 @@ impl PolicyOps for DalekPolicy {
         public_key_tables: &[&PointTable; SIMD_LANES],
         valid: &mut [bool; SIMD_LANES],
     ) {
-        let small_order = avx512ifma::public_key_small_order_lanes(public_key_tables);
-        for lane in 0..SIMD_LANES {
-            valid[lane] &= !small_order[lane];
-        }
+        avx512ifma::dalek::reject_small_order_keys(public_key_tables, valid);
     }
 
     #[inline(always)]
@@ -268,13 +239,7 @@ impl PolicyOps for DalekPolicy {
         queues: &mut Self::Queues,
         out: &mut [bool],
     ) {
-        let candidate = chunk.with_digits(|p| avx512ifma::prepare_dalek_candidate(p, base));
-        queues.dalek_candidates.push(candidate);
-        queues.dalek_r_bytes.push(*chunk.r_bytes);
-        queues.dalek_pending.push(lanes);
-        if queues.dalek_candidates.len() == avx512ifma::DALEK_BATCH {
-            flush_dalek_queue(queues, out);
-        }
+        queues.0.push(chunk, base, lanes, out);
     }
 
     fn verify_decoded(
@@ -285,41 +250,10 @@ impl PolicyOps for DalekPolicy {
         lanes: &PendingLanes,
         out: &mut [bool],
     ) {
-        let equation =
-            chunk.with_digits(|p| avx512ifma::verify_prepared_dalek_decompressed_r(p, r, base));
-        let x_zero = r.x_zero_lanes();
-        let small_order = r.small_order_lanes();
-        lanes.score(out, |j| {
-            let bytes = &chunk.r_bytes[j];
-            let signed_zero = x_zero[j] && bytes[31] & 0x80 != 0;
-            equation[j]
-                && r_valid & (1 << j) != 0
-                && r_encoding_has_canonical_y(bytes)
-                && !signed_zero
-                && !small_order[j]
-        });
+        avx512ifma::dalek::Queue::check_decoded(chunk, base, r, r_valid, lanes, out);
     }
 
     fn flush_queue(queues: &mut Self::Queues, out: &mut [bool]) {
-        flush_dalek_queue(queues, out);
+        queues.0.flush(out);
     }
-}
-
-/// Recompress the queued candidates and scatter accepted lanes to the caller.
-fn flush_dalek_queue(queues: &mut DalekQueues, out: &mut [bool]) {
-    let DalekQueues {
-        dalek_candidates: candidates,
-        dalek_r_bytes: r_bytes,
-        dalek_pending: pending,
-    } = queues;
-    if candidates.is_empty() {
-        return;
-    }
-    debug_assert_eq!(candidates.len(), pending.len());
-    let masks = avx512ifma::check_dalek_candidates(candidates, r_bytes);
-    for (chunk, mask) in pending.drain(..).zip(masks) {
-        chunk.score(out, |lane| mask & (1 << lane) != 0);
-    }
-    candidates.clear();
-    r_bytes.clear();
 }
