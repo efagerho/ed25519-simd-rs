@@ -14,14 +14,17 @@ return in the model and covers every permitted return.
 1. In `full_product`, check the eight lanes, the sign on k, the digit
    order, both T modes and the output bounds. `valid_tables` requires the
    signed key and affine tables to represent the specified multiples of
-   each lane's A and of B. Check the [public-key table builder](../../../src/wide/avx512ifma/key_table.S) and the
-   [embedded basepoint entries](../../../src/edwards/basepoint_table.in) against
-   this premise. The [table generator](../../../src/edwards/generate_basepoint_table.py)
-   computes the signed multiples with affine Edwards arithmetic.
+   each lane's A and of B. The key-table theorem establishes the public-key
+   entry predicate for decoded affine points. Check that the caller passes the
+   resulting table pointers and that the embedded basepoint entries satisfy the
+   affine predicate. The table generator computes the basepoint multiples
+   with affine Edwards arithmetic.
    The proof obtains their selected indices and words from the staging
    theorem. The caller supplies bounded digits, valid tables, readable
    inputs and disjoint writable memory. Read the placement conditions
    alongside the post-hash candidate call and the shared memory assumptions.
+   [Key-table proof](../key_table/README.md) · [Embedded entries](../../../src/edwards/basepoint_table.in) ·
+   [Table generator](../../../src/edwards/generate_basepoint_table.py) ·
    [Public theorem](coq/Audit.v) · [Table and digit ABI](coq/Operands.v) ·
    [Candidate call](../../../src/wide/avx512ifma/post_hash.inc) ·
    [Central audit surface](../../README.md#shared-audit-surface)
