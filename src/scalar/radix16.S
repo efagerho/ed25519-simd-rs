@@ -39,6 +39,23 @@
     vmovdqu64 [rdi + 64*(\lane+2)], zmm3
 .endm
 
+// ZMM0..3 hold the four little-endian words of each biased scalar.
+.macro r16_write_digits
+    mov eax, 15
+    vpbroadcastb zmm5, eax
+    mov eax, 8
+    vpbroadcastb zmm6, eax
+    r16_expand zmm0, zmm8, zmm9
+    r16_expand zmm1, zmm10, zmm11
+    r16_expand zmm2, zmm12, zmm13
+    r16_expand zmm3, zmm14, zmm15
+
+    r16_store_pair zmm8, zmm10, zmm12, zmm14, 0x44, 0
+    r16_store_pair zmm9, zmm11, zmm13, zmm15, 0x44, 1
+    r16_store_pair zmm8, zmm10, zmm12, zmm14, 0xee, 4
+    r16_store_pair zmm9, zmm11, zmm13, zmm15, 0xee, 5
+.endm
+
 ed25519_simd_digest_to_radix16:
     // The 320-byte reducer destination fits in the digit output. Saving
     // its address also aligns RSP to 16 bytes for the SysV call.
@@ -74,22 +91,88 @@ ed25519_simd_digest_to_radix16:
     vpsrlq zmm3, zmm3, 36
     vpaddq zmm3, zmm3, zmm11
 
-    mov eax, 15
-    vpbroadcastb zmm5, eax
-    mov eax, 8
-    vpbroadcastb zmm6, eax
-    r16_expand zmm0, zmm8, zmm9
-    r16_expand zmm1, zmm10, zmm11
-    r16_expand zmm2, zmm12, zmm13
-    r16_expand zmm3, zmm14, zmm15
-
-    r16_store_pair zmm8, zmm10, zmm12, zmm14, 0x44, 0
-    r16_store_pair zmm9, zmm11, zmm13, zmm15, 0x44, 1
-    r16_store_pair zmm8, zmm10, zmm12, zmm14, 0xee, 4
-    r16_store_pair zmm9, zmm11, zmm13, zmm15, 0xee, 5
+    r16_write_digits
     vzeroupper
     ret
 .size ed25519_simd_digest_to_radix16, .-ed25519_simd_digest_to_radix16
+
+// SysV AMD64. RSI points to eight read-only pointers to little-endian S[32].
+// Input pointers may repeat. RDI points to a disjoint, unaligned 512-byte
+// output. Bit i of EAX is set iff S[i] < L. Row i contains 64 signed digits
+// of S[i] in that case and 64 zero bytes otherwise. No stack scratch or calls.
+.p2align 4
+.globl ed25519_simd_prepare_signature_scalars
+.hidden ed25519_simd_prepare_signature_scalars
+.type ed25519_simd_prepare_signature_scalars,@function
+ed25519_simd_prepare_signature_scalars:
+    // Pair rows 0/2, 1/3, 4/6, 5/7. The unpack pairs adjacent lanes,
+    // and the shuffle joins the two groups of four lanes in word order.
+.macro s_load_pair reg, low, high
+    mov rax, [rsi + 8*\low]
+    mov rcx, [rsi + 8*\high]
+    vmovdqu ymm\reg, [rax]
+    vinserti64x4 zmm\reg, zmm\reg, [rcx], 1
+.endm
+    s_load_pair 0, 0, 2
+    s_load_pair 1, 1, 3
+    s_load_pair 2, 4, 6
+    s_load_pair 3, 5, 7
+    vpunpcklqdq zmm4, zmm0, zmm1
+    vpunpcklqdq zmm5, zmm2, zmm3
+    vpunpckhqdq zmm6, zmm0, zmm1
+    vpunpckhqdq zmm7, zmm2, zmm3
+    vshufi64x2 zmm8, zmm4, zmm5, 0x88
+    vshufi64x2 zmm9, zmm6, zmm7, 0x88
+    vshufi64x2 zmm10, zmm4, zmm5, 0xdd
+    vshufi64x2 zmm11, zmm6, zmm7, 0xdd
+
+    // Compare unsigned 64-bit words from least to most significant.
+    // A higher word wins unless equal. Word 2 of L is zero.
+    vpcmpuq k1, zmm8, qword ptr [rip + .Ls_order]{1to8}, 1
+    vpcmpeqq k1{k1}, zmm9, qword ptr [rip + .Ls_order + 8]{1to8}
+    vpcmpuq k2, zmm9, qword ptr [rip + .Ls_order + 8]{1to8}, 1
+    korw k1, k1, k2
+    vpxorq zmm4, zmm4, zmm4
+    vpcmpeqq k1{k1}, zmm10, zmm4
+    vpcmpeqq k1{k1}, zmm11, qword ptr [rip + .Ls_order + 24]{1to8}
+    vpcmpuq k2, zmm11, qword ptr [rip + .Ls_order + 24]{1to8}, 1
+    korw k1, k1, k2
+
+    // Bias all 64 nibbles by 8. A word addition including carry-in
+    // carries out exactly when its unsigned result is below its input.
+    mov rax, 0x8888888888888888
+    vpbroadcastq zmm4, rax
+    mov eax, 1
+    vpbroadcastq zmm5, rax
+    vpaddq zmm0, zmm8, zmm4
+    vpaddq zmm1, zmm9, zmm4
+    vpaddq zmm2, zmm10, zmm4
+    vpaddq zmm3, zmm11, zmm4
+    vpcmpuq k2, zmm0, zmm8, 1
+    vpaddq zmm1{k2}, zmm1, zmm5
+    vpcmpuq k2, zmm1, zmm9, 1
+    vpaddq zmm2{k2}, zmm2, zmm5
+    vpcmpuq k2, zmm2, zmm10, 1
+    vpaddq zmm3{k2}, zmm3, zmm5
+
+    // Select the bias itself for rejected lanes, giving signed digit zero
+    // in every position when r16_write_digits subtracts 8.
+.irp i,0,1,2,3
+    vpblendmq zmm\i{k1}, zmm4, zmm\i
+.endr
+    r16_write_digits
+    kmovw eax, k1
+    vzeroupper
+    ret
+.size ed25519_simd_prepare_signature_scalars, .-ed25519_simd_prepare_signature_scalars
+.purgem s_load_pair
+.purgem r16_write_digits
 .purgem r16_carry
 .purgem r16_expand
 .purgem r16_store_pair
+
+.pushsection .rodata
+.p2align 3
+.Ls_order:
+    .quad 0x5812631a5cf5d3ed, 0x14def9dea2f79cd6, 0, 0x1000000000000000
+.popsection

@@ -474,14 +474,12 @@ fn wide_torsion_operations_match_vectors() {
 #[test]
 fn wide_multiscalar_matches_nontrivial_basepoint_relation() {
     let table = decode_public_key_table(&BASEPOINT_COMPRESSED).expect("basepoint decodes");
-    let mut two_bytes = [0u8; 32];
-    two_bytes[0] = 2;
-    let two = crate::scalar::CanonicalScalar::from_canonical_bytes(two_bytes);
-    let s_digits = [two.to_radix16(); LANES];
-    let mut one_bytes = [0u8; 32];
-    one_bytes[0] = 1;
-    let one = crate::scalar::CanonicalScalar::from_canonical_bytes(one_bytes);
-    let k_digits = [one.to_radix16(); LANES];
+    let mut two = [0i8; 64];
+    two[0] = 2;
+    let mut one = [0i8; 64];
+    one[0] = 1;
+    let s_digits = [two; LANES];
+    let k_digits = [one; LANES];
     let prepared = PreparedChunk {
         public_key_tables: [&table; LANES],
         s_digits: &s_digits,
