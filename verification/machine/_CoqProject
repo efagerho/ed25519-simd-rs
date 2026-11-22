@@ -52,3 +52,5 @@ tests/PackedRows.v
 isa/IndexedLoad.v
 execution/IndexedLoads.v
 tests/Indexed.v
+execution/MaskedWords.v
+tests/MaskedWordProbe.v

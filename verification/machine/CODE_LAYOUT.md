@@ -19,6 +19,7 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 | File | Contents |
 | --- | --- |
 | [IndexedLoad.v](isa/IndexedLoad.v) and [IndexedLoads.v](execution/IndexedLoads.v) | Encode scalar and indexed vector loads and evaluate register-only/load blocks against incoming byte memory. The access log records each full operand width. |
+| [MaskedWords.v](execution/MaskedWords.v) | Encodes and executes qword arithmetic and per-lane opmask operations with register or RIP-relative broadcast sources. |
 | [Packed.v](execution/Packed.v) | Encodes and executes unmasked qword and byte operations on registers and RDI-relative rows. Byte selection and the store overlay give the final flat-byte result. |
 | [ProgramLayout.v](isa/ProgramLayout.v) | Block bodies, terminators, shared vector fragments, and padding. `image` emits bytes. `valid_program` checks encodability, contiguous layout, and static control-flow targets. |
 | [LayoutProofs.v](execution/LayoutProofs.v) | Proves that successful layout validation locates block bytes in the image, gives unique fetches and non-overlapping blocks, resolves vector fragments, and establishes static targets. |

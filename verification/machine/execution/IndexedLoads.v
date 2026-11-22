@@ -43,6 +43,9 @@ Definition step s op :=
   let at_lane addr j := Read 8 (Plus addr (K (8*Z.of_nat j))) in
   match op with
   | LeaTwice d i => setg d (W64 (Plus (g d) (Times (K 2) (g i)))) f
+  | LoadG d a => read_operand a 8%nat (fun addr=>setg d (Read 8 addr) f)
+  | UnpackWords h d a b => setv d (fun j=>let '(r,l):=Packed.unpack_source h a b j in v r l)
+  | ShuffleWords d a b i => setv d (fun j=>let '(r,l):=Packed.shuffle_source a b i j in v r l)
   | MovZX two a =>
       let n := if two then 2%nat else 1%nat in
       read_operand a n (fun addr => setg 0%nat (Read n addr) f)

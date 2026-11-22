@@ -12,6 +12,7 @@ README for its contract and release audit.
 | [double4/](double4/README.md) | Four in-place point doublings. |
 | [cached_add/](cached_add/README.md) | Cached point addition with affine or projective inputs and optional T output. |
 | [scalar/](scalar/README.md) | Canonical reduction of eight 512-bit inputs modulo the scalar order. |
+| [signature_scalar/](signature_scalar/README.md) | Before hashing, each mask bit tests the input signature scalar against L. Accepted lanes encode the exact input in 64 signed digits and rejected lanes contain zeros. |
 | [radix16/](radix16/README.md) | The linked reducer and digest wrapper produce 64 signed digits representing each input modulo the scalar order. |
 | [key_table/](key_table/README.md) | Builds one or eight public-key tables. Every signed entry is initialized and bounded, and represents the corresponding Edwards multiple for a valid affine input lane. |
 | [stage_round/](stage_round/README.md) | Signed key lookup, base-digit folding and exact limb placement in the 55-row ladder input. |
@@ -72,6 +73,7 @@ separate review.
 | Module | What to check |
 | --- | --- |
 | [Wide51.v](Wide51.v) | `cell` selects qword `8*i + lane`. Trace `field_at`, `point_values`, and `cache_values` to the Rust field order. Check which coordinates each bound covers. |
+| [Radix16Output.v](Radix16Output.v) | Both scalar entry points expand four biased qwords into 64 signed digit bytes. The routing proof relates each output byte to its source lane and nibble. |
 | [PointFrame.v](PointFrame.v) | For double4 and cached addition, check the 1,280-byte scratch area, alignment padding, saved RBP, caller and nested return slots, and the writable byte interval. An overly broad interval weakens caller-memory preservation. |
 | [FieldSymbolic.v](FieldSymbolic.v), [FieldKernel.v](FieldKernel.v) | The shared checker for double4 and cached addition takes the decoded instructions, input intervals, output bounds, and target field expressions. Its soundness theorem requires the mask register, loads, initial values, and refinement hints to satisfy their specifications. Coq checks those obligations at each use. |
 | [post_hash/](post_hash/README.md) | Check the common queue layout, scalar-to-ladder handoff, and output lane mapping used by both post-hash policies. |

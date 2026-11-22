@@ -1,5 +1,6 @@
 From Coq Require Import ZArith List Bool.
 From Machine Require Import isa.X86.
+From Machine Require execution.Packed.
 Import ListNotations. Local Open Scope Z_scope.
 
 (* The two memory addressing forms used here. An optional RAX index uses
@@ -7,6 +8,8 @@ Import ListNotations. Local Open Scope Z_scope.
 Record address := Addr { base : nat; indexed : bool; displacement : Z }.
 Inductive instruction :=
 | LeaTwice (dst index : nat)
+| LoadG (dst:nat) (src:address)
+| UnpackWords (high:bool) (d a b:nat) | ShuffleWords (d a b imm:nat)
 | MovZX (two_bytes : bool) (src : address)
 | CopyEaxToR11d | ShrR11d (count : nat)
 | And32 (dst : nat) (imm : Z) | XorEax (imm : Z) | OrEaxR11d
@@ -37,6 +40,9 @@ Definition logic_imm (ext acc_opcode dst imm : Z) :=
 Definition encode ins := match ins with
 | LeaTwice d i => let r:=Z.of_nat d in let x:=Z.of_nat i in
     rex true r x r ++ [0x8d;modrm 0 r 4;64+8*(x mod 8)+r mod 8]
+| LoadG d a => rex true (Z.of_nat d) 0 (Z.of_nat (base a)) ++ [0x8b] ++ addressing 1 (Z.of_nat d) a
+| UnpackWords h d a b => Packed.encode (Packed.UnpackQ h d a b)
+| ShuffleWords d a b i => Packed.encode (Packed.Shuffle d a b i)
 | MovZX two a => rex false 0 0 (Z.of_nat (base a)) ++
     [0x0f;if two then 0xb7 else 0xb6] ++ addressing 1 0 a
 | CopyEaxToR11d => [0x41;0x89;0xc3]
@@ -55,6 +61,9 @@ end.
 Definition addr_ok a := (base a <? 16)%nat && (-2^31 <=? displacement a) && (displacement a <? 2^31).
 Definition valid ins := match ins with
 | LeaTwice d i => (d <? 16)%nat && (i <? 16)%nat && negb (Nat.eqb (d mod 8) 5) && negb (Nat.eqb i 4)
+| LoadG d a => (d <? 16)%nat && addr_ok a
+| UnpackWords h d a b => Packed.valid 0 (Packed.UnpackQ h d a b)
+| ShuffleWords d a b i => Packed.valid 0 (Packed.Shuffle d a b i)
 | MovZX _ a | AddRax a => addr_ok a
 | LoadY d a => (d <? 16)%nat && (base a <? 8)%nat && addr_ok a
 | LoadZ d a => (d <? 32)%nat && addr_ok a

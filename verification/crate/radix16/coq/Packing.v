@@ -1,6 +1,7 @@
 From Curve25519 Require Import SignedRadix16.
 From Coq Require Import List ZArith Lia.
 From Machine Require Import isa.Arithmetic isa.Shift isa.X86 execution.Packed execution.LinkedCalls memory.ByteMemory.
+From Ed25519Simd Require Import Radix16Output.
 From Ed25519Simd.Scalar Require Import ScalarSpec.
 Local Open Scope Z_scope.
 
@@ -11,7 +12,6 @@ Definition packed i j :=
  Add (if Nat.eqb i 0 then lo else RightQ lo (12*i))
      (LeftQ (biased (S i) j) (52-12*i)).
 Definition limb_words s := buffer_words (mem s) (regs s 7%nat).
-Definition chunk x i := (x/2^(64*Z.of_nat i)) mod 2^64.
 
 Local Lemma small_add a b : 0<=a+b<2^64 -> vpaddq a b=a+b.
 Proof. unfold vpaddq,low64. rewrite Z.land_ones by lia. apply Z.mod_small. Qed.

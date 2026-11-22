@@ -40,19 +40,24 @@ aliasing, on a CPU and OS that enable the required instructions. Page faults,
 concurrent interference, and timing or side-channel behavior lie outside
 this execution model. [Pointers and permissions](machine/execution/MachineState.v) · [Address placement and writes](machine/memory/FlatMemory.v) · [Byte execution](machine/memory/ByteExecution.v) · [SysV contract](machine/abi/SysV.v)
 
-**Packed byte operations.** Digest conversion and table staging use a straight-line interpreter
+**Packed byte operations.** Signature-scalar preparation, digest conversion and table staging use a straight-line interpreter
 for one RDI-relative buffer. Check byte order within qwords, 128-bit unpack
 boundaries, shuffle immediates, and the EVEX element width. A row read uses
 the latest 64-byte store to the same row or the incoming flat memory.
 Coq proves that each in-bounds store writes precisely its 64 bytes in flat
 memory. The linked call and return use the shared stack semantics. [Packed interpreter](machine/execution/Packed.v) · [Row store proof](machine/memory/PackedMemory.v) · [Hardware probe](machine/tests/PackedRows.v)
 
-**Indexed loads.** Staging executes each register-and-load block against its
+**Indexed loads.** Staging and signature-scalar preparation execute each register-and-load block against its
 incoming flat memory. Check 32-bit zero extension, 64-bit effective addresses,
 SIB and scaled displacements, vector upper halves and the width recorded for
-each memory operand. The contract checks those read extents and the alignment
-of the destination for the packed stores. The model relies on the caller to
+each memory operand. The contract checks those read extents and any alignment required for their stores. The model relies on the caller to
 map the stated buffers and code. [Indexed encoder](machine/isa/IndexedLoad.v) · [Block semantics](machine/execution/IndexedLoads.v) · [Hardware probe](machine/tests/Indexed.v)
+
+**Masked qword arithmetic.** For the signature-scalar check, review unsigned
+comparisons, cleared upper predicate bits, merge masking, blend selection and
+the bit order of KMOVW. The ELF audit checks the order constant in its
+file-backed read-only mapping. Coq relates the broadcast address to the signed
+displacement in the instruction bytes. [Mask semantics](machine/execution/MaskedWords.v) · [Hardware probe](machine/tests/MaskedWordProbe.v)
 
 **Mask-dependent execution.** The torsion and small-order routines branch on values
 computed by all eight lanes. The functional model reconstructs EAX comparisons
