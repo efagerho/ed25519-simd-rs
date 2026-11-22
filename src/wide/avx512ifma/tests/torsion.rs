@@ -1,18 +1,10 @@
 use super::*;
 
-fn torsion_multiples(vectors: &Value) -> WidePoint {
-    let fixture = vector_cases(vectors, "torsion_multiples")
-        .iter()
-        .find(|v| v["multiple"] == 1)
-        .unwrap();
-    let generator = hex_32(&fixture["encoding"]);
-    let (generator, valid) = decompress_points_wide(&[generator; LANES]);
+fn torsion_multiples() -> WidePoint {
+    let encodings = curve25519::constants::EIGHT_TORSION.map(|p| p.compress().to_bytes());
+    let (points, valid) = decompress_points_wide(&encodings);
     assert_eq!(valid, u8::MAX);
-    let mut torsion_multiples = [generator; LANES];
-    for j in 1..LANES {
-        torsion_multiples[j] = torsion_multiples[j - 1].add(&generator);
-    }
-    WidePoint::from_lane0_points(&torsion_multiples)
+    points
 }
 
 fn equation_inputs() -> (WidePoint, WidePoint, WidePoint) {
@@ -23,7 +15,7 @@ fn equation_inputs() -> (WidePoint, WidePoint, WidePoint) {
     assert_eq!(valid, u8::MAX);
     let (base, valid) = decompress_points_wide(&[BASEPOINT_COMPRESSED; LANES]);
     assert_eq!(valid, u8::MAX);
-    let positive = r.add(&torsion_multiples(&vectors));
+    let positive = r.add(&torsion_multiples());
     (positive, positive.add(&base), r)
 }
 
@@ -60,7 +52,7 @@ fn torsion_check_requires_all_lanes_for_early_acceptance() {
 
 #[test]
 fn small_order_identifies_torsion_lanes_for_every_mask() {
-    let torsion = torsion_multiples(&vectors());
+    let torsion = torsion_multiples();
     let (base, valid) = decompress_points_wide(&[BASEPOINT_COMPRESSED; LANES]);
     assert_eq!(valid, u8::MAX);
     let ordinary = torsion.add(&base);

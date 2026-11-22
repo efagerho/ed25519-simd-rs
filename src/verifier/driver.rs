@@ -111,10 +111,8 @@ impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
                 r_bytes: &r_bytes,
             };
             match decoded_r {
-                Some((r, mask)) => {
-                    P::verify_decoded(&chunk, self.base_table, &r, mask, &lanes, out)
-                }
-                None => P::verify_encoded(&chunk, self.base_table, lanes, queues, out),
+                Some((r, mask)) => P::verify_decoded(&chunk, &r, mask, &lanes, out),
+                None => P::verify_encoded(&chunk, lanes, queues, out),
             }
         } else {
             lanes.score(out, |_| false);
@@ -203,14 +201,7 @@ impl<P: VerificationPolicy> Verifier<P, NullKeyCache> {
                 digests: &digests,
                 r_bytes: &r_bytes,
             };
-            P::verify_decoded(
-                &chunk,
-                self.base_table,
-                &r_points,
-                r_valid_bits,
-                &lanes,
-                out,
-            );
+            P::verify_decoded(&chunk, &r_points, r_valid_bits, &lanes, out);
         } else {
             lanes.score(out, |_| false);
         }

@@ -19,7 +19,6 @@ pub(crate) mod dalek {
 }
 
 pub(crate) use decode::{WideRPoint, decode_keys_and_decompress_r, decode_public_key_table};
-pub(crate) use tables::build_basepoint_table_entries;
 
 const LANES: usize = crate::batch::SIMD_LANES;
 const _: () = assert!(LANES == 8, "avx512ifma assumes exactly 8 SIMD lanes");

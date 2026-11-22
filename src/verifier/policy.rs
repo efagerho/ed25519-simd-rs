@@ -2,7 +2,7 @@ use super::driver::{verify_cached_batch_for, verify_uncached_batch_for};
 use super::{SIMD_LANES, Verifier};
 use crate::batch::PendingLanes;
 use crate::cache::NullKeyCache;
-use crate::edwards::{BasepointTableEntries, PointTable};
+use crate::edwards::PointTable;
 use crate::hot_key_cache::HotKeyCache;
 use crate::input::VerifyInput;
 use crate::wide::{HashedChunk, avx512ifma};
@@ -99,14 +99,12 @@ pub(super) trait PolicyOps: VerificationPolicy {
 
     fn verify_encoded(
         chunk: &HashedChunk<'_>,
-        base: &BasepointTableEntries,
         lanes: PendingLanes,
         queues: &mut Self::Queues,
         out: &mut [bool],
     );
     fn verify_decoded(
         chunk: &HashedChunk<'_>,
-        base: &BasepointTableEntries,
         r: &avx512ifma::WideRPoint,
         r_valid: u8,
         lanes: &PendingLanes,
@@ -150,23 +148,21 @@ impl PolicyOps for Zip215Policy {
     #[inline(always)]
     fn verify_encoded(
         chunk: &HashedChunk<'_>,
-        base: &BasepointTableEntries,
         lanes: PendingLanes,
         queues: &mut Self::Queues,
         out: &mut [bool],
     ) {
-        queues.0.push(chunk, base, lanes, out);
+        queues.0.push(chunk, lanes, out);
     }
 
     fn verify_decoded(
         chunk: &HashedChunk<'_>,
-        base: &BasepointTableEntries,
         r: &avx512ifma::WideRPoint,
         r_valid: u8,
         lanes: &PendingLanes,
         out: &mut [bool],
     ) {
-        avx512ifma::zip215::Queue::check_decoded(chunk, base, r, r_valid, lanes, out);
+        avx512ifma::zip215::Queue::check_decoded(chunk, r, r_valid, lanes, out);
     }
 
     fn flush_queue(queues: &mut Self::Queues, out: &mut [bool]) {
@@ -210,23 +206,21 @@ impl PolicyOps for DalekPolicy {
     #[inline(always)]
     fn verify_encoded(
         chunk: &HashedChunk<'_>,
-        base: &BasepointTableEntries,
         lanes: PendingLanes,
         queues: &mut Self::Queues,
         out: &mut [bool],
     ) {
-        queues.0.push(chunk, base, lanes, out);
+        queues.0.push(chunk, lanes, out);
     }
 
     fn verify_decoded(
         chunk: &HashedChunk<'_>,
-        base: &BasepointTableEntries,
         r: &avx512ifma::WideRPoint,
         r_valid: u8,
         lanes: &PendingLanes,
         out: &mut [bool],
     ) {
-        avx512ifma::dalek::Queue::check_decoded(chunk, base, r, r_valid, lanes, out);
+        avx512ifma::dalek::Queue::check_decoded(chunk, r, r_valid, lanes, out);
     }
 
     fn flush_queue(queues: &mut Self::Queues, out: &mut [bool]) {

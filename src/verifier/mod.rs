@@ -3,7 +3,7 @@ mod policy;
 
 use crate::batch;
 use crate::cache::{KeyCache, NullKeyCache};
-use crate::edwards::{BasepointTable, BasepointTableEntries, PointTable};
+use crate::edwards::PointTable;
 use crate::input::VerifyInput;
 use driver::ChunkScratch;
 use std::sync::LazyLock;
@@ -13,11 +13,8 @@ pub use policy::{DalekPolicy, VerificationPolicy, VerifyPolicy, Zip215Policy};
 const SIMD_LANES: usize = batch::SIMD_LANES;
 const R_ENCODING_LEN: usize = batch::R_ENCODING_LEN;
 
-// Shared once per process; the base-point table is policy- and cache-independent.
-static BASE_TABLE: LazyLock<BasepointTable> = LazyLock::new(BasepointTable::new);
-
 // Placeholder table for invalid/missing lanes, also shared across verifiers.
-static IDENTITY_TABLE: LazyLock<PointTable> = LazyLock::new(PointTable::cold_identity);
+static IDENTITY_TABLE: LazyLock<PointTable> = LazyLock::new(PointTable::identity);
 
 /// Batch Ed25519 verifier for a compile-time [`VerificationPolicy`] and [`KeyCache`].
 /// Reuse one across [`verify_batch`](Verifier::verify_batch) calls.
@@ -27,7 +24,6 @@ static IDENTITY_TABLE: LazyLock<PointTable> = LazyLock::new(PointTable::cold_ide
 #[derive(Debug)]
 pub struct Verifier<P: VerificationPolicy = Zip215Policy, C: KeyCache = NullKeyCache> {
     policy: core::marker::PhantomData<P>,
-    base_table: &'static BasepointTableEntries,
     // Invalid lanes are masked out but still need a real ladder table.
     identity_table: &'static PointTable,
     visit_order: Vec<usize>,
@@ -72,7 +68,6 @@ impl<P: VerificationPolicy, C: KeyCache> Verifier<P, C> {
     pub fn with_cache(cache: C) -> Self {
         Self {
             policy: core::marker::PhantomData,
-            base_table: BASE_TABLE.entries(),
             identity_table: &*IDENTITY_TABLE,
             visit_order: Vec::new(),
             queues: C::Queues::<P>::default(),

@@ -2,10 +2,7 @@ use super::decode::decompress_points_wide;
 use super::field::{WideFe, loadu, storeu};
 use super::point::WidePoint;
 use super::*;
-use crate::edwards::{
-    AffineCachedPoint, BASEPOINT_COMPRESSED, BasepointTable, CachedPoint, POINT_ENCODING_LEN,
-    select_signed_affine_cached_ref,
-};
+use crate::edwards::{AffineCachedPoint, BASEPOINT_TABLE, CachedPoint, POINT_ENCODING_LEN};
 use crate::field::LIMB_COUNT;
 use curve25519::edwards::CompressedEdwardsY;
 use ladder::{PreparedChunk, mul_s_base_minus_k_public};
@@ -19,6 +16,8 @@ mod point;
 mod recompress;
 mod torsion;
 
+const BASEPOINT_COMPRESSED: [u8; POINT_ENCODING_LEN] =
+    curve25519::constants::ED25519_BASEPOINT_COMPRESSED.to_bytes();
 const VECTOR_JSON: &str = include_str!("../../../tests/vectors/avx512ifma.json");
 
 fn vectors() -> Value {
@@ -106,25 +105,17 @@ fn cached_encoding(point: &CachedPoint) -> [u8; POINT_ENCODING_LEN] {
     point.compress()[0]
 }
 
-fn affine_cached_encoding(point: &AffineCachedPoint) -> [u8; POINT_ENCODING_LEN] {
-    let (y_plus_x, y_minus_x, _) = point.coords();
-    let y_plus_x = WideFe::from_field_refs(&[y_plus_x; LANES]);
-    let y_minus_x = WideFe::from_field_refs(&[y_minus_x; LANES]);
-    let point = WidePoint {
-        x: y_plus_x.subtract(&y_minus_x),
-        y: y_plus_x.add_loose(&y_minus_x),
-        z: WideFe::one().double(),
-        t: WideFe::zero(),
-    };
-    point.compress()[0]
-}
-
-fn strict_square_n(x: &WideFe, n: usize) -> WideFe {
-    let mut out = *x;
-    for _ in 0..n {
-        out = out.square();
+// Test-only Fermat inversion for normalizing reference coordinates. The exponent
+// p - 2 has all 255 bits set except bits 2 and 4.
+fn invert(value: &WideFe) -> WideFe {
+    let mut result = WideFe::one();
+    for bit in (0..255).rev() {
+        result = result.multiply(&result);
+        if bit != 2 && bit != 4 {
+            result = result.multiply(value);
+        }
     }
-    out
+    result
 }
 
 #[test]
@@ -168,7 +159,6 @@ fn wide_field_operations_match_vectors() {
     assert_wide_bytes(a.subtract(&b), cases, "subtract", 0);
     assert_wide_bytes(a.multiply(&b), cases, "multiply", 0);
     assert_wide_bytes(a.multiply_loose(&b), cases, "multiply", 0);
-    assert_wide_bytes(a.square(), cases, "square", 0);
     assert_wide_bytes(a.square_loose(), cases, "square", 0);
 
     let ab = a.multiply_loose(&b);
@@ -205,42 +195,7 @@ fn loose_limb0_bound_matches_vectors() {
         "double_negate",
         0,
     );
-    assert_wide_bytes(wide.square(), cases, "square", 0);
     assert_wide_bytes(wide.square_loose(), cases, "square", 0);
-}
-
-#[test]
-fn square_repeat_matches_strict_simd_result() {
-    let a = WideFe::constant(crate::field::D_LIMBS);
-    let b = WideFe::constant(crate::field::SQRT_M1_LIMBS);
-    macro_rules! check {
-        ($n:literal) => {
-            assert!(
-                WideFe::square_repeat::<$n>(&a)
-                    .equals_lanes(&strict_square_n(&a, $n))
-                    .iter()
-                    .all(|&v| v),
-                "square_repeat::<{}> diverged for a",
-                $n
-            );
-            assert!(
-                WideFe::square_repeat::<$n>(&b)
-                    .equals_lanes(&strict_square_n(&b, $n))
-                    .iter()
-                    .all(|&v| v),
-                "square_repeat::<{}> diverged for b",
-                $n
-            );
-        };
-    }
-    check!(0);
-    check!(1);
-    check!(2);
-    check!(5);
-    check!(10);
-    check!(20);
-    check!(50);
-    check!(100);
 }
 
 fn pow_p_minus_5_over_8_x2(a: &WideFe, b: &WideFe) -> (WideFe, WideFe) {
@@ -439,28 +394,47 @@ fn deferred_zip215_decodes_single_and_paired_chunks() {
 }
 
 #[test]
-fn cached_tables_match_basepoint_vectors() {
+fn public_key_table_matches_basepoint_vectors() {
     let vectors = vectors();
     let cases = vector_cases(&vectors, "basepoint_multiples");
     let public_table = decode_public_key_table(&BASEPOINT_COMPRESSED).expect("basepoint decodes");
-    let base_table = BasepointTable::new();
 
     for case in cases {
         let scalar = case["scalar"].as_i64().expect("scalar is an integer") as i16;
         let expected = hex_32(&case["encoding"]);
-        assert_eq!(
-            affine_cached_encoding(select_signed_affine_cached_ref(
-                base_table.entries(),
-                scalar,
-            )),
-            expected,
-            "fixed-base table digit {scalar}"
-        );
         if (-8..=8).contains(&scalar) {
             assert_eq!(
                 cached_encoding(public_table.select_signed_cached_ref(scalar as i8)),
                 expected,
                 "public-key table digit {scalar}"
+            );
+        }
+    }
+}
+
+#[test]
+fn embedded_basepoint_table_matches_every_signed_multiple() {
+    use crate::edwards::BASEPOINT_TABLE_SIZE;
+    use curve25519::{edwards::EdwardsPoint, scalar::Scalar};
+
+    for (index, entry) in BASEPOINT_TABLE.iter().enumerate() {
+        let digit = index as i16 - BASEPOINT_TABLE_SIZE as i16;
+        let magnitude = Scalar::from(digit.unsigned_abs());
+        let scalar = if digit < 0 { -magnitude } else { magnitude };
+        let encoded = EdwardsPoint::mul_base(&scalar).compress().to_bytes();
+        let (p, valid) = decompress_points_wide(&[encoded; LANES]);
+        assert_eq!(valid, u8::MAX);
+
+        let (plus, minus, t2d) = entry.coords();
+        for (name, stored, expected) in [
+            ("y-x", minus, p.y.subtract(&p.x)),
+            ("y+x", plus, p.y.add(&p.x)),
+            ("2dxy", t2d, WideFe::two_d().multiply(&p.x).multiply(&p.y)),
+        ] {
+            assert_eq!(
+                stored.loose_limbs(),
+                expected.canonical().lane0().loose_limbs(),
+                "[{digit}]B {name}"
             );
         }
     }
@@ -499,7 +473,6 @@ fn wide_torsion_operations_match_vectors() {
 #[test]
 fn wide_multiscalar_matches_nontrivial_basepoint_relation() {
     let table = decode_public_key_table(&BASEPOINT_COMPRESSED).expect("basepoint decodes");
-    let base_table = BasepointTable::new();
     let mut two_bytes = [0u8; 32];
     two_bytes[0] = 2;
     let two = crate::scalar::CanonicalScalar::from_canonical_bytes(two_bytes);
@@ -513,7 +486,7 @@ fn wide_multiscalar_matches_nontrivial_basepoint_relation() {
         s_digits: &s_digits,
         k_digits: &k_digits,
     };
-    let combined = mul_s_base_minus_k_public::<true>(base_table.entries(), &prepared);
+    let combined = mul_s_base_minus_k_public::<true>(&BASEPOINT_TABLE, &prepared);
     // 2B - 1B = B exercises both signed-digit inputs and both tables.
     assert_eq!(combined.compress(), [BASEPOINT_COMPRESSED; LANES]);
 }

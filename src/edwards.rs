@@ -3,12 +3,6 @@ use crate::field::Fe51;
 /// Byte length of a compressed Edwards point encoding (sign bit + `y`).
 pub(crate) const POINT_ENCODING_LEN: usize = 32;
 
-/// The standard RFC 8032 encoding of the Ed25519 base point `B`.
-pub(crate) const BASEPOINT_COMPRESSED: [u8; POINT_ENCODING_LEN] = [
-    0x58, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-    0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-];
-
 /// Precomputed signed multiples `[-8]P..=[8]P` for variable-base multiplication.
 ///
 /// The signed-indexed layout avoids a hot branch: digit `-3`
@@ -17,18 +11,6 @@ pub(crate) struct PointTable {
     entries: [core::mem::MaybeUninit<CachedPoint>; SIGNED_POINT_TABLE_SIZE],
     #[cfg(debug_assertions)]
     initialized_entries: u32,
-}
-
-/// Precomputed signed multiples `[n]B` of the Ed25519 base point. Fixed-base
-/// scalar multiplication decomposes the scalar into signed radix-16 digits and
-/// folds adjacent digits into a table index.
-///
-/// `320` has radix-16 digits `(0, 4, 1)`. Folding adjacent pairs
-/// gives `64 = 0 + 16 * 4` and `1`, so the multiplication starts with `[1]B`,
-/// doubles it eight times to get `[256]B`, then adds `[64]B` to get `[320]B`.
-#[derive(Clone, Debug)]
-pub(crate) struct BasepointTable {
-    entries: Box<BasepointTableEntries>,
 }
 
 // The ladder folds two radix-16 digits into a radix-256 digit with
@@ -44,6 +26,18 @@ const SIGNED_BASEPOINT_TABLE_SIZE: usize = 2 * BASEPOINT_TABLE_SIZE + 1;
 /// A folded digit of `-12` directly indexes the cached `[-12]B`
 /// entry, replacing several point additions with one lookup and one addition.
 pub(crate) type BasepointTableEntries = [AffineCachedPoint; SIGNED_BASEPOINT_TABLE_SIZE];
+
+/// Read-only affine cache for the fixed base point, in signed digit order.
+pub(crate) static BASEPOINT_TABLE: BasepointTableEntries = {
+    const fn entry(y_minus_x: [u64; 5], y_plus_x: [u64; 5], t2d: [u64; 5]) -> AffineCachedPoint {
+        AffineCachedPoint {
+            y_minus_x: Fe51::from_limbs_unchecked(y_minus_x),
+            y_plus_x: Fe51::from_limbs_unchecked(y_plus_x),
+            t2d: Fe51::from_limbs_unchecked(t2d),
+        }
+    }
+    include!("edwards/basepoint_table.in")
+};
 
 /// A projective point in the form consumed by the extended Edwards addition
 /// formula. Scalar multiplication repeatedly adds table-selected points; caching
@@ -117,6 +111,7 @@ const _: () = {
     assert!(offset_of!(AffineCachedPoint, t2d) == 80);
 };
 
+#[cfg(test)]
 impl AffineCachedPoint {
     pub(crate) fn identity() -> Self {
         Self {
@@ -126,8 +121,6 @@ impl AffineCachedPoint {
         }
     }
 
-    /// Accept loosely-reduced fields (`< 2^52` per limb) produced by the
-    /// SIMD basepoint-table builder.
     pub(crate) fn from_fields(y_plus_x: Fe51, y_minus_x: Fe51, t2d: Fe51) -> Self {
         Self {
             y_plus_x,
@@ -136,22 +129,12 @@ impl AffineCachedPoint {
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn coords(&self) -> (&Fe51, &Fe51, &Fe51) {
         (&self.y_plus_x, &self.y_minus_x, &self.t2d)
     }
 }
 
 impl PointTable {
-    #[cfg(test)]
-    pub(crate) fn identity() -> Self {
-        Self {
-            entries: core::array::from_fn(|_| core::mem::MaybeUninit::new(CachedPoint::identity())),
-            #[cfg(debug_assertions)]
-            initialized_entries: ALL_POINT_TABLE_ENTRIES,
-        }
-    }
-
     /// Create a decode-time destination with only its identity slot filled.
     ///
     /// # Safety
@@ -168,10 +151,8 @@ impl PointTable {
         }
     }
 
-    /// Initialization-only copy kept separate from the verifier's hot SIMD
-    /// table builder so extra setup call sites do not change its inlining.
     #[inline(never)]
-    pub(crate) fn cold_identity() -> Self {
+    pub(crate) fn identity() -> Self {
         Self {
             entries: core::array::from_fn(|_| core::mem::MaybeUninit::new(CachedPoint::identity())),
             #[cfg(debug_assertions)]
@@ -243,48 +224,5 @@ impl Clone for PointTable {
 impl core::fmt::Debug for PointTable {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         formatter.debug_struct("PointTable").finish_non_exhaustive()
-    }
-}
-
-impl BasepointTable {
-    #[cold]
-    pub(crate) fn new() -> Self {
-        Self {
-            entries: crate::wide::avx512ifma::build_basepoint_table_entries(),
-        }
-    }
-
-    pub(crate) fn entries(&self) -> &BasepointTableEntries {
-        &self.entries
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn select_signed_affine_cached_ref(
-    entries: &BasepointTableEntries,
-    digit: i16,
-) -> &AffineCachedPoint {
-    debug_assert!(
-        (-(BASEPOINT_TABLE_SIZE as i16)..=(BASEPOINT_TABLE_SIZE as i16)).contains(&digit)
-    );
-    // SAFETY: Folding two radix-16 digits bounds `digit` to
-    // `-BASEPOINT_TABLE_SIZE..=BASEPOINT_TABLE_SIZE`.
-    unsafe { entries.get_unchecked((digit + BASEPOINT_TABLE_SIZE as i16) as usize) }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A regression overflows this thread's stack, which aborts the whole
-    /// test process (SIGSEGV) rather than failing just this test.
-    #[test]
-    fn basepoint_table_constructs_on_a_small_stack() {
-        std::thread::Builder::new()
-            .stack_size(64 * 1024)
-            .spawn(|| std::hint::black_box(BasepointTable::new()))
-            .unwrap()
-            .join()
-            .unwrap();
     }
 }

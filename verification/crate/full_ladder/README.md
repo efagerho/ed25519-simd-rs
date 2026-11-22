@@ -14,7 +14,10 @@ return in the model and covers every permitted return.
 1. In `full_product`, check the eight lanes, the sign on k, the digit
    order, both T modes and the output bounds. `valid_tables` requires the
    signed key and affine tables to represent the specified multiples of
-   each lane's A and of B. It constrains the contents of the Rust tables.
+   each lane's A and of B. Check the runtime key tables and the
+   [embedded basepoint entries](../../../src/edwards/basepoint_table.in) against
+   this premise. The [table generator](../../../src/edwards/generate_basepoint_table.py)
+   computes the signed multiples with affine Edwards arithmetic.
    The proof obtains their selected indices and words from the staging
    theorem. The caller supplies bounded digits, valid tables, readable
    inputs and disjoint writable memory. Read the placement conditions

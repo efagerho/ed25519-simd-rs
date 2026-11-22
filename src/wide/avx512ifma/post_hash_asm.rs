@@ -3,7 +3,7 @@ use super::LANES;
 use super::decode::WideRPoint;
 use super::point::WidePoint;
 use crate::batch::{EncodedPointChunk, PendingLanes};
-use crate::edwards::{AffineCachedPoint, BasepointTableEntries, CachedPoint, PointTable};
+use crate::edwards::{AffineCachedPoint, BASEPOINT_TABLE, CachedPoint, PointTable};
 use crate::scalar::Radix16;
 use crate::wide::HashedChunk;
 use core::mem::{MaybeUninit, align_of, offset_of, size_of};
@@ -19,10 +19,10 @@ struct Inputs {
 }
 
 impl Inputs {
-    fn new(chunk: &HashedChunk<'_>, base: &BasepointTableEntries) -> Self {
+    fn new(chunk: &HashedChunk<'_>) -> Self {
         Self {
             keys: chunk.public_key_tables.map(PointTable::entries_ptr),
-            base: base.as_ptr(),
+            base: BASEPOINT_TABLE.as_ptr(),
             s: chunk.s_digits.as_ptr(),
             digests: chunk.digests.as_ptr(),
         }
@@ -117,13 +117,12 @@ pub(crate) fn reject_small_order_keys(tables: &[&PointTable; LANES], valid: &mut
 impl<const DALEK: bool> Queue<DALEK> {
     pub(crate) fn check_decoded(
         chunk: &HashedChunk<'_>,
-        base: &BasepointTableEntries,
         r: &WideRPoint,
         r_valid: u8,
         lanes: &PendingLanes,
         out: &mut [bool],
     ) {
-        let inputs = Inputs::new(chunk, base);
+        let inputs = Inputs::new(chunk);
         // SAFETY: the buffers in inputs and the aligned affine point remain borrowed
         // for the call. Scatter checks each active index and writes a bool byte.
         let ok = unsafe {
@@ -144,15 +143,9 @@ impl<const DALEK: bool> Queue<DALEK> {
         assert_eq!(ok, 1, "invalid verification output positions");
     }
 
-    pub(crate) fn push(
-        &mut self,
-        chunk: &HashedChunk<'_>,
-        base: &BasepointTableEntries,
-        lanes: PendingLanes,
-        out: &mut [bool],
-    ) {
+    pub(crate) fn push(&mut self, chunk: &HashedChunk<'_>, lanes: PendingLanes, out: &mut [bool]) {
         let queue = self.0.get_or_insert_with(Box::default);
-        let inputs = Inputs::new(chunk, base);
+        let inputs = Inputs::new(chunk);
         // SAFETY: queue is exclusive and aligned. Push initializes all three
         // slot fields before increasing the count. Rejected chunks score directly.
         let ok = unsafe {

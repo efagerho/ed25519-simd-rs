@@ -142,7 +142,7 @@ impl WidePoint {
     }
 
     pub(super) fn compress(&self) -> [[u8; POINT_ENCODING_LEN]; LANES] {
-        let zinv = self.z.invert();
+        let zinv = invert(&self.z);
         let x = self.x.multiply(&zinv);
         let y = self.y.multiply(&zinv);
         let x_odd_mask = x.is_odd_mask();
