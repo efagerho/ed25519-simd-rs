@@ -5,7 +5,8 @@ const MASK: u64 = (1u64 << LIMB_BITS) - 1;
 // Number of 51-bit limbs needed to represent a value modulo p = 2^255 - 19.
 pub(crate) const LIMB_COUNT: usize = 5;
 
-// 51-bit curve constants broadcast by the SIMD field path.
+// Curve constants used by the test reference arithmetic.
+#[cfg(test)]
 pub(crate) const TWO_D_LIMBS: [u64; LIMB_COUNT] = [
     1_859_910_466_990_425,
     932_731_440_258_426,

@@ -1,6 +1,6 @@
 //! Rust-side adapters for exercising private point kernels and inspecting their output.
 #[cfg(debug_assertions)]
-use super::super::field::limbs_are_ifma_operands;
+use super::field::limbs_are_ifma_operands;
 use super::*;
 use crate::field::Fe51;
 
@@ -151,5 +151,49 @@ impl WidePoint {
             encoding[31] |= ((x_odd_mask >> lane) & 1) << 7;
         }
         bytes
+    }
+
+    // Reference formulas for the point-kernel tests.
+    pub(super) fn add(&self, rhs: &Self) -> Self {
+        let a = self.y.subtract(&self.x).multiply(&rhs.y.subtract(&rhs.x));
+        let b = self.y.add_loose(&self.x).multiply(&rhs.y.add_loose(&rhs.x));
+        let c = self.t.multiply(&rhs.t).multiply(&WideFe::two_d());
+        let d = self.z.multiply(&rhs.z).double_loose();
+        let e = b.subtract(&a);
+        let f = d.subtract(&c);
+        let g = d.add_loose(&c);
+        let h = b.add_loose(&a);
+
+        Self {
+            x: e.multiply(&f),
+            y: g.multiply(&h),
+            t: e.multiply(&h),
+            z: f.multiply(&g),
+        }
+    }
+
+    pub(super) fn double(&self) -> Self {
+        // Loose squares feed additive ops; use loose-input subtract/negate for
+        // limb0 values up to ~2^60.
+        let a = self.x.square_loose();
+        let b = self.y.square_loose();
+        let z2 = self.z.square_loose();
+        let e = self
+            .x
+            .add_loose(&self.y)
+            .square_loose()
+            .subtract_loose_sum(&a, &b);
+        let g = b.subtract_loose(&a);
+        // `f = b - a - 2*z^2`; the factor of two rides along in the subtract.
+        let f = b.subtract_loose_sum_with_doubled_rhs(&a, &z2);
+        let h = WideFe::negate_loose_sum(&a, &b);
+        let t = e.multiply(&h);
+
+        Self {
+            x: e.multiply(&f),
+            y: g.multiply(&h),
+            t,
+            z: f.multiply(&g),
+        }
     }
 }
