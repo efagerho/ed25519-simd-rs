@@ -78,44 +78,55 @@ Qed.
 
 Lemma gather_row s j c i : column s j (Z.of_nat c) i=table_row s j false 8 (5*c+i)%nat.
 Proof. unfold column,table_row,table_address,table_disp. f_equal;rewrite Nat2Z.inj_add,Nat2Z.inj_mul;ring. Qed.
-Lemma filter_correct s B A eligible j : valid_tables s B A -> (j<8)%nat ->
- (filter_keys s eligible j=true <-> eligible j=true /\ multiple 8 (A j)<>identity).
+(* The filter gathers only positive digit eight from the selected key table. *)
+Lemma filter_lane_correct s P eligible j :
+ (forall i,(i<20)%nat -> 0<=table_row s j false 8 i<2^52) ->
+ represents_cache (scalar_cache false (table_row s j false 8)) (multiple 8 P) ->
+ (j<8)%nat ->
+ (filter_keys s eligible j=true <-> eligible j=true /\ multiple 8 P<>identity).
 Proof.
- intros T J;destruct(T j false 8 J ltac:(unfold legal_index;lia)) as [Bound Rep].
+ intros Bound Rep J.
  set (a:=table_row s j false 8) in *.
  assert (V:forall c, (c<4)%nat -> split_field(column s j (Z.of_nat c))).
  { intros c C i I;rewrite gather_row;specialize(Bound (5*c+i)%nat ltac:(cbn;lia));fold a;unfold split;lia. }
- set (P:=multiple 8 (A j)).
+ set (Q:=multiple 8 P) in *.
  destruct Rep as [z [NZ [Minus [Plus [_ ZZ]]]]].
- change (value(fun i=>a (5*0+i)%nat) = ((y P-x P)*z)%fp) in Minus.
- change (value(fun i=>a (5*1+i)%nat) = ((y P+x P)*z)%fp) in Plus.
+ change (value(fun i=>a (5*0+i)%nat) = ((y Q-x Q)*z)%fp) in Minus.
+ change (value(fun i=>a (5*1+i)%nat) = ((y Q+x Q)*z)%fp) in Plus.
  change (value(fun i=>a (5*3+i)%nat) = ((1+1)*z)%fp) in ZZ.
  assert (Val:forall c,value(column s j (Z.of_nat c))=value(fun i=>a (5*c+i)%nat))
  by (intro c;unfold value,pack,limbs;now rewrite !gather_row).
  pose proof (Val 0%nat) as V0;pose proof (Val 1%nat) as V1;pose proof (Val 3%nat) as V3.
  cbn [Z.of_nat Pos.of_succ_nat Pos.succ] in V0,V1,V3.
- assert (F:first s j=true <-> x P=0%fp).
+ assert (F:first s j=true <-> x Q=0%fp).
  { unfold first;rewrite equal_columns_ok by (apply (V 1%nat) || apply (V 0%nat);lia).
    rewrite V1,V0,Plus,Minus.
    split;intro H;[|rewrite H;ring].
-   assert (Zero:((1+1)*x P*z=0)%fp) by
-    (replace ((1+1)*x P*z)%fp with (((y P+x P)*z)-((y P-x P)*z))%fp by ring;rewrite H;ring).
+   assert (Zero:((1+1)*x Q*z=0)%fp) by
+    (replace ((1+1)*x Q*z)%fp with (((y Q+x Q)*z)-((y Q-x Q)*z))%fp by ring;rewrite H;ring).
    apply product_zero in Zero as [Zr|Zr];[|contradiction].
    apply product_zero in Zr as [Zr|Zr];[discriminate|assumption]. }
- assert (G:first s j && second s j=true <-> P=identity).
+ assert (G:first s j && second s j=true <-> Q=identity).
  { rewrite andb_true_iff,F. unfold second;rewrite equal_columns_ok by (apply (V 0%nat) || apply (V 3%nat);lia).
    rewrite V0,V3,Minus,ZZ.
    split;[intros [X Y]|intros ->;cbn [identity x y];split;[reflexivity|ring]].
-   apply point_ext;split;[exact X|]. change (y P=1%fp).
-   assert (Zero:((1+1)*(y P-1)*z=0)%fp) by
-    (replace ((1+1)*(y P-1)*z)%fp with
-      (((y P-x P)*z+(y P-x P)*z)-(1+1)*z)%fp by (rewrite X;ring);rewrite Y;ring).
+   apply point_ext;split;[exact X|]. change (y Q=1%fp).
+   assert (Zero:((1+1)*(y Q-1)*z=0)%fp) by
+    (replace ((1+1)*(y Q-1)*z)%fp with
+      (((y Q-x Q)*z+(y Q-x Q)*z)-(1+1)*z)%fp by (rewrite X;ring);rewrite Y;ring).
    destruct(proj1(product_zero _ _) Zero) as [Zr|Zr];[|contradiction].
    apply product_zero in Zr as [Zr|Zr];[discriminate|].
-   replace (y P) with ((y P-1)+1)%fp by ring;rewrite Zr;ring. }
+   replace (y Q) with ((y Q-1)+1)%fp by ring;rewrite Zr;ring. }
  assert (Flow:forall b,reaches Filter FirstDifference b false KeysDone=b) by (destruct b;reflexivity).
  unfold filter_keys;rewrite Flow;destruct (byte (first s)=?0) eqn:M.
  - apply Z.eqb_eq in M. assert (Off:first s j=false) by (rewrite <-(byte_bit _ _ J),M,Z.bits_0;reflexivity).
    rewrite Off in G;intuition discriminate.
  - rewrite andb_true_iff,negb_true_iff. destruct (first s j && second s j);cbn in G;intuition congruence.
+Qed.
+
+Lemma filter_correct s B A eligible j : valid_tables s B A -> (j<8)%nat ->
+ (filter_keys s eligible j=true <-> eligible j=true /\ multiple 8 (A j)<>identity).
+Proof.
+ intros T J;destruct (T j false 8 J ltac:(unfold legal_index;lia)) as [Bound Rep].
+ now apply filter_lane_correct.
 Qed.
