@@ -5,12 +5,13 @@ import shutil
 import subprocess
 import tempfile
 
-from listing import DOUBLE, point_program
+from listing import ADD, DOUBLE, point_program
 from evidence import write_evidence
 from proof_build import compile_libraries, library_flags
 
 HERE = Path(__file__).resolve().parent
-FLAGS = ["-Q", "Point", "Ed25519Simd.Point", "-Q", "Double4", "Ed25519Simd.Double4", *library_flags()]
+FLAGS = ["-Q", "Point", "Ed25519Simd.Point", "-Q", "Double4", "Ed25519Simd.Double4",
+         "-Q", "CachedAdd", "Ed25519Simd.CachedAdd", *library_flags()]
 
 
 def compile_module(work, ns, name, source=None):
@@ -26,10 +27,13 @@ def audit(elf, work):
     dest.mkdir()
     (work / "Double4").mkdir()
     compile_module(work, "Double4", "Double4ABI", HERE.parent / "double4/coq")
+    (work / "CachedAdd").mkdir()
+    compile_module(work, "CachedAdd", "CachedAddABI", HERE.parent / "cached_add/coq")
     symbols = point_program(elf, dest, DOUBLE, "Double")
-    for name in ("DoubleBytes", "Double"):
+    symbols.extend(point_program(elf, dest, ADD, "Add"))
+    for name in ("DoubleBytes", "Double", "AddBytes", "Add"):
         compile_module(work, "Point", name)
-    for name in ("DoublePath", "Audit", "Object"):
+    for name in ("DoublePath", "AddPath", "Audit", "Object"):
         compile_module(work, "Point", name, HERE / "coq")
     (dest / "Checked.v").write_text(
         "From Ed25519Simd.Point Require Audit Object.\n"
