@@ -1,3 +1,4 @@
+From Ed25519Simd Require Import PointResults.
 From Coq Require Import ZArith List Lia Bool.
 From Machine Require Import execution.LinkedCalls execution.WordBounds memory.ByteMemory
  memory.FlatMemory memory.MemoryGeometry execution.WordSemantics.
@@ -54,8 +55,15 @@ Lemma slice_eq t u row n : agrees 440 t u -> (8*row+n<=440)%nat ->
 Proof. intros E N i I;unfold slice;apply E;lia. Qed.
 Lemma cache_eq f w v : agrees (if f:bool then 120 else 160) w v -> cache_bounds f w -> cache_bounds f v.
 Proof. intros E H i j I J;unfold cell;rewrite <-E by (destruct f;lia);apply H;assumption. Qed.
-Lemma strict_eq w v : agrees 160 w v -> strict w -> strict v.
-Proof. intros E H c j C J i I;unfold cell;rewrite <-E by lia;apply(H c j C J i I). Qed.
+Lemma cached_bounds_eq w v : agrees 160 w v -> cached_point_bounds w -> cached_point_bounds v.
+Proof. intros E H r j R J;unfold cell;rewrite <-E by lia;apply H;assumption. Qed.
+Lemma bounded_words mode w : point_bounds mode w ->words 160 w.
+Proof.
+ intros B i I. pose proof(Nat.div_mod i 8 ltac:(lia))as D. pose proof(Nat.mod_upper_bound i 8 ltac:(lia))as J.
+ pose proof(handoff_bounds _ _ B (i/8)%nat (i mod 8)%nat ltac:(lia) J)as H.
+ unfold cell in H;replace (i/8*8+i mod 8)%nat with i in H by lia.
+ unfold cached_point_limit,Radix51.folded_column_bound,Radix51.split,word64 in *;destruct (Nat.ltb (i/8) 10);lia.
+Qed.
 Lemma loose_eq w v : agrees 160 w v -> loose_xyz w -> loose_xyz v.
 Proof. intros E H c j C J;eapply loose_ext;[|exact (H c j C J)];intros i I;unfold cell;apply E;lia. Qed.
 Lemma agrees_sym n w v : agrees n w v -> agrees n v w.
@@ -66,7 +74,7 @@ Proof.
  intros P B H;apply agrees_sym in P;apply agrees_sym in B.
  destruct e as [| | |f a row|f];try contradiction.
  - eapply loose_eq;eauto.
- - destruct H as [W [C Len]];split;[eapply strict_eq;eauto|];split;[|exact Len].
+ - destruct H as [W [C Len]];split;[eapply cached_bounds_eq;eauto|];split;[|exact Len].
    eapply cache_eq;[apply slice_eq;[exact B|destruct a;cbn [footprint] in Len;lia]|exact C].
  - destruct H as [W [O [A E]]];split;[eapply loose_eq;eauto|];split;[|split];
    [eapply cache_eq;[|exact O]|eapply cache_eq;[|exact A]|eapply cache_eq;[|exact E]];apply slice_eq;try exact B;cbn;lia.
@@ -75,8 +83,8 @@ Lemma transport_post e w t p b v : agrees 160 p w -> agrees 440 b t -> pre e w t
  post e p b v -> post e w t v.
 Proof.
  intros P B Pre H;destruct e as [| | |f a row|f];try contradiction.
- - eapply Double4Spec.spec_ext;[apply agrees_sym,P|intros;reflexivity|exact H].
- - destruct Pre as [_ [_ Len]]. eapply CachedAddSpec.spec_ext;[apply agrees_sym,P| |intros;reflexivity|exact H].
+ - eapply double_spec_ext;unfold agrees_words;[apply agrees_sym,P|intros;reflexivity|exact H].
+ - destruct Pre as [_ [_ Len]]. eapply addition_spec_ext;unfold agrees_words;[apply agrees_sym,P| |intros;reflexivity|exact H].
    apply agrees_sym,slice_eq;[exact B|destruct a;cbn [footprint] in Len;lia].
  - destruct H as [Strict [V T]];split;[exact Strict|split;[|exact T]].
    intros j J;specialize(V j J);cbv beta in V;rewrite (point_values_ext _ _ _ P J) in V.
@@ -115,23 +123,13 @@ Proof.
  assert (WF:well_formed (CPU (child_regs pt base e (fun _=>0)) (fun _ _=>0) None m)).
  { split;[|split;[intros;change (0<=0<2^64);lia|exact B]].
    unfold child_regs;cbn [regs];destruct e as [| | |f a row|f];try contradiction;
-   repeat apply put_words;unfold bits,CachedAddABI.flag_word,word64,fits64 in *;
+   try (destruct (defer_add f a));repeat apply put_words;unfold bits,CachedAddABI.flag_word,word64,fits64 in *;
    try (intros;lia);try (destruct f;lia);try (destruct a;lia).
-   destruct P as [_ [_ Len]];destruct a;cbn [footprint] in Len;lia. }
+   all: destruct P as [_ [_ Len]];destruct a;cbn [footprint] in Len;lia. }
  destruct(child_correct slide pt base e _ _ _ _ Arena WF Ret (transport_pre _ _ _ _ _ PV BV P))
    as [out [Run [Spec U]]].
  exists (buffer_words (mem out) pt);split.
  - exists (fun _=>0),(fun _ _=>0),None,m,out;split;[constructor;assumption|auto].
  - pose proof(transport_post _ _ _ _ _ _ PV BV P Spec) as Post;split;[exact Post|].
-   assert (Strict:strict (buffer_words (mem out) pt)).
-   { destruct e;try contradiction.
-     - intros c j C J;apply (proj1(Post P j c J C)).
-     - destruct P as [S [C _]];intros c j K J;apply (proj1(proj2 Post (conj (split_cached_point _ (strict_split _ S)) C) j c J K)).
-     - apply Post. }
-   intros i I;set (row:=(i/8)%nat);set (j:=(i mod 8)%nat).
-   assert (J:(j<8)%nat) by (apply Nat.mod_upper_bound;lia).
-   assert (R:(row<20)%nat) by (apply Nat.div_lt_upper_bound;lia).
-   pose proof(strict_split _ Strict row j R J) as H;unfold cell in H.
-   replace (row*8+j)%nat with i in H by (unfold row,j;pose proof(Nat.div_mod i 8 ltac:(lia));lia).
-   unfold word64;lia.
+   eapply bounded_words,post_bounds; eassumption.
 Qed.

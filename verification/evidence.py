@@ -59,7 +59,7 @@ def write_evidence(binary, work, component, checks, symbols, sources, flags, cas
     if component == "full_ladder":
         dependencies.update(("ladder_step", "stage_round"))
     if component == "deferred_point":
-        dependencies.add("ladder_step")
+        dependencies.update(("ladder_step", "full_ladder", "stage_round"))
     if component in ("ladder_step", "full_ladder", "deferred_point"):
         dependencies.update(("double4", "cached_add"))
     if component == "radix16":

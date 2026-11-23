@@ -9,6 +9,7 @@ from listing import ADD, DOUBLE, point_program
 from crate.double4 import listing as double_reference, certificate as doubling
 from crate.cached_add import listing as add_reference, certificate as addition
 from crate.ladder_step import audit as ladder
+from crate.full_ladder import audit as product
 from evidence import write_evidence
 from proof_build import GROUP_PROJECTS, check_object, compile_libraries, library_flags, write_symbol_bytes
 
@@ -71,9 +72,12 @@ def audit(elf, work, component):
     compile_libraries(work, GROUP_PROJECTS)
     symbols = compile_points(elf, work)
     flags = FLAGS
-    if component == "ladder_step":
+    if component in ("ladder_step", "full_ladder"):
         flags, step = compile_step(elf, work)
         symbols.insert(0, step)
+    if component == "full_ladder":
+        flags, full = product.compile_full(elf, work, flags)
+        symbols[:0] = full
     checks = check_object(work, flags, component)
     write_evidence(elf, work, "deferred_point", checks, symbols,
                    [HERE.parents[1] / "mask_listing.py", *dict.fromkeys((*double_reference.SOURCES, *add_reference.SOURCES))], flags)
@@ -84,7 +88,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("elf", type=Path)
     parser.add_argument("--output", type=Path)
-    parser.add_argument("--component", choices=("deferred_point", "ladder_step"), default="ladder_step")
+    parser.add_argument("--component", choices=("deferred_point", "ladder_step", "full_ladder"), default="full_ladder")
     args = parser.parse_args()
     if args.output:
         args.output.mkdir(parents=True, exist_ok=False)

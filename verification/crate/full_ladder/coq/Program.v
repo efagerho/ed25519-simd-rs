@@ -2,6 +2,7 @@ From Coq Require Import List ZArith Bool.
 From Machine Require Import isa.X86 isa.ProgramLayout execution.LinkedCalls abi.SysV.
 From Ed25519Simd.FullLadder Require Import LinkedBytes Seed.
 From Ed25519Simd.LadderStep Require LinkedBytes.
+From Ed25519Simd.LadderStep Require Export Modes.
 Import ListNotations. Local Open Scope nat_scope.
 Module L := Ed25519Simd.LadderStep.LinkedBytes.
 
@@ -26,9 +27,9 @@ Definition code :=
  map Simple [Save 5;Copy 5 4;Save 3;Save 12;Save 13;Save 14;Save 15;Save 8;Save 9] ++
  [Align;Allocate 3520] ++
  map Simple [Copy 3 7;Copy 12 6;Copy 13 2;Copy 14 1;Copy 7 4;Immediate 9 31;Invoke stage_pc] ++
- [SeedBlock] ++ map Simple [Copy 7 3;Invoke L.double4_pc;Copy 7 3;LeaSIB 6 4 1280;
- Immediate 2 1;Immediate 1 1;Invoke L.cached_pc;Copy 7 3;LeaSIB 6 4 2240] ++
- [Zero 2;Zero 1;Simple (Invoke L.cached_pc);Simple (Immediate 15 31)] ++
+ [SeedBlock] ++ map Simple [Copy 7 3;Invoke L.double4_pc;Copy 7 3;LeaSIB 6 4 1280] ++
+ map Simple affine_setup ++ map Simple [Invoke (add_target L.cached_pc true true);Copy 7 3;LeaSIB 6 4 2240] ++
+ [Zero 2;Zero 1;Simple (Invoke (add_target L.cached_pc false false));Simple (Immediate 15 31)] ++
  map Simple [Copy 7 4;Copy 6 12;Copy 2 13;Copy 1 14] ++
  [Reload true 8 5 (-48);Lea8 9 15 (-1);Simple (Invoke stage_pc);Simple (Copy 7 3);
   Simple (Copy 6 4);Zero 2;Compare 15 1;Jne 3;Reload false 2 5 (-56);
@@ -61,9 +62,9 @@ Definition mode v := match v with Num Z0=>Some false | Num (Zpos xH)=>Some true 
 Definition aligned pad n := Z.eqb ((pad+n) mod 64) 0.
 Definition staging pad := (-64-pad-3520)%Z.
 Definition return_offset e : Z := match e with
- | Stage n=>if Nat.eqb n 31 then 0x36%Z else 0x355%Z
- | DoubleFour=>0x308%Z | Cached _ true _=>0x322%Z | Cached _ false _=>0x336%Z
- | Ladder _=>0x36b%Z | SeedXYZ=>0%Z end.
+ | Stage n=>if Nat.eqb n 31 then 0x36%Z else (0x34b+setup_length)%Z
+ | DoubleFour=>0x308%Z | Cached _ true _=>(0x318+setup_length)%Z | Cached _ false _=>(0x32c+setup_length)%Z
+ | Ladder _=>(0x361+setup_length)%Z | SeedXYZ=>0%Z end.
 Definition call pad next target s :=
  let base:=staging pad in let is r v:=val_beq (gp s r) v in
  let which :=
@@ -73,11 +74,14 @@ Definition call pad next target s :=
                   | _=>None end else None
  else if negb (is 7 (Arg 7)) then None
  else if Z.eqb target L.double4_pc then Some DoubleFour
+ else if defer_double && Z.eqb target L.cached_pc then
+   if is 6 (Stack (base+1280)) then Some (Cached true true 20) else None
  else match mode (gp s 2) with None=>None | Some f=>
   if Z.eqb target L.wrapper_pc then if is 6 (Stack base) then Some (Ladder f) else None
-  else if Z.eqb target L.cached_pc then match gp s 6,mode (gp s 1) with
+  else if Z.eqb target (L.cached_pc+public_add_offset) then match gp s 6,mode (gp s 1) with
    | Stack a,Some aff=>let d:=(a-base)%Z in
-     if ((0<=?d)&&(d+(if aff then 960 else 1280)<=?3520)&&(d mod 64 =?0))%Z
+     if Z.eqb target (add_target L.cached_pc f aff) &&
+        ((0<=?d)&&(d+(if aff then 960 else 1280)<=?3520)&&(d mod 64 =?0))%Z
      then Some (Cached f aff (Z.to_nat (d/64))) else None | _,_=>None end else None end in
  if is 4 (Stack base) && aligned pad base && ((-5032<=?base-1360)&&(base+3520<=?0))%Z
  then match which with None=>None | Some e=>if Z.eqb next (entry_pc+return_offset e) then

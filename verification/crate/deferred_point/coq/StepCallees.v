@@ -23,10 +23,13 @@ Definition addition_bytes := AddBytes.symbol_bytes.
 Lemma double_binding : doubling_image=doubling_bytes. Proof. apply double_image. Qed.
 Lemma add_binding : addition_image=addition_bytes. Proof. apply add_image. Qed.
 
-Definition select_add f a := if defer_add f a then PrivateAffine else Public f a.
+Definition flag_mode n := if n=?0 then Some false else if n=?1 then Some true else None.
 Definition selected dp ap ip (s:cpu) := if ip=?dp then Some (Doubling true)
  else if ip=?ap then Some (Addition PrivateAffine)
- else if ip=?ap+public_add_offset then Some(Addition(Public (regs s 2%nat=?1) (regs s 1%nat=?1))) else None.
+ else if ip=?ap+public_add_offset then
+   match flag_mode (regs s 2%nat),flag_mode (regs s 1%nat) with
+   | Some f,Some a=>Some(Addition(Public f a)) | _,_=>None end
+ else None.
 Definition dispatch dp ap sc pad ip s ret out :=
  match selected dp ap ip s with None=>False | Some k=>
  let loc:=call_loc sc (match k with Doubling _=>dp|Addition _=>ap end) s in
@@ -72,6 +75,6 @@ Proof.
  assert(D:0<public_add_offset) by (vm_compute;reflexivity).
  destruct f,a;cbn [add_target add_offset defer_add defer_double mode_args] in *.
  all: unfold add_target,add_offset;cbn [defer_add defer_double].
- 2-4: rewrite (proj2 (Z.eqb_neq (ap+public_add_offset) ap) ltac:(lia)),Z.eqb_refl; destruct Modes as [F A];rewrite F,A;cbn [CachedAddABI.flag_word Z.eqb];apply (concrete_call (Addition (Public _ _)));auto;repeat split;auto.
+ 2-4: rewrite (proj2 (Z.eqb_neq (ap+public_add_offset) ap) ltac:(lia)),Z.eqb_refl; destruct Modes as [F A];rewrite F,A;cbn [flag_mode CachedAddABI.flag_word Z.eqb];apply (concrete_call (Addition (Public _ _)));auto;repeat split;auto.
  - rewrite Z.add_0_r,Z.eqb_refl;apply (concrete_call (Addition PrivateAffine));auto;repeat split;auto.
 Qed.
