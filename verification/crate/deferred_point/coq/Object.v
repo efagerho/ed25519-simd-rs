@@ -1,6 +1,4 @@
-From Ed25519Simd.Point Require Import DoublePath AddPath Outputs RawBounds Audit.
+From Ed25519Simd.Point Require Import DoublePath AddPath Arithmetic Audit.
 Theorem assembled_deferred_point_correct : deferred_point_contract.
 Proof. constructor; [apply double_image|apply double_path|apply four_round_dispatch|
-  apply add_image|apply add_path|apply add_dispatch_correct|apply double_rows|apply add_rows|
-  intros; eapply folded_rows_sound; eauto using double_bounds_checked |
-  intros; eapply folded_rows_sound; eauto using add_bounds_checked]. Qed.
+  apply add_image|apply add_path|apply add_dispatch_correct|apply doubling_correct|apply addition_correct]. Qed.

@@ -6,8 +6,8 @@ import subprocess
 import tempfile
 
 from listing import ADD, DOUBLE, point_program
-from crate.double4 import listing as double_reference
-from crate.cached_add import listing as add_reference
+from crate.double4 import listing as double_reference, certificate as doubling
+from crate.cached_add import listing as add_reference, certificate as addition
 from evidence import write_evidence
 from proof_build import compile_libraries, library_flags
 
@@ -30,18 +30,18 @@ def audit(elf, work):
     for ns in ("Double4", "CachedAdd"):
         (work / ns).mkdir()
     for ns, folder, reference, modules in (
-        ("Double4", "double4", double_reference, ("Double4ABI", "Kernels", "KernelInterface", "Round")),
-        ("CachedAdd", "cached_add", add_reference, ("CachedAddABI", "Lane", "Control", "Kernels")),
+        ("Double4", "double4", double_reference, doubling.PROOF_MODULES),
+        ("CachedAdd", "cached_add", add_reference, addition.PROOF_MODULES),
     ):
         reference.generate(work / ns)
         compile_module(work, ns, "Program")
-        for name in modules:
+        for name in modules[:modules.index("Logical") + 1]:
             compile_module(work, ns, name, HERE.parent / folder / "coq")
     symbols = point_program(elf, dest, DOUBLE, "Double")
     symbols.extend(point_program(elf, dest, ADD, "Add"))
     for name in ("DoubleBytes", "Double", "AddBytes", "Add"):
         compile_module(work, "Point", name)
-    for name in ("DoublePath", "AddPath", "Outputs", "RawBounds", "Audit", "Object"):
+    for name in ("DoublePath", "AddPath", "Outputs", "RawBounds", "Normalize", "Arithmetic", "Audit", "Object"):
         compile_module(work, "Point", name, HERE / "coq")
     (dest / "Checked.v").write_text(
         "From Ed25519Simd.Point Require Audit Object.\n"

@@ -1,7 +1,8 @@
 From Coq Require Import List ZArith.
 From Machine Require Import execution.Blocks.
 From Ed25519Simd.Double4 Require Import Double4ABI.
-From Ed25519Simd.Point Require Import Double DoubleBytes DoublePath Add AddBytes AddPath Outputs RawBounds.
+From Ed25519Simd.Point Require Import Double DoubleBytes DoublePath Add AddBytes AddPath Arithmetic.
+From Machine Require Import execution.WordBounds.
 From Curve25519 Require Import Radix51.
 From Machine Require Import execution.Lane.
 From Ed25519Simd.Double4 Require Program Round.
@@ -21,14 +22,9 @@ Record deferred_point_contract : Prop := {
     observe (path 180 Add.program (CachedAddABI.abi_layout (affine m)) (add_entry m incoming pad bp)) =
     Some (Caller,Ptr(scratch,1296+pad),add_effects m);
   addition_branches : forall m, fragments_run (add_effects m) = add_dispatch m;
-  doubling_rows : forall private j s n,(n<20)%nat ->
-    cells (normalized private j (lane_effects Double.program j (double_effects private) s)) (point_row n) =
-    cells (lane_effects Double4.Program.double4_program j Round.expected_path s) (point_row n);
-  addition_rows : forall m j s n,(n<20)%nat ->
-    cells (normalized (deferred m) j (lane_effects Add.program j (add_effects m) s)) (point_row n) =
-    cells (lane_effects CachedAdd.Program.add_cached_program j (Control.expected_path (full m) (affine m)) s) (point_row n);
-  deferred_double_bounds : forall j s i,lane_words s -> (i<10)%nat ->
-    0<=cells (lane_effects Double.program j (double_effects true) s) (point_row i)<=folded_column_bound;
-  deferred_add_bounds : forall j s i,lane_words s -> (i<10)%nat ->
-    0<=cells (lane_effects Add.program j (add_effects PrivateAffine) s) (point_row i)<=folded_column_bound
+  doubling_coordinates : forall priv d, data_words d ->
+    double_spec priv (words_at (memory d) point) (output Double.program (double_effects priv) d);
+  addition_coordinates : forall m d, data_words d ->
+    add_spec m (words_at (memory d) point) (words_at (memory d) CachedAddABI.cached)
+      (output Add.program (add_effects m) d)
 }.
