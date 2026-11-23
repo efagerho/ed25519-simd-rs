@@ -35,19 +35,24 @@
 .endif
 .endr
 .if !\raw_columns
+    fe51_carry 12, \dst, \rrr, \rri
+.endif
+.endm
+
+// Carry five folded columns. Destination may equal source. ZMM17 is scratch.
+.macro fe51_carry src, dst, rrr, rri
     // Each folded column is below 5*3*20*2^52. Start with limb one
     // so only that output can exceed 51 bits. The final carry times 19
     // fits below 2^52, allowing an exact low-half IFMA into limb zero.
 .irp k,1,2,3,4
-    \rri vpsrlq, 17, %(12+\k), 51
-    \rrr vpandq, %(\dst+\k), %(12+\k), 29
+    \rri vpsrlq, 17, %(\src+\k), 51
+    \rrr vpandq, %(\dst+\k), %(\src+\k), 29
 .if \k < 4
-    \rrr vpaddq, %(13+\k), %(13+\k), 17
+    \rrr vpaddq, %(\src+1+\k), %(\src+1+\k), 17
 .endif
 .endr
-    vpmadd52luq zmm12, zmm17, zmm28
-    vpsrlq zmm17, zmm12, 51
-    \rrr vpandq, \dst, 12, 29
+    \rrr vpmadd52luq, \src, 17, 28
+    \rri vpsrlq, 17, \src, 51
+    \rrr vpandq, \dst, \src, 29
     \rrr vpaddq, %(\dst+1), %(\dst+1), 17
-.endif
 .endm

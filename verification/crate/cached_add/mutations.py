@@ -24,7 +24,9 @@ from elf import symbol_bytes, symbol_extent
 MUTATIONS = {
     "remove-input-reduction": ("    ca_reduce 0\n", "", False),
     "reuse-wrong-cached-operand": ("    ca_load r8, 320, 22", "    ca_load r8, 0, 22", False),
-    "remove-top-carry-fold": ("    vpmadd52luq zmm12, zmm17, zmm28\n", "", False),
+    "remove-top-carry-fold": ("    \\rrr vpmadd52luq, \\src, 17, 28\n", "", False),
+    "omit-return-y-carry": ("    fe51_carry 0, 0, ca_rrr, ca_rri\n.irp i,5,6,7,8,9",
+                            ".irp i,5,6,7,8,9", False),
     "ignore-compute-t": ("    mov rcx, rdx\n", "    mov ecx, 0\n", False),
     "omit-x-stores": ("    ca_store rdi, 0, 0\n", "", False),
     "reorder-constant-loads": (

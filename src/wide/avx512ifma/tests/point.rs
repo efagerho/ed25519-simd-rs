@@ -38,7 +38,7 @@ unsafe extern "C" {
     fn ed25519_simd_double4_ifma(point: *mut u8);
 
     /// In-place addition with staged (Y-X), (Y+X), 2dT, and optional 2Z.
-    /// `affine` and `compute_t` are 0 or 1. Every input limb is < 2^52.
+    /// `affine` and `compute_t` are 0 or 1. X/Y limbs are < 300*2^52, all other limbs < 2^52.
     /// Buffers are disjoint and 64-byte aligned. See add_cached.S for the
     /// complete ABI and arithmetic contract, proved in verification/crate/cached_add.
     fn ed25519_simd_add_cached_ifma(point: *mut u8, cached: *const u8, compute_t: u64, affine: u64);

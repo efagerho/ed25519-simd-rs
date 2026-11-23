@@ -162,6 +162,59 @@ mod native {
         (input, fields)
     }
 
+    #[test]
+    fn cached_add_accepts_folded_xy() {
+        const RADIX: u64 = 1 << 51;
+        const MAX: u64 = (300 << 52) - 1;
+        let (mut folded, cache) = operands();
+        let mut carried = folded;
+        for (coord, (raw, reduced)) in [
+            (&mut folded.x, &mut carried.x),
+            (&mut folded.y, &mut carried.y),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let digits = |lane: usize| -> [u64; 5] {
+                core::array::from_fn(|i| match (lane + coord) % 4 {
+                    0 => 0,
+                    1 => MAX,
+                    2 if i % 2 == 0 => MAX,
+                    2 => 0,
+                    _ => MAX - (8 * i + lane) as u64,
+                })
+            };
+            *raw = WideFe::from_limbs_per_lane(digits);
+            *reduced = WideFe::from_limbs_per_lane(|lane| {
+                let d = digits(lane);
+                core::array::from_fn(|i| {
+                    (d[i] % RADIX)
+                        + if i == 0 {
+                            19 * (d[4] / RADIX)
+                        } else {
+                            d[i - 1] / RADIX
+                        }
+                })
+            });
+        }
+        for affine in [false, true] {
+            for full in [false, true] {
+                let mut actual = folded;
+                // SAFETY: the four staged fields cover either mode, Z/T and cache
+                // limbs fit IFMA, and folded X/Y are at most MAX.
+                unsafe {
+                    ed25519_simd_add_cached_ifma(
+                        core::ptr::from_mut(&mut actual).cast(),
+                        cache.as_ptr().cast(),
+                        u64::from(full),
+                        u64::from(affine),
+                    );
+                }
+                assert_point_output(&actual, &expected(carried, cache, affine, full), full);
+            }
+        }
+    }
+
     /// Run pinned to one core in release mode with asm enabled.
     /// ED25519_CACHED_ADD_MODE: projective, projective-no-t, or affine.
     /// ED25519_CACHED_ADD_PATH: selected (includes staging) or staged.

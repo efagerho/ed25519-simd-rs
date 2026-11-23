@@ -43,15 +43,26 @@ Lemma yt_h j full affine s : forall i,(i<5)%nat ->(M j full affine (if full then
 Proof. unfold R,M;rewrite(prefix_segment j full affine 31 (if full then 55 else 54) s ltac:(destruct full || idtac;destruct affine || idtac;lia));generalize(prefix_state j full affine 31 s);intro snapshot;destruct full;destruct affine;five. Qed.
 Lemma out_x j full affine s : forall i,(i<5)%nat ->(M j full affine 67 s point 0)i=(R j full affine 43 s 0)i.
 Proof. unfold R,M;rewrite(prefix_segment j full affine 43 67 s ltac:(destruct full || idtac;destruct affine || idtac;lia));generalize(prefix_state j full affine 43 s);intro snapshot;destruct full;destruct affine;five. Qed.
-Lemma out_y j full affine s : forall i,(i<5)%nat ->(M j full affine 67 s point 5)i=(R j full affine (if full then 56 else 55) s 0)i.
-Proof. unfold R,M;rewrite(prefix_segment j full affine (if full then 56 else 55) 67 s ltac:(destruct full || idtac;destruct affine || idtac;lia));generalize(prefix_state j full affine (if full then 56 else 55) s);intro snapshot;destruct full;destruct affine;five. Qed.
+Lemma out_y j full affine s : forall i,(i<5)%nat ->(M j full affine 67 s point 5)i=(R j full affine 56 s 0)i.
+Proof. unfold R,M;rewrite(prefix_segment j full affine 56 67 s ltac:(destruct full || idtac;destruct affine || idtac;lia));generalize(prefix_state j full affine 56 s);intro snapshot;destruct full;destruct affine;five. Qed.
 Lemma out_z j full affine s : forall i,(i<5)%nat ->(M j full affine 67 s point 10)i=(R j full affine 43 s 5)i.
 Proof. unfold R,M;rewrite(prefix_segment j full affine 43 67 s ltac:(destruct full || idtac;destruct affine || idtac;lia));generalize(prefix_state j full affine 43 s);intro snapshot;destruct full;destruct affine;five. Qed.
 Lemma out_t j affine s : forall i,(i<5)%nat ->(M j true affine 67 s point 15)i=(R j true affine 56 s 5)i.
 Proof. unfold R,M;rewrite(prefix_segment j true affine 56 67 s ltac:(destruct full || idtac;destruct affine || idtac;lia));generalize(prefix_state j true affine 56 s);intro snapshot;destruct affine;five. Qed.
-Lemma out_zero j affine s : forall i,(i<5)%nat ->(M j false affine 67 s point 15)i=(fun _=>0)i.
+Lemma out_zero j affine s : forall i,(i<5)%nat -> M j false affine 67 s point 15 i=0.
 Proof.
- unfold M;rewrite(prefix_segment j false affine 55 67 s ltac:(lia)).
- generalize(prefix_state j false affine 55 s);intro snapshot;destruct affine;
- intros i I;do 5(destruct i as[|i];[apply Z.lxor_nilpotent|]);lia.
+ intros i I.
+ assert (Stored : M j false affine 67 s point 15 i=R j false affine 56 s 5 i).
+ { unfold R,M; rewrite (prefix_segment j false affine 56 67 s ltac:(lia)).
+   generalize (prefix_state j false affine 56 s); intro snapshot; destruct affine;
+   do 5 (destruct i as [|i]; [reflexivity|]); lia. }
+ rewrite Stored. unfold R.
+ rewrite (prefix_segment j false affine 55 56 s ltac:(lia)).
+ generalize (prefix_state j false affine 55 s); intro snapshot.
+ destruct affine; change (run (lane_load snapshot []) (fragment_code add_cached_program 9)
+   (registers snapshot) (5+i)%nat=0);
+ rewrite <- (firstn_skipn 15 (fragment_code add_cached_program 9)), run_app;
+ generalize (run (lane_load snapshot []) (firstn 15 (fragment_code add_cached_program 9))
+   (registers snapshot)); intro regs;
+ do 5 (destruct i as [|i]; [apply Z.lxor_nilpotent|]); lia.
 Qed.

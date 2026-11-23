@@ -26,7 +26,7 @@ Lemma input_lane affine d j : (j<8)%nat ->
  CachedAddSpec.input_bounds affine(words_at(memory d)point)(words_at(memory d)cached) ->
  Bounds.input_bounds affine(view d j).
 Proof.
- intros J[P C][r off]H;cbn [cache_bounds] in P;unfold input_cell in H;cbn [fst snd]in H.
+ intros J[P C][r off]H;unfold input_cell in H;cbn [fst snd]in H.
  repeat rewrite andb_true_iff in H;destruct H as[[Region L]Align].
  apply Z.leb_le in L;apply Z.eqb_eq in Align.
  assert(D:off=64*Z.of_nat(Z.to_nat(off/64))).
@@ -35,7 +35,9 @@ Proof.
  apply andb_true_iff in Point || apply andb_true_iff in Cache.
  - destruct Point as[R U];apply Nat.eqb_eq in R;subst r;apply Z.ltb_lt in U.
    specialize(P(Z.to_nat(off/64))j ltac:(assert(off/64<20)by(apply Z.div_lt_upper_bound;lia);cbn;lia)J).
-   rewrite cell_words_at in P by exact J;rewrite D;exact P.
+   rewrite cell_words_at in P by exact J.
+   change (0<=memory d (point,off) j<cached_point_limit (Z.to_nat(off/64))).
+   unfold vector_address in P; cbn [Z.add] in P. now rewrite <-D in P.
  - destruct Cache as[R U];apply Nat.eqb_eq in R;subst r;apply Z.ltb_lt in U.
    specialize(C(Z.to_nat(off/64))j ltac:(destruct affine;cbn [cache_length]in U;
     [assert(off/64<15)by(apply Z.div_lt_upper_bound;lia)|assert(off/64<20)by(apply Z.div_lt_upper_bound;lia)];lia)J).

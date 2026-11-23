@@ -18,7 +18,7 @@ Lemma add_result full affine w cached out q :
  CachedAddSpec.cached_add_spec full affine w cached out ->
  strict out /\ has_value out (fun j=>add full (q j) (cache_values affine cached j)).
 Proof.
- intros V B K [_ S];specialize(S (conj (strict_split w B) K));split.
+ intros V B K [_ S];specialize(S (conj (split_cached_point _ (strict_split w B)) K));split.
  - intros c j C J;exact(proj1(S j c J C)).
  - intros j J c C;rewrite coord_value by exact C;etransitivity.
    + exact(proj2(S j c J C)).

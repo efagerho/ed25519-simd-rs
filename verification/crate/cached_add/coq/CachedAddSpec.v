@@ -4,7 +4,7 @@ From Ed25519Simd Require Export Wide51.
 Import ListNotations. Open Scope Z_scope.
 
 Definition input_bounds (affine:bool) before cached :=
- cache_bounds false before /\ cache_bounds affine cached.
+ cached_point_bounds before /\ cache_bounds affine cached.
 
 Definition cached_add_spec full affine before cached after :=
  (full=false ->forall i j,(i<5)%nat ->(j<8)%nat ->cell after(15+i)%nat j=0) /\

@@ -33,7 +33,7 @@ Definition post_strict e w t v : pre e w t -> post e w t v -> strict v.
 Proof.
  destruct e;try contradiction.
  - intros B D c j C J;apply (proj1(D B j c J C)).
- - intros [B [C _]] [_ D] i j I J;apply (proj1(D (conj (strict_split _ B) C) j i J I)).
+ - intros [B [C _]] [_ D] i j I J;apply (proj1(D (conj (split_cached_point _ (strict_split _ B)) C) j i J I)).
  - intros _ [B _];exact B.
 Qed.
 

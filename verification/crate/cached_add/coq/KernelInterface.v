@@ -25,8 +25,8 @@ Definition operands k r :=
  (forall i,(i<10)%nat ->0<=r i<=input_bound k i) /\
  r 28%nat=19 /\ r 29%nat=radix-1 /\
  (needs_bias k=true -> r 30%nat=bias 0 /\ r 31%nat=bias 1).
-Definition right_count k := match k with PrepareAB | PrepareEH | Independent=>10%nat | PrepareFG=>0%nat | _=>5%nat end.
-Definition right_bound k := match k with PrepareEH=>folded_column_bound | _=>split-1 end.
+Definition right_count k := match k with PrepareAB | PrepareEH | Independent=>10%nat | PrepareFG | CarryY=>0%nat | _=>5%nat end.
+Definition right_bound k := match k with PrepareAB | PrepareEH=>folded_column_bound | _=>split-1 end.
 Definition right_ok k m := forall i,(i<right_count k)%nat ->0<=m i<=right_bound k.
 Definition load_base k := match k with PrepareAB=>7%nat | PrepareEH=>9%nat | _=>8%nat end.
 Local Opaque code check_kernel.
@@ -39,6 +39,7 @@ Proof.
  - exact Independent_checked.
  - exact Pair_checked.
  - exact Single_checked.
+ - exact CarryY_checked.
 Qed.
 Lemma initial_models k r m : (forall i, word64 (r i)) -> operands k r ->
  forall i, models (env r m) (initial k i) (r i).

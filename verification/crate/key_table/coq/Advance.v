@@ -41,7 +41,7 @@ Lemma advance_correct incoming w a : data_words incoming -> cache_bounds false w
  represents_point true (point_values (advance incoming w a) j) (plus P Q).
 Proof.
  intros Words W A;destruct(advance_spec incoming w a Words W A) as [_ H].
- specialize(H (conj W A));split.
+ specialize(H (conj (split_cached_point _ W) A));split.
  - apply strict_split;intros c j C J;apply H;assumption.
  - intros j P Q J R S;eapply represents_equivalent;[|apply add_represents;eassumption].
    intros c C;rewrite coord_value by exact C;apply H;assumption.

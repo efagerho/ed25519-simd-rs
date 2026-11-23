@@ -11,7 +11,8 @@
 //   RCX: affine, exactly 0 or 1. One substitutes D=2*Z1 and never reads 2*Z2.
 // Both buffers are 64-byte aligned and disjoint from each other and this
 // routine's writable stack frame (up to 1352 bytes below entry RSP).
-// Every input limb, including T1 and the staged fields, must be < 2^52.
+// X1 and Y1 may contain folded columns below 300*2^52. Limbs of Z1,
+// T1 and the staged fields must be below 2^52.
 // No curve-membership or cached-coordinate consistency assumption is needed.
 //
 // A=(Y1-X1)*(Y2-X2), B=(Y1+X1)*(Y2+X2), C=T1*(2*d*T2),
@@ -170,7 +171,7 @@ ed25519_simd_add_cached_ifma:
 .Lca_compute_c_d:
     dec ecx
     jne .Lca_projective_d
-    call .Lca_multiply_single
+    call .Lca_multiply_single_raw
 .irp i,0,1,2,3,4
     ca_rr vmovdqa64, %(5+\i), \i
 .endr
@@ -193,7 +194,9 @@ ed25519_simd_add_cached_ifma:
     call .Lca_multiply_pair
     ret
 .Lca_without_t:
-    call .Lca_multiply_single
+    call .Lca_multiply_single_raw
+    // Y leaves the routine. The other single product, affine C, feeds D±C.
+    fe51_carry 0, 0, ca_rrr, ca_rri
 .irp i,5,6,7,8,9
     ca_rrr vpxorq, \i, \i, \i
 .endr
@@ -213,12 +216,13 @@ ed25519_simd_add_cached_ifma:
     ret
 .Lca_multiply_pair:
     ca_load r8, 0, 22
-    fe51_product 0, 22, 0, ca_rrr, ca_rri
+    fe51_product 0, 22, 0, ca_rrr, ca_rri, 1
+    fe51_carry 0, 0, ca_rrr, ca_rri
     fe51_product 5, 22, 5, ca_rrr, ca_rri
     ret
-.Lca_multiply_single:
+.Lca_multiply_single_raw:
     ca_load r8, 0, 22
-    fe51_product 0, 22, 0, ca_rrr, ca_rri
+    fe51_product 0, 22, 0, ca_rrr, ca_rri, 1
     ret
 .noaltmacro
 .size ed25519_simd_add_cached_ifma, .-ed25519_simd_add_cached_ifma
@@ -226,6 +230,7 @@ ed25519_simd_add_cached_ifma:
 .purgem ca_store
 .purgem ca_reduce
 .purgem fe51_product
+.purgem fe51_carry
 .purgem ca_rrr
 .purgem ca_rri
 .purgem ca_rr
