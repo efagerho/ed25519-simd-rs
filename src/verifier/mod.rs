@@ -1,16 +1,11 @@
 mod driver;
 mod policy;
 
-use crate::edwards::PointTable;
 use crate::input::VerifyInput;
 use crate::wide::avx512ifma::ChunkScratch;
 use core::mem::MaybeUninit;
-use std::sync::LazyLock;
 
 pub use policy::{DalekPolicy, VerificationPolicy, VerifyPolicy, Zip215Policy};
-
-// Placeholder table for invalid lanes, also shared across verifiers.
-static IDENTITY_TABLE: LazyLock<PointTable> = LazyLock::new(PointTable::identity);
 
 /// Batch Ed25519 verifier for a compile-time [`VerificationPolicy`].
 /// Reuse one across [`verify_batch`](Verifier::verify_batch) calls.
@@ -20,8 +15,6 @@ static IDENTITY_TABLE: LazyLock<PointTable> = LazyLock::new(PointTable::identity
 #[derive(Debug)]
 pub struct Verifier<P: VerificationPolicy = Zip215Policy> {
     policy: core::marker::PhantomData<P>,
-    // Invalid lanes are masked out but still need a real ladder table.
-    identity_table: &'static PointTable,
     visit_order: Vec<usize>,
     scratch: Box<MaybeUninit<ChunkScratch>>,
 }
@@ -55,7 +48,6 @@ impl<P: VerificationPolicy> Verifier<P> {
     pub fn new() -> Self {
         Self {
             policy: core::marker::PhantomData,
-            identity_table: &IDENTITY_TABLE,
             visit_order: Vec::new(),
             scratch: Box::new_uninit(),
         }

@@ -1,7 +1,7 @@
 use super::LANES;
 use super::point::WidePoint;
 use crate::batch::EncodedPointChunk;
-use crate::edwards::PointTable;
+use crate::edwards::{IDENTITY_TABLE, PointTable};
 use crate::input::{PUBLIC_KEY_LEN, SIGNATURE_LEN, VerifyInput};
 use crate::scalar::Radix16;
 use crate::{VerificationPolicy, VerifyPolicy};
@@ -15,30 +15,25 @@ struct ChunkInputs<'a> {
     signatures: [&'a [u8; SIGNATURE_LEN]; LANES],
 }
 
-/// Decoder output for R, including the original Y limbs used by strict scoring.
-#[repr(transparent)]
-pub(crate) struct WideRPoint {
-    pub(super) point: WidePoint,
-}
-
 /// Reused for one eight-lane chunk. The decoder writes A and R together.
 /// The table builder uses A as its running multiple, leaving R for scoring.
 #[repr(C)]
 pub(crate) struct ChunkScratch {
     pub(crate) public_keys: EncodedPointChunk,
     pub(crate) r_bytes: EncodedPointChunk,
-    pub(crate) s_digits: [Radix16; LANES],
+    pub(super) s_digits: [Radix16; LANES],
     key_work: WidePoint,
-    pub(crate) r: WideRPoint,
+    /// Decoded R retains the original Y limbs for strict scoring.
+    pub(super) r: WidePoint,
     tables: [PointTable; LANES],
 }
 
 /// Each pointer borrows either a table in this chunk's scratch or the identity.
 #[repr(C)]
 pub(crate) struct PreparedLanes<'a> {
-    pub(crate) tables: [&'a PointTable; LANES],
+    pub(super) tables: [&'a PointTable; LANES],
     pub(crate) valid: [bool; LANES],
-    pub(crate) r_valid: u8,
+    pub(super) r_valid: u8,
 }
 
 // Offsets and strides consumed by prepare_chunk.S.
@@ -74,7 +69,6 @@ unsafe extern "C" {
 pub(crate) fn prepare_chunk<'a, P: VerificationPolicy>(
     inputs: &[VerifyInput<'_>; LANES],
     scratch: &'a mut MaybeUninit<ChunkScratch>,
-    identity: &'a PointTable,
 ) -> Option<(&'a ChunkScratch, PreparedLanes<'a>)> {
     let lanes = ChunkInputs {
         keys: inputs.each_ref().map(|input| &input.public_key),
@@ -93,7 +87,7 @@ pub(crate) fn prepare_chunk<'a, P: VerificationPolicy>(
         let ready = prepare(
             scratch.as_mut_ptr().cast(),
             &lanes,
-            identity,
+            &IDENTITY_TABLE,
             selected.as_mut_ptr(),
         );
         (ready != 0).then(|| (scratch.assume_init_ref(), selected.assume_init()))

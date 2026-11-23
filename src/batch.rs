@@ -23,14 +23,6 @@ pub(crate) struct PendingLanes {
     pub(crate) active_lane_count: usize,
 }
 
-impl PendingLanes {
-    pub(crate) fn reject(&self, out: &mut [bool]) {
-        for &index in &self.output_indices[..self.active_lane_count] {
-            out[index] = false;
-        }
-    }
-}
-
 /// Visit padded SIMD chunks, taken in SHA-512 block-count order when that
 /// lets a chunk's lanes agree on how much to compress.
 pub(crate) fn for_each_simd_chunk<'a>(
@@ -83,29 +75,11 @@ fn for_each_block_sorted_simd_chunk<'a>(
 ) {
     sort_indices_by_block_count(inputs, visit_order);
 
-    let mut i = 0;
-    while i + SIMD_LANES <= visit_order.len() {
-        let output_indices: [usize; SIMD_LANES] =
-            core::array::from_fn(|lane| visit_order[i + lane]);
-        let chunk: [VerifyInput<'a>; SIMD_LANES] =
-            core::array::from_fn(|lane| inputs[output_indices[lane]]);
-        visit(&chunk, &output_indices, SIMD_LANES);
-        i += SIMD_LANES;
-    }
-
-    let rem = visit_order.len() - i;
-    if rem > 0 {
-        let last = visit_order[visit_order.len() - 1];
-        let output_indices: [usize; SIMD_LANES] = core::array::from_fn(|lane| {
-            if lane < rem {
-                visit_order[i + lane]
-            } else {
-                last
-            }
-        });
-        let chunk: [VerifyInput<'a>; SIMD_LANES] =
-            core::array::from_fn(|lane| inputs[output_indices[lane]]);
-        visit(&chunk, &output_indices, rem);
+    for indices in visit_order.chunks(SIMD_LANES) {
+        let mut padded = [indices[indices.len() - 1]; SIMD_LANES];
+        padded[..indices.len()].copy_from_slice(indices);
+        let chunk = padded.map(|i| inputs[i]);
+        visit(&chunk, &padded, indices.len());
     }
 }
 

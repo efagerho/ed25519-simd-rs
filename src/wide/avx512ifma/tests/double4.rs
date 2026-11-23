@@ -1,53 +1,6 @@
 use super::*;
 use rand::{Rng, RngCore, SeedableRng, rngs::StdRng};
 
-fn coordinates(point: &WidePoint) -> [WideFe; 4] {
-    [point.x, point.y, point.z, point.t]
-}
-
-fn assert_output(actual: &WidePoint, expected: &WidePoint) {
-    for (i, (actual, expected)) in coordinates(actual)
-        .into_iter()
-        .zip(coordinates(expected))
-        .enumerate()
-    {
-        assert_eq!(
-            actual.to_bytes_lanes(),
-            expected.to_bytes_lanes(),
-            "coordinate {i}"
-        );
-        for (limb, row) in wide_rows(actual).iter().enumerate() {
-            let bound = 1 << if limb == 1 { 52 } else { 51 };
-            assert!(
-                row.iter().all(|&x| x < bound),
-                "coordinate {i}, limb {limb}"
-            );
-        }
-    }
-}
-
-#[repr(C)]
-struct GuardedPoint {
-    before: [u8; 64],
-    point: WidePoint,
-    after: [u8; 64],
-}
-
-impl GuardedPoint {
-    fn new(point: WidePoint) -> Self {
-        Self {
-            before: [0xa5; 64],
-            point,
-            after: [0x5a; 64],
-        }
-    }
-
-    fn check_guards(&self) {
-        assert_eq!(self.before, [0xa5; 64]);
-        assert_eq!(self.after, [0x5a; 64]);
-    }
-}
-
 #[test]
 fn double4_matches_integer_vectors() {
     let data: Value =
@@ -63,12 +16,12 @@ fn double4_matches_integer_vectors() {
             z: field("z"),
             t: WideFe::constant([u64::MAX; LIMB_COUNT]),
         };
-        let mut actual = GuardedPoint::new(input);
-        actual.point.double_four_times_assign();
-        actual.check_guards();
+        let mut actual = Guarded::new(input);
+        actual.value.double_four_times_assign();
+        actual.check();
         let reference = input.double().double().double().double();
-        assert_output(&actual.point, &reference);
-        for (i, coord) in coordinates(&actual.point).iter().enumerate() {
+        assert_point_output(&actual.value, &reference, true);
+        for (i, coord) in coordinates(&actual.value).iter().enumerate() {
             let bytes = coord.to_bytes_lanes();
             for lane in 0..LANES {
                 assert_eq!(
@@ -103,21 +56,21 @@ fn double4_matches_four_doublings_at_loose_bounds_and_ignores_t() {
             z: field(),
             t: WideFe::zero(),
         };
-        let mut actual = GuardedPoint::new(input);
+        let mut actual = Guarded::new(input);
         let mut reference = input;
         for _ in 0..2 {
             // Different incoming T, including words outside any field bound,
             // must produce exactly the same output in all four coordinates.
-            let mut poisoned = actual.point;
+            let mut poisoned = actual.value;
             poisoned.t = wide_from_rows(core::array::from_fn(|_| {
                 core::array::from_fn(|_| rng.next_u64())
             }));
-            actual.point.double_four_times_assign();
+            actual.value.double_four_times_assign();
             poisoned.double_four_times_assign();
             reference = reference.double().double().double().double();
-            actual.check_guards();
-            assert_output(&actual.point, &reference);
-            for (a, b) in coordinates(&actual.point)
+            actual.check();
+            assert_point_output(&actual.value, &reference, true);
+            for (a, b) in coordinates(&actual.value)
                 .into_iter()
                 .zip(coordinates(&poisoned))
             {
@@ -139,10 +92,10 @@ fn double4_preserves_sysv_registers() {
     let mut expected = input;
     expected = expected.double().double().double().double();
     for stack_offset in [0, 16, 32, 48] {
-        let mut actual = GuardedPoint::new(input);
+        let mut actual = Guarded::new(input);
         let failure = unsafe {
             ed25519_simd_test_double4_abi(
-                core::ptr::from_mut(&mut actual.point).cast(),
+                core::ptr::from_mut(&mut actual.value).cast(),
                 stack_offset,
             )
         };
@@ -150,8 +103,8 @@ fn double4_preserves_sysv_registers() {
             failure, 0,
             "callee-saved register or stack slot {failure} changed with stack offset {stack_offset}"
         );
-        actual.check_guards();
-        assert_output(&actual.point, &expected);
+        actual.check();
+        assert_point_output(&actual.value, &expected, true);
     }
 }
 
