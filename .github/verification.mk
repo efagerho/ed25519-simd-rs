@@ -7,8 +7,19 @@ export XED_KIT := $(RUNNER_TEMP)/xed-kit
 .PHONY: prepare-chunk prepare-chunk-mutations signature-scalar signature-scalar-mutations key-table key-table-mutations dalek-post-hash dalek-post-hash-mutations zip215 zip215-mutations dalek-recompress dalek-recompress-mutations decompress-r decompress-r-mutations full-ladder stage-round stage-round-mutations radix16 radix16-mutations verify certificates ladder-mutations ladder torsion torsion-mutations small-order small-order-mutations pow2-z3 xed-kit fixed-conformance \
         $(routines) $(linked_checks) cached-add-mutations scalar-mutations
 
-verify: prepare-chunk-mutations signature-scalar-mutations key-table-mutations dalek-post-hash-mutations zip215-mutations dalek-recompress-mutations decompress-r-mutations full-ladder stage-round-mutations radix16-mutations ladder-mutations certificates cached-add-mutations $(linked_checks) \
+verify: sha512-spec prepare-chunk-mutations signature-scalar-mutations key-table-mutations dalek-post-hash-mutations zip215-mutations dalek-recompress-mutations decompress-r-mutations full-ladder stage-round-mutations radix16-mutations ladder-mutations certificates cached-add-mutations $(linked_checks) \
         scalar-mutations torsion-mutations small-order-mutations fixed-conformance pow2-z3
+
+# Pure hash specification, known answers and single-lane refinement.
+.PHONY: sha512-spec
+sha512_work := $(RUNNER_TEMP)/sha512-proof
+sha512-spec:
+	mkdir -p "$(sha512_work)"
+	cp -R verification/sha512 verification/crate/sha512_challenge/coq "$(sha512_work)/"
+	cd "$(sha512_work)" && coq_makefile -Q sha512 SHA512 sha512/*.v \
+	  -Q coq Ed25519Simd.Sha512Challenge -Q "$(ED25519_SIMD_COQ_LIBRARIES)/machine" Machine \
+	  coq/Compression.v coq/Output.v -o Makefile
+	$(MAKE) -C "$(sha512_work)"
 
 certificates:
 	$(timed) cargo build --locked --release \

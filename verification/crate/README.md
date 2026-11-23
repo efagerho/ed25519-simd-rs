@@ -24,6 +24,10 @@ README for its contract and release audit.
 | [torsion/](torsion/README.md) | The returned lane mask equals the full ZIP-215 cofactor check, including the all-lanes early return. |
 | [small_order/](small_order/README.md) | The returned mask selects precisely the valid projective points killed by the cofactor, including the all-lanes rejection path. |
 
+The [SHA-512 challenge proof](sha512_challenge/README.md) is in progress. Coq
+proves the single-lane round arithmetic and rolling schedule. The linked
+eight-lane implementation still needs its execution proof.
+
 ## What to audit
 
 Use the [shared audit surface](../README.md#shared-audit-surface) for the

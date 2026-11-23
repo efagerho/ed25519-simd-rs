@@ -6,6 +6,7 @@ This directory contains the Coq proofs for the crate’s x86-64 assembly routine
 | --- | --- |
 | [machine/](machine/README.md) | The x86-64 instruction model, memory and calling conventions, and tests against native hardware and Intel XED. |
 | [arithmetic/](arithmetic/README.md) | General proofs about integer expressions, polynomial identities, bounds, and radix representations. |
+| [sha512/](sha512/README.md) | The byte-oriented FIPS 180-4 definition of SHA-512, padding and block-size proofs, and known-answer checks. |
 | [curve25519/](curve25519/README.md) | Field and scalar arithmetic, Edwards point formulas, and their relationship to the group law. |
 | [crate/](crate/README.md) | Shared SIMD representations, the public theorem for each assembly routine, and instructions for auditing a linked executable. |
 
@@ -86,6 +87,10 @@ coordinate convention changes the meaning of every theorem that uses it.
 The soundness of the polynomial and interval checkers, the primality proof,
 and the connection from coordinate formulas to the group law are themselves
 kernel-checked results. [Arithmetic library](arithmetic/README.md) · [Curve definitions and representation theorems](curve25519/README.md)
+
+For SHA-512, the reference is a Coq function from message bytes to digest
+bytes. An auditor checks that it transcribes FIPS 180-4, including the constants,
+word and byte order, and padding. [SHA-512 audit surface](sha512/README.md)
 
 **Proof and release evidence.** Trust rests on Coq’s kernel and a working proof
 checking toolchain. A closed theorem establishes its stated contract in the
