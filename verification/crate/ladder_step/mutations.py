@@ -22,7 +22,7 @@ def run_case(directory, audit, name, raw, edit, expect):
              "-Q", "CachedAdd", "Ed25519Simd.CachedAdd"]
     for dep in ["machine", "arithmetic", "curve25519", "crate", "Double4", "CachedAdd"]:
         (work / dep).symlink_to(audit / dep)
-    for dep in ["Callees.vo", "Schedule.vo"]:
+    for dep in ["PointMode.vo", "Modes.vo", "Callees.vo", "Schedule.vo"]:
         (ladder / dep).symlink_to(audit / "LadderStep" / dep)
     for mod in ["Audit", "Calls", "Execution", "Object"]:
         source = (audit / "LadderStep" / (mod + ".v")).read_text()
@@ -73,7 +73,7 @@ def test(elf, audit):
         ("redirect-first-call", raw[:14] + call(add_pc) + raw[19:], None, "Object"),
         ("omit-base-t", replace_once(raw, bytes.fromhex("ba01000000b901000000"),
                                      bytes.fromhex("ba00000000b901000000")),
-         ("Immediate RDX 1; Immediate RCX 1", "Immediate RDX 0; Immediate RCX 1"), "Execution"),
+         ("++ affine_setup ++", "++ [Immediate RDX 0; Immediate RCX 1] ++"), "Execution"),
         ("restore-wrong-register", replace_once(raw, bytes.fromhex("415d415c5bc3"),
                                                 bytes.fromhex("415c415c5bc3")),
          ("Restore R13; Restore R12", "Restore R12; Restore R12"), "Execution"),

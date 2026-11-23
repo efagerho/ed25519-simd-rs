@@ -8,8 +8,9 @@ import tempfile
 from listing import ADD, DOUBLE, point_program
 from crate.double4 import listing as double_reference, certificate as doubling
 from crate.cached_add import listing as add_reference, certificate as addition
+from crate.ladder_step import audit as ladder
 from evidence import write_evidence
-from proof_build import compile_libraries, library_flags
+from proof_build import GROUP_PROJECTS, check_object, compile_libraries, library_flags, write_symbol_bytes
 
 HERE = Path(__file__).resolve().parent
 FLAGS = ["-Q", "Point", "Ed25519Simd.Point", "-Q", "Double4", "Ed25519Simd.Double4",
@@ -23,8 +24,7 @@ def compile_module(work, ns, name, source=None):
     subprocess.run(["coqc", *FLAGS, str(dest)], cwd=work, check=True)
 
 
-def audit(elf, work):
-    compile_libraries(work)
+def compile_points(elf, work):
     dest = work / "Point"
     dest.mkdir()
     for ns in ("Double4", "CachedAdd"):
@@ -43,21 +43,40 @@ def audit(elf, work):
         compile_module(work, "Point", name)
     for name in ("DoublePath", "AddPath", "Outputs", "RawBounds", "Normalize", "Arithmetic", "Frame", "Concrete", "Audit", "Object"):
         compile_module(work, "Point", name, HERE / "coq")
-    (dest / "Checked.v").write_text(
-        "From Ed25519Simd.Point Require Audit Object.\n"
-        "Definition checked : Audit.deferred_point_contract := Object.assembled_deferred_point_correct.\n"
-        "Print Assumptions checked.\n")
-    result = subprocess.check_output(["coqc", *FLAGS, "Point/Checked.v"], cwd=work, text=True)
-    if result.strip() != "Closed under the global context":
-        raise ValueError(result)
-    (work / "assumptions.txt").write_text(result)
-    command = ["coqchk", *FLAGS, "-silent", "Ed25519Simd.Point.Checked"]
-    with (work / "coqchk.log").open("w") as log:
-        subprocess.run(command, cwd=work, stdout=log, stderr=subprocess.STDOUT, check=True)
-    checks = {"theorem": "Ed25519Simd.Point.Object.assembled_deferred_point_correct",
-              "assumptions": result.strip(), "coqchk": {"command": command, "exit_code": 0}}
+    return symbols
+
+
+def compile_step(elf, work):
+    pc, raw = ladder.read_symbol(elf, "ladder_step")
+    dest = work / "LadderStep"
+    dest.mkdir()
+    linked = dest / "LinkedBytes.v"
+    write_symbol_bytes(linked, raw)
+    with linked.open("a") as out:
+        out.write("From Ed25519Simd.Point Require DoubleBytes AddBytes.\n"
+                  f"Definition wrapper_pc := {pc}%Z.\n"
+                  "Definition double4_pc := DoubleBytes.private_pc.\n"
+                  "Definition cached_pc := AddBytes.private_pc.\n")
+    flags = [*FLAGS, "-Q", "LadderStep", "Ed25519Simd.LadderStep"]
+    for name in (*ladder.MODULES, "EntryTests"):
+        if name != "LinkedBytes":
+            source = {"PointMode": HERE / "coq/PointMode.v",
+                      "Callees": HERE / "coq/StepCallees.v"}.get(name, ladder.HERE / "coq" / (name + ".v"))
+            shutil.copyfile(source, dest / (name + ".v"))
+        subprocess.run(["coqc", *flags, "LadderStep/" + name + ".v"], cwd=work, check=True)
+    return flags, ("ed25519_simd_ladder_step_ifma", pc, raw)
+
+
+def audit(elf, work, component):
+    compile_libraries(work, GROUP_PROJECTS)
+    symbols = compile_points(elf, work)
+    flags = FLAGS
+    if component == "ladder_step":
+        flags, step = compile_step(elf, work)
+        symbols.insert(0, step)
+    checks = check_object(work, flags, component)
     write_evidence(elf, work, "deferred_point", checks, symbols,
-                   [HERE.parents[1] / "mask_listing.py", *dict.fromkeys((*double_reference.SOURCES, *add_reference.SOURCES))], FLAGS)
+                   [HERE.parents[1] / "mask_listing.py", *dict.fromkeys((*double_reference.SOURCES, *add_reference.SOURCES))], flags)
     print(f"Checked {checks['theorem']} against {elf}")
 
 
@@ -65,10 +84,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("elf", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--component", choices=("deferred_point", "ladder_step"), default="ladder_step")
     args = parser.parse_args()
     if args.output:
         args.output.mkdir(parents=True, exist_ok=False)
-        audit(args.elf.resolve(), args.output.resolve())
+        audit(args.elf.resolve(), args.output.resolve(), args.component)
     else:
         with tempfile.TemporaryDirectory(prefix="point-proof-") as work:
-            audit(args.elf.resolve(), Path(work))
+            audit(args.elf.resolve(), Path(work), args.component)

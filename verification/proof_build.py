@@ -16,7 +16,7 @@ SHARED_PROJECTS = ("arithmetic", "curve25519", "machine", "machine/symbolic", "c
 GROUP_PROJECTS = (*SHARED_PROJECTS, "curve25519/group")
 MASK_PROJECTS = (*GROUP_PROJECTS, "crate/field51")
 SHARED_ENV = "ED25519_SIMD_COQ_LIBRARIES"
-COMPONENTS = {"sha512_challenge": "Sha512Challenge",
+COMPONENTS = {"deferred_point": "Point", "sha512_challenge": "Sha512Challenge",
               "prepare_chunk": "PrepareChunk", "signature_scalar": "SignatureScalar", "pow2": "Pow2", "double4": "Double4", "cached_add": "CachedAdd",
               "scalar": "Scalar", "ladder_step": "LadderStep", "torsion": "Torsion",
               "small_order": "SmallOrder", "radix16": "Radix16", "stage_round": "StageRound",
@@ -26,6 +26,7 @@ COMPONENTS = {"sha512_challenge": "Sha512Challenge",
 
 # The release statement is independent of the theorem implementation in Object.v.
 PUBLIC_THEOREMS = {
+    "deferred_point": ("assembled_deferred_point_correct", "deferred_point_contract"),
     "sha512_challenge": ("assembled_sha512_challenge_correct", "sha512_contract"),
     "prepare_chunk": ("assembled_prepare_chunk_correct", "prepare_chunk_contract"),
     "signature_scalar": ("assembled_signature_scalar_correct", "signature_scalar_contract"),
@@ -71,7 +72,7 @@ def public_statement(component):
     elif component == "radix16":
         expected += (f" {namespace}.LinkedBytes.wrapper_pc {namespace}.LinkedBytes.symbol_bytes"
                      f" {namespace}.LinkedBytes.reducer_pc Ed25519Simd.Scalar.ObjectBytes.symbol_bytes")
-    elif component not in ("ladder_step", "full_ladder", "zip215", "dalek_post_hash", "prepare_chunk"):
+    elif component not in ("deferred_point", "ladder_step", "full_ladder", "zip215", "dalek_post_hash", "prepare_chunk"):
         expected += f" {namespace}.ObjectBytes.symbol_bytes"
     return f"{namespace}.Object.{theorem}", expected
 

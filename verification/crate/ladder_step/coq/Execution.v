@@ -1,3 +1,4 @@
+From Ed25519Simd Require Import PointResults.
 From Ed25519Simd Require Import Wide51.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions execution.Blocks memory.FlatMemory memory.ByteMemory execution.WordBounds
@@ -99,11 +100,11 @@ Proof.
  intros Inv L H P;destruct(call_once _ _ _ _ _ place k pc s L H
    (inv_wf _ Inv)(inv_sp _ Inv) P) as [out[R[W[S[G[F Spec]]]]]].
  assert (Target : word64 (slide+target k)).
- { destruct k; cbn [target];
+ { destruct k as [|f a d];cbn [target];unfold add_target;
    [destruct (code_regions _ _ _ _ _ place _ _ (or_intror (or_introl eq_refl))) as [Fits _]
    |destruct (code_regions _ _ _ _ _ place _ _ (or_intror (or_intror (or_introl eq_refl)))) as [Fits _]];
    unfold word64, fits64 in *; [assert (0<dsize) by (vm_compute; reflexivity)
-                               |assert (0<asize) by (vm_compute; reflexivity)]; lia. }
+     |assert (0<=add_offset f a<asize) by (destruct f,a;vm_compute;split;discriminate || reflexivity)]; lia. }
  assert (Next : word64 (slide+(pc+5))).
  { destruct (code_regions _ _ _ _ _ place _ _ (or_introl eq_refl)) as [Fits _].
    unfold word64, fits64 in *; lia. }
@@ -125,7 +126,8 @@ Qed.
 
 Definition point_arg s := set s 7 (regs s 3%nat).
 Definition odd_args s := set (set (set (point_arg s) 6 (regs s 12%nat)) 2 0) 1 0.
-Definition base_args s := set (set (set (point_arg s) 6 (word(regs s 12%nat+1280))) 2 1) 1 1.
+Definition base_args s := let args:=set (point_arg s) 6 (word(regs s 12%nat+1280)) in
+ if defer_double then args else set (set args 2 1) 1 1.
 Definition even_args s := set (set (set (point_arg s) 6 (word(regs s 12%nat+2240))) 2 (regs s 13%nat)) 1 0.
 
 Local Ltac temps I :=
@@ -139,7 +141,7 @@ Local Ltac inputs I :=
  repeat rewrite (inv_regs _ I) by (cbn;tauto);
  unfold start,copies,spill;reg_simpl;rewrite ?rdi,?rsi,?rdx;
  repeat rewrite word_fits by (pose proof(cache_fits _ _ _ _ _ place);unfold fits64,word64 in *;lia);
- cbn [CachedAddABI.flag_word CachedAddABI.cache_length];repeat split;try reflexivity;lia.
+ cbn [mode_args defer_add defer_double CachedAddABI.flag_word CachedAddABI.cache_length];repeat split;try reflexivity;lia.
 
 Definition restored s := pop (pop (pop s 13) 12) 3.
 Lemma finish pc s : invariant s ->
@@ -171,10 +173,10 @@ Qed.
    calls have overwritten the point and reused the private stack. *)
 Lemma staged_add s after f a d : invariant s -> 0<=d -> d+CachedAddABI.cache_length a<=3520 ->
  operation_spec (Plus f a d) (mem s) after pt cache ->
- CachedAddSpec.cached_add_spec f a (buffer_words(mem s)pt)
+ addition_spec (defer_add f a) f a (buffer_words(mem s)pt)
    (buffer_words(mem initial)(cache+d)) (buffer_words after pt).
 Proof.
- intros Inv D N Spec;eapply CachedAddSpec.spec_ext;[intros;reflexivity| |intros;reflexivity|exact Spec].
+ intros Inv D N Spec;eapply addition_spec_ext;unfold agrees_words;[intros;reflexivity| |intros;reflexivity|exact Spec].
  intros i I;symmetry;eapply cache_word with (n:=CachedAddABI.cache_length a);
  try eassumption;destruct a;cbn [CachedAddABI.cache_length] in *;lia.
 Qed.
@@ -195,38 +197,39 @@ Lemma execute :
  Wide51.cell(buffer_words(mem out)pt)(15+i)%nat j=0).
 Proof.
  intros B Odd Base Even.
- assert (98 < wrapper_size) by (vm_compute;reflexivity).
+ assert (0<=setup_length) by (vm_compute;discriminate || reflexivity).
+ assert (88+setup_length < wrapper_size) by (vm_compute;reflexivity).
  destruct(invoke_ok Double (wrapper_pc+14) start start_ok ltac:(lia) ltac:(lia)
    (conj rdi I)) as [s1 [R1 [I1 S1]]].
- assert (D:Double4Spec.double4_spec(buffer_words(mem initial)pt)(buffer_words(mem s1)pt)).
- { eapply Double4Spec.spec_ext;[|intros;reflexivity|exact S1];intros;symmetry;now apply spill_point. }
+ assert (D:double_spec defer_double (buffer_words(mem initial)pt)(buffer_words(mem s1)pt)).
+ { eapply double_spec_ext;unfold agrees_words;[|intros;reflexivity|exact S1];intros;symmetry;now apply spill_point. }
  assert (V:has_value (buffer_words(mem initial)pt) (fun j=>Wide51.point_values(buffer_words(mem initial)pt)j)).
  { intros j J c C;reflexivity. }
- destruct(double_result _ _ _ V B D)as[B1 V1].
+ destruct(double_values _ _ _ _ V B D)as[B1 V1].
  assert (O:invariant(odd_args s1)) by (temps I1).
  destruct(invoke_ok (Plus false false 0) (wrapper_pc+35) _ O ltac:(lia) ltac:(lia)
     ltac:(inputs I1))as[s2[R2[I2 S2]]].
  pose proof(staged_add _ _ false false 0 O ltac:(lia) ltac:(cbn;lia) S2)as A2.
  rewrite Z.add_0_r in A2.
- destruct(add_result false false _ _ _ _
-   V1 B1 Odd A2)as[B2 V2].
+ destruct(add_values _ false false _ _ _ _
+   V1 (handoff_bounds _ _ B1) Odd A2)as[B2 V2].
  assert (P:invariant(point_arg s2)) by (temps I2).
  destruct(invoke_ok Double (wrapper_pc+43) _ P ltac:(lia) ltac:(lia)
    ltac:(inputs I2))as[s3[R3[I3 S3]]].
- destruct(double_result _ _ _ V2 (strict_loose _ B2) S3)as[B3 V3].
+ destruct(double_values _ _ _ _ V2 (strict_loose _ B2) S3)as[B3 V3].
  assert (A:invariant(base_args s3)) by (temps I3).
- destruct(invoke_ok (Plus true true 1280) (wrapper_pc+69) _ A ltac:(lia) ltac:(lia)
+ destruct(invoke_ok (Plus true true 1280) (wrapper_pc+(59+setup_length)) _ A ltac:(lia) ltac:(lia)
    ltac:(inputs I3))as[s4[R4[I4 S4]]].
  pose proof(staged_add _ _ true true 1280 A ltac:(lia) ltac:(cbn;lia) S4)as A4.
- destruct(add_result true true _ _ _ _
-   V3 B3 Base A4)as[B4 V4].
+ destruct(add_values _ true true _ _ _ _
+   V3 (handoff_bounds _ _ B3) Base A4)as[B4 V4].
  assert (E:invariant(even_args s4)) by (temps I4).
- destruct(invoke_ok (Plus full false 2240) (wrapper_pc+93) _ E ltac:(lia) ltac:(lia)
+ destruct(invoke_ok (Plus full false 2240) (wrapper_pc+(83+setup_length)) _ E ltac:(lia) ltac:(lia)
    ltac:(inputs I4))as[s5[R5[I5 S5]]].
  pose proof(staged_add _ _ full false 2240 E ltac:(lia) ltac:(cbn;lia) S5)as A5.
- destruct(add_result full false _ _ _ _
-   V4 B4 Even A5)as[B5 V5].
- destruct(finish (wrapper_pc+98) s5 I5)as[Ret [Stack Saved]].
+ destruct(add_values _ full false _ _ _ _
+   V4 (handoff_bounds _ _ B4) Even A5)as[B5 V5].
+ destruct(finish (wrapper_pc+(88+setup_length)) s5 I5)as[Ret [Stack Saved]].
  exists(returning(restored s5));split.
  - exists s1;split;[exact R1|];exists s2;split;[exact R2|];exists s3;split;[exact R3|];
    exists s4;split;[exact R4|];exists s5;split;[exact R5|exact Ret].
