@@ -2,44 +2,6 @@ use super::*;
 use crate::field::Fe51;
 use rand::{Rng, RngCore, SeedableRng, rngs::StdRng};
 
-fn coordinates(point: &WidePoint) -> [WideFe; 4] {
-    [point.x, point.y, point.z, point.t]
-}
-
-fn assert_output(actual: &WidePoint, expected: &WidePoint, compute_t: bool) {
-    for (a, b) in coordinates(actual).into_iter().zip(coordinates(expected)) {
-        assert_eq!(a.to_bytes_lanes(), b.to_bytes_lanes());
-        for (i, row) in wide_rows(a).iter().enumerate() {
-            assert!(row.iter().all(|&v| v < 1 << if i == 1 { 52 } else { 51 }));
-        }
-    }
-    if !compute_t {
-        assert_eq!(wide_rows(actual.t), [[0; LANES]; LIMB_COUNT]);
-    }
-}
-
-#[repr(C)]
-struct Guarded<T> {
-    before: [u8; 64],
-    value: T,
-    after: [u8; 64],
-}
-
-impl<T> Guarded<T> {
-    fn new(value: T) -> Self {
-        Self {
-            before: [0xa5; 64],
-            value,
-            after: [0x5a; 64],
-        }
-    }
-
-    fn check(&self) {
-        assert_eq!(self.before, [0xa5; 64]);
-        assert_eq!(self.after, [0x5a; 64]);
-    }
-}
-
 fn reference_step(
     point: &mut WidePoint,
     odd: &[&CachedPoint; LANES],
@@ -175,7 +137,7 @@ fn ladder_step_matches_its_leaf_calls_at_loose_bounds() {
                 select(0).step(&mut actual.value, compute_t);
                 reference_step(&mut expected, &odd, &base, &even, compute_t);
                 actual.check();
-                assert_output(&actual.value, &expected, compute_t);
+                assert_point_output(&actual.value, &expected, compute_t);
             }
         }
     }
@@ -311,7 +273,7 @@ fn ladder_step_preserves_sysv_registers_and_staged_operands() {
             actual.check();
             operands.check();
             assert_eq!(operands.value.map(wide_rows), words);
-            assert_output(&actual.value, &expected, compute_t);
+            assert_point_output(&actual.value, &expected, compute_t);
         }
     }
 }

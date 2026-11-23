@@ -27,6 +27,56 @@ const BASEPOINT_COMPRESSED: [u8; POINT_ENCODING_LEN] =
     curve25519::constants::ED25519_BASEPOINT_COMPRESSED.to_bytes();
 const VECTOR_JSON: &str = include_str!("../../../tests/vectors/avx512ifma.json");
 
+fn coordinates(point: &WidePoint) -> [WideFe; 4] {
+    [point.x, point.y, point.z, point.t]
+}
+
+fn assert_point_output(actual: &WidePoint, expected: &WidePoint, compute_t: bool) {
+    for (i, (actual, expected)) in coordinates(actual)
+        .into_iter()
+        .zip(coordinates(expected))
+        .enumerate()
+    {
+        assert_eq!(
+            actual.to_bytes_lanes(),
+            expected.to_bytes_lanes(),
+            "coordinate {i}"
+        );
+        for (limb, row) in wide_rows(actual).iter().enumerate() {
+            let bound = 1 << if limb == 1 { 52 } else { 51 };
+            assert!(
+                row.iter().all(|&x| x < bound),
+                "coordinate {i}, limb {limb}"
+            );
+        }
+    }
+    if !compute_t {
+        assert_eq!(wide_rows(actual.t), [[0; LANES]; LIMB_COUNT]);
+    }
+}
+
+#[repr(C)]
+struct Guarded<T> {
+    before: [u8; 64],
+    value: T,
+    after: [u8; 64],
+}
+
+impl<T> Guarded<T> {
+    fn new(value: T) -> Self {
+        Self {
+            before: [0xa5; 64],
+            value,
+            after: [0x5a; 64],
+        }
+    }
+
+    fn check(&self) {
+        assert_eq!(self.before, [0xa5; 64]);
+        assert_eq!(self.after, [0x5a; 64]);
+    }
+}
+
 fn decompress_points_wide(bytes: &EncodedPointChunk) -> (WidePoint, u8) {
     let mut storage = MaybeUninit::uninit();
     let ([point], [mask]) = decode::decompress_zip215(core::array::from_ref(bytes), &mut storage);

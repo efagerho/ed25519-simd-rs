@@ -13,6 +13,9 @@ pub(crate) struct PointTable {
     entries: [CachedPoint; SIGNED_POINT_TABLE_SIZE],
 }
 
+/// Readable ladder table for lanes whose public key failed to decode.
+pub(crate) static IDENTITY_TABLE: PointTable = PointTable::identity();
+
 // The ladder folds two radix-16 digits into a radix-256 digit with
 // maximum magnitude `8 + 8*16 = 136`.
 const POINT_TABLE_SIZE: usize = 8;
@@ -135,13 +138,13 @@ impl AffineCachedPoint {
 }
 
 impl PointTable {
-    #[inline(never)]
-    pub(crate) fn identity() -> Self {
+    pub(crate) const fn identity() -> Self {
         Self {
-            entries: core::array::from_fn(|_| CachedPoint::identity()),
+            entries: [const { CachedPoint::identity() }; SIGNED_POINT_TABLE_SIZE],
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn entries_ptr(&self) -> *const CachedPoint {
         self.entries.as_ptr()
     }
@@ -161,11 +164,5 @@ impl PointTable {
     #[cfg(test)]
     pub(crate) fn select_signed_cached_ref(&self, digit: i8) -> &CachedPoint {
         &self.entries[(digit as isize + POINT_TABLE_SIZE as isize) as usize]
-    }
-}
-
-impl core::fmt::Debug for PointTable {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        formatter.debug_struct("PointTable").finish_non_exhaustive()
     }
 }

@@ -2,44 +2,6 @@ use super::*;
 use crate::field::Fe51;
 use rand::{RngCore, SeedableRng, rngs::StdRng};
 
-fn coordinates(p: &WidePoint) -> [WideFe; 4] {
-    [p.x, p.y, p.z, p.t]
-}
-
-fn assert_output(actual: &WidePoint, expected: &WidePoint, compute_t: bool) {
-    for (a, b) in coordinates(actual).into_iter().zip(coordinates(expected)) {
-        for (i, row) in wide_rows(a).iter().enumerate() {
-            assert!(row.iter().all(|&v| v < 1 << if i == 1 { 52 } else { 51 }));
-        }
-        assert_eq!(a.to_bytes_lanes(), b.to_bytes_lanes());
-    }
-    if !compute_t {
-        assert_eq!(wide_rows(actual.t), [[0; LANES]; LIMB_COUNT]);
-    }
-}
-
-#[repr(C)]
-struct Guarded<T> {
-    before: [u8; 64],
-    value: T,
-    after: [u8; 64],
-}
-
-impl<T> Guarded<T> {
-    fn new(value: T) -> Self {
-        Self {
-            before: [0xa5; 64],
-            value,
-            after: [0x5a; 64],
-        }
-    }
-
-    fn check(&self) {
-        assert_eq!(self.before, [0xa5; 64]);
-        assert_eq!(self.after, [0x5a; 64]);
-    }
-}
-
 fn projective(fields: [Fe51; 4]) -> CachedPoint {
     CachedPoint::from_fields(fields[1], fields[0], fields[3], fields[2])
 }
@@ -103,7 +65,7 @@ fn cached_add_matches_integer_vectors() {
             let selected = core::array::from_fn(|i| {
                 WideFe::from_limbs_per_lane(|j| fields[j][i].loose_limbs())
             });
-            assert_output(
+            assert_point_output(
                 &actual.value,
                 &expected(input, selected, is_affine, compute_t),
                 compute_t,
@@ -158,10 +120,10 @@ fn cached_add_matches_point_addition_for_per_lane_and_aliased_selections() {
                     .value
                     .add_cached_refs_assign(&projective_refs, compute_t);
                 reference = expected(reference, selected, false, compute_t);
-                assert_output(&actual.value, &reference, compute_t);
+                assert_point_output(&actual.value, &reference, compute_t);
                 actual.value.add_affine_cached_refs_assign(&affine_refs);
                 reference = expected(reference, selected, true, true);
-                assert_output(&actual.value, &reference, true);
+                assert_point_output(&actual.value, &reference, true);
                 actual.check();
             }
         }
@@ -170,7 +132,7 @@ fn cached_add_matches_point_addition_for_per_lane_and_aliased_selections() {
 
 mod native {
     use super::*;
-    use core::ffi::{c_int, c_void};
+    use crate::test_support::GuardedPage;
 
     core::arch::global_asm!(include_str!("cached_add_abi.S"), options(raw));
     unsafe extern "C" {
@@ -187,17 +149,6 @@ mod native {
             affine: u64,
             offset: usize,
         ) -> u64;
-        fn getpagesize() -> c_int;
-        fn mmap(
-            address: *mut c_void,
-            length: usize,
-            prot: c_int,
-            flags: c_int,
-            fd: c_int,
-            offset: i64,
-        ) -> *mut c_void;
-        fn mprotect(address: *mut c_void, length: usize, prot: c_int) -> c_int;
-        fn munmap(address: *mut c_void, length: usize) -> c_int;
     }
 
     fn operands() -> (WidePoint, [WideFe; 4]) {
@@ -301,45 +252,28 @@ mod native {
                     point.check();
                     cached.check();
                     assert_eq!(cached.value.map(wide_rows), fields.map(wide_rows));
-                    assert_output(&point.value, &expected, compute_t);
+                    assert_point_output(&point.value, &expected, compute_t);
                 }
             }
-        }
-    }
-
-    struct GuardPages {
-        address: *mut c_void,
-        length: usize,
-    }
-    impl Drop for GuardPages {
-        fn drop(&mut self) {
-            assert_eq!(unsafe { munmap(self.address, self.length) }, 0);
         }
     }
 
     #[test]
     fn cached_add_reads_only_supplied_fields() {
         let (input, fields) = operands();
-        let page_size = usize::try_from(unsafe { getpagesize() }).unwrap();
-        assert!(page_size >= 1280 && page_size % 64 == 0);
         for is_affine in [false, true] {
-            // Linux x86-64: MAP_PRIVATE | MAP_ANONYMOUS, initially read/write.
-            let address = unsafe { mmap(core::ptr::null_mut(), 2 * page_size, 3, 0x22, -1, 0) };
-            assert_ne!(address as isize, -1);
-            let pages = GuardPages {
-                address,
-                length: 2 * page_size,
-            };
-            let boundary = unsafe { address.cast::<u8>().add(page_size) };
-            assert_eq!(unsafe { mprotect(boundary.cast(), page_size, 0) }, 0);
+            let pages = GuardedPage::new();
             // Affine mode must never read a fourth field, even with T enabled.
             let count = if is_affine { 3 } else { 4 };
-            let cached = unsafe { boundary.sub(count * size_of::<WideFe>()).cast::<WideFe>() };
+            let cached = pages
+                .buffer(count * size_of::<WideFe>(), true)
+                .cast::<WideFe>();
+            assert!(cached.is_aligned());
             unsafe {
                 core::ptr::copy_nonoverlapping(fields.as_ptr(), cached, count);
             }
             // Also catch any store through the read-only cached input pointer.
-            assert_eq!(unsafe { mprotect(address, page_size, 1) }, 0);
+            pages.read_only();
             for compute_t in [false, true] {
                 let mut point = Guarded::new(input);
                 unsafe {
@@ -350,14 +284,13 @@ mod native {
                         u64::from(is_affine),
                     );
                 }
-                assert_output(
+                assert_point_output(
                     &point.value,
                     &expected(input, fields, is_affine, compute_t),
                     compute_t,
                 );
                 point.check();
             }
-            drop(pages);
         }
     }
 }
