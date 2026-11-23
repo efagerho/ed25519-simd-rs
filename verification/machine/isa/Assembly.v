@@ -3,7 +3,8 @@ From Machine Require Import isa.Instructions isa.ProgramLayout.
 Import ListNotations.
 Open Scope Z_scope.
 
-Inductive ending := FallThrough | Return | CallTo (target:Z) | JneTo (target:Z) | PushFrame | PopFrame.
+Inductive ending := FallThrough | Return | CallTo (target:Z) | JneTo (target:Z) | PushFrame | PopFrame
+| JeTo (target:Z) | JumpTo (short:bool) (target:Z).
 
 Inductive source_section :=
 | ScalarBlock (pc:Z) (ops:list operation) (last:ending)
@@ -15,6 +16,9 @@ Definition assemble_block p pc ops last :=
   let e := match last with
     | FallThrough => Next | Return => Ret | PushFrame => PushRbp | PopFrame => PopRbp
     | CallTo target => CallRel32 (target - next (CallRel32 0))
+    | JeTo target => JeRel8 (target - next (JeRel8 0))
+    | JumpTo true target => JmpRel8 (target - next (JmpRel8 0))
+    | JumpTo false target => JmpRel32 (target - next (JmpRel32 0))
     | JneTo target => JneRel8 (target - next (JneRel8 0))
     end in
   Code (Block pc ops e).

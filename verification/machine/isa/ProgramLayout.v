@@ -14,8 +14,10 @@ Inductive operation :=
 | LoadZmm (dst base : nat) (disp : Z) | StoreZmm (src base : nat) (disp : Z)
 | VectorCode (fragment : nat) | ZeroUpper
 | MovReg (dst src : nat) | AlignRsp64 | LeaR8Rsi (disp : Z)
-| MovRaxImm32 (imm : Z).
-Inductive exit := Next | CallRel32 (disp : Z) | JneRel8 (disp : Z) | Ret | PushRbp | PopRbp.
+| MovRaxImm32 (imm : Z)
+| Test32 (reg : nat) (mask : Z) | Cmp32Imm8 (reg : nat) (imm : Z).
+Inductive exit := Next | CallRel32 (disp : Z) | JneRel8 (disp : Z) | Ret | PushRbp | PopRbp
+| JeRel8 (disp : Z) | JmpRel8 (disp : Z) | JmpRel32 (disp : Z).
 Record block := Block { start : Z; body : list operation; terminator : exit }.
 Inductive section := Code (b : block) | Padding (bytes : list Z).
 Record program := Program { fragments : list (list instruction); sections : list section }.
@@ -35,6 +37,8 @@ Proof. intro H; unfold fragment_code; now rewrite H. Qed.
    https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#text=_mm256_zeroupper *)
 Definition op_bytes p op := match op with
  | Mov32 d n => [0xb8 + Z.of_nat d] ++ le32 n
+ | Test32 r mask => [0xf7;modrm 3 0 (Z.of_nat r)] ++ le32 mask
+ | Cmp32Imm8 r n => [0x83;modrm 3 7 (Z.of_nat r);n mod 256]
  | MovAbsRax n => [0x48;0xb8] ++ le32 n ++ le32 (n / 2^32)
  | MovRaxImm32 n => [0x48;0xc7;0xc0] ++ le32 n
  | BroadcastRax d => rr 2 1 0x7c d 0 0
@@ -56,6 +60,8 @@ Definition op_bytes p op := match op with
 Definition exit_bytes e := match e with
  | Next => [] | CallRel32 d => 0xe8 :: le32 d
  | JneRel8 d => [0x75;d mod 256] | Ret => [0xc3]
+ | JeRel8 d => [0x74;d mod 256] | JmpRel8 d => [0xeb;d mod 256]
+ | JmpRel32 d => 0xe9 :: le32 d
  | PushRbp => [0x55] | PopRbp => [0x5d] end.
 Definition block_bytes p b := flat_map (op_bytes p) (body b) ++ exit_bytes (terminator b).
 Definition image p := flat_map (fun s => match s with
@@ -73,6 +79,8 @@ Definition valid_op p op := match op with
  (* Only nonnegative immediates: sign extension is then the identity. *)
  | MovRaxImm32 n => unsigned 31 n
  | AdjustRsp _ n | LeaR8Rsp n => signed 32 n
+ | Test32 r n => Nat.ltb r 8 && unsigned 32 n
+ | Cmp32Imm8 r n => Nat.ltb r 8 && signed 8 n
  | DecEcx | ZeroUpper | AlignRsp64 => true
  | MovReg d s => Nat.ltb d 16 && Nat.ltb s 16
  | LeaR8Rsi n => signed 32 n
@@ -84,7 +92,9 @@ Definition starts_block p pc := match lookup (sections p) pc with Some _ => true
 Definition valid_exit p b := let n := after p b in match terminator b with
  | Next | PushRbp | PopRbp => starts_block p n | Ret => true
  | CallRel32 d => signed 32 d && starts_block p (n+d) && starts_block p n
- | JneRel8 d => signed 8 d && starts_block p (n+d) && starts_block p n end.
+ | JneRel8 d | JeRel8 d => signed 8 d && starts_block p (n+d) && starts_block p n
+ | JmpRel8 d => signed 8 d && starts_block p (n+d)
+ | JmpRel32 d => signed 32 d && starts_block p (n+d) end.
 Fixpoint layout_ok p pc ss := match ss with
  | [] => true
  | Padding bytes :: rest => forallb (unsigned 8) bytes && layout_ok p (pc+Z.of_nat (length bytes)) rest

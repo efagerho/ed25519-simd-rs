@@ -162,3 +162,8 @@ Notation "'mov' 'rax' , 'rcx'" := (MovReg 0 1) (in custom intel_op at level 0).
 
 Notation "'mov' 'rax' , n" := (MovRaxImm32 n%Z)
   (in custom intel_op at level 0, n constr at level 0).
+
+Notation "'cmp' r , n" := (Cmp32Imm8 r n%Z)
+  (in custom intel_op at level 0, r custom intel_gpr32, n constr at level 0).
+Notation "'test' r , n" := (Test32 r n%Z)
+  (in custom intel_op at level 0, r custom intel_gpr32, n constr at level 0).

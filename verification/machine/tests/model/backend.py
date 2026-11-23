@@ -60,6 +60,7 @@ class Model:
             "mask": ("Mask", "mask_report", "seeds", 2),
             "masked_words": ("MaskedWordProbe", "report", "seeds", 10),
             "filter": ("Filter", "filter_report", "seeds", 2),
+            "flags": ("Control", "flag_report", "counts", 3),
             "control": ("Control", "probe_report", "counts", 4),
             "mixed": ("Mixed", "mixed_report", "seeds", 3 + 32*8 + 3*8),
             "prologue": ("Prologue", "prologue_report", "seeds", 4 + 32*8 + 31*8 + 3*4*8),

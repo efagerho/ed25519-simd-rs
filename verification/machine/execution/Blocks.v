@@ -35,6 +35,12 @@ Definition exec_op p l c op : option (control * list effect) :=
  | AdjustRsp sub n => match pointer_at c 4 (if sub then -n else n) with
    | Some a => Some (Control (rip c) (put (gpr c) 4 (Ptr a)) None (return_memory c),[])
    | None => None end
+ | Test32 r mask => match gpr c r with
+   | Int n => Some (Control (rip c) (gpr c) (Some (Z.land (n mod 2^32) mask =? 0)) (return_memory c),[])
+   | _ => None end
+ | Cmp32Imm8 r imm => match gpr c r with
+   | Int n => Some (Control (rip c) (gpr c) (Some (n mod 2^32 =? imm mod 2^32)) (return_memory c),[])
+   | _ => None end
  | DecEcx => match gpr c 1%nat with
    | Int n => let v := (n-1) mod 2^32 in
      Some (Control (rip c) (put (gpr c) 1 (Int v)) (Some (v =? 0)) (return_memory c),[])
@@ -84,6 +90,9 @@ Definition transfer_recorded l c next e : option (control * list event) :=
  let jump t := finish t (gpr c) [] in
  match e with
  | Next => jump (At next)
+ | JmpRel8 d | JmpRel32 d => jump (At (next+d))
+ | JeRel8 d => match zf c with
+      | Some zero => jump (At (if zero then next+d else next)) | None => None end
  | JneRel8 d => match zf c with
       | Some zero => jump (At (if zero then next else next+d)) | None => None end
  | CallRel32 d => match pointer_at c 4 (-8) with

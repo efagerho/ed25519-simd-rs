@@ -7,7 +7,8 @@ Definition section_bytes p s := match s with
  | Code b => block_bytes p b | Padding bytes => bytes end.
 Definition section_image p ss := flat_map (section_bytes p) ss.
 Definition static_targets p b := let n:=after p b in match terminator b with
- | Ret => [] | CallRel32 d | JneRel8 d => [n+d;n] | _ => [n] end.
+ | Ret => [] | CallRel32 d | JneRel8 d | JeRel8 d => [n+d;n]
+ | JmpRel8 d | JmpRel32 d => [n+d] | _ => [n] end.
 
 Lemma lookup_member ss addr b : lookup ss addr=Some b ->
  In (Code b) ss /\ start b=addr.

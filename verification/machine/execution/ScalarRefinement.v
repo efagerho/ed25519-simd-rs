@@ -87,6 +87,8 @@ Definition word_operation op w :=
    WordControl ip (put regs 4 v) (v=?0)
  | LeaR8Rsp n => WordControl ip (register_write regs 8 (EffectiveAddress 4 n)) flag
  | LeaR8Rsi n => WordControl ip (register_write regs 8 (EffectiveAddress 6 n)) flag
+ | Test32 r mask => WordControl ip regs (Z.land (regs r mod 2^32) mask =? 0)
+ | Cmp32Imm8 r n => WordControl ip regs (regs r mod 2^32 =? (signed_value (2^7) n) mod 2^32)
  | DecEcx => let v:=(regs 1%nat-1) mod 2^32 in WordControl ip (put regs 1 (word v)) (v=?0)
  | AlignRsp64 => let v:=word(Z.land (regs 4%nat) (-64)) in WordControl ip (put regs 4 v) (v=?0)
  | _ => w end.
@@ -135,10 +137,18 @@ Proof.
  - injection Exec as <- <-;apply control_put;[repeat split;assumption|].
    cbn [valid_op] in Valid;unfold unsigned in Valid;rewrite andb_true_iff,Z.leb_le,Z.ltb_lt in Valid.
    rewrite signed_value_id by lia;cbn [scalar_represents];symmetry;apply word_idempotent.
+ - destruct(gpr c reg)eqn:R;try discriminate;injection Exec as <- <-.
+   specialize(Regs reg)as Value;rewrite R in Value;cbn [scalar_represents] in Value.
+   split;[exact PC|];split;[exact Regs|];cbn [flag_represents zf word_zf];now rewrite Value,low32_word.
+ - destruct(gpr c reg)eqn:R;try discriminate;injection Exec as <- <-.
+   specialize(Regs reg)as Value;rewrite R in Value;cbn [scalar_represents] in Value.
+   apply andb_true_iff in Valid as [_ I]. rewrite(signed8_id _ I).
+   split;[exact PC|];split;[exact Regs|];cbn [flag_represents zf word_zf];now rewrite Value,low32_word.
 Qed.
 
 Definition transfer_encoding e := match e with
- | CallRel32 d => signed 32 d | JneRel8 d => signed 8 d | _ => true end.
+ | CallRel32 d | JmpRel32 d => signed 32 d
+ | JneRel8 d | JeRel8 d | JmpRel8 d => signed 8 d | _ => true end.
 Lemma checked_transfer_encoding p b : valid_exit p b=true ->transfer_encoding(terminator b)=true.
 Proof.
  unfold valid_exit,transfer_encoding;destruct(terminator b);intro H;try reflexivity;
@@ -155,6 +165,9 @@ Definition word_transfer next e w flat : word_control * bytes :=
    (WordControl (target_ip result) (result_regs result) flag, result_mem result) in
  match e with
  | Next => finish next regs flat
+ | JmpRel8 d => finish (next+signed_value (2^7) d) regs flat
+ | JmpRel32 d => finish (next+signed_value (2^31) d) regs flat
+ | JeRel8 d => finish (if flag then next+signed_value (2^7) d else next) regs flat
  | JneRel8 d => finish (if flag then next else next+signed_value (2^7) d) regs flat
  | CallRel32 d => stack (NearCall d)
  | PushRbp => stack (PushRegister 5)
@@ -219,6 +232,14 @@ Proof.
    split;[|reflexivity];split;[reflexivity|];split;[|exact Flags].
    apply registers_put;[apply registers_put;[exact Regs|exact(pointer_increment _ _ _ _ Regs A)]|].
    cbn [scalar_represents pc_word];change(word bits=word(word bits));symmetry;apply word_idempotent.
+ - destruct(zf c)as[zero|];[|discriminate];injection Exec as <- <-.
+   cbn [transfer_encoding] in Encoding;rewrite(signed8_id _ Encoding).
+   cbn [flag_represents] in Flags;rewrite <-Flags;split;[|reflexivity].
+   split;[destruct zero;cbn [word_pc pc_word rip fst];f_equal;ring|];split;[exact Regs|reflexivity].
+ - injection Exec as <- <-;rewrite(signed8_id _ Encoding);split;[|reflexivity].
+   split;[cbn [word_pc pc_word rip fst];f_equal;ring|];split;assumption.
+ - injection Exec as <- <-;rewrite(signed32_id _ Encoding);split;[|reflexivity].
+   split;[cbn [word_pc pc_word rip fst];f_equal;ring|];split;assumption.
 Qed.
 
 Lemma word_bound n : word64(word n).
