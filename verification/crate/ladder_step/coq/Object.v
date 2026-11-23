@@ -2,15 +2,13 @@ From Coq Require Import List ZArith Lia.
 From Curve25519.group Require Import Representation.
 From Machine Require Import memory.FlatMemory execution.LinkedCalls.
 From Ed25519Simd.LadderStep Require Import LinkedBytes Callees Schedule Audit Calls Execution.
-From Ed25519Simd.Double4 Require Object.
-From Ed25519Simd.CachedAdd Require Object.
 
 Theorem assembled_ladder_step_correct : ladder_contract.
 Proof.
  constructor.
  - vm_compute; reflexivity.
- - exact (Ed25519Simd.Double4.Audit.code_matches Ed25519Simd.Double4.Object.assembled_double4_correct).
- - exact (Ed25519Simd.CachedAdd.Audit.code_matches Ed25519Simd.CachedAdd.Object.assembled_cached_add_correct).
+ - exact double_binding.
+ - exact add_binding.
  - exact linked_regions_separate.
  - intros slide scratch pad point cache full s Place W SP Pt Cache Mode B Odd Base Even.
    destruct (execute _ _ _ _ _ _ _ Place W SP Pt Cache Mode B Odd Base Even)

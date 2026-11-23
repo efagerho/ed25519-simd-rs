@@ -21,10 +21,10 @@ Definition prologue := [Save RBX; Save R12; Save R13; Copy RBX RDI; Copy R12 RSI
 Definition epilogue := [Restore R13; Restore R12; Restore RBX; Return].
 Definition program := prologue ++ [
   Invoke double4_pc;
-  Copy RDI RBX; Copy RSI R12; Immediate RDX 0; Immediate RCX 0; Invoke cached_pc;
+  Copy RDI RBX; Copy RSI R12; Immediate RDX 0; Immediate RCX 0; Invoke (add_target cached_pc false false);
   Copy RDI RBX; Invoke double4_pc;
-  Copy RDI RBX; LeaSIB RSI R12 1280; Immediate RDX 1; Immediate RCX 1; Invoke cached_pc;
-  Copy RDI RBX; LeaSIB RSI R12 2240; Copy RDX R13; Immediate RCX 0; Invoke cached_pc
+  Copy RDI RBX; LeaSIB RSI R12 1280] ++ affine_setup ++ [Invoke (add_target cached_pc true true);
+  Copy RDI RBX; LeaSIB RSI R12 2240; Copy RDX R13; Immediate RCX 0; Invoke (add_target cached_pc false false)
 ] ++ epilogue.
 
 Definition wrapper_size := Z.of_nat (length symbol_bytes).
@@ -86,10 +86,8 @@ Arguments returned {execute caller scratch pad point cache full entry out} _.
 (* The caller supplies runtime placement. All three byte bindings are conclusions. *)
 Record ladder_contract : Prop := {
  wrapper_matches : assemble wrapper_pc program = Some symbol_bytes;
- double_matches : Blocks.image Ed25519Simd.Double4.Program.double4_program =
-                  Ed25519Simd.Double4.Object.object_bytes;
- cached_matches : Blocks.image Ed25519Simd.CachedAdd.Program.add_cached_program =
-                  Ed25519Simd.CachedAdd.Object.object_bytes;
+ double_matches : doubling_image=doubling_bytes;
+ cached_matches : addition_image=addition_bytes;
  images_disjoint : separate_images;
  run_ladder :
   forall slide scratch pad point cache full entry,

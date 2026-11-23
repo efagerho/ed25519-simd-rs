@@ -36,6 +36,15 @@ Definition point_words s := buffer_words (mem s) (regs s 7%nat).
 Definition dsize := Z.of_nat(length Ed25519Simd.Double4.Object.object_bytes).
 Definition asize := Z.of_nat(length Ed25519Simd.CachedAdd.Object.object_bytes).
 
+Definition doubling_image := Blocks.image Ed25519Simd.Double4.Program.double4_program.
+Definition addition_image := Blocks.image Ed25519Simd.CachedAdd.Program.add_cached_program.
+Definition doubling_bytes := Ed25519Simd.Double4.Object.object_bytes.
+Definition addition_bytes := Ed25519Simd.CachedAdd.Object.object_bytes.
+Lemma double_binding : doubling_image=doubling_bytes.
+Proof. exact (Ed25519Simd.Double4.Audit.code_matches Ed25519Simd.Double4.Object.assembled_double4_correct). Qed.
+Lemma add_binding : addition_image=addition_bytes.
+Proof. exact (Ed25519Simd.CachedAdd.Audit.code_matches Ed25519Simd.CachedAdd.Object.assembled_cached_add_correct). Qed.
+
 (* Project the common byte-level ABI facts once for both callees. The
    only routine-specific inputs are the entry adapter and arithmetic spec. *)
 Lemma project_return scratch pad pc s entry final after :
@@ -124,3 +133,21 @@ Proof.
  assert (affine=affine0) by (apply flag_unique;congruence).
  subst;eapply callee_unique;eassumption.
 Qed.
+
+
+From Ed25519Simd Require Import PointResults.
+From Ed25519Simd.LadderStep Require Export Modes.
+Lemma mode_double_call dp ap scratch pad s :
+ well_formed s -> regs s 4%nat=scratch+1288+pad -> word64(regs s 4%nat+8) ->
+ Double4Memory.valid_placement (call_loc scratch dp s) dsize pad ->
+ exists out,dispatch dp ap scratch pad dp s (caller_pc(call_loc scratch dp s)) out /\
+ call_post scratch s out /\ double_spec defer_double (point_words s)(buffer_words(mem out)(regs s 7%nat)).
+Proof. apply double_call. Qed.
+Lemma mode_add_call dp ap scratch pad s f a :
+ dp<>add_target ap f a ->well_formed s -> regs s 4%nat=scratch+1288+pad -> word64(regs s 4%nat+8) -> mode_args f a s ->
+ CachedAddMemory.valid_placement a (call_loc scratch ap s) asize pad ->
+ exists out,dispatch dp ap scratch pad (add_target ap f a) s (caller_pc(call_loc scratch ap s)) out /\
+ call_post scratch s out /\ addition_spec (defer_add f a) f a (point_words s)
+ (buffer_words(mem s)(regs s 6%nat)) (buffer_words(mem out)(regs s 7%nat)).
+Proof. destruct f,a;unfold add_target;cbn [add_offset defer_add defer_double public_add_offset mode_args];
+ rewrite Z.add_0_r;intros _ W SP End [F A] P;eapply add_call;eassumption. Qed.
