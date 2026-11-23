@@ -36,6 +36,8 @@ tests/Aligned.v
 tests/CallerForms.v
 tests/ExportCases.v
 execution/Lane.v
+execution/LaneTrace.v
+execution/TraceEquivalence.v
 memory/MemoryGeometry.v
 memory/MemoryCoverage.v
 memory/ByteExecution.v
