@@ -15,7 +15,6 @@ pub use policy::{DalekPolicy, VerificationPolicy, VerifyPolicy, Zip215Policy};
 #[derive(Debug)]
 pub struct Verifier<P: VerificationPolicy = Zip215Policy> {
     policy: core::marker::PhantomData<P>,
-    visit_order: Vec<usize>,
     scratch: Box<MaybeUninit<ChunkScratch>>,
 }
 
@@ -48,7 +47,6 @@ impl<P: VerificationPolicy> Verifier<P> {
     pub fn new() -> Self {
         Self {
             policy: core::marker::PhantomData,
-            visit_order: Vec::new(),
             scratch: Box::new_uninit(),
         }
     }

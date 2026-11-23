@@ -24,7 +24,7 @@ and preservation of every byte outside the private stack and the 512-byte output
    external buffers and overlapping read-only inputs. A zero-length slice
    needs no readable message byte. Check the disjoint output and private
    stack, the slice length limit, and the mapping of the linked constants
-   at the same load bias as the code. [Rust call](../../../src/sha512.rs) ·
+   at the same load bias as the code. [Batch caller](../../../src/wide/avx512ifma/verify_batch.S) ·
    [Placement and stack layout](coq/Frame.v)
 3. **Check the instruction semantics.** The round and transpose lists supply
    operands to both the encoder and the interpreter. Verify the qword lanes,

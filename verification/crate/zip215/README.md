@@ -9,8 +9,9 @@ input-valid bit and only writes active indices. Later active writes take
 precedence when callers supply repeated indices.
 See [Audit.v](coq/Audit.v) and [Equation.v](coq/Equation.v). The shared [candidate proof](../post_hash/Product.v) connects the digest and signed S digits to Q.
 
-The Rust verifier calls the predecoded entry for every eligible chunk. The
-theorem also covers the standalone queue entries.
+The assembly batch driver calls the predecoded entry for every eligible
+chunk. The theorem also covers the standalone queue entries.
+[Batch caller](../../../src/wide/avx512ifma/verify_batch.S)
 
 ## What to audit
 

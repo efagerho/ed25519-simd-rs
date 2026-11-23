@@ -13,7 +13,7 @@ pub(crate) fn mask_to_lanes(mask: u8) -> [bool; SIMD_LANES] {
     core::array::from_fn(|lane| (mask & (1 << lane)) != 0)
 }
 
-/// Input validity and output positions for one padded chunk. Native ZIP-215
+/// Input validity and output positions for one padded chunk. Native
 /// scoring reads this layout and writes only the first active_lane_count lanes.
 #[repr(C)]
 #[derive(Debug)]
@@ -23,91 +23,63 @@ pub(crate) struct PendingLanes {
     pub(crate) active_lane_count: usize,
 }
 
-/// Visit padded SIMD chunks, taken in SHA-512 block-count order when that
-/// lets a chunk's lanes agree on how much to compress.
-pub(crate) fn for_each_simd_chunk<'a>(
-    inputs: &[VerifyInput<'a>],
-    visit_order: &mut Vec<usize>,
-    visit: impl FnMut(&[VerifyInput<'a>; SIMD_LANES], &[usize; SIMD_LANES], usize),
-) {
-    // Reordering costs a sort, so only pay it when a batch is big enough to
-    // hold several chunks and its lanes would otherwise disagree on how many
-    // SHA-512 blocks to compress.
-    if inputs.len() >= SIMD_LANES * 2 && has_mixed_block_counts(inputs) {
-        for_each_block_sorted_simd_chunk(inputs, visit_order, visit);
-    } else {
-        for_each_in_order_simd_chunk(inputs, visit);
-    }
+/// One input to the native batch driver. All five fields are individual
+/// machine words. The message pointer and length come from the same slice.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub(crate) struct BatchInput<'a> {
+    key: &'a [u8; 32],
+    signature: &'a [u8; 64],
+    message: *const u8,
+    message_len: usize,
+    output_index: usize,
 }
 
-/// Visit already-contiguous chunks and pad the tail with a duplicate lane.
-fn for_each_in_order_simd_chunk<'a>(
-    inputs: &[VerifyInput<'a>],
-    mut visit: impl FnMut(&[VerifyInput<'a>; SIMD_LANES], &[usize; SIMD_LANES], usize),
-) {
-    let (chunks, _) = inputs.as_chunks::<SIMD_LANES>();
-    for (chunk_index, chunk) in chunks.iter().enumerate() {
-        let output_indices = core::array::from_fn(|lane| chunk_index * SIMD_LANES + lane);
-        visit(chunk, &output_indices, SIMD_LANES);
-    }
+const _: () = {
+    use core::mem::{offset_of, size_of};
+    assert!(size_of::<BatchInput>() == 40 && offset_of!(BatchInput, key) == 0);
+    assert!(offset_of!(BatchInput, signature) == 8 && offset_of!(BatchInput, message) == 16);
+    assert!(
+        offset_of!(BatchInput, message_len) == 24 && offset_of!(BatchInput, output_index) == 32
+    );
+};
 
-    let i = chunks.len() * SIMD_LANES;
-    let rem = inputs.len() - i;
-    if rem > 0 {
-        let last = inputs.len() - 1;
-        let mut chunk = [inputs[last]; SIMD_LANES];
-        chunk[..rem].copy_from_slice(&inputs[i..]);
-        // Padding lanes repeat the last index rather than running past the end.
-        // Visitors only read `..rem`, but an in-range array cannot become an
-        // out-of-bounds write if that ever changes.
-        let output_indices = core::array::from_fn(|lane| if lane < rem { i + lane } else { last });
-        visit(&chunk, &output_indices, rem);
-    }
-}
-
-/// Visit chunks in block-count-sorted order while reporting each lane's
-/// original input index. A chunk may still straddle two block counts; sorting
-/// only makes that the exception rather than the rule.
-fn for_each_block_sorted_simd_chunk<'a>(
-    inputs: &[VerifyInput<'a>],
-    visit_order: &mut Vec<usize>,
-    mut visit: impl FnMut(&[VerifyInput<'a>; SIMD_LANES], &[usize; SIMD_LANES], usize),
-) {
-    sort_indices_by_block_count(inputs, visit_order);
-
-    for indices in visit_order.chunks(SIMD_LANES) {
-        let mut padded = [indices[indices.len() - 1]; SIMD_LANES];
-        padded[..indices.len()].copy_from_slice(indices);
-        let chunk = padded.map(|i| inputs[i]);
-        visit(&chunk, &padded, indices.len());
-    }
-}
-
-/// Whether the inputs disagree on their SHA-512 challenge block count.
-///
-/// One differing input is enough: a chunk containing it must compress every
-/// lane through the longest lane's block count, masking off the short ones.
-fn has_mixed_block_counts(inputs: &[VerifyInput<'_>]) -> bool {
-    let Some(first_input) = inputs.first() else {
-        return false;
-    };
-
-    let first = challenge_block_count(first_input.message.len());
-    let mut i = 1;
-    while i < inputs.len() {
-        if challenge_block_count(inputs[i].message.len()) != first {
-            return true;
+/// Borrow the inputs for one native call, sorting large mixed batches by
+/// SHA-512 block count. A single SIMD chunk fits on the stack.
+pub(crate) fn with_batch_inputs<T>(
+    inputs: &[VerifyInput<'_>],
+    run: impl FnOnce(&[BatchInput<'_>]) -> T,
+) -> T {
+    let mut rows = inputs
+        .iter()
+        .enumerate()
+        .map(|(output_index, input)| BatchInput {
+            key: &input.public_key,
+            signature: &input.signature,
+            message: input.message.as_ptr(),
+            message_len: input.message.len(),
+            output_index,
+        });
+    if inputs.len() <= SIMD_LANES {
+        let Some(first) = rows.next() else {
+            return run(&[]);
+        };
+        let mut inline = [first; SIMD_LANES];
+        for (slot, row) in inline[1..].iter_mut().zip(rows) {
+            *slot = row;
         }
-        i += 1;
+        return run(&inline[..inputs.len()]);
     }
-    false
-}
 
-/// Group original input indices by challenge block count.
-fn sort_indices_by_block_count(inputs: &[VerifyInput<'_>], visit_order: &mut Vec<usize>) {
-    visit_order.clear();
-    visit_order.extend(0..inputs.len());
-    visit_order.sort_unstable_by_key(|&i| challenge_block_count(inputs[i].message.len()));
+    let mut rows: Vec<_> = rows.collect();
+    if rows.len() >= 2 * SIMD_LANES {
+        let blocks = |row: &BatchInput<'_>| challenge_block_count(row.message_len);
+        let first = blocks(&rows[0]);
+        if rows[1..].iter().any(|row| blocks(row) != first) {
+            rows.sort_unstable_by_key(blocks);
+        }
+    }
+    run(&rows)
 }
 
 /// SHA-512 block count for `R || A || M`, including padding and length trailer.
@@ -131,147 +103,35 @@ mod tests {
             .collect()
     }
 
-    /// Collect `(output_indices, active_lane_count)` for every visited chunk.
-    fn visited(inputs: &[VerifyInput<'_>]) -> Vec<([usize; SIMD_LANES], usize)> {
-        let mut visit_order = Vec::new();
-        let mut seen = Vec::new();
-        for_each_simd_chunk(inputs, &mut visit_order, |_, indices, active| {
-            seen.push((*indices, active));
-        });
-        seen
-    }
-
     #[test]
-    fn every_input_is_visited_exactly_once_at_each_batch_size() {
-        for count in 0..=(SIMD_LANES * 3 + 1) {
-            let inputs = inputs(count, b"same");
-            let mut covered = vec![0usize; count];
-            for (indices, active) in visited(&inputs) {
-                assert!(active <= SIMD_LANES);
-                for &index in &indices[..active] {
-                    covered[index] += 1;
+    fn scheduling_preserves_indices_and_groups_large_mixed_batches() {
+        let long = [0u8; 200];
+        for count in 0..=3 * SIMD_LANES + 1 {
+            let mut inputs = inputs(count, b"short");
+            for input in inputs.iter_mut().step_by(2) {
+                input.message = &long;
+            }
+            with_batch_inputs(&inputs, |rows| {
+                let indices: Vec<_> = rows.iter().map(|row| row.output_index).collect();
+                if count < 2 * SIMD_LANES {
+                    assert!(indices.iter().copied().eq(0..count));
+                } else {
+                    assert!(
+                        rows.windows(2)
+                            .all(|pair| pair[0].message_len <= pair[1].message_len)
+                    );
                 }
-            }
-            assert!(
-                covered.iter().all(|&hits| hits == 1),
-                "count {count} covered {covered:?}"
-            );
-        }
-    }
-
-    /// Padding lanes must stay addressable: a visitor that trusted the whole
-    /// array would otherwise index past the caller's output slice.
-    #[test]
-    fn padding_lanes_hold_in_range_output_indices() {
-        for count in 1..=(SIMD_LANES * 2 + 3) {
-            for (indices, _) in visited(&inputs(count, b"uniform")) {
-                assert!(
-                    indices.iter().all(|&index| index < count),
-                    "count {count} produced out-of-range indices {indices:?}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn mixed_block_counts_are_detected_by_a_single_differing_input() {
-        let long = vec![0u8; 200];
-        assert_ne!(
-            challenge_block_count(long.len()),
-            challenge_block_count(b"short".len())
-        );
-
-        assert!(!has_mixed_block_counts(&inputs(0, b"short")));
-        assert!(!has_mixed_block_counts(&inputs(1, b"short")));
-        assert!(!has_mixed_block_counts(&inputs(SIMD_LANES * 2, b"short")));
-
-        // A single long lane anywhere is enough, including the first.
-        for differing in [0, 5, SIMD_LANES * 2 - 1] {
-            let mut mixed = inputs(SIMD_LANES * 2, b"short");
-            mixed[differing].message = &long;
-            assert!(
-                has_mixed_block_counts(&mixed),
-                "missed a differing input at {differing}"
-            );
-        }
-    }
-
-    /// The size gate is separate from the mixedness test: a small batch keeps
-    /// its original order even though its block counts do differ.
-    #[test]
-    fn small_batches_are_visited_in_order_despite_mixed_block_counts() {
-        let long = vec![0u8; 200];
-        let mut small = inputs(SIMD_LANES, b"short");
-        small[0].message = &long;
-        assert!(has_mixed_block_counts(&small));
-
-        let chunks = visited(&small);
-        assert_eq!(chunks.len(), 1);
-        let identity: [usize; SIMD_LANES] = core::array::from_fn(|lane| lane);
-        assert_eq!(
-            chunks[0],
-            (identity, SIMD_LANES),
-            "a batch below the reordering threshold was sorted anyway"
-        );
-
-        // Twice the size, same mixture: now the sort does run and moves the
-        // long lane to the end.
-        let mut large = inputs(SIMD_LANES * 2, b"short");
-        large[0].message = &long;
-        let visited_large = visited(&large);
-        assert_ne!(
-            visited_large[0].0[0], 0,
-            "a batch above the threshold was not reordered"
-        );
-    }
-
-    /// Sorting by block count means the counts a batch visits never decrease;
-    /// a chunk holds a single count only where a group boundary happens to fall
-    /// on a chunk boundary.
-    #[test]
-    fn sorting_visits_block_counts_in_nondecreasing_order() {
-        let long = vec![0u8; 200];
-        let mut mixed = inputs(SIMD_LANES * 2, b"short");
-        for index in [1, 4, 9, 14] {
-            mixed[index].message = &long;
-        }
-        let visited_counts: Vec<usize> = visited(&mixed)
-            .into_iter()
-            .flat_map(|(indices, active)| {
-                indices[..active]
-                    .iter()
-                    .map(|&i| challenge_block_count(mixed[i].message.len()))
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-        assert!(
-            visited_counts.windows(2).all(|pair| pair[0] <= pair[1]),
-            "block counts are not sorted: {visited_counts:?}"
-        );
-    }
-
-    /// A group boundary that lands on a chunk boundary yields chunks of one
-    /// block count, which
-    /// is the whole point: every lane then runs the same number of SHA-512
-    /// compressions instead of masking the short lanes through the long tail.
-    #[test]
-    fn aligned_block_count_groups_produce_single_count_chunks() {
-        let long = vec![0u8; 200];
-        let mut mixed = inputs(SIMD_LANES * 2, b"short");
-        for index in 0..SIMD_LANES {
-            mixed[index * 2].message = &long;
-        }
-        let chunks = visited(&mixed);
-        assert_eq!(chunks.len(), 2);
-        for (indices, active) in chunks {
-            let counts: Vec<usize> = indices[..active]
-                .iter()
-                .map(|&i| challenge_block_count(mixed[i].message.len()))
-                .collect();
-            assert!(
-                counts.windows(2).all(|pair| pair[0] == pair[1]),
-                "chunk mixes block counts: {counts:?}"
-            );
+                let mut sorted = indices;
+                sorted.sort_unstable();
+                assert!(sorted.into_iter().eq(0..count));
+                for row in rows {
+                    let input = &inputs[row.output_index];
+                    assert!(core::ptr::eq(row.key, &input.public_key));
+                    assert!(core::ptr::eq(row.signature, &input.signature));
+                    assert_eq!(row.message, input.message.as_ptr());
+                    assert_eq!(row.message_len, input.message.len());
+                }
+            });
         }
     }
 

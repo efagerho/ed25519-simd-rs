@@ -73,5 +73,6 @@ core::arch::global_asm!(
     include_str!("dalek.S"),
     include_str!("key_table.S"),
     include_str!("decompress_r.S"),
+    include_str!("verify_batch.S"),
     options(raw)
 );
