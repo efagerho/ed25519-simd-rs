@@ -1,7 +1,8 @@
 From Coq Require Import List ZArith.
 From Machine Require Import execution.Blocks.
 From Ed25519Simd.Double4 Require Import Double4ABI.
-From Ed25519Simd.Point Require Import Double DoubleBytes DoublePath Add AddBytes AddPath Outputs.
+From Ed25519Simd.Point Require Import Double DoubleBytes DoublePath Add AddBytes AddPath Outputs RawBounds.
+From Curve25519 Require Import Radix51.
 From Machine Require Import execution.Lane.
 From Ed25519Simd.Double4 Require Program Round.
 From Ed25519Simd.CachedAdd Require Program Control.
@@ -25,5 +26,9 @@ Record deferred_point_contract : Prop := {
     cells (lane_effects Double4.Program.double4_program j Round.expected_path s) (point_row n);
   addition_rows : forall m j s n,(n<20)%nat ->
     cells (normalized (deferred m) j (lane_effects Add.program j (add_effects m) s)) (point_row n) =
-    cells (lane_effects CachedAdd.Program.add_cached_program j (Control.expected_path (full m) (affine m)) s) (point_row n)
+    cells (lane_effects CachedAdd.Program.add_cached_program j (Control.expected_path (full m) (affine m)) s) (point_row n);
+  deferred_double_bounds : forall j s i,lane_words s -> (i<10)%nat ->
+    0<=cells (lane_effects Double.program j (double_effects true) s) (point_row i)<=folded_column_bound;
+  deferred_add_bounds : forall j s i,lane_words s -> (i<10)%nat ->
+    0<=cells (lane_effects Add.program j (add_effects PrivateAffine) s) (point_row i)<=folded_column_bound
 }.
