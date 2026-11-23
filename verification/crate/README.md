@@ -19,6 +19,7 @@ README for its contract and release audit.
 | [key_table/](key_table/README.md) | Builds one or eight public-key tables. Every signed entry is initialized and bounded, and represents the corresponding Edwards multiple for a valid affine input lane. |
 | [stage_round/](stage_round/README.md) | Signed key lookup, base-digit folding and exact limb placement in the 55-row ladder input. |
 | [ladder_step/](ladder_step/README.md) | A radix-256 ladder step composed from the verified doubling and cached-addition routines. |
+| [deferred_point/](deferred_point/README.md) | Experimental double-scalar ladder using private point entries with folded X/Y limbs, through the final reduced group result. |
 | [full_ladder/](full_ladder/README.md) | The complete 32-pair public ladder represents [s]B + [−k]A from signed digit bytes and valid tables, including both final T modes. |
 | [dalek_recompress/](dalek_recompress/README.md) | Each returned bit requires exact canonical recompression and a point of non-small order. Covers zero to eight chunks. |
 | [decompress_r/](decompress_r/README.md) | Deferred ZIP-215 decoding of eight or sixteen encodings, including noncanonical y, both signs of zero, and rejection of nonsquares. |

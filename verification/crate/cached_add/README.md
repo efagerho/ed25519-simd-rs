@@ -135,9 +135,9 @@ arm also proves the corresponding F/G result with a folded C. [Block contract](c
 For an executable containing the candidate's conditional carry instructions,
 run the independent byte check below. Audit `linked_deferred_carry_correct`
 and its designated sites in the two ELF symbols. The proof covers those
-blocks in the stated sequence. Reachability and composition of the private
-entry points in the experimental ladder remain separate obligations. The
-public release theorem above covers the complete checked-in routine.
+blocks in the stated sequence. The full linked audit proves reachability from both private entries and composes the
+resulting coordinates through the entire experimental ladder. The public release
+theorem above covers the checked-in routine. [Full deferred-carry certificate](../deferred_point/README.md)
 
 ```sh
 python3 -B verification/crate/cached_add/carry_audit.py /path/to/candidate-elf \

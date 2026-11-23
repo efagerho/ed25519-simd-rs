@@ -1,0 +1,192 @@
+--- a/src/wide/avx512ifma/double4.S
++++ b/src/wide/avx512ifma/double4.S
+@@ -71,7 +71,18 @@
+ .endm
+
+ .altmacro
++// The private entry returns folded X/Y columns below 300*2^52.
++// Z/T retain the ordinary bounds. Bit 2 of ECX selects this mode.
++.globl ed25519_simd_double4_for_add_ifma
++.hidden ed25519_simd_double4_for_add_ifma
++.type ed25519_simd_double4_for_add_ifma,@function
++ed25519_simd_double4_for_add_ifma:
++    mov ecx, 7
++    jmp .Ld4_entry
++.size ed25519_simd_double4_for_add_ifma, .-ed25519_simd_double4_for_add_ifma
+ ed25519_simd_double4_ifma:
++    mov ecx, 3
++.Ld4_entry:
+     push rbp
+     mov rbp, rsp
+     and rsp, -64
+@@ -81,7 +92,6 @@
+     vpbroadcastq zmm28, rax
+     mov rax, 0x7ffffffffffff
+     vpbroadcastq zmm29, rax
+-    mov ecx, 3
+     d4_load rdi, 320, 5
+ .Ld4_repeat:
+     call .Ld4_prepare
+@@ -91,6 +101,7 @@
+     d4_rr vmovdqa64, %(5+\i), \i
+ .endr
+     dec ecx
++    test ecx, 3
+     jne .Ld4_repeat
+     call .Ld4_prepare
+     d4_load rsi, 0, 5
+@@ -269,8 +280,11 @@
+     ret
+ .Ld4_multiply_pair:
+     d4_load r8, 0, 22
++    cmp ecx, 4
+     fe51_product 0, 22, 0, d4_rrr, d4_rri, 1
++    je .Ld4_right_product
+     fe51_carry 0, 0, d4_rrr, d4_rri
++.Ld4_right_product:
+     fe51_product 5, 22, 5, d4_rrr, d4_rri
+     ret
+ .Ld4_multiply_single:
+--- a/src/wide/avx512ifma/add_cached.S
++++ b/src/wide/avx512ifma/add_cached.S
+@@ -11,8 +11,9 @@
+ //   RCX: affine, exactly 0 or 1. One substitutes D=2*Z1 and never reads 2*Z2.
+ // Both buffers are 64-byte aligned and disjoint from each other and this
+ // routine's writable stack frame (up to 1352 bytes below entry RSP).
+-// X1 and Y1 may contain folded columns below 300*2^52. Limbs of Z1,
+-// T1 and the staged fields must be below 2^52.
++// X1 and Y1 may have folded columns below 300*2^52. Z1, T1 and cache
++// limbs must be below 2^52. Before ca_reduce the sum and biased difference
++// are nonnegative and below 2^63.
+ // No curve-membership or cached-coordinate consistency assumption is needed.
+ //
+ // A=(Y1-X1)*(Y2-X2), B=(Y1+X1)*(Y2+X2), C=T1*(2*d*T2),
+@@ -77,6 +78,17 @@
+ .endm
+
+ .altmacro
++// The private affine entry takes only RDI and RSI. It computes T and
++// returns X/Y as folded columns below 300*2^52 for the next cached add.
++// Z/T retain the ordinary bounds.
++.globl ed25519_simd_add_affine_for_add_ifma
++.hidden ed25519_simd_add_affine_for_add_ifma
++.type ed25519_simd_add_affine_for_add_ifma,@function
++ed25519_simd_add_affine_for_add_ifma:
++    mov edx, 3
++    mov ecx, 1
++    jmp ed25519_simd_add_cached_ifma
++.size ed25519_simd_add_affine_for_add_ifma, .-ed25519_simd_add_affine_for_add_ifma
+ ed25519_simd_add_cached_ifma:
+     push rbp
+     mov rbp, rsp
+@@ -171,15 +183,12 @@
+ .Lca_compute_c_d:
+     dec ecx
+     jne .Lca_projective_d
+-    call .Lca_multiply_single_raw
+-.irp i,0,1,2,3,4
+-    ca_rr vmovdqa64, %(5+\i), \i
+-.endr
+-    ca_load rdi, 640, 0
+-.irp i,0,1,2,3,4
++    // Hold D=2*Z1 in the location used for the projective D product.
++    ca_load rdi, 640, 22
++.irp i,22,23,24,25,26
+     ca_rrr vpaddq, \i, \i, \i
+ .endr
+-    ret
++    jmp .Lca_raw_first
+ .Lca_projective_d:
+     ca_load rdi, 640, 5
+     // The independent kernel returns its second product first: D, then C.
+@@ -187,16 +196,13 @@
+     ret
+
+ .Lca_compute_y_t:
+-    mov rcx, rdx
+-    dec ecx
+-    jne .Lca_without_t
++    test edx, 1
++    je .Lca_without_t
+     ca_load r9, 0, 5
+     call .Lca_multiply_pair
+     ret
+ .Lca_without_t:
+-    call .Lca_multiply_single_raw
+-    // Y leaves the routine. The other single product, affine C, feeds D±C.
+-    fe51_carry 0, 0, ca_rrr, ca_rri
++    call .Lca_multiply_single
+ .irp i,5,6,7,8,9
+     ca_rrr vpxorq, \i, \i, \i
+ .endr
+@@ -208,6 +214,7 @@
+ .Lca_multiply_independent:
+     ca_load r8, 320, 22
+     fe51_product 5, 22, 22, ca_rrr, ca_rri, 1
++.Lca_raw_first:
+     ca_load r8, 0, 5
+     fe51_product 0, 5, 5, ca_rrr, ca_rri, 1
+ .irp i,0,1,2,3,4
+@@ -216,13 +223,16 @@
+     ret
+ .Lca_multiply_pair:
+     ca_load r8, 0, 22
++    cmp edx, 3
+     fe51_product 0, 22, 0, ca_rrr, ca_rri, 1
++    je .Lca_right_product
+     fe51_carry 0, 0, ca_rrr, ca_rri
++.Lca_right_product:
+     fe51_product 5, 22, 5, ca_rrr, ca_rri
+     ret
+-.Lca_multiply_single_raw:
++.Lca_multiply_single:
+     ca_load r8, 0, 22
+-    fe51_product 0, 22, 0, ca_rrr, ca_rri, 1
++    fe51_product 0, 22, 0, ca_rrr, ca_rri
+     ret
+ .noaltmacro
+ .size ed25519_simd_add_cached_ifma, .-ed25519_simd_add_cached_ifma
+--- a/src/wide/avx512ifma/ladder_step.S
++++ b/src/wide/avx512ifma/ladder_step.S
+@@ -38,7 +38,7 @@
+     mov r12, rsi
+     mov r13, rdx
+
+-    call ed25519_simd_double4_ifma
++    call ed25519_simd_double4_for_add_ifma
+
+     mov rdi, rbx
+     mov rsi, r12
+@@ -47,13 +47,11 @@
+     call ed25519_simd_add_cached_ifma
+
+     mov rdi, rbx
+-    call ed25519_simd_double4_ifma
++    call ed25519_simd_double4_for_add_ifma
+
+     mov rdi, rbx
+     lea rsi, [r12 + 1280]
+-    mov edx, 1
+-    mov ecx, 1
+-    call ed25519_simd_add_cached_ifma
++    call ed25519_simd_add_affine_for_add_ifma
+
+     mov rdi, rbx
+     lea rsi, [r12 + 2240]
+--- a/src/wide/avx512ifma/mul_s_base_minus_k_public.S
++++ b/src/wide/avx512ifma/mul_s_base_minus_k_public.S
+@@ -86,12 +86,10 @@
+
+     // Pair 31 starts at Odd. Form [16]Odd + Base + Even.
+     mov rdi, rbx
+-    call ed25519_simd_double4_ifma
++    call ed25519_simd_double4_for_add_ifma
+     mov rdi, rbx
+     lea rsi, [rsp + 1280]
+-    mov edx, 1                  // the even addition needs T
+-    mov ecx, 1                  // affine base
+-    call ed25519_simd_add_cached_ifma
++    call ed25519_simd_add_affine_for_add_ifma
+     mov rdi, rbx
+     lea rsi, [rsp + 2240]
+     xor edx, edx
