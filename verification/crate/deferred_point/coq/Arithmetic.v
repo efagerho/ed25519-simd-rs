@@ -7,17 +7,8 @@ From Ed25519Simd.CachedAdd Require Program Control CachedAddSpec Logical CachedA
 From Ed25519Simd.Point Require Import Double Add DoublePath AddPath Outputs RawBounds Normalize.
 Import ListNotations. Local Open Scope Z_scope.
 
-Definition bounds_for defer c := if (defer && Nat.ltb c 2)%bool then folded_columns else reduced.
-Definition point_result defer out (target:nat->coordinates) := forall j c,
-  (j<8)%nat -> (c<4)%nat ->
-  bounds_for defer c (fun i=>cell out (5*c+i)%nat j) /\
-  word_coordinate out j c mod prime=coordinate (target j) c mod prime.
-Definition double_spec defer before out := loose_xyz before ->
-  point_result defer out (fun j=>double_n 4 (point_values before j)).
-Definition add_spec m before cache out :=
-  (full m=false ->forall i j,(i<5)%nat ->(j<8)%nat ->cell out (15+i)%nat j=0) /\
-  (CachedAddSpec.input_bounds (affine m) before cache ->
-   point_result (deferred m) out (fun j=>add (full m) (point_values before j) (cache_values (affine m) cache j))).
+From Ed25519Simd Require Export PointResults.
+Definition add_spec m := addition_spec (deferred m) (full m) (affine m).
 Definition output p es d := words_at (memory (effects p es d)) point.
 
 Lemma lane_limb p es d j c i : (j<8)%nat ->

@@ -50,30 +50,12 @@ Proof.
    unfold entry_rsp in Ret;now rewrite Z.add_assoc.
 Qed.
 
-Definition agrees_words n (a b:nat->Z) := forall i,(i<n)%nat ->a i=b i.
 Lemma math_ext k w t o w' t' o' :
  agrees_words 160 w' w -> agrees_words 160 t' t -> agrees_words 160 o' o ->
  buffers_spec k w t o ->buffers_spec k w' t' o'.
 Proof.
- intros W T O; destruct k as [b|m].
- - intros S B j c J C.
-   assert (L:loose_xyz w) by (intros h l H L;eapply loose_ext;[|apply (B h l H L)];
-     intros i I;unfold cell;apply W;lia).
-   destruct(S L j c J C)as[R V];split.
-   + unfold bounds_for in *;destruct (_ && _)%bool;intros i I;unfold cell;rewrite O by lia;apply R,I.
-   + unfold word_coordinate;rewrite (field_at_ext o' o) by (auto;lia).
-     rewrite (point_values_ext w' w) by assumption;exact V.
- - intros [Zero S];split.
-   + intros F i j I J;unfold cell;rewrite O by lia;apply Zero;assumption.
-   + intros [P K] j c J C.
-     assert (B:CachedAddSpec.input_bounds (affine m) w t).
-     { split;intros i l I L;unfold cell;
-       [rewrite <-W by lia;apply P;assumption|rewrite <-T by (destruct (affine m);lia);apply K;assumption]. }
-     destruct(S B j c J C)as[R V];split.
-     * unfold bounds_for in *;destruct (_ && _)%bool;intros i I;unfold cell;rewrite O by lia;apply R,I.
-     * unfold word_coordinate;rewrite (field_at_ext o' o) by (auto;lia).
-       rewrite (point_values_ext w' w) by assumption.
-       rewrite (cache_values_ext _ t' t) by (auto;intros;apply T;destruct (affine m);lia);exact V.
+ intros W T O;destruct k as [b|m];[apply double_spec_ext;assumption|].
+ apply addition_spec_ext;auto;intros i I;apply T;destruct (affine m);lia.
 Qed.
 
 Definition concrete_contract k := forall loc pad s,
