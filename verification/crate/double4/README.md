@@ -23,7 +23,7 @@ Object.assembled_double4_correct : Audit.double4_contract ObjectBytes.symbol_byt
    read ends at or before offset 960. Check separately that
    `output_initialized` covers all 1,280 bytes, including the replacement T.
    Both access guarantees hold for every valid ABI entry.
-   [Rust layout](../../../src/wide/avx512ifma/point.rs) · [Full ladder caller](../../../src/wide/avx512ifma/mul_s_base_minus_k_public.S) · [Ladder step](../../../src/wide/avx512ifma/ladder_step.S) · [Byte contract](coq/Double4Bytes.v) · [Read and write footprints](coq/Double4Memory.v)
+   [Native test layout](../../../src/wide/avx512ifma/tests/point.rs) · [Full ladder caller](../../../src/wide/avx512ifma/mul_s_base_minus_k_public.S) · [Ladder step](../../../src/wide/avx512ifma/ladder_step.S) · [Byte contract](coq/Double4Bytes.v) · [Read and write footprints](coq/Double4Memory.v)
 3. Compare the actual prologue, nested calls, and epilogue with the frame.
    Its scratch base must equal `((entry_rsp − 8) & −64) − 1280`. Account for
    saved RBP, the two private return slots, and all four permitted padding

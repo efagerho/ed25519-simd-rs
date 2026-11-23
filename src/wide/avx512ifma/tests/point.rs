@@ -4,6 +4,28 @@ use super::field::limbs_are_ifma_operands;
 use super::*;
 use crate::field::Fe51;
 
+/// Eight extended Edwards points packed coordinate-wise for SIMD arithmetic.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub(super) struct WidePoint {
+    pub(super) x: WideFe,
+    pub(super) y: WideFe,
+    pub(super) z: WideFe,
+    pub(super) t: WideFe,
+}
+
+// The assembly ABI is four consecutive fields, each containing five vectors.
+// Check both the nested layout and every coordinate offset at compile time.
+const _: () = {
+    use core::mem::{align_of, offset_of, size_of};
+    assert!(size_of::<WidePoint>() == 1280);
+    assert!(align_of::<WidePoint>() == 64);
+    assert!(offset_of!(WidePoint, x) == 0);
+    assert!(offset_of!(WidePoint, y) == 320);
+    assert!(offset_of!(WidePoint, z) == 640);
+    assert!(offset_of!(WidePoint, t) == 960);
+};
+
 unsafe extern "C" {
     /// SysV: RDI points to one exclusive, initialized `WidePoint`.
     ///

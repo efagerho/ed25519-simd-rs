@@ -1,5 +1,4 @@
 mod point;
-mod post_hash_asm;
 mod prepare;
 #[cfg(test)]
 mod tests;
@@ -19,6 +18,3 @@ core::arch::global_asm!(include_str!("ladder_step.S"), options(raw));
 core::arch::global_asm!(include_str!("mul_s_base_minus_k_public.S"), options(raw));
 
 pub(crate) use prepare::ChunkScratch;
-
-const LANES: usize = crate::batch::SIMD_LANES;
-const _: () = assert!(LANES == 8, "avx512ifma assumes exactly 8 SIMD lanes");

@@ -1,7 +1,7 @@
 use super::LANES;
 use super::WidePoint;
-use crate::batch::EncodedPointChunk;
 use crate::edwards::PointTable;
+use crate::test_support::EncodedPointChunk;
 use core::mem::MaybeUninit;
 
 /// The Dalek check reads the original low 255 input bits from the Y limbs.

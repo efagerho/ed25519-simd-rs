@@ -7,24 +7,18 @@ core::arch::global_asm!(
     options(raw)
 );
 
-const _: () = assert!(
-    crate::batch::SIMD_LANES == 8
-        && crate::batch::R_ENCODING_LEN == 32
-        && crate::input::PUBLIC_KEY_LEN == 32
-);
-
 #[cfg(test)]
 mod tests {
-    use crate::batch::{R_ENCODING_LEN, SIMD_LANES};
-    use crate::input::PUBLIC_KEY_LEN;
+    use crate::batch::SIMD_LANES;
+    use crate::test_support::EncodedPointChunk;
     use core::mem::MaybeUninit;
     use sha2::{Digest, Sha512};
 
     unsafe extern "C" {
         fn ed25519_simd_sha512_challenge(
             out: *mut [[u64; SIMD_LANES]; 8],
-            r: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
-            keys: &[[u8; PUBLIC_KEY_LEN]; SIMD_LANES],
+            r: &EncodedPointChunk,
+            keys: &EncodedPointChunk,
             messages: &[*const u8; SIMD_LANES],
             lengths: &[usize; SIMD_LANES],
         );
@@ -32,8 +26,8 @@ mod tests {
 
     /// Eight SHA-512(R || A || M) digests in the scalar reducer's word-major layout.
     fn hash_ed25519_challenge_words(
-        r_bytes: &[[u8; R_ENCODING_LEN]; SIMD_LANES],
-        public_keys: &[[u8; PUBLIC_KEY_LEN]; SIMD_LANES],
+        r_bytes: &EncodedPointChunk,
+        public_keys: &EncodedPointChunk,
         messages: [&[u8]; SIMD_LANES],
     ) -> [[u64; SIMD_LANES]; 8] {
         let pointers = messages.map(<[u8]>::as_ptr);

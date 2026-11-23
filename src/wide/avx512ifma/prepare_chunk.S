@@ -1,7 +1,7 @@
 // SysV AMD64 chunk preparation. RDI = 64-byte-aligned ChunkScratch,
 // RSI = eight key pointers then eight signature pointers, RDX = identity PointTable,
 // RCX = PreparedLanes. The read-only inputs may repeat. The two outputs,
-// stack and read-only inputs must be disjoint. Layouts are in prepare.rs.
+// stack and read-only inputs must be disjoint. Scratch offsets are below.
 // Return 1 if any lane is eligible. On 0 the caller discards both outputs.
 .equ .Lpc_keys,       0
 .equ .Lpc_r_bytes,  256

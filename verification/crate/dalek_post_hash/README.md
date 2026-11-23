@@ -28,12 +28,12 @@ standalone queue entries with the same acceptance predicate. [Public contract](c
   in `flush_result` and the copy destinations in `push_abi`.
   [Screen.v](coq/Screen.v) · [Queue.v](coq/Queue.v) · [Staging.v](../post_hash/Staging.v)
 * **Decoded entry.** Chunk preparation leaves R in the second decoder output and saves
-  the high mask byte. Rust passes both to the decoded entry. Trace that
-  handoff across the assembly and Rust layouts. The proof obtains both from the linked decoder certificate,
+  the high mask byte. Trace both arguments from that scratch space through
+  the assembly batch caller to the decoded entry. The proof obtains both from the linked decoder certificate,
   uses the original radix-51 Y digits for canonicality, rejects small
   order, and tests both X and Y against the projective candidate. A zero
   X cannot pass the small-order check, including the negative-zero case.
-  [Chunk preparation](../../../src/wide/avx512ifma/prepare_chunk.S) · [Rust scratch layout](../../../src/wide/avx512ifma/prepare.rs) · [Decoded.v](coq/Decoded.v)
+  [Chunk preparation](../../../src/wide/avx512ifma/prepare_chunk.S) · [Batch caller](../../../src/wide/avx512ifma/verify_batch.S) · [Decoded.v](coq/Decoded.v)
 * **Linked code and grouped operations.** Compare the manifest with the
   release ELF for the five Dalek wrappers, the shared scatter routine,
   and their callees. Check each named instruction group against its stated
@@ -56,7 +56,7 @@ Standalone queue callers must start with an empty queue and flush the final
 partial batch. For in-range active
 indices the proof specifies each write in order, preserving every other
 output. If multiple chunks target the same index, the last actual store
-wins. [Call observation](../post_hash/Product.v) · [Rust ABI and layout](../../../src/wide/avx512ifma/post_hash_asm.rs) · [Batch caller](../../../src/wide/avx512ifma/verify_batch.S)
+wins. [Call observation](../post_hash/Product.v) · [Scatter routine](../../../src/wide/avx512ifma/post_hash.inc) · [Batch caller](../../../src/wide/avx512ifma/verify_batch.S)
 
 ## Replay
 
