@@ -2,6 +2,7 @@
 -Q ../arithmetic ProofArithmetic
 Field.v
 Radix51.v
+DeferredCarry.v
 Scalar.v
 SignedRadix16.v
 Edwards.v

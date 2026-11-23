@@ -126,7 +126,7 @@ Proof.
    assert (Strict:strict (buffer_words (mem out) pt)).
    { destruct e;try contradiction.
      - intros c j C J;apply (proj1(Post P j c J C)).
-     - destruct P as [S [C _]];intros c j K J;apply (proj1(proj2 Post (conj (strict_split _ S) C) j c J K)).
+     - destruct P as [S [C _]];intros c j K J;apply (proj1(proj2 Post (conj (split_cached_point _ (strict_split _ S)) C) j c J K)).
      - apply Post. }
    intros i I;set (row:=(i/8)%nat);set (j:=(i mod 8)%nat).
    assert (J:(j<8)%nat) by (apply Nat.mod_upper_bound;lia).

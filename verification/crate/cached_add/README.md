@@ -40,9 +40,10 @@ at offsets 0, 320, 640, 960. RSI points to read-only staged fields
 `Y2-X2`, `Y2+X2`, `2*d*T2`, and optionally `2*Z2`. Both buffers are aligned to
 64 bytes and disjoint from each other, code, and the private stack area.
 Each field contains five vectors of eight unsigned qwords, weighted by
-`2^(51*i)` within each lane. Every input limb must be below `2^52` for the
-arithmetic guarantee. Curve membership and consistency of cached coordinates
-are not assumed.
+`2^(51*i)` within each lane. For the arithmetic guarantee, each X and Y limb
+may range from zero through `300·2^52 − 1`. Each Z, T and cache limb must be
+below `2^52`. These bounds apply independently in each lane. The arithmetic
+formulas also hold for inputs outside the curve.
 
 RDX (`compute_t`) and RCX (`affine`) must each be exactly zero or one. All four
 combinations are proved. Projective mode reads 1,280 cached bytes; affine mode
@@ -61,10 +62,12 @@ Every output coordinate has limbs 0, 2, 3, 4 below `2^51` and limb 1 below
 `2^52`. Omitting T writes five exactly zero vectors, even for inputs outside
 the arithmetic bounds.
 
-The independent products A and B, and projective C and D, return folded
-columns below `300·2^52`. The proof checks the biased differences and sums
+The independent products A and B, projective C and D, and affine C return
+folded columns below `300·2^52`. The proof checks the biased differences and sums
 at that bound, then checks that carrying E, F, G and H makes them valid
-52-bit multiplication inputs. [Kernel bounds](coq/Kernels.v) · [Call preconditions](coq/KernelCalls.v)
+52-bit multiplication inputs. The same argument covers the prologue's
+`Y+X`, `Y+bias` and `Y+bias−X` intermediates. All three fit below `2^63`.
+[Deferred carry theorem](../../curve25519/DeferredCarry.v) · [Kernel bounds](coq/Kernels.v) · [Call preconditions](coq/KernelCalls.v)
 
 The same theorem proves finite execution, normal return, restored RSP and
 SysV saved registers, initialization of every output byte, and preservation
@@ -118,11 +121,34 @@ The default build assembles the routine directly. The proof features certify
 the named routines at build time. Release auditing checks the final linked
 artifact from either build.
 
+## Deferred carries between point routines
+
+The benchmark candidate also skips the final carry of X and Y when another
+cached addition follows. Its block certificate checks both paired-product
+paths in double4 and cached addition, their X/Z and Y/T stores, and the next
+cached-add prologue. Starting from bounded multiplication operands, the
+modeled stores put the products in the point buffer. Reading that buffer in
+the next prologue gives the correct `Y−X` and `Y+X` modulo `p`, with every
+limb below `2^52`. Z and T retain their ordinary reduced bounds. The affine
+arm also proves the corresponding F/G result with a folded C. [Block contract](coq/CarryImage.v) · [Stores and loads](coq/CarryStores.v) · [Kernel arithmetic](coq/CarryHandoff.v)
+
+For an executable containing the candidate's conditional carry instructions,
+run the independent byte check below. Audit `linked_deferred_carry_correct`
+and its designated sites in the two ELF symbols. The proof covers those
+blocks in the stated sequence. Reachability and composition of the private
+entry points in the experimental ladder remain separate obligations. The
+public release theorem above covers the complete checked-in routine.
+
+```sh
+python3 -B verification/crate/cached_add/carry_audit.py /path/to/candidate-elf \
+  --output ./carry-block-audit
+```
+
 ## Proof structure
 
 | Files | Responsibility |
 | --- | --- |
-| `Kernels.v`, `KernelInterface.v` | Prove the six arithmetic blocks against their actual instructions, including different cached RHS operands, loose multiplication outputs, and biased subtraction/reduction. |
+| `Kernels.v`, `KernelInterface.v` | Prove the seven arithmetic blocks against their actual instructions, including different cached RHS operands, loose multiplication outputs, and biased subtraction/reduction. |
 | `Bounds.v`, `KernelCalls.v`, `Calls.v` | Prove interval propagation through the complete path and check each call's preconditions. The interval bounds used to justify IFMA operands are proved, never assumed. |
 | `Control.v`, `Routing.v`, `Arithmetic.v`, `Logical.v` | Compute and prove all four public control paths, check actual register/memory routing, compose the formulas, and lift them to all eight lanes. |
 | `FrameProof.v`, `CachedAddBytes.v`, `ReadFootprint.v` | Prove the shared byte-memory contract, stack and register restoration, complete output writes, cache preservation and affine read extent. |
@@ -158,8 +184,8 @@ python3 -B verification/crate/cached_add/mutations.py \
 ```
 
 The script copies sources into isolated directories, removes a reduction,
-uses the wrong cached operand, removes the top carry fold, ignores the T
-flag, and omits output stores. Each must fail a semantic proof prerequisite
+uses the wrong cached operand, removes the top carry fold or the returned
+Y carry, ignores the T flag, and omits output stores. Each must fail a semantic proof prerequisite
 of the public theorem while still passing separate Coq checks of byte binding
 and program layout. A harmless reordering of constant loads must pass the full
 theorem and `coqchk`. `--native` additionally checks independent integer

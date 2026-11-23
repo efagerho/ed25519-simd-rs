@@ -31,6 +31,19 @@ Definition cache_bounds (affine:bool) w := forall i j,
  (i<(if affine then 15 else 20))%nat -> (j<8)%nat ->
  0<=cell w i j<2^52.
 
+(* The cached-add prologue first combines X and Y, then carries them.
+   Z and T are consumed directly as IFMA operands. *)
+Definition cached_point_limit (row:nat) :=
+ if Nat.ltb row 10 then folded_column_bound + 1 else split.
+Definition cached_point_bounds w := forall row lane,
+ (row<20)%nat -> (lane<8)%nat -> 0<=cell w row lane<cached_point_limit row.
+
+Lemma split_cached_point w : cache_bounds false w -> cached_point_bounds w.
+Proof.
+ intros H row lane R L; specialize (H row lane R L).
+ unfold cached_point_limit,folded_column_bound,split; destruct (Nat.ltb row 10);lia.
+Qed.
+
 Lemma coord_value w j c : (c<4)%nat ->
  coordinate (point_values w j) c=word_coordinate w j c.
 Proof. destruct c as [|[|[|[|c]]]];try reflexivity;lia. Qed.

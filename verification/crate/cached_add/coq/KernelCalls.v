@@ -35,6 +35,7 @@ Definition target_value k r m start := match k with
  | PrepareAB | PrepareEH=>if Nat.eqb start 0 then pack m 5-pack m 0 else pack m 5+pack m 0
  | PrepareFG=>if Nat.eqb start 0 then pack r 0-pack r 5 else pack r 0+pack r 5
  | Independent=>let src:=if Nat.eqb start 0 then 5%nat else 0%nat in pack r src*pack m src
+ | CarryY=>pack r 0
  | Pair | Single=>pack r start*pack m 0 end.
 Local Opaque packE.
 Lemma target_value_ok k r m start : val(env r m)(target k start)=target_value k r m start.

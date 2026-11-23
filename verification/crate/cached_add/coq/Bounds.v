@@ -81,9 +81,11 @@ Definition input_cell affine (a:pointer) :=
  ((Nat.eqb(fst a)point && (snd a<?1280)) ||
   (Nat.eqb(fst a)cached && (snd a<?cache_length affine))) &&
  (0<=?snd a) && (snd a mod 64=?0).
+Definition input_limit (a:pointer) :=
+ if Nat.eqb (fst a) point then cached_point_limit (Z.to_nat (snd a/64)) else split.
 Definition initial_bounds affine : bstate :=
- (fun _=>Range 0(2^64-1),fun a=>Range 0(if input_cell affine a then split-1 else 2^64-1)).
-Definition input_bounds affine s := forall a,input_cell affine a=true ->0<=cells s a<split.
+ (fun _=>Range 0(2^64-1),fun a=>Range 0(if input_cell affine a then input_limit a-1 else 2^64-1)).
+Definition input_bounds affine s := forall a,input_cell affine a=true ->0<=cells s a<input_limit a.
 Lemma initial_bounds_sound affine s : lane_words s ->input_bounds affine s ->bmodels(initial_bounds affine)s.
 Proof.
  intros[W M]B;split;intro i;unfold bounded,initial_bounds;cbn [fst snd lower_bound upper_bound].

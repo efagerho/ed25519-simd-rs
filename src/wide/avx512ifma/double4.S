@@ -269,7 +269,8 @@ ed25519_simd_double4_ifma:
     ret
 .Ld4_multiply_pair:
     d4_load r8, 0, 22
-    fe51_product 0, 22, 0, d4_rrr, d4_rri
+    fe51_product 0, 22, 0, d4_rrr, d4_rri, 1
+    fe51_carry 0, 0, d4_rrr, d4_rri
     fe51_product 5, 22, 5, d4_rrr, d4_rri
     ret
 .Ld4_multiply_single:
@@ -284,6 +285,7 @@ ed25519_simd_double4_ifma:
 .purgem d4_store
 .purgem d4_reduce
 .purgem fe51_product
+.purgem fe51_carry
 .purgem d4_square_field
 .purgem d4_rrr
 .purgem d4_rri

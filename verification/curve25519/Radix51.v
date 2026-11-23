@@ -21,6 +21,11 @@ Definition squared x := field_bound square_bound x.
 Definition reduced x := field_bound output_bound x.
 Definition split_field x := field_bound (fun _ => split-1) x.
 
+(* A radix-51 column collects at most five low IFMA halves and twice
+   five high halves. Folding one more column by 19 scales that bound by 20. *)
+Definition folded_column_bound := 300 * split - 1.
+Definition folded_columns := field_bound (fun _ => folded_column_bound).
+
 Lemma ready_split x : ready x -> split_field x.
 Proof. intros B i I;specialize(B i I);unfold ready_bound,radix,split in *;lia. Qed.
 Lemma ready_loose x : ready x -> loose x.

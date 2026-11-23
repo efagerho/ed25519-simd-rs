@@ -6,11 +6,13 @@ HERE = Path(__file__).resolve().parent
 sys.path.append(str(HERE.parents[1]))
 from proof_build import certify_modules
 
+CARRY_MODULES = (
+    "CachedAddABI", "Lane", "Control", "Kernels", "KernelInterface", "Bounds", "KernelCalls",
+    "CarryHandoff", "CarryStores", "CarryImage",
+)
 PROOF_MODULES = (
-    "CachedAddABI", "CachedAddMemory", "Lane",
-    "Control", "Kernels", "KernelInterface", "Bounds", "KernelCalls", "Calls", "Routing",
-    "CachedAddSpec", "Arithmetic", "Logical", "FrameProof", "CachedAddBytes", "ReadFootprint",
-    "Audit", "EntryTests",
+    *CARRY_MODULES, "CachedAddMemory", "Calls", "Routing", "CachedAddSpec", "Arithmetic",
+    "Logical", "FrameProof", "CachedAddBytes", "ReadFootprint", "Audit", "EntryTests",
 )
 
 

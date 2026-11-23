@@ -10,8 +10,8 @@ Lemma affine_z j full s : Bounds.input_bounds true s ->forall i,(i<5)%nat ->
 Proof.
  intros B i I.
  assert(Input:0<=field s point 10 i<split).
- { apply(B(point,64*Z.of_nat(10+i))).
-   do 5(destruct i as[|i];[vm_compute;reflexivity|]);lia. }
+ { specialize (B (point,64*Z.of_nat(10+i))).
+   do 5 (destruct i as [|i]; [exact (B eq_refl)|]);lia. }
  unfold R;rewrite(prefix_segment j full true 0 19 s ltac:(lia)).
  destruct full;do 5(destruct i as[|i];[
  match type of Input with 0 <= ?v < split => change(Arithmetic.vpaddq v v=2*v) end;
@@ -116,6 +116,12 @@ Proof.
     by(destruct full;exact V).
    rewrite(limbs_ext _ _ (yt_g j full affine s)),(limbs_ext _ _ (yt_h j full affine s))in Value.
    eapply ctrans;[exact Value|apply ctimes;assumption]. }
+ assert (CarriedY : represents (limbs (R j full affine 56 s 0)) ((d+cc)*(b+a))).
+ { destruct full; [exact Y|]. eapply ctrans; [|exact Y].
+   apply (call_correct j false affine 55 s CarryY [] 0 W Bounds).
+   - destruct affine; reflexivity.
+   - destruct affine; vm_compute; reflexivity.
+   - now left. }
  assert(T:full=true ->represents(limbs(R j full affine 56 s 5))((b-a)*(b+a))).
  { intro Full;subst full;pose proof(site_correct j true affine s YT 5 W Bounds ltac:(cbn;auto))as V.
    change(represents(limbs(R j true affine 56 s 5))
@@ -124,7 +130,7 @@ Proof.
    eapply ctrans;[exact V|apply ctimes;assumption]. }
  intros c C0;destruct c as[|[|[|[|c]]]];try lia;cbn [Nat.mul Nat.add].
  - rewrite(limbs_ext _ _ (out_x j full affine s));destruct affine;exact X.
- - rewrite(limbs_ext _ _ (out_y j full affine s));destruct affine;exact Y.
+ - rewrite(limbs_ext _ _ (out_y j full affine s));destruct affine;exact CarriedY.
  - rewrite(limbs_ext _ _ (out_z j full affine s));destruct affine;exact Z.
  - destruct full.
    + rewrite(limbs_ext _ _ (out_t j affine s));destruct affine;exact(T eq_refl).
