@@ -35,13 +35,13 @@ def audit(elf, work):
     ):
         reference.generate(work / ns)
         compile_module(work, ns, "Program")
-        for name in modules[:modules.index("Logical") + 1]:
+        for name in modules[:modules.index("ReadFootprint") + 1]:
             compile_module(work, ns, name, HERE.parent / folder / "coq")
     symbols = point_program(elf, dest, DOUBLE, "Double")
     symbols.extend(point_program(elf, dest, ADD, "Add"))
     for name in ("DoubleBytes", "Double", "AddBytes", "Add"):
         compile_module(work, "Point", name)
-    for name in ("DoublePath", "AddPath", "Outputs", "RawBounds", "Normalize", "Arithmetic", "Audit", "Object"):
+    for name in ("DoublePath", "AddPath", "Outputs", "RawBounds", "Normalize", "Arithmetic", "Frame", "Concrete", "Audit", "Object"):
         compile_module(work, "Point", name, HERE / "coq")
     (dest / "Checked.v").write_text(
         "From Ed25519Simd.Point Require Audit Object.\n"
