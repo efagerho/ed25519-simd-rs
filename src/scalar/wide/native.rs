@@ -1,5 +1,5 @@
 use super::*;
-use core::ffi::{c_int, c_void};
+use crate::test_support::GuardedPage;
 
 type ScalarRoutine = unsafe extern "C" fn(*mut u8, *const u8);
 
@@ -11,17 +11,7 @@ unsafe extern "C" {
         offset: usize,
         routine: ScalarRoutine,
     ) -> u64;
-    fn getpagesize() -> c_int;
-    fn mmap(
-        address: *mut c_void,
-        length: usize,
-        prot: c_int,
-        flags: c_int,
-        fd: c_int,
-        offset: i64,
-    ) -> *mut c_void;
-    fn mprotect(address: *mut c_void, length: usize, prot: c_int) -> c_int;
-    fn munmap(address: *mut c_void, length: usize) -> c_int;
+
 }
 
 fn operands() -> ([u8; 512], [(ScalarRoutine, Vec<u8>); 2]) {
@@ -86,56 +76,19 @@ fn preserves_abi_input_and_canaries_at_every_alignment() {
     }
 }
 
-struct Guarded {
-    mapping: *mut c_void,
-    page: usize,
-}
-
-impl Guarded {
-    fn new() -> Self {
-        unsafe {
-            let page = getpagesize();
-            assert!(page >= 512);
-            let page = page as usize;
-            // PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS: only the middle page
-            // is accessible, so a stray load or store faults immediately.
-            let mapping = mmap(core::ptr::null_mut(), 3 * page, 0, 0x22, -1, 0);
-            assert_ne!(mapping as isize, -1);
-            let region = Self { mapping, page };
-            assert_eq!(mprotect(region.middle().cast(), page, 3), 0);
-            region
-        }
-    }
-    fn middle(&self) -> *mut u8 {
-        unsafe { self.mapping.cast::<u8>().add(self.page) }
-    }
-    fn buffer(&self, len: usize, end: bool) -> *mut u8 {
-        unsafe { self.middle().add(if end { self.page - len } else { 0 }) }
-    }
-}
-
-impl Drop for Guarded {
-    fn drop(&mut self) {
-        assert_eq!(unsafe { munmap(self.mapping, 3 * self.page) }, 0);
-    }
-}
-
 #[test]
 fn respects_guard_pages_and_read_only_input() {
     let (input, routines) = operands();
     for (routine, expected) in routines {
         for input_end in [false, true] {
             for output_end in [false, true] {
-                let input_region = Guarded::new();
-                let output_region = Guarded::new();
+                let input_region = GuardedPage::new();
+                let output_region = GuardedPage::new();
                 let src = input_region.buffer(512, input_end);
                 let dst = output_region.buffer(expected.len(), output_end);
                 unsafe {
                     core::ptr::copy_nonoverlapping(input.as_ptr(), src, input.len());
-                    assert_eq!(
-                        mprotect(input_region.middle().cast(), input_region.page, 1),
-                        0
-                    );
+                    input_region.read_only();
                     routine(dst, src);
                     assert_eq!(core::slice::from_raw_parts(dst, expected.len()), &expected);
                     assert_eq!(core::slice::from_raw_parts(src, 512), &input);
@@ -147,8 +100,8 @@ fn respects_guard_pages_and_read_only_input() {
 
 #[test]
 fn signature_scalars_respect_input_and_output_extents() {
-    let input = Guarded::new();
-    let output = Guarded::new();
+    let input = GuardedPage::new();
+    let output = GuardedPage::new();
     let mut below = L_BYTES;
     below[0] -= 1;
     unsafe {
@@ -158,7 +111,7 @@ fn signature_scalars_respect_input_and_output_extents() {
         let last = input.buffer(32, true).cast::<[u8; 32]>();
         first.write(below);
         last.write(L_BYTES);
-        assert_eq!(mprotect(input.middle().cast(), input.page, 1), 0);
+        input.read_only();
         for end in [false, true] {
             let scalars: [&[u8; 32]; LANES] = core::array::from_fn(|lane| {
                 if (lane % 2 == 0) == end {

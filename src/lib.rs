@@ -21,6 +21,8 @@ mod field;
 mod input;
 mod scalar;
 mod sha512;
+#[cfg(test)]
+mod test_support;
 mod verifier;
 mod wide;
 
