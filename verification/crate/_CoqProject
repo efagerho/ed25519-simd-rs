@@ -3,6 +3,7 @@
 -Q ../arithmetic ProofArithmetic
 -Q ../machine Machine
 Wide51.v
+PointResults.v
 FieldSymbolic.v
 FieldTraceBounds.v
 PointFrame.v
