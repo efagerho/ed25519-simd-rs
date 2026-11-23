@@ -1,3 +1,4 @@
+From Ed25519Simd Require Import PointResults.
 From Coq Require Import List ZArith Lia.
 From ProofArithmetic Require Import Radix.
 From Machine Require Import execution.LinkedCalls memory.ByteMemory.
@@ -24,8 +25,8 @@ Definition buffers := (buffer*buffer)%type. (* accumulator and staged round *)
 Inductive action pc pad s : event -> buffers -> buffers -> Prop :=
 | stage n w t : action pc pad s (Stage n) (w,t) (w,staged pc pad s n)
 | seed w t initial : action pc pad s SeedXYZ (w,t) (seed_buffer t initial,t)
-| double w t v : Double4Spec.double4_spec w v -> action pc pad s DoubleFour (w,t) (v,t)
-| cached f a off w t v : CachedAddSpec.cached_add_spec f a w (slice t off) v ->
+| double w t v : double_spec defer_double w v -> action pc pad s DoubleFour (w,t) (v,t)
+| cached f a off w t v : addition_spec (defer_add f a) f a w (slice t off) v ->
  action pc pad s (Cached f a off) (w,t) (v,t)
 | ladder f w t v : ladder_post f w t v -> action pc pad s (Ladder f) (w,t) (v,t).
 Fixpoint executes pc pad s ops b z : Prop := match ops with
@@ -55,18 +56,18 @@ Proof.
    + apply seed_represents;[unfold bounded;intros;apply B;assumption|apply Q;assumption].
    + unfold point_values,point_from_fields,word_coordinate,field_at,output_point;f_equal;apply limbs_ext;intros;symmetry;apply seed_cell;assumption.
 Qed.
-Lemma first_double w v q : Double4Spec.double4_spec w v -> loose_xyz w -> seeded_xyz w q ->
- strict v /\ extended true v (fun j=>multiple 16 (q j)).
+Lemma first_double w v q : double_spec defer_double w v -> loose_xyz w -> seeded_xyz w q ->
+ point_bounds defer_double v /\ extended true v (fun j=>multiple 16 (q j)).
 Proof.
- intros D W Q;destruct(double_result _ _ _ (self_value w) W D) as [B V].
+ intros D W Q;destruct(double_values _ _ _ _ (self_value w) W D) as [B V].
  split;[exact B|intros j J;eapply represents_equivalent;[exact(V j J)|apply double_four_represents,Q,J]].
 Qed.
 Lemma point_add f a w t v q u :
- CachedAddSpec.cached_add_spec f a w t v -> strict w -> cache_bounds a t ->
+ addition_spec (defer_add f a) f a w t v -> cached_point_bounds w -> cache_bounds a t ->
  extended true w q -> (forall j,(j<8)%nat -> represents_cache (cache_values a t j) (u j)) ->
- strict v /\ extended f v (fun j=>plus (q j) (u j)).
+ point_bounds (defer_add f a) v /\ extended f v (fun j=>plus (q j) (u j)).
 Proof.
- intros Add W B Q U;destruct(add_result f a _ _ _ _ (self_value w) W B Add) as [R V];split;[exact R|].
+ intros Add W B Q U;destruct(add_values _ f a _ _ _ _ (self_value w) W B Add) as [R V];split;[exact R|].
  intros j J;eapply represents_equivalent;[exact(V j J)|apply add_represents;auto].
 Qed.
 
@@ -127,11 +128,11 @@ Proof.
  pose proof (operand 31%nat S.Base Inputs Tables ltac:(lia)) as [BB BR].
  pose proof (operand 31%nat S.Even Inputs Tables ltac:(lia)) as [EB ER].
  destruct(seeded _ initial _ OB OR) as [SeedB SeedQ].
- match goal with H:Double4Spec.double4_spec _ _ |- _=>destruct(first_double _ _ _ H SeedB SeedQ) as [DB DQ] end.
- match goal with H:CachedAddSpec.cached_add_spec true true _ _ _ |- _=>
- destruct(point_add _ _ _ _ _ _ _ H DB BB DQ BR) as [AB AQ] end.
- match goal with H:CachedAddSpec.cached_add_spec false false _ _ _ |- _=>
- destruct(point_add _ _ _ _ _ _ _ H AB EB AQ ER) as [FB FQ] end.
+ match goal with H:double_spec defer_double _ _ |- _=>destruct(first_double _ _ _ H SeedB SeedQ) as [DB DQ] end.
+ match goal with H:addition_spec _ true true _ _ _ |- _=>
+ destruct(point_add _ _ _ _ _ _ _ H (handoff_bounds _ _ DB) BB DQ BR) as [AB AQ] end.
+ match goal with H:addition_spec _ false false _ _ _ |- _=>
+ destruct(point_add _ _ _ _ _ _ _ H (handoff_bounds _ _ AB) EB AQ ER) as [FB FQ] end.
  eassert (R:strict out /\ extended full out (accumulated s B A 32) /\ (full=false -> zero_t out)).
  { eapply (rounds 31 full);[lia|exact FB| |exact Rest|lia].
    intros j J;specialize(FQ j J);apply proj1 in FQ.

@@ -19,9 +19,9 @@ Proof.
    pose proof (checked_path full _ (entry_alignment _ _ P)) as Trace.
    assert (IPs:forall e,direct e -> word64(slide+continuation e)).
    { destruct (loaded_images _ _ P _ _ (or_introl eq_refl)) as [Fit _].
-     unfold fits64 in Fit;assert (N:Z.of_nat(length symbol_bytes)=895) by (vm_compute;reflexivity).
+     unfold fits64 in Fit;assert (N:Z.of_nat(length symbol_bytes)=885+setup_length) by (vm_compute;reflexivity).
      rewrite N in Fit;intros [n| | |f a row|f] D;try contradiction;
-     unfold continuation,return_offset,word64;try destruct a;lia. }
+     unfold continuation,return_offset,word64;try destruct a;cbv [setup_length defer_double] in *;lia. }
    destruct(safe_exec _ _ _ _ _ _ _ _ (schedule_safe _ _ _ _ _ _ _ _
       (child_layout _ _ P) IPs V Tables full (ByteMemory.buffer_words (mem s) (regs s 7%nat)) (ByteMemory.buffer_words (mem s) (base_of s)))) as [[z R] All].
    split.

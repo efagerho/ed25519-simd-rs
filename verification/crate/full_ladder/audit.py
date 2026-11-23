@@ -21,10 +21,7 @@ MODULES = ("LinkedBytes", "ScalarAction", "Seed", "Program", "Operands", "Execut
            "Native", "Composition", "Progress", "Audit", "Object", "NegativeControls")
 
 
-def audit(elf, work):
-    work.mkdir(parents=True, exist_ok=False)
-    compile_libraries(work, projects=GROUP_PROJECTS)
-    flags, helpers, sources = compile_ladder(elf, work)
+def compile_full(elf, work, flags):
     _, stage = compile_stage(elf, work)
     flags.extend(["-Q", "StageRound", "Ed25519Simd.StageRound", "-Q", "FullLadder", "Ed25519Simd.FullLadder"])
     dest = work / "FullLadder"
@@ -40,8 +37,16 @@ def audit(elf, work):
         if name != "LinkedBytes":
             shutil.copyfile(HERE / "coq" / path.name, path)
         subprocess.run(["coqc", *flags, str(path.relative_to(work))], cwd=work, check=True)
+    return flags, [(SYMBOL, pc, raw), stage]
+
+
+def audit(elf, work):
+    work.mkdir(parents=True, exist_ok=False)
+    compile_libraries(work, projects=GROUP_PROJECTS)
+    flags, helpers, sources = compile_ladder(elf, work)
+    flags, full = compile_full(elf, work, flags)
     checks = check_object(work, flags, "full_ladder")
-    write_evidence(elf, work, "full_ladder", checks, [(SYMBOL, pc, raw), stage, *helpers],
+    write_evidence(elf, work, "full_ladder", checks, [*full, *helpers],
                    [SOURCE, STAGE_SOURCE, *sources], flags)
     print(f"Checked {checks['theorem']} against {elf}")
 

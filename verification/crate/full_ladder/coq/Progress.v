@@ -1,3 +1,4 @@
+From Ed25519Simd Require Import PointResults.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import execution.LinkedCalls execution.WordBounds memory.ByteMemory.
 From Curve25519 Require Import Radix51 group.Affine.
@@ -29,14 +30,6 @@ Proof.
    pose proof(proj1(Seed.seed_bound _ c Bounds) k K) as V.
    unfold loose_bound,split,word64 in *;destruct Nat.eqb in V;lia.
 Qed.
-Definition post_strict e w t v : pre e w t -> post e w t v -> strict v.
-Proof.
- destruct e;try contradiction.
- - intros B D c j C J;apply (proj1(D B j c J C)).
- - intros [B [C _]] [_ D] i j I J;apply (proj1(D (conj (split_cached_point _ (strict_split _ B)) C) j i J I)).
- - intros _ [B _];exact B.
-Qed.
-
 Section Paths.
 Variables (slide pt base pc pad:Z) (s:cpu) (B:point) (A:nat->point).
 Hypotheses (Arena:arena slide pt base) (IPs:forall e,direct e -> word64(slide+continuation e))
@@ -62,7 +55,7 @@ Lemma seed_next rest w t : (forall r,safe rest (seed_buffer t r,t)) ->
 Proof. intro K;split;[exists (seed_buffer t (fun _=>Seed.Lane 0 (fun _=>0) (fun _=>0)),t);
    eexists;reflexivity|intros m [r ->];split;[constructor|apply K]]. Qed.
 Lemma native_next e rest w t : direct e -> words 160 w -> words 440 t -> pre e w t ->
- (forall v,strict v -> safe rest (v,t)) -> safe (e::rest) (w,t).
+ (forall v,point_bounds (result_mode e) v -> safe rest (v,t)) -> safe (e::rest) (w,t).
 Proof.
  intros D W T P K;destruct(native_exists _ _ _ _ _ _ Arena P W T (IPs e D)) as [v [Call _]].
  assert (N: forall z, act e (w,t) z <-> snd z=t /\ native_call slide pt base e w t (fst z)).
@@ -70,7 +63,7 @@ Proof.
  split;[exists(v,t);apply N;auto|].
  intros [u b] H;apply N in H;cbn [fst snd] in H;destruct H as [-> H].
  pose proof(native_sound _ _ _ _ _ _ _ Arena P H) as Post.
- split;[destruct e;try contradiction;constructor;exact Post|apply K;eapply post_strict;eassumption].
+ split;[destruct e;try contradiction;constructor;exact Post|apply K;eapply post_bounds;eassumption].
 Qed.
 Lemma staged_words n : (n<32)%nat -> words 440 (staged pc pad s n).
 Proof.
@@ -96,8 +89,8 @@ Proof.
  pose proof(operand 31%nat S.Even Inputs Tables ltac:(lia)) as [EB ER].
  pose proof (staged_words 31 ltac:(lia)) as T.
  apply native_next;[exact I|now apply seed_words|exact T|apply (proj1(seeded _ r _ OB OR))|].
- intros v D;apply native_next;[exact I|now apply strict_words|exact T|split;[exact D|split;[exact BB|cbn;lia]]|].
- intros u F;apply native_next;[exact I|now apply strict_words|exact T|split;[exact F|split;[exact EB|cbn;lia]]|].
+ intros v D;apply native_next;[exact I|apply (bounded_words _ _ D)|exact T|split;[apply (handoff_bounds _ _ D)|split;[exact BB|cbn;lia]]|].
+ intros u F;apply native_next;[exact I|apply (bounded_words _ _ F)|exact T|split;[apply (handoff_bounds _ _ F)|split;[exact EB|cbn;lia]]|].
  intros;apply tail_safe;auto;lia.
 Qed.
 End Paths.
