@@ -1,4 +1,4 @@
-"""Check the two-entry point assembly in a linked executable."""
+"""Replay the deferred-carry point, ladder-step or full-ladder certificate from a linked ELF."""
 import argparse
 from pathlib import Path
 import shutil
@@ -79,8 +79,12 @@ def audit(elf, work, component):
         flags, full = product.compile_full(elf, work, flags)
         symbols[:0] = full
     checks = check_object(work, flags, component)
-    write_evidence(elf, work, "deferred_point", checks, symbols,
-                   [HERE.parents[1] / "mask_listing.py", *dict.fromkeys((*double_reference.SOURCES, *add_reference.SOURCES))], flags)
+    assembly = double_reference.SOURCE.parent
+    sources = dict.fromkeys((*double_reference.SOURCES, *add_reference.SOURCES,
+                             assembly / "ladder_step.S", product.SOURCE, product.STAGE_SOURCE,
+                             HERE.parents[1] / "mask_listing.py", HERE / "tests/fixture.py",
+                             HERE / "tests/private-entries.patch"))
+    write_evidence(elf, work, "deferred_point", checks, symbols, sources, flags)
     print(f"Checked {checks['theorem']} against {elf}")
 
 
