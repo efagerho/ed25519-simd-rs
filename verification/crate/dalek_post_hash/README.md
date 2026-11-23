@@ -49,14 +49,14 @@ for B and the eight public keys, initial eligibility flags, and aligned,
 valid, disjoint allocations as required by the callee contracts. The
 candidate existence clause guarantees a return for well-formed calls with
 the reducer's digit bytes passed to the ladder. The call observation ties
-that return to the point being scored. The Rust driver hashes the inputs and calls assembly to prepare keys and
-check and recode S.
+that return to the point being scored. The assembly batch driver prepares
+keys, checks and recodes S, and hashes eligible chunks.
 The post-hash theorem takes the resulting S digits and eligibility as inputs.
 Standalone queue callers must start with an empty queue and flush the final
 partial batch. For in-range active
 indices the proof specifies each write in order, preserving every other
 output. If multiple chunks target the same index, the last actual store
-wins. [Call observation](../post_hash/Product.v) · [Rust ABI and layout](../../../src/wide/avx512ifma/post_hash_asm.rs) · [Rust driver](../../../src/verifier/driver.rs)
+wins. [Call observation](../post_hash/Product.v) · [Rust ABI and layout](../../../src/wide/avx512ifma/post_hash_asm.rs) · [Batch caller](../../../src/wide/avx512ifma/verify_batch.S)
 
 ## Replay
 

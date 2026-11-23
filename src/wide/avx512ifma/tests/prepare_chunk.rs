@@ -1,7 +1,50 @@
 use super::*;
 use crate::edwards::IDENTITY_TABLE;
-use crate::wide::avx512ifma::prepare::prepare_chunk;
+use crate::wide::avx512ifma::prepare::{ChunkInputs, PreparedLanes};
 use crate::{DalekPolicy, VerificationPolicy, VerifyInput, VerifyPolicy, Zip215Policy};
+
+unsafe extern "C" {
+    fn ed25519_simd_prepare_chunk(
+        scratch: *mut u8,
+        inputs: &ChunkInputs<'_>,
+        identity: &PointTable,
+        lanes: *mut PreparedLanes<'_>,
+    ) -> u32;
+    fn ed25519_simd_dalek_prepare_chunk(
+        scratch: *mut u8,
+        inputs: &ChunkInputs<'_>,
+        identity: &PointTable,
+        lanes: *mut PreparedLanes<'_>,
+    ) -> u32;
+}
+
+fn prepare_chunk<'a, P: VerificationPolicy>(
+    inputs: &[VerifyInput<'_>; LANES],
+    scratch: &'a mut MaybeUninit<ChunkScratch>,
+) -> Option<(&'a ChunkScratch, PreparedLanes<'a>)> {
+    let lanes = ChunkInputs {
+        keys: inputs.each_ref().map(|input| &input.public_key),
+        signatures: inputs.each_ref().map(|input| &input.signature),
+    };
+    let mut selected = MaybeUninit::uninit();
+    let prepare = match P::POLICY {
+        VerifyPolicy::Zip215 => ed25519_simd_prepare_chunk,
+        VerifyPolicy::Dalek => ed25519_simd_dalek_prepare_chunk,
+    };
+    // SAFETY: the inputs remain readable for the call. Both outputs are
+    // aligned, exclusive and disjoint. Success initializes every field,
+    // including 0/1 eligibility bytes and references into scratch or identity.
+    // A rejected chunk may leave partial outputs and exposes neither.
+    unsafe {
+        let ready = prepare(
+            scratch.as_mut_ptr().cast(),
+            &lanes,
+            &IDENTITY_TABLE,
+            selected.as_mut_ptr(),
+        );
+        (ready != 0).then(|| (scratch.assume_init_ref(), selected.assume_init()))
+    }
+}
 
 fn check_lanes<P: VerificationPolicy>(
     inputs: &[VerifyInput<'_>; LANES],

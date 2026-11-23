@@ -46,8 +46,9 @@ exposes only its return status. [Output predicates](coq/Composition.v) ·
 4. Check Rust's pointer lifetimes, feature requirements, scratch alignment and
    offsets against the assembly ABI. The contract allows repeated read-only
    inputs. The outputs and stack occupy separate writable regions, and the
-   caller supplies a readable identity table. Rust discards both outputs
-   after rejection. [Rust layout and call site](../../../src/wide/avx512ifma/prepare.rs) ·
+   caller supplies a readable identity table. The batch assembly discards both
+   outputs after rejection. [Scratch layout](../../../src/wide/avx512ifma/prepare.rs) ·
+   [Batch caller](../../../src/wide/avx512ifma/verify_batch.S) ·
    [Native differential tests](../../../src/wide/avx512ifma/tests/prepare_chunk.rs)
 
 Run the audit against a linked Dalek ELF retaining the preparation entries and

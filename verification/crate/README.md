@@ -29,10 +29,13 @@ README for its contract and release audit.
 
 Use the [shared audit surface](../README.md#shared-audit-surface) for the
 machine, memory, and mathematical assumptions. For each release, follow the
-routine’s inputs from the Rust call site to the public theorem and its outputs
-back to the caller. The certificates begin at the assembly ABI. Rust dispatch,
-caller-side input preparation, and end-to-end Ed25519 acceptance require
-separate review.
+routine’s inputs from its caller to the public theorem and its outputs back
+to the caller. The certificates begin at the component assembly ABIs. The
+outer batch loop and its composition of preparation, hashing, and scoring
+still require a separate proof. Audit Rust's policy dispatch and input
+descriptors alongside the native loop's padding and output indices.
+[Rust driver](../../src/verifier/driver.rs) · [Descriptor layout](../../src/batch.rs) ·
+[Batch assembly](../../src/wide/avx512ifma/verify_batch.S)
 
 1. **Identify the code.** Use the exact release ELF. Independently compare its
    digest, symbol name, address, size, and bytes with the audit manifest and

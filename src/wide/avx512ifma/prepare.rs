@@ -1,18 +1,17 @@
 use super::LANES;
 use super::point::WidePoint;
 use crate::batch::EncodedPointChunk;
-use crate::edwards::{IDENTITY_TABLE, PointTable};
-use crate::input::{PUBLIC_KEY_LEN, SIGNATURE_LEN, VerifyInput};
+use crate::edwards::PointTable;
+use crate::input::{PUBLIC_KEY_LEN, SIGNATURE_LEN};
 use crate::scalar::Radix16;
-use crate::{VerificationPolicy, VerifyPolicy};
-use core::mem::{MaybeUninit, align_of, offset_of, size_of};
+use core::mem::{align_of, offset_of, size_of};
 
 core::arch::global_asm!(include_str!("prepare_chunk.S"), options(raw));
 
 #[repr(C)]
-struct ChunkInputs<'a> {
-    keys: [&'a [u8; PUBLIC_KEY_LEN]; LANES],
-    signatures: [&'a [u8; SIGNATURE_LEN]; LANES],
+pub(super) struct ChunkInputs<'a> {
+    pub(super) keys: [&'a [u8; PUBLIC_KEY_LEN]; LANES],
+    pub(super) signatures: [&'a [u8; SIGNATURE_LEN]; LANES],
 }
 
 /// Reused for one eight-lane chunk. The decoder writes A and R together.
@@ -50,46 +49,3 @@ const _: () = {
     assert!(offset_of!(PreparedLanes, tables) == 0 && offset_of!(PreparedLanes, valid) == 64);
     assert!(offset_of!(PreparedLanes, r_valid) == 72 && size_of::<PreparedLanes>() == 80);
 };
-
-unsafe extern "C" {
-    fn ed25519_simd_prepare_chunk(
-        scratch: *mut u8,
-        inputs: &ChunkInputs<'_>,
-        identity: &PointTable,
-        lanes: *mut PreparedLanes<'_>,
-    ) -> u32;
-    fn ed25519_simd_dalek_prepare_chunk(
-        scratch: *mut u8,
-        inputs: &ChunkInputs<'_>,
-        identity: &PointTable,
-        lanes: *mut PreparedLanes<'_>,
-    ) -> u32;
-}
-
-pub(crate) fn prepare_chunk<'a, P: VerificationPolicy>(
-    inputs: &[VerifyInput<'_>; LANES],
-    scratch: &'a mut MaybeUninit<ChunkScratch>,
-) -> Option<(&'a ChunkScratch, PreparedLanes<'a>)> {
-    let lanes = ChunkInputs {
-        keys: inputs.each_ref().map(|input| &input.public_key),
-        signatures: inputs.each_ref().map(|input| &input.signature),
-    };
-    let mut selected = MaybeUninit::uninit();
-    let prepare = match P::POLICY {
-        VerifyPolicy::Zip215 => ed25519_simd_prepare_chunk,
-        VerifyPolicy::Dalek => ed25519_simd_dalek_prepare_chunk,
-    };
-    // SAFETY: the inputs remain readable for the call. Both outputs are
-    // aligned, exclusive and disjoint. Success initializes every field,
-    // including 0/1 eligibility bytes and references into scratch or identity.
-    // A rejected chunk may leave partial outputs and exposes neither.
-    unsafe {
-        let ready = prepare(
-            scratch.as_mut_ptr().cast(),
-            &lanes,
-            &IDENTITY_TABLE,
-            selected.as_mut_ptr(),
-        );
-        (ready != 0).then(|| (scratch.assume_init_ref(), selected.assume_init()))
-    }
-}
