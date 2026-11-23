@@ -42,7 +42,7 @@ def write_evidence(binary, work, component, checks, symbols, sources, flags, cas
         shutil.copyfile(path, dest / path.name)
     if component in ("prepare_chunk", "key_table", "torsion", "small_order", "decompress_r", "dalek_recompress", "zip215", "dalek_post_hash"):
         shutil.copyfile(HERE / "mask_listing.py", dest / "mask_listing.py")
-    dependencies = {component} if component in ("small_order", "stage_round", "signature_scalar") else {"pow2", component}
+    dependencies = {component} if component in ("small_order", "stage_round", "signature_scalar", "sha512_challenge") else {"pow2", component}
     if component == "key_table":
         dependencies.update(("cached_add", "decompress_r", "post_hash"))
     if component == "dalek_recompress":

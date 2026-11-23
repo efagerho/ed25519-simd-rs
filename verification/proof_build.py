@@ -16,7 +16,8 @@ SHARED_PROJECTS = ("arithmetic", "curve25519", "machine", "machine/symbolic", "c
 GROUP_PROJECTS = (*SHARED_PROJECTS, "curve25519/group")
 MASK_PROJECTS = (*GROUP_PROJECTS, "crate/field51")
 SHARED_ENV = "ED25519_SIMD_COQ_LIBRARIES"
-COMPONENTS = {"prepare_chunk": "PrepareChunk", "signature_scalar": "SignatureScalar", "pow2": "Pow2", "double4": "Double4", "cached_add": "CachedAdd",
+COMPONENTS = {"sha512_challenge": "Sha512Challenge",
+              "prepare_chunk": "PrepareChunk", "signature_scalar": "SignatureScalar", "pow2": "Pow2", "double4": "Double4", "cached_add": "CachedAdd",
               "scalar": "Scalar", "ladder_step": "LadderStep", "torsion": "Torsion",
               "small_order": "SmallOrder", "radix16": "Radix16", "stage_round": "StageRound",
               "full_ladder": "FullLadder", "decompress_r": "Decode", "dalek_recompress": "Dalek",
@@ -25,6 +26,7 @@ COMPONENTS = {"prepare_chunk": "PrepareChunk", "signature_scalar": "SignatureSca
 
 # The release statement is independent of the theorem implementation in Object.v.
 PUBLIC_THEOREMS = {
+    "sha512_challenge": ("assembled_sha512_challenge_correct", "sha512_contract"),
     "prepare_chunk": ("assembled_prepare_chunk_correct", "prepare_chunk_contract"),
     "signature_scalar": ("assembled_signature_scalar_correct", "signature_scalar_contract"),
     "key_table": ("assembled_key_table_correct", "key_table_contract"),
@@ -49,8 +51,9 @@ def public_statement(component):
     namespace = "Ed25519Simd." + COMPONENTS[component]
     theorem, contract = PUBLIC_THEOREMS[component]
     expected = f"{namespace}.Audit.{contract}"
-    if component == "signature_scalar":
-        for module in ("ObjectBytes", "OrderBytes"):
+    if component in ("sha512_challenge", "signature_scalar"):
+        literal = "LiteralBytes" if component == "sha512_challenge" else "OrderBytes"
+        for module in ("ObjectBytes", literal):
             expected += f" {namespace}.{module}.address {namespace}.{module}.symbol_bytes"
     elif component == "key_table":
         for module in ("KeyTable.ObjectBytes", "Decode.DecoderBytes", "Decode.HelperBytes", "KeyTable.CachedBytes"):

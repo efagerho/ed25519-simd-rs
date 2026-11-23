@@ -14,6 +14,7 @@ README for its contract and release audit.
 | [scalar/](scalar/README.md) | Canonical reduction of eight 512-bit inputs modulo the scalar order. |
 | [prepare_chunk/](prepare_chunk/README.md) | Both pre-hash entries select eligible lanes and key tables from eight signatures, preserve the R decode mask, and apply the Dalek weak-key rule. |
 | [signature_scalar/](signature_scalar/README.md) | Before hashing, each mask bit tests the input signature scalar against L. Accepted lanes encode the exact input in 64 signed digits and rejected lanes contain zeros. |
+| [sha512_challenge/](sha512_challenge/README.md) | Eight independent SHA-512 challenges over R, the public key and the message, written in the scalar reducer's word-major layout. |
 | [radix16/](radix16/README.md) | The linked reducer and digest wrapper produce 64 signed digits representing each input modulo the scalar order. |
 | [key_table/](key_table/README.md) | Builds one or eight public-key tables. Every signed entry is initialized and bounded, and represents the corresponding Edwards multiple for a valid affine input lane. |
 | [stage_round/](stage_round/README.md) | Signed key lookup, base-digit folding and exact limb placement in the 55-row ladder input. |
@@ -23,10 +24,6 @@ README for its contract and release audit.
 | [decompress_r/](decompress_r/README.md) | Deferred ZIP-215 decoding of eight or sixteen encodings, including noncanonical y, both signs of zero, and rejection of nonsquares. |
 | [torsion/](torsion/README.md) | The returned lane mask equals the full ZIP-215 cofactor check, including the all-lanes early return. |
 | [small_order/](small_order/README.md) | The returned mask selects precisely the valid projective points killed by the cofactor, including the all-lanes rejection path. |
-
-The [SHA-512 challenge proof](sha512_challenge/README.md) is in progress. Coq
-proves the single-lane round arithmetic and rolling schedule. The linked
-eight-lane implementation still needs its execution proof.
 
 ## What to audit
 
