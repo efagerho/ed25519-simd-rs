@@ -6,6 +6,8 @@ import subprocess
 import tempfile
 
 from listing import ADD, DOUBLE, point_program
+from crate.double4 import listing as double_reference
+from crate.cached_add import listing as add_reference
 from evidence import write_evidence
 from proof_build import compile_libraries, library_flags
 
@@ -25,15 +27,21 @@ def audit(elf, work):
     compile_libraries(work)
     dest = work / "Point"
     dest.mkdir()
-    (work / "Double4").mkdir()
-    compile_module(work, "Double4", "Double4ABI", HERE.parent / "double4/coq")
-    (work / "CachedAdd").mkdir()
-    compile_module(work, "CachedAdd", "CachedAddABI", HERE.parent / "cached_add/coq")
+    for ns in ("Double4", "CachedAdd"):
+        (work / ns).mkdir()
+    for ns, folder, reference, modules in (
+        ("Double4", "double4", double_reference, ("Double4ABI", "Kernels", "KernelInterface", "Round")),
+        ("CachedAdd", "cached_add", add_reference, ("CachedAddABI", "Lane", "Control", "Kernels")),
+    ):
+        reference.generate(work / ns)
+        compile_module(work, ns, "Program")
+        for name in modules:
+            compile_module(work, ns, name, HERE.parent / folder / "coq")
     symbols = point_program(elf, dest, DOUBLE, "Double")
     symbols.extend(point_program(elf, dest, ADD, "Add"))
     for name in ("DoubleBytes", "Double", "AddBytes", "Add"):
         compile_module(work, "Point", name)
-    for name in ("DoublePath", "AddPath", "Audit", "Object"):
+    for name in ("DoublePath", "AddPath", "Outputs", "Audit", "Object"):
         compile_module(work, "Point", name, HERE / "coq")
     (dest / "Checked.v").write_text(
         "From Ed25519Simd.Point Require Audit Object.\n"
@@ -49,7 +57,7 @@ def audit(elf, work):
     checks = {"theorem": "Ed25519Simd.Point.Object.assembled_deferred_point_correct",
               "assumptions": result.strip(), "coqchk": {"command": command, "exit_code": 0}}
     write_evidence(elf, work, "deferred_point", checks, symbols,
-                   [HERE.parents[1] / "mask_listing.py"], FLAGS)
+                   [HERE.parents[1] / "mask_listing.py", *dict.fromkeys((*double_reference.SOURCES, *add_reference.SOURCES))], FLAGS)
     print(f"Checked {checks['theorem']} against {elf}")
 
 
