@@ -43,11 +43,11 @@ exposes only its return status. [Output predicates](coq/Composition.v) ·
    instruction-by-instruction execution of the combined flat memory and
    stack lies outside this contract. [Shared assumptions](../../README.md#shared-audit-surface) ·
    [Decoder contract](../decompress_r/README.md) · [Table contract](../key_table/README.md)
-4. Check Rust's pointer lifetimes, feature requirements, scratch alignment and
-   offsets against the assembly ABI. The contract allows repeated read-only
+4. Check Rust's pointer lifetimes, feature requirements, and scratch size
+   and alignment. Match the batch caller's offsets to the preparation ABI. The contract allows repeated read-only
    inputs. The outputs and stack occupy separate writable regions, and the
    caller supplies a readable identity table. The batch assembly discards both
-   outputs after rejection. [Scratch layout](../../../src/wide/avx512ifma/prepare.rs) ·
+   outputs after rejection. [Scratch allocation](../../../src/wide/avx512ifma/prepare.rs) ·
    [Batch caller](../../../src/wide/avx512ifma/verify_batch.S) ·
    [Native differential tests](../../../src/wide/avx512ifma/tests/prepare_chunk.rs)
 

@@ -29,7 +29,7 @@ chunk. The theorem also covers the standalone queue entries.
   The ABI proof follows register moves, stack offsets,
   caller-saved clobbers, six SIMD transfers, the occupied count and the
   tail-call arguments. See [Staging.v](../post_hash/Staging.v) and
-  [the Rust input and scatter layout assertions](../../../src/wide/avx512ifma/post_hash_asm.rs).
+  [the input and scatter records in the batch caller](../../../src/wide/avx512ifma/verify_batch.S).
 * Check the grouped semantics of the remaining scalar and SIMD glue.
   Compare each named block’s effects, argument offsets, flags, stack
   scratch and register preservation to its instruction expansion. The

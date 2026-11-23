@@ -1,4 +1,5 @@
-use super::{LANES, Radix16, WIDE_WORDS};
+#[cfg(test)]
+use super::{LANES, Radix16};
 #[cfg(test)]
 use core::mem::MaybeUninit;
 
@@ -10,11 +11,6 @@ core::arch::global_asm!(
     options(raw)
 );
 core::arch::global_asm!(include_str!("radix16.S"), options(raw));
-
-const _: () = {
-    assert!(LANES == 8 && WIDE_WORDS == 8);
-    assert!(size_of::<Radix16>() == 64);
-};
 
 #[cfg(test)]
 unsafe extern "C" {

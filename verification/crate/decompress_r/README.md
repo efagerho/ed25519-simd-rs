@@ -48,7 +48,7 @@ chunk. [Public theorem](coq/Object.v) · [Contract](coq/Audit.v) · [Lane result
    operations to native memory effects, including the stores behind Rust’s
    `assume_init_ref`, is part of the human audit. A single flat-memory
    read/write and preservation theorem for the entire decoder is still open.
-   [Caller interpreter](coq/Caller.v) · [Paired preparation call](../../../src/wide/avx512ifma/prepare_chunk.S) · [Rust scratch layout](../../../src/wide/avx512ifma/prepare.rs) · [Shared machine and memory assumptions](../../README.md#shared-audit-surface)
+   [Caller interpreter](coq/Caller.v) · [Paired preparation call](../../../src/wide/avx512ifma/prepare_chunk.S) · [Rust scratch allocation](../../../src/wide/avx512ifma/prepare.rs) · [Shared machine and memory assumptions](../../README.md#shared-audit-surface)
 
 ## Replay
 

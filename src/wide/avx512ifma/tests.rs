@@ -1,14 +1,14 @@
-use super::point::{WideFe, WidePoint};
-use super::*;
-use crate::batch::{EncodedPointChunk, mask_to_lanes};
+use crate::batch::SIMD_LANES as LANES;
 use crate::edwards::{
     AffineCachedPoint, BASEPOINT_TABLE, CachedPoint, POINT_ENCODING_LEN, PointTable,
 };
 use crate::field::LIMB_COUNT;
+use crate::test_support::EncodedPointChunk;
 use core::mem::MaybeUninit;
 use curve25519::edwards::CompressedEdwardsY;
-use field::{loadu, storeu};
+use field::{WideFe, loadu, storeu};
 use ladder::{PreparedChunk, mul_s_base_minus_k_public};
+use point::WidePoint;
 use serde_json::Value;
 
 mod cached_add;
@@ -26,6 +26,10 @@ mod torsion;
 const BASEPOINT_COMPRESSED: [u8; POINT_ENCODING_LEN] =
     curve25519::constants::ED25519_BASEPOINT_COMPRESSED.to_bytes();
 const VECTOR_JSON: &str = include_str!("../../../tests/vectors/avx512ifma.json");
+
+fn mask_to_lanes(mask: u8) -> [bool; LANES] {
+    core::array::from_fn(|lane| (mask & (1 << lane)) != 0)
+}
 
 fn coordinates(point: &WidePoint) -> [WideFe; 4] {
     [point.x, point.y, point.z, point.t]

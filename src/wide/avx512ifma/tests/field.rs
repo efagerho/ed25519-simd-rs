@@ -1,8 +1,20 @@
 //! Reference field arithmetic for testing the assembly kernels.
-use super::{LANES, WideFe, mask_to_lanes};
+use super::{LANES, mask_to_lanes};
 use crate::edwards::POINT_ENCODING_LEN;
 use crate::field::{Fe51, LIMB_COUNT};
 use std::arch::x86_64::*;
+
+/// Eight field elements packed by limb for AVX-512 IFMA arithmetic.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub(super) struct WideFe {
+    pub(super) limbs: [__m512i; LIMB_COUNT],
+}
+
+const _: () = {
+    assert!(size_of::<WideFe>() == 320 && align_of::<WideFe>() == 64);
+    assert!(core::mem::offset_of!(WideFe, limbs) == 0);
+};
 
 const LIMB_MASK: u64 = (1u64 << 51) - 1;
 

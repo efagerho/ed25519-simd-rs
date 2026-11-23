@@ -2,7 +2,7 @@
 // the lane-major S digits and eight SHA-512 digest word rows. All scalars
 // and indices are public. The three entries return 1 on success or 0 for
 // invalid scatter metadata. Stack scratch and output must be disjoint from
-// all input buffers. Layout assertions are in post_hash_asm.rs.
+// all input buffers. See verify_batch.S for the input and scatter records.
 
 post_candidate ed25519_simd_zip215_candidate, 1
 

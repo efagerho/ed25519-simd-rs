@@ -1,27 +1,7 @@
 use crate::input::VerifyInput;
 
-/// Byte length of a signature's compressed `R` point.
-pub(crate) const R_ENCODING_LEN: usize = crate::edwards::POINT_ENCODING_LEN;
 /// Number of verification lanes processed by one SIMD chunk.
 pub(crate) const SIMD_LANES: usize = 8;
-
-/// Eight lane-major encodings of Edwards points.
-pub(crate) type EncodedPointChunk = [[u8; R_ENCODING_LEN]; SIMD_LANES];
-
-#[cfg(test)]
-pub(crate) fn mask_to_lanes(mask: u8) -> [bool; SIMD_LANES] {
-    core::array::from_fn(|lane| (mask & (1 << lane)) != 0)
-}
-
-/// Input validity and output positions for one padded chunk. Native
-/// scoring reads this layout and writes only the first active_lane_count lanes.
-#[repr(C)]
-#[derive(Debug)]
-pub(crate) struct PendingLanes {
-    pub(crate) valid: [bool; SIMD_LANES],
-    pub(crate) output_indices: [usize; SIMD_LANES],
-    pub(crate) active_lane_count: usize,
-}
 
 /// One input to the native batch driver. All five fields are individual
 /// machine words. The message pointer and length come from the same slice.

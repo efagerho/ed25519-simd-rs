@@ -2,13 +2,14 @@ use super::{VerificationPolicy, Verifier, VerifyPolicy};
 use crate::batch::{BatchInput, with_batch_inputs};
 use crate::edwards::{BASEPOINT_TABLE, BasepointTableEntries, IDENTITY_TABLE, PointTable};
 use crate::input::VerifyInput;
+use crate::wide::avx512ifma::ChunkScratch;
 
 unsafe extern "C" {
     fn ed25519_simd_zip215_verify_batch(
         rows: *const BatchInput<'_>,
         count: usize,
         out: *mut bool,
-        scratch: *mut u8,
+        scratch: *mut ChunkScratch,
         identity: &PointTable,
         base: &BasepointTableEntries,
     ) -> u32;
@@ -16,7 +17,7 @@ unsafe extern "C" {
         rows: *const BatchInput<'_>,
         count: usize,
         out: *mut bool,
-        scratch: *mut u8,
+        scratch: *mut ChunkScratch,
         identity: &PointTable,
         base: &BasepointTableEntries,
     ) -> u32;
@@ -44,7 +45,7 @@ impl<P: VerificationPolicy> Verifier<P> {
                     rows.as_ptr(),
                     rows.len(),
                     out.as_mut_ptr(),
-                    self.scratch.as_mut_ptr().cast(),
+                    self.scratch.as_mut_ptr(),
                     &IDENTITY_TABLE,
                     &BASEPOINT_TABLE,
                 )
@@ -58,7 +59,6 @@ impl<P: VerificationPolicy> Verifier<P> {
 mod tests {
     use super::*;
     use crate::test_support::GuardedPage;
-    use crate::wide::avx512ifma::ChunkScratch;
     use curve25519::ed_sigs::{SigningKey, VerificationKeyBytes};
 
     #[test]
@@ -100,7 +100,7 @@ mod tests {
                                 src,
                                 len,
                                 out.cast(),
-                                scratch.as_mut_ptr().cast(),
+                                scratch.as_mut_ptr(),
                                 &IDENTITY_TABLE,
                                 &BASEPOINT_TABLE,
                             )

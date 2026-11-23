@@ -1,5 +1,9 @@
-//! A readable/writable page between inaccessible pages for native memory tests.
+//! Shared fixtures for native assembly tests.
 use core::ffi::{c_int, c_void};
+
+/// Eight lane-major compressed point encodings.
+pub(crate) type EncodedPointChunk =
+    [[u8; crate::edwards::POINT_ENCODING_LEN]; crate::batch::SIMD_LANES];
 
 unsafe extern "C" {
     fn getpagesize() -> c_int;
@@ -15,6 +19,7 @@ unsafe extern "C" {
     fn munmap(address: *mut c_void, length: usize) -> c_int;
 }
 
+/// A readable/writable page between inaccessible guard pages.
 pub(crate) struct GuardedPage {
     mapping: *mut c_void,
     page: usize,

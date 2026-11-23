@@ -6,6 +6,7 @@ use rand::{RngCore, SeedableRng, rngs::StdRng};
 #[path = "native.rs"]
 mod native;
 
+const WIDE_WORDS: usize = 8;
 type DigestWords = [[u64; LANES]; WIDE_WORDS];
 type ScalarLimbs = [[u64; LANES]; 5];
 

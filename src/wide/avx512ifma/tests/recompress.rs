@@ -4,7 +4,7 @@ const DALEK_BATCH: usize = 8;
 
 fn check_dalek_candidates(
     points: &[WidePoint],
-    encodings: &[crate::batch::EncodedPointChunk],
+    encodings: &[EncodedPointChunk],
 ) -> [u8; DALEK_BATCH] {
     assert_eq!(points.len(), encodings.len());
     assert!(points.len() <= DALEK_BATCH);

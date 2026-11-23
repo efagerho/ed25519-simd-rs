@@ -1,7 +1,55 @@
 use super::*;
 use crate::edwards::IDENTITY_TABLE;
-use crate::wide::avx512ifma::prepare::{ChunkInputs, PreparedLanes};
-use crate::{DalekPolicy, VerificationPolicy, VerifyInput, VerifyPolicy, Zip215Policy};
+use crate::scalar::Radix16;
+use crate::wide::avx512ifma::ChunkScratch;
+use crate::{
+    DalekPolicy, PUBLIC_KEY_LEN, SIGNATURE_LEN, VerificationPolicy, VerifyInput, VerifyPolicy,
+    Zip215Policy,
+};
+use core::mem::offset_of;
+
+#[repr(C)]
+struct ChunkInputs<'a> {
+    keys: [&'a [u8; PUBLIC_KEY_LEN]; LANES],
+    signatures: [&'a [u8; SIGNATURE_LEN]; LANES],
+}
+
+/// Typed view used to inspect successful preparations in these tests.
+#[repr(C)]
+struct ScratchFields {
+    public_keys: EncodedPointChunk,
+    r_bytes: EncodedPointChunk,
+    s_digits: [Radix16; LANES],
+    key_work: WidePoint,
+    /// Decoded R retains the original Y limbs for strict scoring.
+    r: WidePoint,
+    tables: [PointTable; LANES],
+}
+
+/// Each pointer borrows either a table in this chunk's scratch or the identity.
+#[repr(C)]
+struct PreparedLanes<'a> {
+    tables: [&'a PointTable; LANES],
+    valid: [bool; LANES],
+    r_valid: u8,
+}
+
+// Offsets and strides consumed by prepare_chunk.S.
+const _: () = {
+    assert!(LANES == 8 && PUBLIC_KEY_LEN == 32 && SIGNATURE_LEN == 64);
+    assert!(size_of::<ChunkInputs>() == 128 && offset_of!(ChunkInputs, signatures) == 64);
+    assert!(align_of::<ScratchFields>() == align_of::<ChunkScratch>());
+    assert!(
+        offset_of!(ScratchFields, public_keys) == 0 && offset_of!(ScratchFields, r_bytes) == 256
+    );
+    assert!(
+        offset_of!(ScratchFields, s_digits) == 512 && offset_of!(ScratchFields, key_work) == 1024
+    );
+    assert!(offset_of!(ScratchFields, r) == 2304 && offset_of!(ScratchFields, tables) == 3584);
+    assert!(size_of::<ScratchFields>() == size_of::<ChunkScratch>());
+    assert!(offset_of!(PreparedLanes, tables) == 0 && offset_of!(PreparedLanes, valid) == 64);
+    assert!(offset_of!(PreparedLanes, r_valid) == 72 && size_of::<PreparedLanes>() == 80);
+};
 
 unsafe extern "C" {
     fn ed25519_simd_prepare_chunk(
@@ -20,8 +68,8 @@ unsafe extern "C" {
 
 fn prepare_chunk<'a, P: VerificationPolicy>(
     inputs: &[VerifyInput<'_>; LANES],
-    scratch: &'a mut MaybeUninit<ChunkScratch>,
-) -> Option<(&'a ChunkScratch, PreparedLanes<'a>)> {
+    scratch: &'a mut MaybeUninit<ScratchFields>,
+) -> Option<(&'a ScratchFields, PreparedLanes<'a>)> {
     let lanes = ChunkInputs {
         keys: inputs.each_ref().map(|input| &input.public_key),
         signatures: inputs.each_ref().map(|input| &input.signature),
@@ -48,7 +96,7 @@ fn prepare_chunk<'a, P: VerificationPolicy>(
 
 fn check_lanes<P: VerificationPolicy>(
     inputs: &[VerifyInput<'_>; LANES],
-    scratch: &mut MaybeUninit<ChunkScratch>,
+    scratch: &mut MaybeUninit<ScratchFields>,
 ) {
     let (chunk, lanes) = prepare_chunk::<P>(inputs, scratch).unwrap();
     let keys = inputs.each_ref().map(|i| i.public_key);
@@ -123,7 +171,7 @@ fn prepared_chunk_matches_component_outputs_in_every_lane() {
     inputs[5].signature[..32].fill(0xff);
     inputs[5].signature[0] = 0xee; // noncanonical identity, negative zero
 
-    let mut scratch = Box::<ChunkScratch>::new_uninit();
+    let mut scratch = Box::<ScratchFields>::new_uninit();
     for _ in 0..LANES {
         check_lanes::<Zip215Policy>(&inputs, &mut scratch);
         check_lanes::<DalekPolicy>(&inputs, &mut scratch);
@@ -139,7 +187,7 @@ fn empty_preparations_do_not_expose_stale_scratch() {
         message: &[],
     };
     let mut inputs = [base; LANES];
-    let mut scratch = Box::<ChunkScratch>::new_uninit();
+    let mut scratch = Box::<ScratchFields>::new_uninit();
     assert!(prepare_chunk::<DalekPolicy>(&inputs, &mut scratch).is_some());
 
     for input in &mut inputs {
