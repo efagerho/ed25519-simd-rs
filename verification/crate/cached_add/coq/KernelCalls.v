@@ -7,9 +7,6 @@ From Curve25519 Require Import FieldPolynomial.
 From Ed25519Simd Require Import FieldSymbolic.
 From Ed25519Simd.CachedAdd Require Import Program CachedAddABI Kernels KernelInterface Lane Control Bounds.
 Import ListNotations. Open Scope Z_scope.
-Definition includes a lo hi := (lo<=?lower_bound a)&&(upper_bound a<=?hi).
-Lemma includes_sound a lo hi x : includes a lo hi=true ->bounded a x ->lo<=x<=hi.
-Proof. unfold includes,bounded;rewrite andb_true_iff,!Z.leb_le;lia. Qed.
 Definition kernel_inputs k (b:bstate) bases :=
  forallb(fun i=>includes(fst b i)0(input_bound k i))(seq 0 10) &&
  singleton(fst b 28%nat)19 && singleton(fst b 29%nat)(radix-1) &&

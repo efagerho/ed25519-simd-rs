@@ -4,6 +4,7 @@
 -Q ../machine Machine
 Wide51.v
 FieldSymbolic.v
+FieldTraceBounds.v
 PointFrame.v
 FieldKernel.v
 Radix16Output.v

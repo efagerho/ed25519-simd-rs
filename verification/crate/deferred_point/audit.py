@@ -41,7 +41,7 @@ def audit(elf, work):
     symbols.extend(point_program(elf, dest, ADD, "Add"))
     for name in ("DoubleBytes", "Double", "AddBytes", "Add"):
         compile_module(work, "Point", name)
-    for name in ("DoublePath", "AddPath", "Outputs", "Audit", "Object"):
+    for name in ("DoublePath", "AddPath", "Outputs", "RawBounds", "Audit", "Object"):
         compile_module(work, "Point", name, HERE / "coq")
     (dest / "Checked.v").write_text(
         "From Ed25519Simd.Point Require Audit Object.\n"
