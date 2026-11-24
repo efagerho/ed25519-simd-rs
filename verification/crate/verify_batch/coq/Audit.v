@@ -1,11 +1,11 @@
 From Coq Require Import List ZArith.
 From Machine Require Import execution.LinkedCalls execution.WordBounds memory.FlatMemory memory.ByteMemory memory.MemoryGeometry abi.SysV.
-From Machine Require execution.MappedFetch execution.ScalarBytes memory.WriteTrace.
+From Machine Require execution.MappedFetch execution.ScalarBytes execution.LinkedRun memory.WriteTrace.
 From Ed25519Simd.PrepareChunk Require Audit CommonBytes StrictBytes.
 From Ed25519Simd.Sha512Challenge Require Audit ObjectBytes LiteralBytes.
 From Ed25519Simd.Zip215 Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.DalekPostHash Require Audit DecodedBytes ScatterBytes.
-From Ed25519Simd.VerifyBatch Require Import Policy Arguments Image Control Tables Scatter Loop Return LoadedImage EntryWrites CallWrites NestedRegions StageEntry RejectCall.
+From Ed25519Simd.VerifyBatch Require Import Policy Arguments Image Control Tables Scatter Loop Return LoadedImage EntryWrites CallWrites NestedRegions StageEntry RejectCall BatchScalar.
 Local Open Scope Z_scope.
 
 Definition destination pol t := match t with
@@ -68,18 +68,17 @@ Definition returned pol e ip final :=
    mem final (output e+Z.of_nat (position e i))=Z.b2z v /\
    (v=true <-> signature_accepts pol (read_input (mem e) (regs e 7%nat) i)).
 
-(* The log in a nonempty observation ends at the first preparation call. The grouped
-   continuation uses the same original descriptor and verdict buffers. An
-   empty observation has a single concrete return CPU and no grouped suffix. *)
-Inductive observation pol bias pc text e carry : list WriteTrace.store -> Z -> cpu -> Prop :=
+(* A nonempty log includes the first preparation prologue and its nested
+   scalar call through RET. The grouped continuation describes the verdict. *)
+Inductive observation pol bias pc text e carry masks : list WriteTrace.store -> Z -> cpu -> Prop :=
  | observe_empty ws ip final : count e=0%nat ->
    MappedFetch.steps (bias+pc) (length text) (ScalarBytes.State (ScalarBytes.Running 0) e carry) ws
      (ScalarBytes.State (ScalarBytes.Returned ip) final (Some false)) ->
-   observation pol bias pc text e carry ws ip final
- | observe_batch st ws ip final : (0<count e)%nat ->
-   StageEntry.observe (bias+pc) text e carry=Some(st,ws) ->
+   observation pol bias pc text e carry masks ws ip final
+ | observe_batch stop ip final : (0<count e)%nat ->
+   BatchScalar.observe pol bias (bias+pc) text e carry masks=Some stop ->
    execution pol bias pc text (bias+pc) e ip final ->
-   observation pol bias pc text e carry ws ip final.
+   observation pol bias pc text e carry masks (LinkedRun.log stop) ip final.
 
 Definition immutable_after pol bias pc text e ip final :=
  (0<count e)%nat -> execution pol bias pc text (bias+pc) e ip final ->
@@ -102,15 +101,18 @@ Record batch_contract pol pc text : Prop := {
  linked_callees : callees pol;
  nested_regions : CallWrites.footprint /\ NestedRegions.footprint /\
    forall e,Return.placement e -> forall x,sp e-40<=x<sp e+8 -> ~nested_writable e x;
- verify : forall bias e carry, admissible pol bias pc text e ->
-   (exists ws ip final, observation pol bias pc text e carry ws ip final) /\
-   (forall ws ip final, observation pol bias pc text e carry ws ip final ->
+ verify : forall bias e carry masks, admissible pol bias pc text e ->
+   (exists ws ip final, observation pol bias pc text e carry masks ws ip final) /\
+   (forall ws ip final, observation pol bias pc text e carry masks ws ip final ->
       returned pol e ip final /\ WriteTrace.confined (writable e) ws);
  image_preserved : forall bias e, admissible pol bias pc text e ->
    (forall ip final,immutable_after pol bias pc text e ip final) /\
    ((0<count e)%nat -> physical_scatter pol bias e /\ RejectCall.contract bias pc text e);
  machine_prepare_entry : forall bias e, admissible pol bias pc text e -> (0<count e)%nat ->
    StageEntry.physical (bias+pc) text (destination pol Prepare-pc) e;
+ machine_scalar_return : forall bias e carry masks, admissible pol bias pc text e -> (0<count e)%nat ->
+   exists stop, BatchScalar.observe pol bias (bias+pc) text e carry masks=Some stop /\
+                BatchScalar.post pol bias e stop;
  machine_empty : forall bias e, admissible pol bias pc text e -> count e=0%nat ->
    let '(ip,final):=empty_return e in
    returned pol e ip final /\ empty_mapped (bias+pc) text e

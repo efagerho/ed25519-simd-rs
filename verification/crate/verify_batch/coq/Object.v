@@ -61,12 +61,23 @@ Proof.
      * intros i Bound;rewrite Out by (apply I;exact Bound);exact (Valid i Bound).
 Qed.
 
-Lemma observed_correct pol pc text bias e carry :
+Lemma scalar_from_entry pol pc text bias e c masks : admissible pol bias pc text e -> (0<count e)%nat ->
+ StageEntry.physical (bias+pc) text (destination pol Prepare-pc) e ->
+ exists stop, BatchScalar.observe pol bias (bias+pc) text e c masks=Some stop /\
+              BatchScalar.post pol bias e stop.
+Proof.
+ intros Input N Entry. apply BatchScalar.from_entry.
+ - exact (proj1 (batch_inputs _ _ _ _ _ Input N)).
+ - exact (callee_image _ _ _ _ _ Input N).
+ - destruct pol;exact Entry.
+Qed.
+
+Lemma observed_correct pol pc text bias e carry masks :
  matches pc (destination pol) text -> admissible pol bias pc text e ->
  (count e=0%nat -> empty_mapped (bias+pc) text e) ->
  ((0<count e)%nat -> StageEntry.physical (bias+pc) text (destination pol Prepare-pc) e) ->
- (exists ws ip final,observation pol bias pc text e carry ws ip final) /\
- (forall ws ip final,observation pol bias pc text e carry ws ip final ->
+ (exists ws ip final,observation pol bias pc text e carry masks ws ip final) /\
+ (forall ws ip final,observation pol bias pc text e carry masks ws ip final ->
     returned pol e ip final /\ WriteTrace.confined (writable e) ws).
 Proof.
  intros Image Caller Empty Batch;destruct (grouped _ _ _ Image _ _ Caller) as [Exists Sound].
@@ -74,15 +85,15 @@ Proof.
  - destruct (Nat.eqb_spec (count e) 0) as [Z|Live].
    + specialize (Empty Z);unfold empty_mapped in Empty;destruct(empty_return e) as [ip f].
      exists nil,ip,f;apply observe_empty;[exact Z|exact (proj1 (Empty carry))].
-   + destruct Exists as [ip [f R]];destruct(StageEntry.observed _ _ _ _ carry (Batch ltac:(lia))) as [st [ws [O _]]].
-     exists ws,ip,f;eapply observe_batch;[lia|exact O|exact R].
- - intros ws ip f O;inversion O as [ws' ip' f' Z Run|st ws' ip' f' N Native R];subst.
+   + destruct Exists as [ip [f R]];destruct(scalar_from_entry _ _ _ _ _ carry masks Caller ltac:(lia) (Batch ltac:(lia))) as [stop [O _]].
+     exists (LinkedRun.log stop),ip,f;eapply observe_batch;[lia|exact O|exact R].
+ - intros ws ip f O;inversion O as [ws' ip' f' Z Run|st ip' f' N Native R];subst.
    + specialize (Empty Z);unfold empty_mapped in Empty;destruct(empty_return e) as [back last] eqn:E.
      destruct (proj2 (Empty carry) _ _ Run) as [-> Same].
      inversion Same as [|s t u own rest Impossible];[|discriminate].
      subst;split;[apply Sound,empty_path;[exact Image|now rewrite Z|exact E]|constructor].
-   + destruct (StageEntry.observed _ _ _ _ carry (Batch N)) as [mid [log [Trace [_ Safe]]]].
-     rewrite Trace in Native;injection Native as <- <-;split;[exact (Sound _ _ R)|exact Safe].
+   + destruct (scalar_from_entry _ _ _ _ _ carry masks Caller N (Batch N)) as [mid [Trace [_ [_ [Safe _]]]]].
+     rewrite Trace in Native;injection Native as <-;exact (conj (Sound _ _ R) Safe).
 Qed.
 
 Lemma verified pol pc text : matches pc (destination pol) text -> empty_image text -> Prologue.bound text -> StageEntry.bound text -> TailWrites.bound text -> StageWrites.bound text (destination pol Prepare-pc) -> RejectCall.bound pc text ->
@@ -100,8 +111,8 @@ Proof.
    apply StageEntry.from_entry;[exact Setup|exact Select|exact Pad|exact Transfer|exact P|exact N|exact Fit|exact Const|
      exact (entry_text _ _ _ _ _ Input)|exact Apart]. }
  constructor;[exact Image|exact Arguments.checked_arguments|exact static_tables_correct|
- exact (linked_calls pol)|exact (conj CallWrites.embedded (conj NestedRegions.embedded protected_slots))| | | |].
- - intros bias e carry Input;eapply observed_correct;[exact Image|exact Input|apply Empty|apply Live];exact Input.
+ exact (linked_calls pol)|exact (conj CallWrites.embedded (conj NestedRegions.embedded protected_slots))| | | | |].
+ - intros bias e carry masks Input;eapply observed_correct;[exact Image|exact Input|apply Empty|apply Live];exact Input.
  - intros bias e Input;split.
    + intros ip final N Run x X.
      destruct (proj2 (grouped _ _ _ Image _ _ Input) _ _ Run) as [_ [_ [_ [_ [F _]]]]].
@@ -126,6 +137,7 @@ Proof.
          [exact Rejection|exact Place|exact (entry_range _ _ _ _ _ Input)|
           exact (entry_text _ _ _ _ _ Input)|exact Apart|exact (callee_image _ _ _ _ _ Input N)].
  - exact Live.
+ - intros bias e c masks Input N;eapply scalar_from_entry;[exact Input|exact N|exact (Live _ _ Input N)].
  - intros bias e Input Z. destruct (empty_return e) as [ip final] eqn:E. split.
    + apply (proj2 (grouped _ _ _ Image _ _ Input)),empty_path;[exact Image|now rewrite Z|exact E].
    + exact (Empty _ _ Input Z).
