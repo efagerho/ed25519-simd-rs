@@ -71,6 +71,7 @@ memory/RowWrites.v
 execution/MappedFetch.v
 execution/FrameInstructions.v
 execution/InstructionRoute.v
+execution/QwordBlock.v
 execution/LinkedRun.v
 execution/MaskTransfer.v
 execution/ScalarWords.v
