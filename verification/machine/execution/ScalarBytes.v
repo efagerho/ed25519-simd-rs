@@ -23,7 +23,8 @@ Inductive instruction :=
 | StoreImmediate (a:addr) (k:Z) | Jump (disp:Z)
 | Branch (c:condition) (disp:Z) | Ret
 | QwordOp (i:QwordRegister.op)
-| AndImmediate (r:nat) (mask:Z) | BroadcastRip (r:nat) (disp:Z).
+| AndImmediate (r:nat) (mask:Z) | BroadcastRip (r:nat) (disp:Z)
+| AlignedRow (i:VectorMoves.aligned_row).
 
 Definition little32 bs := read_le 4 (fun i=>nth (Z.to_nat i) bs 0) 0.
 Definition decode (bs:list Z) : option (nat*instruction) := match bs with
@@ -133,10 +134,12 @@ Definition decode (bs:list Z) : option (nat*instruction) := match bs with
  | 0x48::0x8d::0xb4::0x24::a::b::c::d::_=>Some (8%nat,LeaG 6 (Address 4 None (displacement32 [a;b;c;d])))
  | 0x48::0x8b::0x94::0x24::a::b::c::d::_=>Some (8%nat,Load64 2 (Address 4 None (displacement32 [a;b;c;d])))
  | 0x48::0x8d::0x8c::0x24::a::b::c::d::_=>Some (8%nat,LeaG 1 (Address 4 None (displacement32 [a;b;c;d])))
+ | 0x4c::0x8d::0x87::a::b::c::d::_=>Some (7%nat,LeaG 8 (Address 7 None (displacement32 [a;b;c;d])))
  | 0xe8::a::b::c::d::_=>Some (5%nat,CallRelative (displacement32 [a;b;c;d]))
  | 0xc3::_ => Some (1%nat,Ret)
  | _=>match VectorMoves.decode bs with Some(n,i)=>Some(n,VectorMove i)
-      | None=>option_map (fun '(n,i)=>(n,QwordOp i)) (QwordRegister.decode bs) end end.
+      | None=>match QwordRegister.decode bs with Some(n,i)=>Some(n,QwordOp i)
+              | None=>option_map (fun '(n,i)=>(n,AlignedRow i)) (VectorMoves.decode_row bs) end end end.
 
 Definition effective s a := match a with Address b ix d=>word (regs s b+
  (match ix with Some (i,k)=>regs s i*k | None=>0 end)+d) end.
@@ -220,6 +223,14 @@ Definition step origin off n op s carry : option (state*list store) :=
  | VectorMove (VectorMoves.Output src base disp)=>
    let w:=vector (word (origin+off)) (word (regs s base+disp)) (fun j=>vectors s j src) in
    Some (State (Running next) (with_words s (regs s) (commit (mem s) w)) carry,[w])
+ | AlignedRow i=>let b:=VectorMoves.gpr i in let d:=VectorMoves.offset i in
+   let addr:=word(regs s b+d) in let r:=VectorMoves.zmm i in
+   if addr mod 64=?0 then
+     if VectorMoves.writing i then
+       let w:=vector (word(origin+off)) addr (fun j=>vectors s j r) in
+       Some(State (Running next) (with_words s (regs s) (commit (mem s) w)) carry,[w])
+     else go (vector_dest s r (fun j=>vector_load s j b d)) carry
+   else None
  | Add64 r k=>let sum:=word (regs s r)+word k in let v:=word sum in
    go (with_zf (set s r v) (v=?0)) (Some (2^64<=?sum))
  | CallRelative d=>
@@ -257,6 +268,7 @@ Proof.
  - destruct op;intro E;injection E as <- <-;reflexivity.
  - destruct (eval_condition _ _ _) as [[]|];intro E;try discriminate;injection E as <- <-;reflexivity.
  - destruct (qword_op _ _ _) as [v|] eqn:V;intro E;try discriminate;injection E as <- <-;exact (proj1(qword_state _ _ _ _ V)).
+ - destruct (_=?0), (VectorMoves.writing i);intro E;try discriminate;injection E as <- <-;reflexivity.
 Qed.
 Theorem steps_memory o text s ws t : steps o text s ws t ->
  mem (cpu_state t)=WriteTrace.replay (mem (cpu_state s)) ws.

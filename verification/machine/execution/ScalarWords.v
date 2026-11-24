@@ -64,6 +64,7 @@ Lemma step_wf origin off n op s c t ws : well_formed s ->
 Proof.
  intros W;destruct op;cbn [step];intro S.
  all: try solve [destruct (qword_op _ _ _) as [v|] eqn:QV;try discriminate;injection S as <- <-;eapply qword_wf;eassumption].
+ all: try match type of S with context[VectorMoves.writing ?i]=>destruct (VectorMoves.writing i) end.
  all: try match type of S with context[option_map _ ?b]=>destruct b as [[]|];try discriminate end.
  all: try match type of S with context[if ?align then Some (_,_) else None]=>destruct align;try discriminate end.
  all: try (injection S as <- <-;cbn [cpu_state]).
