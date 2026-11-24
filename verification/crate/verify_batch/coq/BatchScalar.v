@@ -80,7 +80,8 @@ Qed.
 
 Definition arguments e p top :=
  regs (machine p) 4%nat=top /\ regs (machine p) 7%nat=Return.scratch e /\
- regs (machine p) 6%nat=Rows.frame e+512 /\ Prologue.output_registers e (machine p).
+ regs (machine p) 6%nat=Rows.frame e+512 /\ Prologue.output_registers e (machine p) /\
+ regs(machine p) 12%nat=Prologue.rows_left (regs e 6%nat).
 
 Definition caller_word entry e m :=
  read_word m (Rows.frame e-8)=word(entry+offset Prepared).
@@ -107,17 +108,17 @@ Lemma reach_common pol bias entry e p : Return.placement e -> loaded pol bias (m
 Proof.
  intros P Image Acc At Args Root. destruct pol.
  - exists p;split;[reflexivity|split;[exact Acc|split;[exact At|]]]. split;[unfold common_top;replace (Rows.frame e-8-0) with (Rows.frame e-8) by ring;exact Args|exact (conj Root I)].
- - destruct Args as [SP [DI [SI [N Out]]]].
+ - destruct Args as [SP [DI [SI [[N Out] Left]]]].
    assert (Fit:words_fit (Rows.frame e-8)) by (destruct (stack_ok _ P) as [[L U] _];unfold words_fit,Rows.frame,sp in *;lia).
    destruct (strict_dispatch bias (machine p) (carry p) (Rows.frame e-8) SP Fit
-       (mapped_word _ _ _ Image _ _ (in_common _) ltac:(vm_compute;reflexivity))) as [t [ws [R [PC [Stack [D [S [Ret [Bounds [Count Dst]]]]]]]]]].
+       (mapped_word _ _ _ Image _ _ (in_common _) ltac:(vm_compute;reflexivity))) as [t [ws [R [PC [Stack [D [S [Ret [Bounds [Count [Dst R12]]]]]]]]]]].
    destruct(mapped_now _ _ _ Image _ _ _ Acc in_strict) as [Map Sep].
    assert (Safe:confined (writable e) ws).
    { eapply Forall_impl;[|exact Bounds];intros w W x X;left;specialize(W x X);unfold stack_range,Rows.frame,span,sp in *;lia. }
    pose proof(at_segment _ _ _ _ _ _ 0 _ _ Acc ltac:(rewrite Z.add_0_r;exact At) Map Sep R Safe) as [Next A].
    exists (LinkedRun.finish (bias+strict) p (t,ws));split;[exact Next|split;[exact A|]].
    cbn [LinkedRun.finish ip machine];unfold absolute;rewrite PC;split;[ring|].
-   split;[exact (conj Stack (conj (eq_trans D DI) (conj (eq_trans S SI) (conj (eq_trans Count N) (eq_trans Dst Out)))))|].
+   split;[exact (conj Stack (conj (eq_trans D DI) (conj (eq_trans S SI) (conj (conj (eq_trans Count N) (eq_trans Dst Out)) (eq_trans R12 Left)))))|].
    split;[|exact Ret]. unfold caller_word in *;rewrite <-Root.
    pose proof (steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ R)) as M.
    cbn [at_pc cpu_state] in M;rewrite M;apply preserved_read with (outside:=fun x=>~stack_range (Rows.frame e-8) 16 x).
@@ -127,7 +128,7 @@ Qed.
 
 Definition saved_outputs pol e m :=
  let top:=common_top pol e in
- read_word m (top-24)=regs e 6%nat /\ read_word m (top-32)=Return.output e.
+ read_word m (top-24)=regs e 6%nat /\ read_word m (top-32)=Return.output e /\ read_word m (top-16)=Prologue.rows_left (regs e 6%nat).
 
 Definition post pol bias entry e p :=
  ip p=bias+common+65 /\ regs (machine p) 4%nat=common_top pol e-104 /\
@@ -137,7 +138,7 @@ Lemma through_scalar pol bias entry e p ks : Return.placement e -> loaded pol bi
  return_slots pol bias entry e (mem(machine p)) ->
  exists q, bind (to_scalar bias p) (scalar_call bias ks)=Some q /\ post pol bias entry e q.
 Proof.
- intros Place Image Acc At [SP [DI [SI [Count Out]]]] Slots.
+ intros Place Image Acc At [SP [DI [SI [[Count Out] Left]]]] Slots.
  set (top:=common_top pol e) in *.
  destruct (stack_ok _ Place) as [[Lo Hi] _]. assert (Pos:words_fit top).
  { unfold top,common_top,words_fit,Rows.frame,sp in *;destruct pol;lia. }
@@ -185,10 +186,12 @@ Proof.
      unfold stack_range;fold top in X;lia.
      * unfold SignatureScalar.Audit.output;rewrite Dest;destruct (scratch_stack _ Place);
      unfold common_top,Rows.frame,sp in *;destruct pol;lia.
-   + unfold saved_outputs;fold top;destruct Spilled as [C O].
+   + unfold saved_outputs;fold top;destruct Spilled as [C [O L12]].
      rewrite Count,(word_fits _ (proj1(initial_cpu _ Place) 6%nat)) in C.
      rewrite Out in O;rewrite (word_fits (Return.output e) (proj1(initial_cpu _ Place) 2%nat)) in O.
-     split;[rewrite <-C|rewrite <-O].
+     rewrite Left in L12;assert (Fit:word64(Prologue.rows_left(regs e 6%nat))) by
+       (unfold Prologue.rows_left;destruct (_<?8);[unfold word64;lia|apply mod64_word]).
+     rewrite (word_fits _ Fit) in L12;repeat split;[rewrite <-C|rewrite <-O|rewrite <-L12].
      all: apply preserved_read with (outside:=fun x=>~SignatureScalar.Audit.output (machine v) x).
      all: try (intros x X;cbn [machine];rewrite Memory;apply (WriteTrace.frame _ _ Inside),X).
      all: intros k K;change (0<=k<8) in K;unfold SignatureScalar.Audit.output;rewrite Dest;

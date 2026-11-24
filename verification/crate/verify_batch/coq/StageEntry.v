@@ -22,7 +22,7 @@ Local Ltac ins_at a :=
   [rewrite (EntryWrites.fetch_at _ text a _ _ n op ltac:(lia) D);cbn [ScalarBytes.step];reflexivity| |]
  end.
 Lemma after_tail ip text e s c : bound text -> TailWrites.bound text -> placement e ->
- caller_registers e s -> Prologue.segment ip text e 88 (offset Tail) s c (reached e).
+ caller_registers e s -> Prologue.segment ip text e 88 (offset Tail) s c (fun t=>reached e t /\ regs(cpu_state t) 12%nat=0).
 Proof.
  intros B Pad P SP;unfold bound,listing in B.
  do 12 (let D:=fresh "ins" in apply Forall_cons_iff in B as [D B];cbv beta iota in D).
@@ -45,13 +45,13 @@ Proof.
    assert (Stack:caller_registers e u) by exact SP. clearbody u.
    ins_at 634;[constructor|]. ins_at 637;[constructor|].
    lazymatch goal with |-Prologue.segment _ _ _ _ _ ?s ?carry _=>
-     let V:=fresh in assert (V:TailWrites.pointers e 0 s) by (split;[exact BX|split;[reflexivity|exact Stack]]);
+     let V:=fresh in assert (V:TailWrites.pointers e 0 s) by (split;[exact BX|split;[reflexivity|exact (conj Stack eq_refl)]]);
      destruct (TailWrites.remaining ip text e Pad P 8 0 s carry eq_refl V)
        as [[l v cf] [ws [R [W End]]]]
    end.
-   destruct End as [End RSP];cbn [loc cpu_state] in End,RSP;subst l.
-   assert (Jump: Prologue.segment ip text e 1 (offset TailDone) v cf (reached e)).
-   { ins_at 679;[constructor|apply Prologue.finish;split;[reflexivity|exact RSP]]. }
+   destruct End as [End [RSP Left]];cbn [loc cpu_state] in End,RSP,Left;subst l.
+   assert (Jump: Prologue.segment ip text e 1 (offset TailDone) v cf (fun t=>reached e t /\ regs(cpu_state t) 12%nat=0)).
+   { ins_at 679;[constructor|apply Prologue.finish;exact (conj (conj eq_refl RSP) Left)]. }
    destruct Jump as [last [tail [T [Safe Done]]]];exists last,(ws++tail).
    split;[|split;[apply Forall_app;auto|exact Done]].
    exact (MappedFetch.run_append _ 80 _ _ _ R 1 _ _ T).
@@ -59,7 +59,8 @@ Qed.
 
 Lemma choose ip text e s c : bound text -> TailWrites.bound text -> placement e ->
  caller_registers e s -> Prologue.segment ip text e (if word (regs s 12%nat) <? 8 then 90 else 4) (offset Choose) s c (fun st=>reached e st /\
-    (8<=word(regs s 12%nat) -> regs (cpu_state st) 3%nat=regs s 3%nat)).
+    (8<=word(regs s 12%nat) -> regs (cpu_state st) 3%nat=regs s 3%nat) /\
+    regs(cpu_state st) 12%nat=Prologue.rows_left (regs s 12%nat)).
 Proof.
  intros B Pad P SP. pose proof B as Ops;unfold bound,listing in Ops.
  do 4 (let D:=fresh "ins" in apply Forall_cons_iff in Ops as [D Ops];cbv beta iota in D).
@@ -68,8 +69,8 @@ Proof.
     cbn [ScalarBytes.step];rewrite Below;reflexivity|constructor|].
    ins_at 60;[constructor|].
    lazymatch goal with |-Prologue.segment _ _ _ _ _ ?s ?c _ =>
-    destruct (after_tail ip text e s c B Pad P SP) as [t [ws [R [W End]]]];
-    exists t,ws;split;[exact R|split;[exact W|split;[exact End|apply Z.ltb_lt in Below;lia]]]
+    destruct (after_tail ip text e s c B Pad P SP) as [t [ws [R [W [End Left]]]]];
+    exists t,ws;split;[exact R|split;[exact W|split;[exact End|split;[apply Z.ltb_lt in Below;lia|unfold Prologue.rows_left;now rewrite Below]]]]
    end.
  - eapply Prologue.more;[rewrite (EntryWrites.fetch_at ip text 56 _ _ _ _ ltac:(lia) ins);
     cbn [ScalarBytes.step];rewrite Below;reflexivity|constructor|].
@@ -77,7 +78,7 @@ Proof.
    + cbn [effective with_zf regs];rewrite (proj1 SP),Z.add_0_r.
      assert (Slot:Prologue.frame_word e (Rows.frame e+928)) by (unfold Prologue.frame_word,Rows.frame,sp;lia).
      rewrite (Prologue.slot_word _ _ P Slot);apply Prologue.slot_allowed,Slot.
-   + ins_at 78;[constructor|apply Prologue.finish;split;[split;[reflexivity|exact SP]|reflexivity]].
+   + ins_at 78;[constructor|apply Prologue.finish;split;[split;[reflexivity|exact SP]|split;[reflexivity|unfold Prologue.rows_left;rewrite Below;reflexivity]]].
 Qed.
 
 
@@ -111,9 +112,9 @@ Proof.
  intros Intro Select Tail Transfer P N Fit RowsApart Image Apart carry.
  destruct (Prologue.execute ip text e carry Intro P N) as [[l s c] [front [F [W [End [SP [BX [Count Scratch]]]]]]]].
  cbn [loc cpu_state] in End,SP,BX,Count;subst l.
- destruct (choose ip text e s c Select Tail P (conj SP Scratch)) as [[l t cf] [pad [Pad [Safe [[PC Frame] Full]]]]].
- cbn [loc cpu_state] in PC,Frame,Full;subst l.
- destruct (StageWrites.instructions ip text delta e t cf Transfer P (proj1 Frame) (proj2 Frame)) as [child [stores [Body [Bounds [ABI Matrix]]]]].
+ destruct (choose ip text e s c Select Tail P (conj SP Scratch)) as [[l t cf] [pad [Pad [Safe [[PC Frame] [Full Left]]]]]].
+ cbn [loc cpu_state] in PC,Frame,Full,Left;rewrite Count in Left;subst l.
+ destruct (StageWrites.instructions ip text delta e t cf Transfer P (proj1 Frame) (proj2 Frame) Left) as [child [stores [Body [Bounds [ABI Matrix]]]]].
  set (short:=(word (regs s 12%nat) <? 8)) in *.
  set (n:=(15+(if short then 90 else 4)+42)%nat).
  exists n;split;[unfold n;destruct short;auto|].

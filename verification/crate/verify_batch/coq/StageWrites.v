@@ -22,7 +22,8 @@ Definition entered ip delta e t :=
  loc t=Running (word(ip+delta)-ip) /\ regs (cpu_state t) 4%nat=Rows.frame e-8 /\
  read_word (mem (cpu_state t)) (Rows.frame e-8)=word(ip+offset Prepared) /\
  regs (cpu_state t) 6%nat=Rows.frame e+512 /\ regs (cpu_state t) 1%nat=Rows.frame e+768 /\
- regs (cpu_state t) 7%nat=Return.scratch e /\ Prologue.output_registers e (cpu_state t).
+ regs (cpu_state t) 7%nat=Return.scratch e /\ Prologue.output_registers e (cpu_state t) /\
+ regs(cpu_state t) 12%nat=Prologue.rows_left (regs e 6%nat).
 
 Definition body_prefix := inputs++publish++indices++[(7%nat,Add64 3 320)].
 Lemma setup_args origin text off s c e : decoded text off setup -> 0<=off -> placement e ->
@@ -74,9 +75,9 @@ Proof.
 Qed.
 
 Theorem instructions ip text delta e s c : bound text delta -> placement e ->
- regs s 4%nat=Rows.frame e -> Prologue.context_registers e s -> Prologue.segment ip text e 42 (offset Stage) s c (fun child=>entered ip delta e child /\ matrix (Rows.frame e) s (mem (cpu_state child))).
+ regs s 4%nat=Rows.frame e -> Prologue.context_registers e s -> regs s 12%nat=Prologue.rows_left (regs e 6%nat) -> Prologue.segment ip text e 42 (offset Stage) s c (fun child=>entered ip delta e child /\ matrix (Rows.frame e) s (mem (cpu_state child))).
 Proof.
- intros [Bytes Call] P SP [Scratch [Count Out]]. pose proof Bytes as Code.
+ intros [Bytes Call] P SP [Scratch [Count Out]] Left. pose proof Bytes as Code.
  change (decoded text (offset Stage) (body_prefix++setup)) in Bytes.
  destruct (prefix_decoded _ _ _ _ Bytes) as [Front Args].
  assert (Frame:fits64 (Rows.frame e) 960) by
@@ -87,11 +88,11 @@ Proof.
  destruct (setup_args ip text (offset PrepareArgs) mid cf e Args ltac:(change (0<=353);lia) P R) as [args [A [SP' [RSI [RCX [RDI Table]]]]]].
  pose proof (kept_sequence ip text 15 body_prefix (offset Stage) s c _ _ ltac:(change (0<=82);lia)
    Front ltac:(reflexivity) F) as Keep;cbn [cpu_state] in Keep.
- assert (Live:forall r,(r=13%nat \/ r=14%nat) -> regs args r=regs s r).
+ assert (Live:forall r,(r=12%nat \/ r=13%nat \/ r=14%nat) -> regs args r=regs s r).
  { intros r Reg. pose proof (kept_sequence ip text r setup (offset PrepareArgs) mid cf _ _
-     ltac:(change (0<=353);lia) Args ltac:(destruct Reg as [->| ->];reflexivity) A) as H.
+     ltac:(change (0<=353);lia) Args ltac:(destruct Reg as [->|[->| ->]];reflexivity) A) as H.
    pose proof (kept_sequence ip text r body_prefix (offset Stage) s c _ _
-     ltac:(change (0<=82);lia) Front ltac:(destruct Reg as [->| ->];reflexivity) F) as G.
+     ltac:(change (0<=82);lia) Front ltac:(destruct Reg as [->|[->| ->]];reflexivity) F) as G.
    exact (eq_trans H G). }
  change (offset PrepareArgs+27) with (offset CallPrepare) in A.
  set (pc:=offset CallPrepare). set (ret:=ip+offset Prepared).
@@ -117,7 +118,7 @@ Proof.
      exact (transferred _ _ _ _ _ _ _ _ Code Frame SP Prefix j f k J H K)].
    unfold entered. cbn [loc cpu_state]. split;[reflexivity|].
    assert (ChildSP:regs child 4%nat=Rows.frame e-8) by (change (word(regs args 4%nat-8)=Rows.frame e-8);rewrite SP';exact Slot).
-   split;[exact ChildSP|]. split;[|exact (conj RSI (conj RCX (conj (eq_trans RDI (eq_trans Keep Scratch)) (conj (eq_trans (Live 13%nat (or_introl eq_refl)) Count) (eq_trans (Live 14%nat (or_intror eq_refl)) Out)))) )].
+   split;[exact ChildSP|]. split;[|exact (conj RSI (conj RCX (conj (eq_trans RDI (eq_trans Keep Scratch)) (conj (conj (eq_trans (Live 13%nat (or_intror (or_introl eq_refl))) Count) (eq_trans (Live 14%nat (or_intror (or_intror eq_refl))) Out)) (eq_trans (Live 12%nat (or_introl eq_refl)) Left)))) )].
    apply read_word_encoded;intros k K. change (store_word (mem args) (word(regs args 4%nat-8)) ret
       (Rows.frame e-8+k)=word_byte ret k). rewrite SP',Slot;unfold store_word;apply write_at,K.
 Qed.

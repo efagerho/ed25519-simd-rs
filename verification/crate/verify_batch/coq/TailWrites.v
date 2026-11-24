@@ -17,7 +17,8 @@ Definition listing : list (Z*nat*ScalarBytes.instruction) :=
 Definition bound text := Forall (fun '(a,n,i)=>
  ScalarBytes.decode (skipn (Z.to_nat (offset Pad+a)) text)=Some(n,i)) listing.
 Definition caller_registers e s := regs s 4%nat=Rows.frame e /\ Prologue.context_registers e s.
-Definition pointers e j s := regs s 3%nat=Rows.frame e /\ regs s 1%nat=40*Z.of_nat j /\ caller_registers e s.
+Definition padded_registers e s := caller_registers e s /\ regs s 12%nat=0.
+Definition pointers e j s := regs s 3%nat=Rows.frame e /\ regs s 1%nat=40*Z.of_nat j /\ padded_registers e s.
 Definition end_of j := if Nat.eqb (S j) 8 then offset TailDone else offset Pad.
 Definition state_after e j st := loc st=Running (end_of j) /\ pointers e (S j) (cpu_state st).
 Definition target e j := sp e-1000+40*Z.of_nat j.
@@ -78,7 +79,7 @@ Proof.
       rewrite (proj2 (Z.eqb_neq (40*Z.of_nat (S j)) 320) ltac:(lia));reflexivity].
 Qed.
 
-Definition reached e t := loc t=Running (offset TailDone) /\ caller_registers e (cpu_state t).
+Definition reached e t := loc t=Running (offset TailDone) /\ padded_registers e (cpu_state t).
 Lemma remaining ip text e : bound text -> placement e -> forall fuel j s carry,
  (fuel+j=8)%nat -> pointers e j s ->
  Prologue.segment ip text e (10*fuel)

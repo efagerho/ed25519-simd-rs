@@ -143,15 +143,15 @@ Proof.
    destruct (batch_inputs _ _ _ _ _ Input N) as [Place [_ [[_ Apart] _]]].
    pose proof (callee_image _ _ _ _ _ Input N) as Loaded.
    destruct (PrepareUnwind.rejected _ _ _ _ _ Place Loaded Post Zero) as [caller [Unwind End]].
-   destruct End as [At [SP [AX [Memory [Log Args]]]]];destruct Post as [_ [_ [[Safe Replay] _]]].
+   destruct End as [At [SP [AX [Memory [Log [Args Left]]]]]];destruct Post as [_ [_ [[Safe Replay] _]]].
    assert (Paid:LinkedRun.accounted e (writable e) caller) by
      (split;[rewrite Log;exact Safe|intros x;rewrite Memory,Log;apply Replay]).
    pose proof (entry_text _ _ _ _ _ Input) as Mapped.
    destruct (RejectDispatch.resume pol bias pc text e caller ScatterCode Place Loaded (entry_range _ _ _ _ _ Input)
-     (proj1 (proj2 (proj2 (proj2 Rejection)))) Mapped Apart Paid At SP Args ltac:(now rewrite AX))
+     (proj1 (proj2 (proj2 (proj2 Rejection)))) Mapped Apart Paid At SP Args Left ltac:(now rewrite AX))
      as [cont [Dispatched Continued]].
    destruct (RejectFinish.next _ _ _ _ _ ExitCode Place Mapped Apart Continued) as [last [Finished Exit]].
-   exists (RejectExecution.classify cont last);split;[|exact (RejectExecution.classified _ _ _ _ Exit)].
+   exists (RejectExecution.classify cont last);split;[|exact (RejectExecution.classified _ _ _ _ Place (proj2 (proj2 (proj2 Continued))) Exit)].
    unfold RejectExecution.scalar_rejection,RejectExecution.finish_chunk;rewrite Run;cbn [LinkedRun.bind].
    rewrite Zero,Z.eqb_refl,Unwind;cbn [LinkedRun.bind];rewrite Dispatched;cbn [LinkedRun.bind];now rewrite Finished.
  - intros bias e Input Z. destruct (empty_return e) as [ip final] eqn:E. split.
