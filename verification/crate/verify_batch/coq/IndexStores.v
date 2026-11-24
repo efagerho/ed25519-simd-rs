@@ -41,23 +41,26 @@ Lemma copied o text frame base idx active :
  read_word (mem s) (frame+928)=active ->
  (forall i,(i<j)%nat -> read_word (mem s) (index_slot frame i)=idx i) ->
  exists t ws,run (2*n) (ScalarBytes.fetch o text) (State (Running off) s c)=
- Some(State (Running (off+FrameInstructions.width (flat_map pair (seq j n)))) t c,ws) /\ args frame base t /\ metadata frame active idx (mem t).
+ Some(State (Running (off+FrameInstructions.width (flat_map pair (seq j n)))) t c,ws) /\ args frame base t /\ metadata frame active idx (mem t) /\
+ (forall x,frame+960<=x -> mem t x=mem s x).
 Proof.
  intros Base Frame Sep Words n;induction n as [|n IH];intros j off s c Count O Code G Source Active Old.
  - replace j with 8%nat in * by lia. cbn [seq flat_map FrameInstructions.width fold_right];rewrite Z.add_0_r.
-   do 2 eexists;split;[reflexivity|exact (conj G (conj Active Old))].
+   do 2 eexists;split;[reflexivity|split;[exact G|split;[exact (conj Active Old)|intros;reflexivity]]].
  - cbn [seq flat_map] in Code|-*. destruct (prefix_decoded _ _ _ _ Code) as [Pair Tail].
    destruct(one o text off frame base j s c O ltac:(lia) Pair Base Frame G) as [u [own [R [U M]]]].
    rewrite Source in M by lia.
    assert (Offset:0<=FrameInstructions.width (pair j)) by
      (unfold FrameInstructions.width,pair;cbn [fold_right fst];destruct (_<?_);lia).
-   destruct(IH (S j) (off+FrameInstructions.width(pair j)) u c ltac:(lia) ltac:(lia) Tail U) as [last [tail [Rest End]]].
+   destruct(IH (S j) (off+FrameInstructions.width(pair j)) u c ltac:(lia) ltac:(lia) Tail U) as [last [tail [Rest [Glast [End Outside]]]]].
    + intros i I;rewrite M,read_other_word by (unfold index_slot,source_slot,disjoint in *;lia);apply Source,I.
    + rewrite M,read_other_word by (unfold index_slot,disjoint;lia);exact Active.
    + intros i I;rewrite M;destruct (Nat.eq_dec i j) as [->|NE].
      * apply read_word_exact;[apply Words;lia|intros k K;unfold store_word;apply write_at,K].
      * rewrite read_other_word by (unfold index_slot,disjoint;lia);apply Old;lia.
-   + exists last,(own++tail);split;[|exact End].
+   + exists last,(own++tail);split.
+     2:{ split;[exact Glast|split;[exact End|]];intros x X;rewrite Outside by exact X.
+         rewrite M;unfold store_word;apply write_outside;unfold index_slot;lia. }
      replace (2*S n)%nat with (2+2*n)%nat by lia.
      assert (Width:forall a b, FrameInstructions.width (a++b)=FrameInstructions.width a+FrameInstructions.width b).
      { intros a b;induction a;unfold FrameInstructions.width in *;cbn;[ring|now rewrite IHa,Z.add_assoc]. }
@@ -71,7 +74,8 @@ Theorem transfer o text delta e s c child ws base idx active :
  (forall j,(j<8)%nat -> word64(idx j) /\ read_word (mem s) (source_slot base j)=idx j) ->
  read_word (mem s) (Rows.frame e+928)=active ->
  run 42 (ScalarBytes.fetch o text) (State (Running (offset Stage)) s c)=Some(child,ws) ->
- metadata (Rows.frame e) active idx (mem(cpu_state child)).
+ metadata (Rows.frame e) active idx (mem(cpu_state child)) /\
+ (forall x,Rows.frame e+960<=x -> mem(cpu_state child) x=mem s x).
 Proof.
  intros [Code Invoke] P [SP BX] Base Sep Rows Count Run.
  set (frame:=Rows.frame e) in *.
@@ -91,7 +95,7 @@ Proof.
    unfold bank;repeat rewrite write_outside by (cbn;lia);reflexivity. }
  destruct (copied o text frame base idx active Base Fit ltac:(unfold allowed_inputs,disjoint in *;lia)
     ltac:(intros i I;exact (proj1(Rows i I))) 8 0 after_store st c eq_refl ltac:(change (0<=197);lia) Pairs (conj SP BX))
-     as [mid [indices [Copy [[Top _] M]]]].
+     as [mid [indices [Copy [[Top _] [M High]]]]].
  - intros i I;rewrite <- (proj2(Rows i I));apply preserved_read with (outside:=fun x=>~(frame+512<=x<frame+768)).
    + exact Outside.
    + intros k K;change (0<=k<8) in K;unfold source_slot,allowed_inputs,disjoint in *;lia.
@@ -116,6 +120,9 @@ Proof.
       _ _ _ Copy) _ _ _ F) _ _ _ Call) as Total.
    change (run 42 (ScalarBytes.fetch o text) (State (Running (offset Stage)) s c)=Some(v,((([]++writes)++indices)++zs)++events)) in Total.
    rewrite Run in Total;injection Total as <- _.
+   split.
+   2:{ intros x X;rewrite Mem;unfold store_word;rewrite write_outside by lia.
+       rewrite Same,High by exact X;apply Outside;lia. }
    destruct M as [AC IDX];split;[rewrite <- AC|intros i I;rewrite <- (IDX i I)];rewrite Mem.
    all: apply preserved_read with (outside:=fun x=>frame<=x);
       [intros x X;unfold store_word;rewrite write_outside by lia;apply Same|intros k K;unfold index_slot;lia].
