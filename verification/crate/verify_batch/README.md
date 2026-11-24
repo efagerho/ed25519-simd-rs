@@ -144,6 +144,12 @@ calculation and checks the full dependency closure. To replay with ordinary
 kernel reduction, run the recorded command in the audit directory with
 `-bytecode-compiler no`.
 
+The positive control supplies a single row with S equal to 2²⁵⁶ − 1 and
+initializes the output to 1. Both policy entries reject it, overwrite the
+output with 0 and return to the caller. The control checks the saved registers
+and each store address. Its replay theorem and mathematical rejection use
+the same input and final CPU. [Single-row execution](tests/RejectedBatch.v)
+
 The mutation checks change copies of the linked code and separately reverse
 the public acceptance condition with the original machine bytes intact. A
 corrupted identity-table limb makes both public contracts provably false.
