@@ -4,20 +4,17 @@ From Machine Require Import execution.LinkedCalls execution.WordSemantics execut
  memory.ByteMemory memory.FlatMemory memory.WriteTrace.
 From Machine Require isa.VectorMoves isa.IndexedLoad isa.Move.
 From Ed25519Simd.VerifyBatch Require Import Image Rows Return EntryWrites Prologue Routing.
+From Ed25519Simd.VerifyBatch Require Import DescriptorStores.
 Import ListNotations. Local Open Scope Z_scope.
 
-Definition inputs : list line := map (fun i=>(length (IndexedLoad.encode i),
-  VectorMove (VectorMoves.Input i))) transpose.
-Definition publish : list line := map (fun f=>
- let d:=512+64*Z.of_nat f in
- (length (Move.encode_store f 4 d),VectorMove (VectorMoves.Output f 4 d))) (seq 0 4).
 Definition indices : list line := flat_map (fun j=>
  let src:=40*Z.of_nat j+32 in
  [(if src<?128 then 4%nat else 7%nat,Load64 0 (Address 3 None src));
   (8%nat,Store64 0 (Address 4 None (864+8*Z.of_nat j)))]) (seq 0 8).
 Definition setup : list line := [(3%nat,CopyG 7 15);(8%nat,LeaG 6 (Address 4 None 512));
  (8%nat,Load64 2 (Address 4 None 936));(8%nat,LeaG 1 (Address 4 None 768))].
-Definition body := inputs++publish++indices++[(7%nat,Add64 3 320)]++setup.
+Definition suffix := indices++[(7%nat,Add64 3 320)]++setup.
+Definition body := inputs++publish++suffix.
 Definition delta_call delta := delta-offset Prepared.
 Definition bound text delta :=
  decoded text (offset Stage) body /\ Prologue.at_offset text (offset CallPrepare) 5 (CallRelative (delta_call delta)).
@@ -45,10 +42,40 @@ Proof.
  repeat split.
 Qed.
 
-Theorem instructions ip text delta e s c : bound text delta -> placement e ->
- regs s 4%nat=Rows.frame e -> Prologue.segment ip text e 42 (offset Stage) s c (entered ip delta e).
+Definition matrix frame s (m:bytes) := forall j f k, (j<8)%nat -> (f<4)%nat -> 0<=k<8 ->
+ m (bank frame f+8*Z.of_nat j+k)=word_byte (value s j f) k.
+
+Lemma transferred ip text e s c args cf ws : decoded text (offset Stage) body ->
+ fits64 (Rows.frame e) 960 -> regs s 4%nat=Rows.frame e ->
+ MappedFetch.run 41 (ScalarBytes.fetch ip text) (State (Running (offset Stage)) s c)=
+ Some (State (Running (offset CallPrepare)) args cf,ws) -> matrix (Rows.frame e) s (mem args).
 Proof.
- intros [Bytes Call] P SP.
+ intros Code Fit SP R. destruct (prefix_decoded _ _ inputs _ Code) as [Loads Rest].
+ set (after_load:=offset Stage+FrameInstructions.width inputs) in *.
+ destruct (prefix_decoded _ after_load publish _ Rest) as [Stores Tail].
+ set (after_store:=after_load+FrameInstructions.width publish) in *.
+ pose proof (read_block ip text transpose (offset Stage) s c ltac:(change (0<=82);lia) Loads) as L.
+ set (loaded:=load_vectors transpose s) in *.
+ destruct (store_block ip text (Rows.frame e) (seq 0 4) Fit ltac:(repeat constructor;lia)
+   after_load loaded c ltac:(change (0<=166);lia) Stores SP) as [writes V].
+ set (out:=stored (Rows.frame e) (seq 0 4) loaded) in *.
+ destruct (sequence ip text 864 960 (Rows.frame e) suffix ltac:(lia) Fit ltac:(reflexivity)
+    after_store out c ltac:(vm_compute;discriminate) Tail SP) as [mid [cf' [rest [F [_ Bounds]]]]].
+ pose proof (MappedFetch.run_append _ _ _ _ _ L _ _ _ V) as Front.
+ pose proof (MappedFetch.run_append _ _ _ _ _ Front _ _ _ F) as All.
+ change (MappedFetch.run 41 (ScalarBytes.fetch ip text) (State (Running (offset Stage)) s c)=
+   Some (State (Running (offset CallPrepare)) mid cf',([]++writes)++rest)) in All.
+ rewrite R in All;injection All as <- <- _.
+ pose proof (steps_memory _ _ _ _ _ (MappedFetch.run_steps _ _ _ _ _ _ F)) as M.
+ cbn [cpu_state] in M. intros j f k J H K;rewrite M,WriteTrace.frame with
+   (region:=fun x=>Rows.frame e+864<=x<Rows.frame e+960) by (auto;unfold bank;lia).
+ unfold out;rewrite store_payload by assumption. unfold loaded;rewrite lane_loaded by assumption;reflexivity.
+Qed.
+
+Theorem instructions ip text delta e s c : bound text delta -> placement e ->
+ regs s 4%nat=Rows.frame e -> Prologue.segment ip text e 42 (offset Stage) s c (fun child=>entered ip delta e child /\ matrix (Rows.frame e) s (mem (cpu_state child))).
+Proof.
+ intros [Bytes Call] P SP. pose proof Bytes as Code.
  change (decoded text (offset Stage) (body_prefix++setup)) in Bytes.
  destruct (prefix_decoded _ _ _ _ Bytes) as [Front Args].
  assert (Frame:fits64 (Rows.frame e) 960) by
@@ -76,7 +103,10 @@ Proof.
    + eapply Forall_impl;[|exact W];intros v V x X;left;specialize (V x X);unfold Rows.frame,sp,span in *;lia.
    + constructor;[|constructor]. intros x X;left;change (word(regs args 4%nat-8)<=x<word(regs args 4%nat-8)+8) in X.
      rewrite SP',Slot in X;unfold Rows.frame,sp,span in *;lia.
- - unfold entered. cbn [loc cpu_state]. split;[reflexivity|].
+ - split;[|intros j f k J H K;change (store_word (mem args) (word(regs args 4%nat-8)) ret (bank (Rows.frame e) f+8*Z.of_nat j+k)=word_byte (value s j f) k);
+     rewrite SP',Slot;unfold store_word;rewrite write_outside by (unfold bank;lia);
+     exact (transferred _ _ _ _ _ _ _ _ Code Frame SP Prefix j f k J H K)].
+   unfold entered. cbn [loc cpu_state]. split;[reflexivity|].
    assert (ChildSP:regs child 4%nat=Rows.frame e-8) by (change (word(regs args 4%nat-8)=Rows.frame e-8);rewrite SP';exact Slot).
    split;[exact ChildSP|]. split;[|exact (conj RSI RCX)].
    apply read_word_encoded;intros k K. change (store_word (mem args) (word(regs args 4%nat-8)) ret

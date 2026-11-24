@@ -95,8 +95,9 @@ Proof.
    apply empty_path_writes;[exact Bytes|exact (cpu_words _ _ _ _ _ Input)|exact Z]. }
  assert (Live:forall bias e,admissible pol bias pc text e -> (0<count e)%nat ->
    StageEntry.physical (bias+pc) text (destination pol Prepare-pc) e).
- { intros bias e Input N;destruct (batch_inputs _ _ _ _ _ Input N) as [P [_ [[_ Apart] _]]].
-   apply StageEntry.from_entry;[exact Setup|exact Select|exact Pad|exact Transfer|exact P|exact N|
+ { intros bias e Input N;destruct (batch_inputs _ _ _ _ _ Input N) as [P [[Rows _] [[_ Apart] _]]].
+   destruct Rows as [Fit Const].
+   apply StageEntry.from_entry;[exact Setup|exact Select|exact Pad|exact Transfer|exact P|exact N|exact Fit|exact Const|
      exact (entry_text _ _ _ _ _ Input)|exact Apart]. }
  constructor;[exact Image|exact Arguments.checked_arguments|exact static_tables_correct|
  exact (linked_calls pol)|exact (conj CallWrites.embedded (conj NestedRegions.embedded protected_slots))| | | |].

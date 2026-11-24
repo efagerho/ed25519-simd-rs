@@ -34,7 +34,7 @@ Theorem rejects_placed_call ip delta e :
 Proof.
  intros P Live Map Apart Physical.
  destruct (Prologue.before_spills ip symbol_bytes e None ltac:(repeat constructor) P Live)
-   as [[l s c] [head [Run [Safe [L R]]]]].
+   as [[l s c] [head [Run [Safe [L [R _]]]]]].
  cbn [loc cpu_state] in L,R;subst l.
  pose proof (MappedFetch.run_lift _ _ _ _ _ _ _ Run Safe Map Apart) as First.
  pose proof (steps_memory _ _ _ _ _ (MappedFetch.run_steps _ _ _ _ _ _ Run)) as Memory.
@@ -71,6 +71,6 @@ Corollary rejects_master_on_live_call bias e :
  (0<Scatter.count e)%nat -> ~batch_contract Policy.Zip215 ZipBytes.address symbol_bytes.
 Proof.
  intros Input Live Master;destruct (batch_inputs _ _ _ _ _ Input Live) as [P [_ [[_ Apart] _]]].
- apply (rejects_placed_call _ _ _ P Live (entry_text _ _ _ _ _ Input) Apart).
+ apply (rejects_placed_call _ (destination Policy.Zip215 Image.Prepare-ZipBytes.address) _ P Live (entry_text _ _ _ _ _ Input) Apart).
  exact (machine_prepare_entry _ _ _ Master _ _ Input Live).
 Qed.

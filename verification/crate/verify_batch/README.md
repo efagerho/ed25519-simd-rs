@@ -67,7 +67,10 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    This includes all eight 40-byte copies on the tail path, the four transposed
    vector stores, eight output-index stores and the call's return-address push.
    The child enters with the linked target PC, its return word at RSP and the
-   pointer matrix and output metadata addresses in RSI and RCX. The checker
+   pointer matrix and output metadata addresses in RSI and RCX. All 256 matrix
+   bytes match the corresponding fields at the start of the transpose. When
+   the first chunk is full, they also match the original descriptor bytes in
+   Rust's argument array. The checker
    fetches each instruction from the memory produced by the preceding one.
    [Empty return](coq/EntryWrites.v) · [Nonempty entry](coq/StageEntry.v) ·
    [Tail loop](coq/TailWrites.v) · [Preparation handoff](coq/StageWrites.v)
@@ -130,4 +133,6 @@ Redirecting a prologue spill to the caller's return address falsifies the
 nonempty entry's confinement claim for every caller satisfying the original
 memory placement and code mapping. A concrete execution also writes eight
 zero bytes over eight zero bytes.
-[Return-slot counterexample](tests/ReturnSlot.v)
+Changing one shuffle immediate still reaches the preparation call, but all eight
+key slots contain message pointers on a concrete mapped-memory execution.
+[Return-slot counterexample](tests/ReturnSlot.v) · [Transpose counterexample](tests/Transpose.v)
