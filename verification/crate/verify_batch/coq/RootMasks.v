@@ -119,3 +119,10 @@ Proof.
    apply NativeScale.read_literal with (bs:=text);[exact Map|exact Fit| | |];
    cbn [List.In] in In;destruct In as [<-|[<-|[<-|[]]]];vm_compute;discriminate || reflexivity.
 Qed.
+
+Lemma words first bias p bank q out :
+ well_formed(machine p) -> execute first bias p bank=Some(q,out) -> well_formed(machine q).
+Proof.
+ intros W;unfold execute;destruct(segment _ _ _ p) as [mid|] eqn:S;[|discriminate].
+ intro K;rewrite (PredicateBlock.unchanged _ _ _ _ _ _ K);exact (segment_wf _ _ _ _ _ W S).
+Qed.
