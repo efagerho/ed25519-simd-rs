@@ -15,11 +15,11 @@ Definition saves : list line := [(0,1%nat,SaveG 5);(1,3%nat,CopyG 5 4);
 Definition allocate : list line := [(11,4%nat,AndImmediate 4 (-64));(15,7%nat,Sub64 4 640);
  (22,3%nat,CopyG 3 7);(25,3%nat,Copy32 12 2)].
 Definition at_literal (i:nat) := helper+0xde0+8*Z.of_nat i.
-Definition literal (i:nat) := let pc:=28+10*Z.of_nat i in
+Definition literal start (i:nat) := let pc:=start+10*Z.of_nat i in
  (pc,10%nat,BroadcastRip (28+i) (at_literal i-(origin+pc+10))).
-Definition constants := map literal (seq 0 4).
+Definition constants start := map (literal start) (seq 0 4).
 Definition invoke_setup:list line := [(68,5%nat,CallRelative (244-73))].
-Lemma image : linked code saves /\ linked code allocate /\ linked code constants /\ linked code invoke_setup.
+Lemma image : linked code saves /\ linked code allocate /\ linked code (constants 28) /\ linked code invoke_setup.
 Proof. repeat constructor;vm_compute;discriminate || reflexivity. Qed.
 
 Definition args (a:cpu) (sp:Z) s :=
@@ -55,13 +55,17 @@ Proof.
 Qed.
 
 Definition splat_value o m i := read_word m (word(o+at_literal i-origin)).
-Lemma load_constants o s c :
- exists v,run 4 (ScalarBytes.fetch o code) (State (Running 28) s c)=Some(State (Running 68) v c,[]) /\
+Definition constants_pc (again:bool):=if again then 126 else 28.
+Lemma load_constants (again:bool) o s c : let pc:=constants_pc again in
+ exists v,run 4 (ScalarBytes.fetch o code) (State (Running pc) s c)=Some(State (Running (pc+40)) v c,[]) /\
  regs v=regs s /\ mem v=mem s /\ forall i j,(i<4)%nat ->
  vectors v j (28+i)%nat=splat_value o (mem s) i.
 Proof.
- eexists;split;[apply (checked _ _ _ (proj1(proj2(proj2 image))));reflexivity|].
- split;[reflexivity|split;[reflexivity|]];intros [|[|[|[|i]]]] j I;try lia;unfold splat_value;
+ assert (Image:linked code (constants (constants_pc again))) by
+   (destruct again;repeat constructor;vm_compute;discriminate || reflexivity).
+ destruct again;cbn [constants_pc] in *.
+ all: eexists;split;[apply (checked _ _ _ Image);reflexivity|].
+ all: split;[reflexivity|split;[reflexivity|]];intros [|[|[|[|i]]]] j I;try lia;unfold splat_value;
  cbn [constants map seq literal follow loc cf cpu_state step option_map regs mem vectors put Nat.eqb];
  unfold put;cbn [Nat.eqb Nat.add];unfold at_literal;apply f_equal;apply f_equal;ring.
 Qed.
@@ -97,7 +101,7 @@ Proof.
  intros SP Bounds Fit Away.
  destruct(save o s c sp SP Bounds) as [a [front [A [W [SA [BP [DX [SI DI]]]]]]]].
  destruct(setup o a c s sp Bounds SA BP DX SI DI) as [b [cf [B [Args Mem]]]].
- destruct(load_constants o b cf) as [d [D [Regs [Flat Values]]]].
+ destruct(load_constants false o b cf) as [d [D [Regs [Flat Values]]]].
  assert (Live:args s sp d) by (unfold args;rewrite Regs;exact Args).
  destruct(inner_call o d cf s sp Fit Bounds Live) as [v [w [C [Ready [Ret [Where Vec]]]]]].
  pose proof(run_append _ _ _ _ _ (run_append _ _ _ _ _ (run_append _ _ _ _ _ A _ _ _ B) _ _ _ D) _ _ _ C) as Whole.
