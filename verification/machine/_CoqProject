@@ -72,4 +72,5 @@ execution/FrameInstructions.v
 execution/InstructionRoute.v
 execution/LinkedRun.v
 execution/ScalarWords.v
+execution/ScalarByteMemory.v
 execution/PreservedRegister.v
