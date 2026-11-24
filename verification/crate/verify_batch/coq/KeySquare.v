@@ -29,7 +29,8 @@ Proof. unfold link_slot,DecoderFrame.top;pose proof(Z.mod_pos_bound (common_top 
 Theorem from_saved signature pol bias e p : placement e -> loaded pol bias (mem e) (writable e) ->
  saved signature bias e p -> frame signature pol bias e (machine p) ->
  (forall j i,(j<8)%nat -> (i<5)%nat -> digits signature e (machine p) j i=vectors(machine p) j i) ->
- exists q,square bias p=Some q /\ squared signature pol bias e q.
+ exists q,square bias p=Some q /\ squared signature pol bias e q /\
+ preserved (other_scratch signature e) (mem(machine p)) (mem(machine q)).
 Proof.
  intros P M [PC [Acc [_ Raw]]] [DI [SP [Link [Constants Caller]]]] Data.
  set (s:=machine p) in *;set (o:=base bias) in *;set (stack:=link_slot pol e) in *;change (regs s 4%nat=stack) in SP;change (read_word (mem s) stack=word(o+resume_offset signature)) in Link.
@@ -71,6 +72,8 @@ Proof.
  assert (C:forall j i,(i<4)%nat -> args j (28+i)%nat=DecoderFrame.constant i).
  { intros j i I;unfold args,DecoderProduct.arguments;rewrite (proj2(Nat.ltb_ge (28+i) 10) ltac:(lia)),andb_false_r;apply Constants,I. }
  exists q;split;[unfold square,then_run,set_rhs;fold o;rewrite Lea;exact Call|].
+ split.
+ 2:{ intros x [X _];apply K;destruct(scratch_stack _ P);unfold span,disjoint in *;lia. }
  split;[exact At|split;[exact Done|split]].
  - unfold frame;split;[rewrite G;exact DI|split;[rewrite G;exact SP|split]].
    + change (read_word (mem(machine q)) stack=word(o+resume_offset signature));rewrite <-Link.
@@ -98,9 +101,10 @@ Definition square_input bias p incoming:=bind (save_input bias p incoming) (fun 
  option_map (fun t=>(t,k)) (square bias q)).
 Theorem from_setup signature pol bias e p incoming : placement e -> loaded pol bias (mem e) (writable e) ->
  (bias+DecoderFrame.origin) mod 64=0 -> setup signature pol bias e p ->
- exists q k,square_input bias p incoming=Some(q,k) /\ squared signature pol bias e q.
+ exists q k,square_input bias p incoming=Some(q,k) /\ squared signature pol bias e q /\
+ preserved (other_scratch signature e) (mem(machine p)) (mem(machine q)).
 Proof.
- intros P M Al E;destruct(DecoderSave.from_setup signature _ _ _ _ incoming P M Al E) as [q [k [Setup [Saved [Frame Data]]]]].
- destruct(from_saved signature _ _ _ _ P M Saved Frame Data) as [t [Run Value]].
- exists t,k;split;[unfold square_input;rewrite Setup;cbn [bind];now rewrite Run|exact Value].
+ intros P M Al E;destruct(DecoderSave.from_setup signature _ _ _ _ incoming P M Al E) as [q [k [Setup [Saved [Frame [Data Keep]]]]]].
+ destruct(from_saved signature _ _ _ _ P M Saved Frame Data) as [t [Run [Value More]]].
+ exists t,k;split;[unfold square_input;rewrite Setup;cbn [bind];now rewrite Run|split;[exact Value|intros x X;now rewrite More,Keep by exact X]].
 Qed.

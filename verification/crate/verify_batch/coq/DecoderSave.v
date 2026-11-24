@@ -7,6 +7,8 @@ From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScala
 From Ed25519Simd.VerifyBatch Require DecoderFrame.
 Local Open Scope Z_scope.
 
+Definition other_scratch signature e x :=
+ span (scratch e) 25344 x /\ ~span (point e signature) 1280 x.
 Definition address signature e := point e signature+320.
 Definition preserve bias := segment (bias+DecoderFrame.origin) DecoderFrame.code 5.
 Definition digits signature e s j i := read_word (mem s) (address signature e+64*Z.of_nat i+8*Z.of_nat j).
@@ -59,7 +61,9 @@ Definition frame signature pol bias e s := let sp:=common_top pol e-112 in
 Theorem from_setup signature pol bias e p incoming : placement e -> loaded pol bias (mem e) (writable e) ->
  (bias+DecoderFrame.origin) mod 64=0 -> setup signature pol bias e p ->
  exists q updated,save_input bias p incoming=Some(q,updated) /\ saved signature bias e q /\
- frame signature pol bias e (machine q) /\ forall j i,(j<8)%nat -> (i<5)%nat -> digits signature e (machine q) j i=vectors(machine q) j i.
+ frame signature pol bias e (machine q) /\
+ (forall j i,(j<8)%nat -> (i<5)%nat -> digits signature e (machine q) j i=vectors(machine q) j i) /\
+ preserved (other_scratch signature e) (mem(machine p)) (mem(machine q)).
 Proof.
  intros P M Al Setup.
  destruct(BatchDecode.from_setup signature _ _ _ _ P M Al Setup) as [v [Next [Words [_ [WordsMem G]]]]].
@@ -81,5 +85,7 @@ Proof.
      * intros x X;rewrite Keep,UnpackMem,WordsMem;[reflexivity|].
        unfold caller_bytes in X;pose proof(Z.mod_pos_bound (common_top pol e-112-40) 64 ltac:(lia)).
        destruct(scratch_stack _ P);unfold range,address,point,point_offset,FlatMemory.disjoint,common_top,Rows.frame,sp in *;destruct pol,signature;lia.
- - intros j i J I;rewrite Vec;exact (Data j i J I).
+ - split;[intros j i J I;rewrite Vec;exact (Data j i J I)|].
+   intros x [_ X];rewrite Keep,UnpackMem,WordsMem;[reflexivity|].
+   unfold range,address,span in *;change (Z.of_nat 5) with 5;lia.
 Qed.

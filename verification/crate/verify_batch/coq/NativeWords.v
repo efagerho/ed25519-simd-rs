@@ -64,17 +64,22 @@ Proof.
  destruct(segment (bias+DecoderFrame.origin) DecoderFrame.code 15 b) as [t|] eqn:T;[|discriminate].
  intro Eq;injection Eq as <- <-;eapply segment_wf;[|exact T];eapply mask_op;[|exact B];eapply mask_op;eassumption.
 Qed.
+Lemma setup_square_words bias p bank q k : well_formed(machine p) -> square_input bias p bank=Some(q,k) ->
+ well_formed(machine q).
+Proof.
+ intro W;unfold square_input,save_input;destruct(transpose bias p) as [v|] eqn:V;[|discriminate];cbn [bind].
+ destruct(unpack bias v bank) as [[y ks]|] eqn:Y;[|discriminate];cbn [bind].
+ destruct(preserve bias y) as [stored|] eqn:S;[|discriminate];cbn [bind option_map].
+ destruct(square bias stored) as [sq|] eqn:Sq;[|discriminate];intro Eq;injection Eq as <- <-.
+ eapply (proj1(proj2(kernels bias)));[|exact Sq];eapply segment_wf;[|exact S].
+ eapply unpack_words;[|exact Y];eapply segment_wf;eassumption.
+Qed.
 Lemma input_words_after bias p bank r : well_formed(machine p) -> input_setup bias p bank=Some r ->
  well_formed(machine(in_decoder r)).
 Proof.
- intro W;unfold input_setup,square_input,save_input;destruct(transpose bias p) as [v|] eqn:V;[|discriminate];cbn [bind].
- destruct(unpack bias v bank) as [[y k]|] eqn:Y;[|discriminate];cbn [bind].
- destruct(preserve bias y) as [stored|] eqn:S;[|discriminate];cbn [bind option_map].
- destruct(square bias stored) as [sq|] eqn:Sq;[|discriminate];cbn [bind option_map].
+ intro W;unfold input_setup;destruct(square_input bias p bank) as [[sq k]|] eqn:Sq;[|discriminate];cbn [bind].
  destruct(finish_setup bias sq) as [t|] eqn:T;[|discriminate];intro Eq;injection Eq as <-.
- destruct(kernels bias) as [_ [Square Tail]].
- eapply Tail;[|exact T];eapply Square;[|exact Sq];eapply segment_wf;[|exact S].
- eapply unpack_words;[|exact Y];eapply segment_wf;eassumption.
+ eapply (proj2(proj2(kernels bias)));[|exact T];eapply setup_square_words;eassumption.
 Qed.
 
 Theorem pow2_entry_words bias p bank r : well_formed(machine p) -> DecoderPower.observe bias p bank=Some r ->
