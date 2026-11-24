@@ -52,13 +52,16 @@ Definition bridge:list line := [(101,3%nat,Copy32 14 0);(104,7%nat,LeaG 2 (Addre
 Lemma bridge_bytes : linked text bridge.
 Proof. repeat constructor;vm_compute;discriminate || reflexivity. Qed.
 Definition enter bias:=segment (base bias) text 5.
+Definition decoder_registers pol e s:=
+ regs s 3%nat=scratch e+1024 /\ regs s 5%nat=common_top pol e-120 /\ regs s 12%nat=2.
 Definition entry pol bias e p:=let st:=link_slot pol e in
  ip p=power bias /\ accounted e (writable e) p /\
  regs(machine p) 4%nat=st /\ regs(machine p) 7%nat=st+8 /\
  regs(machine p) 6%nat=scratch e+1984 /\ regs(machine p) 2%nat=scratch e+3264 /\
  read_word (mem(machine p)) st=return_pc bias /\
- key_signs e (machine p) /\ forall j,(j<8)%nat ->
- Z.testbit (regs(machine p) 14%nat) (Z.of_nat j)=Z.testbit (original_encoding true e j) 255.
+ key_signs e (machine p) /\ (forall j,(j<8)%nat ->
+ Z.testbit (regs(machine p) 14%nat) (Z.of_nat j)=Z.testbit (original_encoding true e j) 255) /\
+ decoder_registers pol e (machine p).
 
 Theorem from_setup pol bias e p : Return.placement e -> loaded pol bias (mem e) (writable e) ->
  finished true pol bias e p -> exists q,enter bias p=Some q /\ entry pol bias e q /\
@@ -99,7 +102,10 @@ Proof.
  split;[rewrite G;reflexivity|split;[rewrite G;reflexivity|split;[rewrite G;reflexivity|split;[rewrite G;reflexivity|split;[exact Link|]]]]].
  split.
  - intros j J;unfold key_signs in Key;rewrite G;exact (Key eq_refl j J).
- - intros j J;rewrite G;change (Z.testbit (regs s 0%nat mod 2^32) (Z.of_nat j)=Z.testbit (original_encoding true e j) 255);
+ - split.
+   2:{ unfold decoder_registers;change (regs child 3%nat=scratch e+1024 /\ regs child 5%nat=common_top pol e-120 /\ regs child 12%nat=2);
+       rewrite G;exact (conj BX (conj BP N)). }
+   intros j J;rewrite G;change (Z.testbit (regs s 0%nat mod 2^32) (Z.of_nat j)=Z.testbit (original_encoding true e j) 255);
    rewrite Z.mod_pow2_bits_low by lia;exact (proj2(proj2(Raw j J))).
 Qed.
 
