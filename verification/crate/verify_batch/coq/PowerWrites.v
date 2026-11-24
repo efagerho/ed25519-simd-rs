@@ -28,11 +28,11 @@ Proof.
 Qed.
 Local Opaque program.
 
-Theorem from_entry pol bias e p : Return.placement e -> DecoderPower.entry pol bias e p ->
+Theorem from_entry pol bias e p : Return.placement e -> loaded pol bias (mem e) (Return.writable e) -> DecoderPower.entry pol bias e p ->
  well_formed(machine p) -> valid_placement (locations pol bias e) DecoderPower.size ->
  exists r,execute pol bias e p=Some r /\ returned pol bias e p r.
 Proof.
- intros P [_ [Paid [SP [Out [A [B [Link Signs]]]]]]] W Place.
+ intros P I [At [Paid [SP [Out [A [B [Link Signs]]]]]]] W Place.
  set (loc:=locations pol bias e) in *;set (s:=machine p) in *;set (st:=initial pol bias e p).
  assert (Args:concrete_entry loc DecoderPower.size (regs s) (vectors s) (mem s)).
  { constructor;[exact Place|apply W|apply W|apply W| |exact Out|exact A|exact B|].
@@ -46,7 +46,11 @@ Proof.
    pose proof(proj2(proj2(proj2(concrete_entry_representable _ _ _ _ (flag s) _ Args))) r) as Word.
    intro U;rewrite U in Word;discriminate. }
  destruct(lift_return _ _ _ _ _ _ _ _ _ Known (did_return Cert) Bytes) as [Call [WF Keep]].
- destruct(LocatedReturn.checked program abi_layout loc 1024 _ _ st final p after (search _) (did_return Cert) Bytes)
+ assert (Image:MappedFetch.mapped (mem s) (code_base loc) (ProgramLayout.image program)).
+ { change (MappedFetch.mapped (mem s) (bias+Decode.DecoderBytes.pow_pc) (ProgramLayout.image Pow2.Program.pow2_program)).
+   rewrite (Pow2.Audit.code_matches Pow2.Object.assembled_symbol_correct).
+   exact (proj1(BatchScalar.mapped_now _ _ _ I _ _ _ Paid (power_in pol))). }
+ destruct(LocatedReturn.checked program abi_layout loc 1024 _ _ st final p after At Image (search _) (did_return Cert) Bytes)
    as [ws [Run [Inside Mem]]].
  assert (Bound:confined (Return.writable e) ws).
  { apply Forall_impl with (P:=permits (writable_byte loc));[|exact Inside].
@@ -70,6 +74,6 @@ Theorem from_decoder pol bias e p bank : Return.placement e -> loaded pol bias (
  exists r,observe pol bias e p bank=Some r /\ post pol bias e r.
 Proof.
  intros P I Al Entry W;destruct(DecoderPower.from_decoder _ _ _ _ bank P I Al Entry) as [args [To Args]].
- destruct(from_entry _ _ _ _ P (proj1(proj2 Args)) (pow2_entry_words _ _ _ _ W To) (proj2(proj2 Args))) as [r [R Done]].
+ destruct(from_entry _ _ _ _ P I (proj1(proj2 Args)) (pow2_entry_words _ _ _ _ W To) (proj2(proj2 Args))) as [r [R Done]].
  exists (Checkpoints args r);split;[unfold observe;rewrite To;cbn [bind];now rewrite R|exact (conj Args Done)].
 Qed.
