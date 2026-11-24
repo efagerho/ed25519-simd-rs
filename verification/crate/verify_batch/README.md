@@ -193,6 +193,11 @@ output with 0 and return to the caller. The control checks the saved registers
 and each store address. Its replay theorem and mathematical rejection use
 the same input and final CPU. [Single-row execution](tests/RejectedBatch.v)
 
+A second control runs the decoder from its transposed input words through the
+five stores of Y. One lane encodes 2 and the other seven encode p + 1 with
+the sign bit set. It checks the sign mask and reads each unreduced value back
+from scratch. [Decoder execution](tests/DecoderY.v)
+
 The mutation checks change copies of the linked code and separately reverse
 the public acceptance condition with the original machine bytes intact. A
 corrupted identity-table limb makes both public contracts provably false.
