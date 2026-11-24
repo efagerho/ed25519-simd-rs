@@ -98,3 +98,11 @@ Proof.
    as [q [Run Result]].
  exists(Trace r q);split;[unfold observe;rewrite R;cbn [bind];now rewrite Run|exact (Post pol bias e (Trace r q) S Result)].
 Qed.
+
+Lemma saved_register pol bias e t : post pol bias e t -> forall r,r<>8%nat -> r<>10%nat ->
+ regs(machine(saved_x t)) r=regs(machine(RootTest.finish_entry(Selection.test(decision t)))) r.
+Proof.
+ intros [S N] r R K;rewrite (regs_after _ _ _ _ _ _ N),(proj2(Nat.eqb_neq r 8) R),
+   (Selection.scalar_registers _ _ _ _ S r K).
+ destruct(RootTest.root_product _ _ _ _ (Selection.test_result _ _ _ _ S)) as [_ [_ [_ [G _]]]];apply G,R.
+Qed.
