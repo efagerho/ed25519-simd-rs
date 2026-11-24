@@ -46,3 +46,11 @@ Lemma union origin s ks d a b j :
 Proof. unfold update,put;rewrite Nat.eqb_refl;cbn [MaskedWords.step MaskedWords.mask];unfold Packed.update;now rewrite Nat.eqb_refl. Qed.
 Lemma other origin s ks d op r : r<>d -> update origin s ks d op r=ks r.
 Proof. intro N;unfold update,put;now rewrite (proj2(Nat.eqb_neq d r) ltac:(lia)). Qed.
+
+Lemma unchanged origin ops p bank q out :
+ execute origin ops p bank=Some(q,out) -> machine q=machine p.
+Proof.
+ unfold execute;destruct(MaskedWords.assemble _ _) as [code|];[|discriminate].
+ destruct(list_eq_dec _ _ _);[|discriminate].
+ destruct(evaluate _ _ _ _);[|discriminate];intro E;injection E as <- <-;reflexivity.
+Qed.

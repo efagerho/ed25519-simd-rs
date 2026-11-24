@@ -13,6 +13,7 @@ Definition observe pol bias e p bank:=bind (RootTest.observe pol bias e p bank) 
 Record post pol bias e t : Prop:=Post {
  test_result:RootTest.post pol bias e (test t);
  at_selection:ip (selection t)=base bias+1076;
+ machine_words:well_formed(machine(selection t));
  writes:accounted e (writable e) (selection t);
  test_memory:mem(machine(selection t))=mem(machine(RootTest.at_test(test t)));
  scalar_registers:forall r,r<>10%nat -> regs(machine(selection t)) r=regs(machine(RootTest.at_test(test t))) r;
@@ -29,13 +30,14 @@ Theorem from_decoder pol bias e p bank : placement e -> loaded pol bias (mem e) 
  exists t,observe pol bias e p bank=Some t /\ post pol bias e t.
 Proof.
  intros P I Al Entry W;destruct(RootTest.from_decoder _ _ _ _ bank P I Al Entry W) as [r [Run Proof]].
- destruct(RootTest.root_product _ _ _ _ Proof) as [PC [Paid [_ [G [_ [C Value]]]]]].
+ destruct(RootTest.root_product _ _ _ _ Proof) as [PC [Paid [WF [G [_ [C Value]]]]]].
  destruct(RootTest.finish_arguments _ _ _ _ Proof) as [_ [_ [_ [_ [DI _]]]]].
  destruct(RootAccept.checked false pol bias e (RootTest.at_test r) (incoming r) P I PC Paid
    (eq_trans (G 7%nat ltac:(discriminate)) DI) (fun j=>C 1%nat j ltac:(lia)))
   as [q [out [M [End [Acc [Log [Flat [Regs [U [High [Byte Bits]]]]]]]]]]].
  exists(Trace r q out);split;[unfold observe;rewrite Run;cbn [bind];now rewrite M|].
  constructor;cbn [test selection masks];try assumption.
+ - exact (RootAccept.words _ _ _ _ _ WF M).
  - intros i j N;rewrite High by lia;apply C,N.
  - intros j J;destruct(Bits j J) as [Bit Minus];rewrite Bit;split;[apply (RootDecision.bits _ _ _ _ Proof j J)|exact Minus].
 Qed.
