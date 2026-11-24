@@ -96,7 +96,11 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    The next two instructions collect bit 255 of each key into EAX. The
    following fifteen produce five bounded radix-51 limbs per lane whose
    integer value is the original key modulo 2²⁵⁵. This includes Y encodings
-   greater than or equal to the field prime. [Sign and Y extraction](coq/DecoderUnpack.v)
+   greater than or equal to the field prime. Five aligned 64-byte stores
+   then save Y. Reading each qword back from the live scratch buffer recovers
+   the corresponding register limb. The store log covers the 320 destination
+   bytes starting at scratch offset 1344. [Sign and Y extraction](coq/DecoderUnpack.v) ·
+   [Y in scratch memory](coq/DecoderSave.v)
    [Decoder transpose](coq/DecoderWords.v) · [Decoder frame](coq/DecoderFrame.v) · [Decoder entry](coq/BatchDecode.v) · [Encoding copies](coq/PrepareCopies.v)
    If EAX is zero there, the decoded branches, pops and returns take both
    policies back to the wrapper's preparation continuation with RSP restored,
