@@ -56,3 +56,7 @@ execution/IndexedLoads.v
 tests/Indexed.v
 execution/MaskedWords.v
 tests/MaskedWordProbe.v
+memory/WriteTrace.v
+execution/StoreInstructions.v
+tests/WriteFootprints.v
+execution/LocatedEvents.v
