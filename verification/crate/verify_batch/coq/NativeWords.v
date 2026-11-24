@@ -1,0 +1,91 @@
+From Coq Require Import List ZArith Lia.
+From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.ScalarBytes execution.ScalarWords
+ execution.WordBounds execution.MappedFetch execution.VectorProcedure execution.CircuitFacts memory.ByteMemory.
+From Machine Require execution.MaskTransfer.
+From Ed25519Simd.SignatureScalar Require Program OrderBytes.
+From Ed25519Simd.VerifyBatch Require Import ScalarState StageEntry BatchScalar BatchDecode DecoderSave KeySquare
+ SetupTail PairedSetup DecoderPower.
+From Ed25519Simd.VerifyBatch Require DecoderKernel DecoderProduct DecoderUnpack.
+Local Open Scope Z_scope.
+
+Definition words (f:procedure):=forall p q,well_formed(machine p) -> f p=Some q -> well_formed(machine q).
+Lemma sequence f g : words f -> words g -> words(then_run f g).
+Proof. intros F G p q W;unfold then_run;destruct(f p) eqn:R;[now apply G,(F _ _ W R)|discriminate]. Qed.
+Lemma block base text n : words(segment base text n).
+Proof. exact (segment_wf base text n). Qed.
+Lemma call base text retbase rettext f : words f -> words(wrapped base text retbase rettext f).
+Proof. intro F;change (words(then_run (segment base text 1) (then_run f (segment retbase rettext 1))));
+ apply sequence;[apply block|apply sequence;[exact F|apply block]]. Qed.
+
+Lemma kernels bias : words(DecoderProduct.multiply_call bias) /\ words(square bias) /\ words(finish_setup bias).
+Proof.
+ unfold finish_setup,square,set_rhs,step_at,carry_call,DecoderProduct.multiply_call,DecoderProduct.multiply_body,
+ DecoderProduct.product,DecoderProduct.columns,DecoderProduct.native.
+ split;[|split];repeat first [apply sequence|apply call|apply block].
+Qed.
+
+Lemma returned_scalar pol bias entry text e c masks p : well_formed e ->
+ BatchScalar.observe pol bias entry text e c masks=Some p -> byte_memory(mem(machine p)) -> well_formed(machine p).
+Proof.
+ intros W;unfold BatchScalar.observe,scalar_entry,StageEntry.observe.
+ destruct(StageEntry.budget entry text e c) as [n|];[|discriminate].
+ destruct(run n _ _) as [[stage ws]|] eqn:Prefix;[|discriminate];cbn [bind].
+ set (start:=LinkedRun.finish entry (LinkedRun.initial entry e c) (stage,ws)).
+ assert (SW:well_formed(machine start)) by exact (mapped_run_wf _ _ _ (State (Running 0) e c) _ _ W Prefix).
+ destruct(via_strict pol bias start) as [a|] eqn:Shim;[|discriminate];cbn [bind].
+ assert (AW:well_formed(machine a)) by (destruct pol;[injection Shim as <-;exact SW|eapply segment_wf;[exact SW|exact Shim]]).
+ destruct(to_scalar bias a) as [b|] eqn:To;[|discriminate];cbn [bind].
+ pose proof(segment_wf _ _ _ _ _ AW To) as BW.
+ unfold scalar_call;destruct (_=?_);[|discriminate];destruct(list_eq_dec _ _ _);[|discriminate].
+ destruct(SignatureScalar.Program.run _ _ _ _ _ _) as [back out] eqn:R;intro Eq;injection Eq as <-.
+ exact (returned_words _ _ _ _ _ _ _ _ BW R).
+Qed.
+
+Lemma decoder_entry pol bias pc text e c masks stop d :
+ well_formed e -> BatchScalar.observe pol bias (bias+pc) text e c masks=Some stop ->
+ byte_memory(mem(machine stop)) -> BatchDecode.observe pol bias pc text e c masks=Some d -> well_formed(machine d).
+Proof.
+ intros W R B;unfold BatchDecode.observe;rewrite R;cbn [bind];destruct (_=?0);[discriminate|].
+ apply segment_wf,(returned_scalar _ _ _ _ _ _ _ _ W R B).
+Qed.
+
+Lemma mask_op op p bank q k : well_formed(machine p) -> MaskTransfer.tick op p bank=Some(q,k) -> well_formed(machine q).
+Proof.
+ intro W;unfold MaskTransfer.tick;destruct(MaskTransfer.valid _);[|discriminate].
+ destruct(list_eq_dec _ _ _);[|discriminate];destruct op;intro R;injection R as <- <-;[exact W|].
+ apply set_wf;[exact W|]. unfold MaskTransfer.mask16;pose proof(mask_word_bits 16 (fun j=>Z.b2z(bank k0 j))
+    ltac:(intros j J;cbv beta;destruct (bank k0 j);[right|left];reflexivity)) as [Bounds _];unfold word64;lia.
+Qed.
+Lemma unpack_words bias p bank q k : well_formed(machine p) -> unpack bias p bank=Some(q,k) -> well_formed(machine q).
+Proof.
+ intro W;unfold unpack,DecoderUnpack.take_signs.
+ destruct(MaskTransfer.tick (MaskTransfer.Signs 2 6) p bank) as [[a ma]|] eqn:A;[|discriminate].
+ destruct(MaskTransfer.tick (MaskTransfer.ToEax 2) a ma) as [[b mb]|] eqn:B;[|discriminate].
+ destruct(segment (bias+DecoderFrame.origin) DecoderFrame.code 15 b) as [t|] eqn:T;[|discriminate].
+ intro Eq;injection Eq as <- <-;eapply segment_wf;[|exact T];eapply mask_op;[|exact B];eapply mask_op;eassumption.
+Qed.
+Lemma input_words_after bias p bank r : well_formed(machine p) -> input_setup bias p bank=Some r ->
+ well_formed(machine(in_decoder r)).
+Proof.
+ intro W;unfold input_setup,square_input,save_input;destruct(transpose bias p) as [v|] eqn:V;[|discriminate];cbn [bind].
+ destruct(unpack bias v bank) as [[y k]|] eqn:Y;[|discriminate];cbn [bind].
+ destruct(preserve bias y) as [stored|] eqn:S;[|discriminate];cbn [bind option_map].
+ destruct(square bias stored) as [sq|] eqn:Sq;[|discriminate];cbn [bind option_map].
+ destruct(finish_setup bias sq) as [t|] eqn:T;[|discriminate];intro Eq;injection Eq as <-.
+ destruct(kernels bias) as [_ [Square Tail]].
+ eapply Tail;[|exact T];eapply Square;[|exact Sq];eapply segment_wf;[|exact S].
+ eapply unpack_words;[|exact Y];eapply segment_wf;eassumption.
+Qed.
+
+Theorem pow2_entry_words bias p bank r : well_formed(machine p) -> DecoderPower.observe bias p bank=Some r ->
+ well_formed(machine(exponent_entry r)).
+Proof.
+ intro W;unfold DecoderPower.observe,observe_pair,SetupTail.observe.
+ destruct(inner bias p) as [a|] eqn:A;[|discriminate];cbn [bind].
+ destruct(input_setup bias a bank) as [aa|] eqn:AA;[|discriminate];cbn [bind].
+ destruct(next_input bias (in_decoder aa)) as [b|] eqn:B;[|discriminate];cbn [bind].
+ destruct(input_setup bias b (masks aa)) as [bb|] eqn:BB;[|discriminate];cbn [bind option_map signature_r].
+ destruct(DecoderPower.enter bias (in_decoder bb)) as [child|] eqn:C;[|discriminate];intro Eq;injection Eq as <-.
+ eapply segment_wf;[|exact C];eapply input_words_after;[|exact BB];eapply segment_wf;[|exact B].
+ eapply input_words_after;[|exact AA];eapply segment_wf;eassumption.
+Qed.
