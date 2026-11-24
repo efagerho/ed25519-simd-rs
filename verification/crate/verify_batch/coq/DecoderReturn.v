@@ -4,7 +4,7 @@ From Machine Require Import execution.WordSemantics execution.WordBounds executi
 From Ed25519Simd.PrepareChunk Require CommonBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode KeySquare.
 From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderFinish PairReturn KeyReturn FinishTrace ReturnedPoint
- DecoderEpilogue DecoderSpills SuspendedFrame RootAccept RootDecision.
+ DecoderEpilogue DecoderSpills SuspendedFrame RootDecision SignatureDecision.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition execute bias:=segment (base bias) text 10.
@@ -22,8 +22,8 @@ Record post pol bias e p t : Prop:=Post {
  mask_word:regs(machine(returned t)) 0%nat=
   256*regs(machine(PairReturn.returned(points t))) 0%nat+regs(machine(PairReturn.returned(points t))) 13%nat;
  key_bit:forall j,(j<8)%nat -> (Z.testbit (regs(machine(returned t)) 0%nat) (Z.of_nat j)=true <-> RootDecision.decodable e j);
- signature_bit:forall j,(j<8)%nat -> Z.testbit (regs(machine(returned t)) 0%nat) (8+Z.of_nat j)=
-  RootAccept.bits true e (machine(FinishTrace.test(PairReturn.signature(points t)))) j
+ signature_bit:forall j,(j<8)%nat -> Z.testbit (regs(machine(returned t)) 0%nat) (8+Z.of_nat j)=true <->
+  RootDecision.decodes true e j
 }.
 
 Theorem from_decoder pol bias e p bank : placement e -> loaded pol bias (mem e) (writable e) ->
@@ -36,7 +36,7 @@ Proof.
  pose proof(PairReturn.signature_result _ _ _ _ T) as Sig.
  pose proof(FinishTrace.coordinates _ _ _ _ _ _ Sig) as Coords.
  pose proof(ReturnedPoint.words _ _ _ _ _ _ Coords) as WD.
- pose proof(PairReturn.signature_mask _ _ _ _ T) as [S SB];fold d s in S,SB.
+ pose proof(PairReturn.signature_mask _ _ _ _ T) as [S _];fold d s in S.
  assert (A:0<=regs s 13%nat<256) by (unfold s,d;rewrite (PairReturn.key_mask _ _ _ _ T);apply (KeyReturn.valid_byte _ _ _ _ (PairReturn.key_result _ _ _ _ T))).
  destruct(DecoderEpilogue.masks o s (LinkedRun.carry d) S A) as [u [Pack [Mask [G M]]]].
  destruct(PairReturn.signature_entry _ _ _ _ T) as [_ [_ [_ [_ [_ [_ [_ [[_ [BP _]] _]]]]]]]].
@@ -67,5 +67,5 @@ Proof.
  - rewrite State,Memory;exact M.
  - rewrite Result;apply DecoderEpilogue.packed_value;assumption.
  - intros j J;rewrite Result,(proj1(DecoderEpilogue.bits _ _ (Z.of_nat j) A ltac:(lia)));exact (PairReturn.key_accepts _ _ _ _ T j J).
- - intros j J;rewrite Result,(proj2(DecoderEpilogue.bits _ _ (Z.of_nat j) A ltac:(lia)));apply SB,J.
+ - intros j J;rewrite Result,(proj2(DecoderEpilogue.bits _ _ (Z.of_nat j) A ltac:(lia)));exact (SignatureDecision.bits _ _ _ _ P T j J).
 Qed.
