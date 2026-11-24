@@ -80,7 +80,7 @@ Proof.
 Qed.
 
 Definition input_view e p := well_formed(machine p) /\
- ((8<=Scatter.count e)%nat -> ScalarInputs.matrix e (machine p)).
+ ScalarInputs.matrix e (machine p).
 Definition arguments e p top :=
  regs (machine p) 4%nat=top /\ regs (machine p) 7%nat=Return.scratch e /\
  regs (machine p) 6%nat=Rows.frame e+512 /\ Prologue.output_registers e (machine p) /\
@@ -129,7 +129,7 @@ Proof.
    + split;[exact Stack|split;[exact (eq_trans D DI)|split;[exact (eq_trans S SI)|]]].
      split;[exact (conj (eq_trans Count N) (eq_trans Dst Out))|split;[exact (eq_trans R12 Left)|]].
      split;[exact (segment_wf _ _ _ _ _ Words Next)|].
-     intros Full j J;rewrite <- (Matrix Full j J);apply PrepareChunk.Staging.read_block;intros k K;apply Frame;lia.
+     intros j J;rewrite <- (Matrix j J);apply PrepareChunk.Staging.read_block;intros k K;apply Frame;lia.
    + split;[|exact Ret]. unfold caller_word in *;rewrite <-Root.
      apply PrepareChunk.Staging.read_block;intros k K;apply Frame;lia.
 Qed.
@@ -141,7 +141,7 @@ Definition saved_outputs pol e m :=
 Definition post pol bias entry e p :=
  ip p=bias+common+65 /\ regs (machine p) 4%nat=common_top pol e-104 /\
  accounted e (writable e) p /\ return_slots pol bias entry e (mem(machine p)) /\ saved_outputs pol e (mem(machine p)) /\
- ((8<=Scatter.count e)%nat -> ScalarInputs.borrowed e -> ScalarInputs.recoded e (machine p)).
+ ((0<Scatter.count e)%nat -> ScalarInputs.borrowed e -> ScalarInputs.recoded e (machine p)).
 Lemma through_scalar pol bias entry e p ks : Return.placement e -> loaded pol bias (mem e) (writable e) ->
  accounted e (writable e) p -> ip p=bias+common -> arguments e p (common_top pol e) ->
  return_slots pol bias entry e (mem(machine p)) ->
@@ -209,9 +209,9 @@ Proof.
      * intros Full Borrow. eapply (ScalarInputs.from_call pol bias e v ks top resume_ip out);
          [exact Place|exact Image|exact A|exact (segment_wf _ _ _ _ _ Words Next)|
           unfold top,common_top,Rows.frame,sp in *;destruct pol;lia|exact Dest|exact Src|exact Stack|exact Borrow|exact Full| |exact Call].
-       intros j J;unfold SignatureScalar.Audit.ptr;change (read_word (mem(cpu_state t)) (regs(cpu_state t) 6%nat+8*Z.of_nat j)=word(32+ScalarInputs.sig_ptr e j)).
+       intros j J;unfold SignatureScalar.Audit.ptr;change (read_word (mem(cpu_state t)) (regs(cpu_state t) 6%nat+8*Z.of_nat j)=word(32+ScalarInputs.sig_ptr e (TailCopy.row_index e j))).
        rewrite Src,Fields by exact J;unfold ptr_row;rewrite SI.
-       replace (Rows.frame e+512+64) with (Rows.frame e+576) by ring;now rewrite (Matrix Full j J).
+       replace (Rows.frame e+512+64) with (Rows.frame e+576) by ring;now rewrite (Matrix j J).
 Qed.
 
 Theorem from_entry pol bias pc text e c ks :
@@ -234,10 +234,10 @@ Proof.
    rewrite (word_fits _ Fit);ring. }
  assert (View:input_view e p).
  { split;[exact (mapped_run_wf _ _ _ (State (Running 0) e c) _ _ (initial_cpu _ Place) Run)|].
-   intros Full j J;unfold ScalarInputs.sig_ptr,descriptor.
+   intros j J;unfold ScalarInputs.sig_ptr,descriptor.
    apply PrepareChunk.Staging.read_block;intros k K.
    replace (Rows.frame e+576) with (DescriptorStores.bank (Rows.frame e) 1) by (unfold DescriptorStores.bank;ring).
-   exact (Matrix Full j 1%nat k J ltac:(lia) K). }
+   exact (Matrix j 1%nat k J ltac:(lia) K). }
  destruct(reach_common pol bias (bias+pc) e p Place Loaded Acc Entry (conj SP (conj DI (conj SI (conj (proj1 Output) (conj (proj2 Output) View))))) Ret) as [q [Q [Acct [IP [Args Slots]]]]].
  destruct(through_scalar pol bias (bias+pc) e q ks Place Loaded Acct IP Args Slots) as [f [S Post]].
  exists f;split;[|exact Post].
