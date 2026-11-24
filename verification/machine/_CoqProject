@@ -77,6 +77,7 @@ execution/AlignedRows.v
 execution/VectorWindow.v
 execution/LinkedRun.v
 execution/MaskTransfer.v
+execution/ProjectionWords.v
 execution/ScalarWords.v
 execution/ScalarByteMemory.v
 execution/PreservedRegister.v
