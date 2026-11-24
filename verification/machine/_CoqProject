@@ -52,6 +52,7 @@ execution/Packed.v
 memory/PackedMemory.v
 tests/PackedRows.v
 isa/IndexedLoad.v
+isa/VectorMoves.v
 execution/IndexedLoads.v
 tests/Indexed.v
 execution/MaskedWords.v
@@ -67,3 +68,4 @@ memory/BlockWrites.v
 memory/PackedWrites.v
 memory/RowWrites.v
 execution/MappedFetch.v
+execution/FrameInstructions.v
