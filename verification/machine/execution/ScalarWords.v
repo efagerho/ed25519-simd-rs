@@ -51,12 +51,13 @@ Proof. intros [G [V B]] W;split;[exact G|split;[intros j k J;apply put_words;aut
 
 Lemma qword_wf next s i v : well_formed s -> qword_op next s i=Some v -> well_formed v.
 Proof.
- intros W;destruct i as [[d op]| | |];cbn [qword_op];try destruct (_=?0);intro R;try discriminate;
+ intros W;destruct i as [[d op]| | | |];cbn [qword_op];try destruct (_=?0);intro R;try discriminate;
  injection R as <-;apply set_vector_words;try exact W;intros j J.
  - apply bits_words;[intros;apply read_word_bound,W|intros;apply W,J].
  - apply mod64_word.
  - apply W;pose proof(Z.mod_pos_bound (vectors s j idx mod 16) 8 ltac:(lia));lia.
  - apply read_word_bound,W.
+ - apply low64_word.
 Qed.
 
 Lemma step_wf origin off n op s c t ws : well_formed s ->

@@ -89,3 +89,11 @@ Example aligned_zmm_base_moves :
  ScalarBytes.decode load=Some(6%nat,ScalarBytes.AlignedRow(VectorMoves.Row false 5 8 0)).
 Proof. split;[reflexivity|split;[reflexivity|split;[do 2 eexists;repeat split;reflexivity|]]].
  split;[eexists;split;reflexivity|reflexivity]. Qed.
+
+Example rip_broadcast_subtraction :
+ let bytes:=[0x62;0xf1;0xfd;0x58;0xfb;0x2d;0xf6;0xff;0xff;0xff] in
+ let s:=CPU (fun _=>0) (fun j _=>Z.of_nat j) None (fun x=>if x=?48 then 1 else 0) in
+ exists t,ScalarBytes.fetch 48 bytes (ScalarBytes.State (ScalarBytes.Running 0) s None)=Some(t,[]) /\
+ vectors (ScalarBytes.cpu_state t) 0%nat 5%nat=2^64-1 /\
+ vectors (ScalarBytes.cpu_state t) 7%nat 5%nat=6.
+Proof. eexists;repeat split;reflexivity. Qed.
