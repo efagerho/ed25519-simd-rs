@@ -2,7 +2,7 @@ From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions execution.WordSemantics execution.WordBounds execution.LinkedCalls
  execution.ScalarBytes execution.MappedFetch execution.LinkedRun execution.StoreInstructions
  memory.FlatMemory memory.ByteMemory memory.WriteTrace.
-From Machine Require isa.VectorMoves isa.IndexedLoad execution.Packed execution.IndexedLoads.
+From Machine Require isa.QwordRegister isa.VectorMoves isa.IndexedLoad execution.Packed execution.IndexedLoads.
 Import ListNotations. Local Open Scope Z_scope.
 
 (* Defined words in the scalar decoder, including the indexed vector loads
@@ -49,10 +49,21 @@ Lemma set_vector_words s r vec : well_formed s -> (forall j,(j<8)%nat -> word64(
  well_formed (CPU (regs s) (fun j=>put (vectors s j) r (vec j)) (flag s) (mem s)).
 Proof. intros [G [V B]] W;split;[exact G|split;[intros j k J;apply put_words;auto|exact B]]. Qed.
 
+Lemma qword_wf next s i v : well_formed s -> qword_op next s i=Some v -> well_formed v.
+Proof.
+ intros W;destruct i as [[d op]| | |];cbn [qword_op];try destruct (_=?0);intro R;try discriminate;
+ injection R as <-;apply set_vector_words;try exact W;intros j J.
+ - apply bits_words;[intros;apply read_word_bound,W|intros;apply W,J].
+ - apply mod64_word.
+ - apply W;pose proof(Z.mod_pos_bound (vectors s j idx mod 16) 8 ltac:(lia));lia.
+ - apply read_word_bound,W.
+Qed.
+
 Lemma step_wf origin off n op s c t ws : well_formed s ->
  step origin off n op s c=Some(t,ws) -> well_formed(cpu_state t).
 Proof.
  intros W;destruct op;cbn [step];intro S.
+ all: try solve [destruct (qword_op _ _ _) as [v|] eqn:QV;try discriminate;injection S as <- <-;eapply qword_wf;eassumption].
  all: try match type of S with context[option_map _ ?b]=>destruct b as [[]|];try discriminate end.
  all: try match type of S with context[if ?align then Some (_,_) else None]=>destruct align;try discriminate end.
  all: try (injection S as <- <-;cbn [cpu_state]).

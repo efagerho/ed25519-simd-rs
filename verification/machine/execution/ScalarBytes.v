@@ -1,7 +1,7 @@
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions execution.LinkedCalls execution.StoreInstructions
  execution.WordSemantics memory.ByteMemory memory.FlatMemory memory.WriteTrace.
-From Machine Require isa.VectorMoves execution.IndexedLoads.
+From Machine Require isa.QwordRegister isa.VectorMoves execution.IndexedLoads.
 Import ListNotations. Local Open Scope Z_scope.
 
 (* Scalar and vector-move forms used by scatter and the batch wrapper.
@@ -22,6 +22,7 @@ Inductive instruction :=
 | VectorMove (op:VectorMoves.operation) | Add64 (r:nat) (k:Z) | CallRelative (disp:Z)
 | StoreImmediate (a:addr) (k:Z) | Jump (disp:Z)
 | Branch (c:condition) (disp:Z) | Ret
+| QwordOp (i:QwordRegister.op)
 | AndImmediate (r:nat) (mask:Z) | BroadcastRip (r:nat) (disp:Z).
 
 Definition little32 bs := read_le 4 (fun i=>nth (Z.to_nat i) bs 0) 0.
@@ -134,7 +135,8 @@ Definition decode (bs:list Z) : option (nat*instruction) := match bs with
  | 0x48::0x8d::0x8c::0x24::a::b::c::d::_=>Some (8%nat,LeaG 1 (Address 4 None (displacement32 [a;b;c;d])))
  | 0xe8::a::b::c::d::_=>Some (5%nat,CallRelative (displacement32 [a;b;c;d]))
  | 0xc3::_ => Some (1%nat,Ret)
- | _=>option_map (fun '(n,i)=>(n,VectorMove i)) (VectorMoves.decode bs) end.
+ | _=>match VectorMoves.decode bs with Some(n,i)=>Some(n,VectorMove i)
+      | None=>option_map (fun '(n,i)=>(n,QwordOp i)) (QwordRegister.decode bs) end end.
 
 Definition effective s a := match a with Address b ix d=>word (regs s b+
  (match ix with Some (i,k)=>regs s i*k | None=>0 end)+d) end.
@@ -145,6 +147,23 @@ Record state := State { loc:location; cpu_state:cpu; cf:option bool }.
 Definition eval_condition cc z c :=
  match cc with Equal=>z | Unequal=>option_map negb z | Below=>c | AtLeast=>option_map negb c
  | Above=>match z,c with Some z,Some c=>Some (negb(z||c)) | _,_=>None end end.
+Definition vector_dest s r (v:nat->Z) := CPU (regs s) (fun j=>put (vectors s j) r (v j)) (flag s) (mem s).
+Definition vector_load s j b d := read_word (mem s) (word(regs s b+d)+8*Z.of_nat j).
+Definition qword_op next s i := match i with
+ | QwordRegister.Alu (d,op)=>Some(vector_dest s d (fun j=>bits (vector_load s j) (vectors s j) d op))
+ | QwordRegister.Or d a b=>Some(vector_dest s d (fun j=>word(Z.lor (vectors s j a) (vectors s j b))))
+ | QwordRegister.Permute2 d idx b=>Some(vector_dest s d (fun j=>
+     let k:=vectors s j idx mod 16 in vectors s (Z.to_nat(k mod 8)) (if k<?8 then d else b)))
+ | QwordRegister.AlignedRip d disp=>let addr:=word(next+disp) in
+   if addr mod 64=?0 then Some(vector_dest s d (fun j=>read_word (mem s) (addr+8*Z.of_nat j))) else None end.
+
+Lemma qword_state next s i out : qword_op next s i=Some out ->
+ mem out=mem s /\ regs out=regs s /\ flag out=flag s.
+Proof.
+ destruct i as [[d op]| | |];cbn [qword_op];try destruct (_=?0);intro R;try discriminate;
+ injection R as <-;repeat split;reflexivity.
+Qed.
+
 Definition step origin off n op s carry : option (state*list store) :=
  let next:=off+Z.of_nat n in
  let go s c := Some (State (Running next) s c,[]) in
@@ -213,6 +232,7 @@ Definition step origin off n op s carry : option (state*list store) :=
  | Jump d=>Some (State (Running (next+d)) s carry,[])
  | Branch cc d=>option_map (fun take:bool=>(State (Running (if take then next+d else next)) s carry,[]))
      (eval_condition cc (flag s) carry)
+ | QwordOp i=>option_map (fun v=>(State (Running next) v carry,[])) (qword_op (origin+next) s i)
  | AndImmediate r k=>let v:=word (Z.land (regs s r) k) in go (with_zf (set s r v) (v=?0)) (Some false)
  | BroadcastRip r d=>let v:=read_word (mem s) (word (origin+next+d)) in
    go (CPU (regs s) (fun j=>Instructions.put (vectors s j) r v) (flag s) (mem s)) carry
@@ -236,6 +256,7 @@ Proof.
  - destruct (_=?0);intro E;try discriminate;injection E as <- <-;reflexivity.
  - destruct op;intro E;injection E as <- <-;reflexivity.
  - destruct (eval_condition _ _ _) as [[]|];intro E;try discriminate;injection E as <- <-;reflexivity.
+ - destruct (qword_op _ _ _) as [v|] eqn:V;intro E;try discriminate;injection E as <- <-;exact (proj1(qword_state _ _ _ _ V)).
 Qed.
 Theorem steps_memory o text s ws t : steps o text s ws t ->
  mem (cpu_state t)=WriteTrace.replay (mem (cpu_state s)) ws.

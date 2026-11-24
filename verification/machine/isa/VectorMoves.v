@@ -38,6 +38,7 @@ Definition decode (bs:list Z) : option (nat*operation) :=
    let dst:=Z.to_nat (m/8 mod 8) in let src:=Z.to_nat (15-p1/8 mod 16) in
    let rm:=Z.to_nat (m mod 8) in
    match opcode with
+   | 0x6f=>let '(a,_):=operands 64 m rest in candidate (Input (LoadZ dst a)) bs
    | 0x3a=>let '(a,imm):=operands 32 m rest in
            candidate (Input (InsertY dst src a (hd 0 imm=?1))) bs
    | 0x6c | 0x6d=>candidate (Input (UnpackWords (opcode=?0x6d) dst src rm)) bs
