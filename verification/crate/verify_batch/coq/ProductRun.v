@@ -72,8 +72,8 @@ Proof.
  [exact (proj1 Dg')|rewrite Dg';apply Forall_forall;intros d I;apply repeat_spec in I;lia].
 Qed.
 
-Definition native_product c flat keys out := exists mid ip,
- Product.observation (full c) (slide c) (reducer c flat) (ladder c mid) mid out generator keys ip.
+Definition native_product c flat keys out := exists mid,
+ Product.observation (full c) (slide c) (reducer c flat) (ladder c mid) mid out generator keys (WordSemantics.word (digest_next c)).
 
 Lemma product_exists c flat keys : Prepare.placement c -> ready c=true ->
  buffers c -> constants(entry c) -> key_selection c keys -> geometry c -> byte_memory flat ->
@@ -97,9 +97,9 @@ Proof.
  pose proof(supplied_tables c mid keys P On G Tables Keys) as T.
  destruct (F.full_product FullLadder.Object.assembled_full_ladder_correct (slide c) l (full c)
   generator keys LP eq_refl V T) as [[out Exec] _].
- exists out,mid,(read_word flat (k_addr c-8)). constructor.
+ exists out,mid. constructor.
  - constructor;assumption || reflexivity.
- - exact Run.
+ - rewrite <- (reducer_return c flat);exact Run.
  - intros j J;apply (proj2(digits_passed c mid j G J)).
  - exact Exec.
 Qed.

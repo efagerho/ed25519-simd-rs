@@ -1,10 +1,11 @@
 From Coq Require Import List ZArith.
 From Machine Require Import execution.LinkedCalls execution.WordBounds memory.FlatMemory memory.ByteMemory memory.MemoryGeometry abi.SysV.
+From Machine Require execution.MappedFetch execution.ScalarBytes memory.WriteTrace.
 From Ed25519Simd.PrepareChunk Require Audit CommonBytes StrictBytes.
 From Ed25519Simd.Sha512Challenge Require Audit ObjectBytes LiteralBytes.
 From Ed25519Simd.Zip215 Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.DalekPostHash Require Audit DecodedBytes ScatterBytes.
-From Ed25519Simd.VerifyBatch Require Import Policy Arguments Image Control Tables Scatter Loop Return.
+From Ed25519Simd.VerifyBatch Require Import Policy Arguments Image Control Tables Scatter Loop Return LoadedImage EntryWrites CallWrites NestedRegions StageEntry RejectCall.
 Local Open Scope Z_scope.
 
 Definition destination pol t := match t with
@@ -38,7 +39,8 @@ Record admissible pol bias pc (text:list Z) e := {
  caller_sp : word64 (sp e+8);
  batch_inputs : (0<count e)%nat -> Return.placement e /\ borrowed e /\
      separate_input e (bias+pc) (Z.of_nat(length text)) /\ Tables.mapped e bias /\
-     indices e /\ entries e pol bias
+     indices e /\ entries e pol bias;
+ callee_image : (0<count e)%nat -> LoadedImage.loaded pol bias (mem e) (Return.writable e)
 }.
 
 (* Grouped execution. Each nonempty trace supplies the actual callee results
@@ -66,12 +68,50 @@ Definition returned pol e ip final :=
    mem final (output e+Z.of_nat (position e i))=Z.b2z v /\
    (v=true <-> signature_accepts pol (read_input (mem e) (regs e 7%nat) i)).
 
+(* The log in a nonempty observation ends at the first transpose. The grouped
+   continuation uses the same original descriptor and verdict buffers. An
+   empty observation has a single concrete return CPU and no grouped suffix. *)
+Inductive observation pol bias pc text e carry : list WriteTrace.store -> Z -> cpu -> Prop :=
+ | observe_empty ws ip final : count e=0%nat ->
+   MappedFetch.steps (bias+pc) (length text) (ScalarBytes.State (ScalarBytes.Running 0) e carry) ws
+     (ScalarBytes.State (ScalarBytes.Returned ip) final (Some false)) ->
+   observation pol bias pc text e carry ws ip final
+ | observe_batch st ws ip final : (0<count e)%nat ->
+   StageEntry.observe (bias+pc) text e carry=Some(st,ws) ->
+   execution pol bias pc text (bias+pc) e ip final ->
+   observation pol bias pc text e carry ws ip final.
+
+Definition immutable_after pol bias pc text e ip final :=
+ (0<count e)%nat -> execution pol bias pc text (bias+pc) e ip final ->
+ forall x, LoadedImage.readonly pol bias x -> mem final x=mem e x.
+
+(* Scatter after an earlier confined prefix. Fetch sees the memory produced
+   by that prefix, including the case where stack, scratch or output changed. *)
+Definition physical_scatter pol bias e := forall prior s carry ws last,
+ WriteTrace.confined (Return.writable e) prior -> mem s=WriteTrace.replay (mem e) prior ->
+ regs s 6%nat=output e -> regs s 2%nat=Z.of_nat (count e) ->
+ MappedFetch.steps (bias+Zip215.ScatterBytes.address) (length Zip215.ScatterBytes.symbol_bytes)
+   (ScalarBytes.State (ScalarBytes.Running 0) s carry) ws last ->
+ WriteTrace.confined (nested_writable e) ws /\
+   LoadedImage.loaded pol bias (mem (ScalarBytes.cpu_state last)) (Return.writable e).
+
 Record batch_contract pol pc text : Prop := {
  linked : matches pc (destination pol) text;
  call_setup : Arguments.call_arguments;
  static_tables : Tables.verified;
  linked_callees : callees pol;
- verify : forall bias e, admissible pol bias pc text e ->
-   (exists ip final,execution pol bias pc text (bias+pc) e ip final) /\
-   (forall ip final,execution pol bias pc text (bias+pc) e ip final -> returned pol e ip final)
+ nested_regions : CallWrites.footprint /\ NestedRegions.footprint /\
+   forall e,Return.placement e -> forall x,sp e-40<=x<sp e+8 -> ~nested_writable e x;
+ verify : forall bias e carry, admissible pol bias pc text e ->
+   (exists ws ip final, observation pol bias pc text e carry ws ip final) /\
+   (forall ws ip final, observation pol bias pc text e carry ws ip final ->
+      returned pol e ip final /\ WriteTrace.confined (writable e) ws);
+ image_preserved : forall bias e, admissible pol bias pc text e ->
+   (forall ip final,immutable_after pol bias pc text e ip final) /\
+   ((0<count e)%nat -> physical_scatter pol bias e /\ RejectCall.contract bias pc text e);
+ machine_staging_entry : forall bias e, admissible pol bias pc text e -> (0<count e)%nat ->
+   StageEntry.physical (bias+pc) text e;
+ machine_empty : forall bias e, admissible pol bias pc text e -> count e=0%nat ->
+   let '(ip,final):=empty_return e in
+   returned pol e ip final /\ empty_mapped (bias+pc) text e
 }.

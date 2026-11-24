@@ -8,7 +8,10 @@ initial contents of the output array and any batch length, including zero.
 [Theorems](coq/Object.v) · [Contract, execution and caller premises](coq/Audit.v) ·
 [Rust entry points](../../../src/verifier/driver.rs)
 
-For an admissible call the grouped execution returns. Every such return has
+For an admissible call the master theorem provides a return and the store log
+of its instruction-level entry prefix. The zero-length return executes
+through `ret`. For a nonempty batch, the log ends at the first descriptor
+transpose. The grouped verdict uses the original inputs. Every such return has
 status 1, resumes at the caller's return address with RSP advanced by eight,
 restores the SysV callee-saved integer registers and leaves byte-valued memory.
 Each output byte is 0 or 1. The byte at a descriptor's original output index
@@ -43,7 +46,7 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    obligations. [Descriptor layout](../../../src/batch.rs) · [Dispatch](../../../src/verifier/driver.rs)
 2. **The caller premises.** Read `admissible` and `Loop.entries`. Check
    no-wrap ranges, stack space, 64-byte scratch alignment, separation,
-   and the mapped code and constants at the chosen load bias. The spatial
+   and the mapped code and constants at the chosen load bias. Read-only callee images and the two static tables must be disjoint from writable memory. The spatial
    preconditions for preparation, SHA, reduction and the ladder are explicit
    premises at each nonempty descriptor suffix. The proof derives scalar values, key-table
    selection, the returned mask and each lane's verdict. The linked fixed-base
@@ -58,14 +61,40 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    handwritten effects, including tail padding and the eligibility mask
    applied to message lengths. [Wrapper image](coq/Image.v) · [Arguments](coq/Arguments.v) ·
    [Transpose and padding](coq/Routing.v) · [Hash handoff](coq/Hash.v) · [Scoring](coq/Score.v)
-4. **The memory claim.** The nonempty execution models nested private storage
-   as arbitrary bytes in the writable regions and reconstructs the wrapper's
-   saved stack slots. The final-memory guarantee preserves every byte outside
-   the output, 25,344-byte scratch and 16 KiB below entry RSP. The proof uses
-   that grouped memory boundary. An instruction-by-instruction confinement
-   result for every nested write, and equivalence of the entire grouped trace
-   to hardware execution, remain outside the theorem. The empty path preserves
-   all memory. [Frame model](coq/Return.v) · [Shared trust surface](../../README.md#shared-audit-surface)
+4. **The memory claim.** For a zero count the theorem fetches from the caller's
+   byte memory, executes through `ret` and proves that every prefix writes
+   nothing. For a nonempty batch it proves that every instruction up to the
+   first descriptor transpose writes inside the caller's allowed regions.
+   This includes all eight 40-byte copies on the tail path. The checker
+   fetches each instruction from the memory produced by the preceding one.
+   [Empty return](coq/EntryWrites.v) · [Nonempty entry](coq/StageEntry.v) ·
+   [Tail loop](coq/TailWrites.v)
+5. **Nested writes.** The caller bounds cover SHA state and digest stores,
+   signature digits, round staging, the key-table output and both policy
+   scorers' modeled stack writes. Each candidate's linked call pushes its
+   return address. The digest wrapper executes its nested scalar reducer and
+   returns to the instruction following that call. Replaying these stores
+   yields the same reducer output memory used by the ladder's digit handoff. The shared scatter bounds check covers
+   every instruction prefix from its mapped entry. From the wrapper's rejection
+   call site, the proof follows the return-address push and the scatter's
+   actual memory through `ret`. It reaches the wrapper's continuation in at
+   most 88 callee instructions, including for malformed lane metadata. Check the buffer and stack
+   offsets used to apply each component result. The decoded scorer's entry
+   RSP is eight bytes below its aligned point buffer. The nested write regions
+   exclude the wrapper's five saved GPRs and its caller's return word.
+   [Rejection call and return](coq/RejectCall.v) · [Caller regions](coq/CallWrites.v) · [Nested regions](coq/NestedRegions.v) ·
+   [Scorer alignment](coq/Score.v) · [Mapped image](coq/LoadedImage.v)
+6. **The remaining boundary.** For a nonempty batch the verdict and
+   final-memory guarantee still use grouped execution. It permits arbitrary
+   final contents in private storage and restores the wrapper's saved slots.
+   For the same nonempty entry CPU and the same prefix log, it permits both
+   0 and 1 as the final value of the first scratch byte.
+   A continuous byte-memory execution through preparation, decoding, table
+   construction, the ladder and the scoring wrappers is still needed to
+   cover every intermediate store of a complete call. The current theorem
+   preserves every final byte outside the output, 25,344-byte scratch and
+   16 KiB below entry RSP. [Call composition](coq/Loop.v) · [Frame model](coq/Return.v) ·
+   [Shared trust surface](../../README.md#shared-audit-surface)
 
 ## Replay
 
@@ -93,3 +122,8 @@ kernel reduction, run the recorded command in the audit directory with
 The mutation checks change copies of the linked code and separately reverse
 the public acceptance condition with the original machine bytes intact. A
 corrupted identity-table limb makes both public contracts provably false.
+Redirecting a prologue spill to the caller's return address falsifies the
+nonempty entry's confinement claim for every caller satisfying the original
+memory placement and code mapping. A concrete execution also writes eight
+zero bytes over eight zero bytes.
+[Return-slot counterexample](tests/ReturnSlot.v)

@@ -66,3 +66,4 @@ execution/ScalarBytes.v
 memory/BlockWrites.v
 memory/PackedWrites.v
 memory/RowWrites.v
+execution/MappedFetch.v

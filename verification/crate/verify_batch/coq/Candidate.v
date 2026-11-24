@@ -1,10 +1,12 @@
 From Coq Require Import List ZArith Lia Bool.
-From Machine Require Import execution.LinkedCalls execution.WordBounds memory.FlatMemory memory.ByteMemory memory.MemoryGeometry.
+From Machine Require Import execution.LinkedCalls execution.WordSemantics execution.WordBounds memory.FlatMemory memory.ByteMemory memory.MemoryGeometry.
 From Curve25519 Require Import Radix51.
 From Curve25519.group Require Import Affine Representation SignedMultiple.
 From Ed25519Simd Require Import Wide51.
 From Ed25519Simd.PrepareChunk Require Staging Composition Dispatch Caller.
 From Ed25519Simd.PostHash Require Product.
+From Ed25519Simd.Zip215 Require CandidateBytes.
+From Ed25519Simd.DalekPostHash Require CandidateBytes.
 From Ed25519Simd.FullLadder Require Import Operands.
 From Ed25519Simd.VerifyBatch Require Import Policy Lane Digest Rows Prepare Hash.
 Import ListNotations. Local Open Scope Z_scope.
@@ -21,8 +23,44 @@ Definition ptrs c := stack_base c+768.
 Definition fixed c := regs(entry c) 9%nat.
 Definition fallback c := regs(entry c) 8%nat.
 Definition full c := negb(strict(mode c)).
-Definition reducer c flat := with_words (entry c) (fun r=> match r with
- | 4%nat=>k_addr c-8 | 7%nat=>k_addr c | 6%nat=>stack_base c | _=>regs(entry c) r end) flat.
+Definition candidate_image pol := match pol with
+ | Policy.Zip215=>(Zip215.CandidateBytes.address,Zip215.CandidateBytes.symbol_bytes)
+ | Policy.Dalek=>(DalekPostHash.CandidateBytes.address,DalekPostHash.CandidateBytes.symbol_bytes) end.
+Definition digest_site pol := fst (candidate_image pol)+24.
+Definition digest_op := Invoke Radix16.LinkedBytes.wrapper_pc.
+Definition digest_binding pol :=
+ firstn 5 (skipn 24 (snd (candidate_image pol)))=encoding (digest_site pol) digest_op /\
+ encodable (digest_site pol) digest_op=true.
+Lemma linked_digest_call pol : digest_binding pol.
+Proof. destruct pol;vm_compute;split;reflexivity. Qed.
+
+Definition digest_next c := slide c+next_pc (digest_site (mode c)) digest_op.
+Definition before_reducer c flat := with_words (entry c) (fun r=> match r with
+ | 4%nat | 7%nat=>k_addr c | 6%nat=>stack_base c | _=>regs(entry c) r end) flat.
+Definition reducer c flat := let s:=before_reducer c flat in
+ with_words s (Instructions.put (regs s) 4 (k_addr c-8))
+   (store_word flat (k_addr c-8) (digest_next c)).
+Lemma dispatched_reducer c flat : word64 (k_addr c-8) ->
+ caller_step (slide c) (digest_site (mode c)) digest_op (before_reducer c flat)=
+ (word (slide c+Radix16.LinkedBytes.wrapper_pc),reducer c flat).
+Proof.
+ intro Fit. pose proof (call_destination_correct _ _ (proj2 (linked_digest_call (mode c)))) as Target.
+ unfold caller_step,digest_op,apply_stack,stack_step,push_words;cbn [target_ip result_regs result_mem].
+ change (regs (before_reducer c flat) 4%nat) with (k_addr c);rewrite (word_fits _ Fit).
+ change ((word (slide c+call_destination (digest_site (mode c)) Radix16.LinkedBytes.wrapper_pc),
+   reducer c flat)= (word (slide c+Radix16.LinkedBytes.wrapper_pc),reducer c flat));now rewrite Target.
+Qed.
+Lemma reducer_return c flat : read_word (mem (reducer c flat)) (regs (reducer c flat) 4%nat)=word (digest_next c).
+Proof. apply read_word_encoded;intros k K;unfold reducer;cbn [regs mem with_words Instructions.put Nat.eqb];
+ unfold store_word;rewrite write_at by lia;reflexivity. Qed.
+
+Lemma reducer_digest c flat j : ScalarSpec.lane_input (buffer_words (mem (reducer c flat)) (stack_base c)) j=
+ ScalarSpec.lane_input (buffer_words flat (stack_base c)) j.
+Proof.
+ rewrite !scalar_digest. f_equal;apply map_ext;intro i. apply write_outside.
+ unfold digest_cell,k_addr,point_addr. pose proof (Z.mod_pos_bound (stack_base c-8-48) 64 ltac:(lia));lia.
+Qed.
+
 Definition copy m a n src := write_bytes m a n (fun off=>src(a+off)).
 Definition ladder_flat c mid := copy (copy (mem(filter_state c)) (s_addr c) 512 (mem(scalar_out c)))
   (k_addr c) 512 (mem mid).

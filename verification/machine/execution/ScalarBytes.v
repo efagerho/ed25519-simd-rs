@@ -1,19 +1,61 @@
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions execution.LinkedCalls execution.StoreInstructions
- execution.WordSemantics memory.ByteMemory memory.WriteTrace.
+ execution.WordSemantics memory.ByteMemory memory.FlatMemory memory.WriteTrace.
 Import ListNotations. Local Open Scope Z_scope.
 
-(* Scalar forms needed by the verdict scatter and the empty-batch return.
+(* Scalar and vector-move forms used by scatter and the batch wrapper.
    The PC is a byte offset in the linked text. RET yields an absolute IP. *)
 Inductive addr := Address (base:nat) (index:option (nat*Z)) (disp:Z).
-Inductive condition := Equal | Below | Above | AtLeast.
+Inductive condition := Equal | Unequal | Below | Above | AtLeast.
 Inductive instruction :=
 | Load64 (r:nat) (a:addr) | Load8 (r:nat) (a:addr) | Store8 (i:indexed_byte)
 | CompareImm (r:nat) (k:Z) | Compare (l r:nat) | Test (r:nat)
 | Zero32 (r:nat) | OneEax | And8 (d r:nat) | ShrEax | Inc (r:nat)
+| SaveG (r:nat) | CopyG (dst src:nat) | LeaG (dst:nat) (a:addr)
+| Sub64 (r:nat) (k:Z) | Add32 (r:nat) (k:Z) | Compare32 (r:nat) (k:Z)
+| MoveBelow (dst src:nat) | Store64 (r:nat) (a:addr)
+| LoadY (r:nat) (a:addr) | StoreY (r:nat) (a:addr)
+| StoreImmediate (a:addr) (k:Z) | Jump (disp:Z)
 | Branch (c:condition) (disp:Z) | Ret.
 
+Definition little32 bs := read_le 4 (fun i=>nth (Z.to_nat i) bs 0) 0.
 Definition decode (bs:list Z) : option (nat*instruction) := match bs with
+ | 0x53::_=>Some (1%nat,SaveG 3)
+ | 0x41::0x54::_=>Some (2%nat,SaveG 12)
+ | 0x41::0x55::_=>Some (2%nat,SaveG 13)
+ | 0x41::0x56::_=>Some (2%nat,SaveG 14)
+ | 0x41::0x57::_=>Some (2%nat,SaveG 15)
+ | 0x48::0x81::0xec::a::b::c::d::_=>Some (7%nat,Sub64 4 (displacement32 [a;b;c;d]))
+ | 0x48::0x89::0xfb::_=>Some (3%nat,CopyG 3 7)
+ | 0x49::0x89::0xf4::_=>Some (3%nat,CopyG 12 6)
+ | 0x49::0x89::0xf5::_=>Some (3%nat,CopyG 13 6)
+ | 0x49::0x89::0xd6::_=>Some (3%nat,CopyG 14 2)
+ | 0x49::0x89::0xcf::_=>Some (3%nat,CopyG 15 1)
+ | 0x4c::0x89::0x84::0x24::a::b::c::d::_=>Some (8%nat,Store64 8 (Address 4 None (displacement32 [a;b;c;d])))
+ | 0x4c::0x89::0x8c::0x24::a::b::c::d::_=>Some (8%nat,Store64 9 (Address 4 None (displacement32 [a;b;c;d])))
+ | 0x49::0x83::0xfc::d::_=>Some (4%nat,CompareImm 12 (word (signed_value 128 d)))
+ | 0x0f::0x82::a::b::c::d::_=>Some (6%nat,Branch Below (displacement32 [a;b;c;d]))
+ | 0x48::0xc7::0x84::0x24::a::b::c::d::u::v::w::x::_=>
+   Some (12%nat,StoreImmediate (Address 4 None (displacement32 [a;b;c;d])) (displacement32 [u;v;w;x]))
+ | 0x49::0x83::0xec::d::_=>Some (4%nat,Sub64 12 (signed_value 128 d))
+ | 0x4c::0x89::0xa4::0x24::a::b::c::d::_=>Some (8%nat,Store64 12 (Address 4 None (displacement32 [a;b;c;d])))
+ | 0x48::0x89::0xde::_=>Some (3%nat,CopyG 6 3)
+ | 0x4b::0x8d::0x04::0xa4::_=>Some (4%nat,LeaG 0 (Address 12 (Some (12%nat,4)) 0))
+ | 0x48::0x8d::0x7c::0xc3::d::_=>Some (5%nat,LeaG 7 (Address 3 (Some (0%nat,8)) (signed_value 128 d)))
+ | 0x48::0x8d::0x1c::0x24::_=>Some (4%nat,LeaG 3 (Address 4 None 0))
+ | 0x45::0x31::0xe4::_=>Some (3%nat,Zero32 12)
+ | 0x31::0xc9::_=>Some (2%nat,Zero32 1)
+ | 0xe9::a::b::c::d::_=>Some (5%nat,Jump (displacement32 [a;b;c;d]))
+ | 0xc5::0xfe::0x6f::0x06::_=>Some (4%nat,LoadY 0 (Address 6 None 0))
+ | 0x48::0x8b::0x46::d::_=>Some (4%nat,Load64 0 (Address 6 None (signed_value 128 d)))
+ | 0xc5::0xfe::0x7f::0x04::0x0b::_=>Some (5%nat,StoreY 0 (Address 3 (Some (1%nat,1)) 0))
+ | 0x48::0x89::0x44::0x0b::d::_=>Some (5%nat,Store64 0 (Address 3 (Some (1%nat,1)) (signed_value 128 d)))
+ | 0x48::0x8d::0x46::d::_=>Some (4%nat,LeaG 0 (Address 6 None (signed_value 128 d)))
+ | 0x48::0x39::0xfe::_=>Some (3%nat,Compare 6 7)
+ | 0x48::0x0f::0x42::0xf0::_=>Some (4%nat,MoveBelow 6 0)
+ | 0x83::0xc1::d::_=>Some (3%nat,Add32 1 (signed_value 128 d))
+ | 0x81::0xf9::a::b::c::d::_=>Some (6%nat,Compare32 1 (little32 [a;b;c;d]))
+ | 0x75::d::_=>Some (2%nat,Branch Unequal (signed_value 128 d))
  | 0x48::0x8b::0x4f::0x48::_ => Some (4%nat,Load64 1 (Address 7 None 72))
  | 0x48::0x83::0xf9::0x08::_ => Some (4%nat,CompareImm 1 8)
  | 0x45::0x31::0xc0::_ => Some (3%nat,Zero32 8)
@@ -43,7 +85,7 @@ Definition with_zf s z := CPU (regs s) (vectors s) (Some z) (mem s).
 Inductive location := Running (off:Z) | Returned (ip:Z).
 Record state := State { loc:location; cpu_state:cpu; cf:option bool }.
 Definition eval_condition cc z c :=
- match cc with Equal=>z | Below=>c | AtLeast=>option_map negb c
+ match cc with Equal=>z | Unequal=>option_map negb z | Below=>c | AtLeast=>option_map negb c
  | Above=>match z,c with Some z,Some c=>Some (negb(z||c)) | _,_=>None end end.
 Definition step origin off n op s carry : option (state*list store) :=
  let next:=off+Z.of_nat n in
@@ -64,6 +106,27 @@ Definition step origin off n op s carry : option (state*list store) :=
  | ShrEax=>let v:=regs s 0%nat mod 2^32 in let t:=v/2 in
       go (with_zf (set s 0 t) (t=?0)) (Some (Z.odd v))
  | Inc r=>let t:=word(regs s r+1) in go (with_zf (set s r t) (t=?0)) carry
+ | SaveG r=>Some (State (Running next) (snd (caller_step origin off (Save r) s)) carry,
+                    caller_stores origin off (Save r) s)
+ | CopyG d r=>go (set s d (regs s r)) carry
+ | LeaG d a=>go (set s d (effective s a)) carry
+ | Sub64 r k=>let a:=word (regs s r) in let b:=word k in let v:=word (a-b) in
+   go (with_zf (set s r v) (v=?0)) (Some (a<?b))
+ | Add32 r k=>let m:=2^32 in let a:=regs s r mod m+k mod m in let v:=a mod m in
+   go (with_zf (set s r v) (v=?0)) (Some (m<=?a))
+ | Compare32 r k=>cmp (regs s r mod 2^32) (k mod 2^32)
+ | MoveBelow d r=>option_map (fun b:bool=>(State (Running next)
+         (if b then set s d (regs s r) else s) carry,[])) carry
+ | Store64 r a=>let w:=qword (word (origin+off)) (effective s a) (regs s r) in
+   Some (State (Running next) (with_words s (regs s) (commit (mem s) w)) carry,[w])
+ | LoadY r a=>let base:=effective s a in
+   let lanes:=fun j=>if (j<?4)%nat then read_word (mem s) (base+8*Z.of_nat j) else 0 in
+   go (CPU (regs s) (fun j=>Instructions.put (vectors s j) r (lanes j)) (flag s) (mem s)) carry
+ | StoreY r a=>let w:=Store (word (origin+off)) (effective s a) 32 (vector_byte (fun j=>vectors s j r)) in
+   Some (State (Running next) (with_words s (regs s) (commit (mem s) w)) carry,[w])
+ | StoreImmediate a k=>let w:=qword (word (origin+off)) (effective s a) k in
+   Some (State (Running next) (with_words s (regs s) (commit (mem s) w)) carry,[w])
+ | Jump d=>Some (State (Running (next+d)) s carry,[])
  | Branch cc d=>option_map (fun take:bool=>(State (Running (if take then next+d else next)) s carry,[]))
      (eval_condition cc (flag s) carry)
  | Ret=>let '(ip,out):=caller_step 0 0 Return s in Some (State (Returned ip) out carry,[])
@@ -82,7 +145,8 @@ Lemma step_memory o off n op s c t ws : step o off n op s c=Some(t,ws) ->
  mem (cpu_state t)=WriteTrace.replay (mem s) ws.
 Proof.
  destruct op;cbn [step];try solve [intro E;injection E as <- <-;reflexivity].
- destruct (eval_condition _ _ _) as [[]|];intro E;try discriminate;injection E as <- <-;reflexivity.
+ - destruct c as [[]|];intro E;try discriminate;injection E as <- <-;reflexivity.
+ - destruct (eval_condition _ _ _) as [[]|];intro E;try discriminate;injection E as <- <-;reflexivity.
 Qed.
 Theorem steps_memory o text s ws t : steps o text s ws t ->
  mem (cpu_state t)=WriteTrace.replay (mem (cpu_state s)) ws.

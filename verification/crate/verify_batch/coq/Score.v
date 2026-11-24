@@ -17,7 +17,19 @@ Definition os c := Decoded.outputs Decode.Program.code (flat c) (scratch c).
 Definition rvalid c := Decoded.valid_mask Decode.Program.code (flat c) (scratch c).
 Definition saved_rvalid c := metadata c (Staging.selected(p c)+72).
 Definition raw c j := Unpack.encoded (flat c) (scratch c+256) j.
-Definition pad c := Z.to_nat ((stack_base c mod 64)/16).
+(* The decoded scorer aligns the point buffer to 64 bytes. Its CALL then
+   pushes a return word before torsion or small-order testing starts. *)
+Definition scorer_sp c := point_addr c-8.
+Definition pad c := Z.to_nat ((scorer_sp c mod 64)/16).
+Lemma scorer_alignment c : scorer_sp c mod 64=56.
+Proof.
+ unfold scorer_sp,point_addr;set (a:=stack_base c-8-48).
+ pose proof (Z.div_mod a 64 ltac:(lia)).
+ replace (a-a mod 64-1280-8) with (56+(a/64-21)*64) by lia.
+ rewrite Z.mod_add by lia;reflexivity.
+Qed.
+Lemma scorer_pad c : pad c=3%nat.
+Proof. unfold pad;rewrite scorer_alignment;reflexivity. Qed.
 Definition initial c j r := vectors(entry c) j r.
 
 Definition mask c q := match mode c with
@@ -67,8 +79,7 @@ Lemma scored c q Q : Prepare.placement c -> ready c=true ->
     enabled c j=true /\ check_point (mode c) (raw c j) (Q j)).
 Proof.
  intros P On Bound Reps. assert (Pad:(pad c<4)%nat).
- { unfold pad. pose proof(Z.mod_pos_bound (stack_base c) 64 ltac:(lia)).
-   assert (0<=(stack_base c mod 64)/16<4) by (split;[apply Z.div_pos|apply Z.div_lt_upper_bound];lia). lia. }
+ { rewrite scorer_pad;lia. }
  assert (B:byte_memory(flat c)) by (apply Staging.staged_wf,rows_bytes,entry_memory,P).
  unfold mask;rewrite preparation_mask by assumption. unfold full in Reps.
  destruct(mode c) eqn:Mode.
@@ -98,7 +109,7 @@ Lemma score_hash c result keys q : Prepare.placement c -> ready c=true -> Hash.g
  exists m, mask c q=Some m /\ forall j,(j<8)%nat ->
    ((enabled c j && Z.testbit m (Z.of_nat j))%bool=true <->signature_accepts (mode c) (input_at c j)).
 Proof.
- intros P On Geom Buf Keys Dig [mid [ip Obs]].
+ intros P On Geom Buf Keys Dig [mid Obs].
  destruct(Product.product_ok _ _ _ _ _ _ _ _ _ Obs) as [Bound Reps].
  destruct(scored _ _ _ P On Bound Reps) as [m [Run Rules]];exists m;split;[exact Run|].
  intros j J. rewrite Rules,raw_original by assumption. unfold Product.candidate.
@@ -106,7 +117,6 @@ Proof.
  intro Live. split;[eapply enabled_key;eassumption|]. split.
  - rewrite (proj1(digits_passed c mid j Buf J));apply prepared_scalar;assumption.
  - unfold Product.challenge. change (regs(reducer c (Sha512Challenge.Execution.after result)) 6%nat)
-    with (regs(hash_entry c) 7%nat). change (mem(reducer c (Sha512Challenge.Execution.after result)))
-    with (Sha512Challenge.Execution.after result).
+    with (stack_base c). rewrite reducer_digest. change (stack_base c) with (regs(hash_entry c) 7%nat).
    rewrite (sha_to_scalar _ _ j J Dig),(hash_input c j P Geom J Live);reflexivity.
 Qed.
