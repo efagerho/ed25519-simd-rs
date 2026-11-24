@@ -124,3 +124,31 @@ Proof.
    intro T;specialize(Private _ T);destruct(scratch_stack _ Place);unfold PrepareCopies.dest in *;destruct sig;lia.
  - intros i j I;rewrite (Values _ _ I);exact (DecoderFrame.mapped_value _ bias i I Helper (Lit _ I)).
 Qed.
+
+From Ed25519Simd.VerifyBatch Require DecoderWords.
+Definition transpose bias := segment (bias+DecoderFrame.origin) DecoderFrame.code 16.
+Definition key_words e s := forall j w,(j<8)%nat -> (w<4)%nat ->
+ vectors s j (DecoderWords.result_reg w)=read_word (mem e) (encoding_ptr e j false+8*Z.of_nat w).
+Definition transposed bias e p := ip p=bias+DecoderFrame.origin+355 /\ accounted e (writable e) p /\ key_words e (machine p).
+
+Theorem from_setup pol bias e p : placement e -> loaded pol bias (mem e) (writable e) ->
+ (bias+DecoderFrame.origin) mod 64=0 -> setup pol bias e p ->
+ exists q,transpose bias p=Some q /\ transposed bias e q /\
+ (log q=log p /\ mem(machine q)=mem(machine p) /\ regs(machine q)=regs(machine p)).
+Proof.
+ intros Place Image Al [PC [Acc [_ [_ [_ [_ [SI [_ [_ [_ [Data _]]]]]]]]]]].
+ set (o:=bias+DecoderFrame.origin) in *.
+ destruct(mapped_now _ _ _ Image _ _ _ Acc (decode_in pol)) as [Map Apart].
+ destruct(DecoderWords.mapped_indices _ o Al (proj1(symbols _ _ _ _ Image _ _ (decode_in pol))) Map) as [Aligned L].
+ destruct (DecoderWords.read_words o (machine p) (carry p) Aligned L) as [v [Run [Same [Regs Words]]]].
+ destruct(at_segment _ _ _ o DecoderFrame.code _ 244 _ _ Acc PC Map Apart Run (Forall_nil _)) as [Next Paid].
+ eexists;split;[exact Next|split].
+ - split;[reflexivity|split;[exact Paid|]].
+   intros j w J W;cbn [LinkedRun.finish machine cpu_state];rewrite Words by assumption.
+   rewrite (DecoderWords.contiguous _ _ _ _ SI) by (try assumption;destruct(scratch_ok _ Place) as [[Lo Hi] _];unfold fits64;lia).
+   apply PrepareChunk.Staging.read_block;intros k K.
+   replace (scratch e+32*Z.of_nat j+8*Z.of_nat w+k) with
+     (PrepareCopies.dest (scratch e) j false+(8*Z.of_nat w+k)) by (unfold PrepareCopies.dest;ring).
+   rewrite Data by (try exact J;change (0<=k<8) in K;lia);f_equal;ring.
+ - cbn [LinkedRun.finish log machine cpu_state];rewrite app_nil_r;auto.
+Qed.
