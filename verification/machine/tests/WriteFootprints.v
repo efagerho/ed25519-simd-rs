@@ -68,3 +68,11 @@ Example aligned_zmm_literal :
  let fetch pc:=ScalarBytes.fetch pc bs (ScalarBytes.State (ScalarBytes.Running 0) entry None) in
  fetch 63=None /\ exists t,fetch 64=Some(t,[]) /\ vectors (ScalarBytes.cpu_state t) 7%nat 8%nat=0x0707070707070707.
 Proof. split;[reflexivity|eexists;split;reflexivity]. Qed.
+
+From Machine Require execution.MaskTransfer.
+Example sign_mask_clears_upper_bits :
+ let s:=CPU (fun _=>0) (fun lane _=>if Nat.eqb lane 7 then 2^63 else 0) None (fun _=>0) in
+ let '(t,k):=MaskTransfer.effect s (fun _ _=>true) (MaskTransfer.Signs 2 6) in
+ let '(out,_):=MaskTransfer.effect t k (MaskTransfer.ToEax 2) in
+ regs out 0%nat=128 /\ k 2%nat 15%nat=false /\ k 1%nat 15%nat=true.
+Proof. vm_compute;auto. Qed.
