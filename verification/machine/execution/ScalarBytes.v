@@ -158,12 +158,14 @@ Definition qword_op next s i := match i with
  | QwordRegister.Permute2 d idx b=>Some(vector_dest s d (fun j=>
      let k:=vectors s j idx mod 16 in vectors s (Z.to_nat(k mod 8)) (if k<?8 then d else b)))
  | QwordRegister.AlignedRip d disp=>let addr:=word(next+disp) in
-   if addr mod 64=?0 then Some(vector_dest s d (fun j=>read_word (mem s) (addr+8*Z.of_nat j))) else None end.
+   if addr mod 64=?0 then Some(vector_dest s d (fun j=>read_word (mem s) (addr+8*Z.of_nat j))) else None
+ | QwordRegister.SubRip d a disp=>let v:=read_word (mem s) (word(next+disp)) in
+   Some(vector_dest s d (fun j=>Arithmetic.vpsubq (vectors s j a) v)) end.
 
 Lemma qword_state next s i out : qword_op next s i=Some out ->
  mem out=mem s /\ regs out=regs s /\ flag out=flag s.
 Proof.
- destruct i as [[d op]| | |];cbn [qword_op];try destruct (_=?0);intro R;try discriminate;
+ destruct i as [[d op]| | | |];cbn [qword_op];try destruct (_=?0);intro R;try discriminate;
  injection R as <-;repeat split;reflexivity.
 Qed.
 
