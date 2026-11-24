@@ -74,6 +74,7 @@ execution/InstructionRoute.v
 execution/QwordBlock.v
 execution/VectorProcedure.v
 execution/AlignedRows.v
+execution/VectorWindow.v
 execution/LinkedRun.v
 execution/MaskTransfer.v
 execution/ScalarWords.v
