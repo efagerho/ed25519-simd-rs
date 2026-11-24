@@ -64,7 +64,7 @@ Qed.
 Lemma observed_correct pol pc text bias e carry :
  matches pc (destination pol) text -> admissible pol bias pc text e ->
  (count e=0%nat -> empty_mapped (bias+pc) text e) ->
- ((0<count e)%nat -> StageEntry.physical (bias+pc) text e) ->
+ ((0<count e)%nat -> StageEntry.physical (bias+pc) text (destination pol Prepare-pc) e) ->
  (exists ws ip final,observation pol bias pc text e carry ws ip final) /\
  (forall ws ip final,observation pol bias pc text e carry ws ip final ->
     returned pol e ip final /\ WriteTrace.confined (writable e) ws).
@@ -74,29 +74,29 @@ Proof.
  - destruct (Nat.eqb_spec (count e) 0) as [Z|Live].
    + specialize (Empty Z);unfold empty_mapped in Empty;destruct(empty_return e) as [ip f].
      exists nil,ip,f;apply observe_empty;[exact Z|exact (proj1 (Empty carry))].
-   + destruct Exists as [ip [f R]];destruct(StageEntry.observed _ _ _ carry (Batch ltac:(lia))) as [st [ws [O _]]].
+   + destruct Exists as [ip [f R]];destruct(StageEntry.observed _ _ _ _ carry (Batch ltac:(lia))) as [st [ws [O _]]].
      exists ws,ip,f;eapply observe_batch;[lia|exact O|exact R].
  - intros ws ip f O;inversion O as [ws' ip' f' Z Run|st ws' ip' f' N Native R];subst.
    + specialize (Empty Z);unfold empty_mapped in Empty;destruct(empty_return e) as [back last] eqn:E.
      destruct (proj2 (Empty carry) _ _ Run) as [-> Same].
      inversion Same as [|s t u own rest Impossible];[|discriminate].
      subst;split;[apply Sound,empty_path;[exact Image|now rewrite Z|exact E]|constructor].
-   + destruct (StageEntry.observed _ _ _ carry (Batch N)) as [mid [log [Trace [_ Safe]]]].
+   + destruct (StageEntry.observed _ _ _ _ carry (Batch N)) as [mid [log [Trace [_ Safe]]]].
      rewrite Trace in Native;injection Native as <- <-;split;[exact (Sound _ _ R)|exact Safe].
 Qed.
 
-Lemma verified pol pc text : matches pc (destination pol) text -> empty_image text -> Prologue.bound text -> StageEntry.bound text -> TailWrites.bound text -> RejectCall.bound pc text ->
+Lemma verified pol pc text : matches pc (destination pol) text -> empty_image text -> Prologue.bound text -> StageEntry.bound text -> TailWrites.bound text -> StageWrites.bound text (destination pol Prepare-pc) -> RejectCall.bound pc text ->
  batch_contract pol pc text.
 Proof.
- intros Image Bytes Setup Select Pad Rejection.
+ intros Image Bytes Setup Select Pad Transfer Rejection.
  assert (Empty:forall bias e,admissible pol bias pc text e -> count e=0%nat ->
    empty_mapped (bias+pc) text e).
  { intros bias e Input Z;apply mapped_return;[exact (entry_text _ _ _ _ _ Input)|].
    apply empty_path_writes;[exact Bytes|exact (cpu_words _ _ _ _ _ Input)|exact Z]. }
  assert (Live:forall bias e,admissible pol bias pc text e -> (0<count e)%nat ->
-   StageEntry.physical (bias+pc) text e).
+   StageEntry.physical (bias+pc) text (destination pol Prepare-pc) e).
  { intros bias e Input N;destruct (batch_inputs _ _ _ _ _ Input N) as [P [_ [[_ Apart] _]]].
-   apply StageEntry.from_entry;[exact Setup|exact Select|exact Pad|exact P|exact N|
+   apply StageEntry.from_entry;[exact Setup|exact Select|exact Pad|exact Transfer|exact P|exact N|
      exact (entry_text _ _ _ _ _ Input)|exact Apart]. }
  constructor;[exact Image|exact Arguments.checked_arguments|exact static_tables_correct|
  exact (linked_calls pol)|exact (conj CallWrites.embedded (conj NestedRegions.embedded protected_slots))| | | |].
@@ -132,8 +132,8 @@ Qed.
 
 Theorem assembled_zip215_verify_batch_correct :
  batch_contract Zip215 ZipBytes.address ZipBytes.symbol_bytes.
-Proof. apply verified;[vm_compute;split;reflexivity|vm_compute;repeat split;reflexivity|repeat constructor|repeat constructor|repeat constructor|vm_compute;repeat split;discriminate || reflexivity]. Qed.
+Proof. apply verified;[vm_compute;split;reflexivity|vm_compute;repeat split;reflexivity|repeat constructor|repeat constructor|repeat constructor|vm_compute;repeat split;reflexivity|vm_compute;repeat split;discriminate || reflexivity]. Qed.
 
 Theorem assembled_dalek_verify_batch_correct :
  batch_contract Dalek DalekBytes.address DalekBytes.symbol_bytes.
-Proof. apply verified;[vm_compute;split;reflexivity|vm_compute;repeat split;reflexivity|repeat constructor|repeat constructor|repeat constructor|vm_compute;repeat split;discriminate || reflexivity]. Qed.
+Proof. apply verified;[vm_compute;split;reflexivity|vm_compute;repeat split;reflexivity|repeat constructor|repeat constructor|repeat constructor|vm_compute;repeat split;reflexivity|vm_compute;repeat split;discriminate || reflexivity]. Qed.

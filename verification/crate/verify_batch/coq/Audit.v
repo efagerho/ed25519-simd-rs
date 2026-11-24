@@ -68,7 +68,7 @@ Definition returned pol e ip final :=
    mem final (output e+Z.of_nat (position e i))=Z.b2z v /\
    (v=true <-> signature_accepts pol (read_input (mem e) (regs e 7%nat) i)).
 
-(* The log in a nonempty observation ends at the first transpose. The grouped
+(* The log in a nonempty observation ends at the first preparation call. The grouped
    continuation uses the same original descriptor and verdict buffers. An
    empty observation has a single concrete return CPU and no grouped suffix. *)
 Inductive observation pol bias pc text e carry : list WriteTrace.store -> Z -> cpu -> Prop :=
@@ -109,8 +109,8 @@ Record batch_contract pol pc text : Prop := {
  image_preserved : forall bias e, admissible pol bias pc text e ->
    (forall ip final,immutable_after pol bias pc text e ip final) /\
    ((0<count e)%nat -> physical_scatter pol bias e /\ RejectCall.contract bias pc text e);
- machine_staging_entry : forall bias e, admissible pol bias pc text e -> (0<count e)%nat ->
-   StageEntry.physical (bias+pc) text e;
+ machine_prepare_entry : forall bias e, admissible pol bias pc text e -> (0<count e)%nat ->
+   StageEntry.physical (bias+pc) text (destination pol Prepare-pc) e;
  machine_empty : forall bias e, admissible pol bias pc text e -> count e=0%nat ->
    let '(ip,final):=empty_return e in
    returned pol e ip final /\ empty_mapped (bias+pc) text e
