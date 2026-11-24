@@ -5,3 +5,4 @@ SignedMultiple.v
 Representation.v
 Cofactor.v
 Decompression.v
+RootCriterion.v
