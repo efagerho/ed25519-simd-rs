@@ -1,4 +1,4 @@
-From Coq Require Import List ZArith.
+From Coq Require Import List ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.WordBounds memory.FlatMemory memory.ByteMemory memory.MemoryGeometry abi.SysV.
 From Machine Require execution.MappedFetch execution.ScalarBytes execution.LinkedRun memory.WriteTrace.
 From Ed25519Simd.PrepareChunk Require Audit CommonBytes StrictBytes.
@@ -126,3 +126,20 @@ Record batch_contract pol pc text : Prop := {
    let '(ip,final):=empty_return e in
    returned pol e ip final /\ empty_mapped (bias+pc) text e
 }.
+
+Theorem single_rejected_return pol pc text : batch_contract pol pc text ->
+ forall bias e c masks,admissible pol bias pc text e -> (0<count e<=8)%nat -> ScalarInputs.noncanonical_chunk e ->
+ exists q,RejectExecution.scalar_rejection pol bias pc text e c masks=Some(RejectExecution.BatchReturned q) /\
+ LinkedRun.ip q=read_word (mem e) (sp e) /\ regs(LinkedRun.machine q) 4%nat=sp e+8 /\
+ regs(LinkedRun.machine q) 0%nat=1 /\ LinkedRun.accounted e (writable e) q /\
+ forall i,(i<count e)%nat -> mem(LinkedRun.machine q)(output e+Z.of_nat(position e i))=0 /\
+ ~signature_accepts pol (read_input (mem e) (regs e 7%nat) i).
+Proof.
+ intros Checked bias e c masks A [Live Size] Bad.
+ destruct(machine_scalar_return _ _ _ Checked bias e c masks A Live) as [s [_ [_ [Digits [_ Reject]]]]].
+ destruct(Reject (proj2 (ScalarInputs.zero_iff _ _ Live Digits) Bad))
+   as [Invalid [[q|q] [Run [Paid [[Status Outputs] Exit]]]]].
+ - destruct Exit as [PC SP];exists q;split;[exact Run|split;[exact PC|split;[exact SP|split;[exact Status|split;[exact Paid|]]]]].
+   intros i I;split;[apply Outputs;lia|apply Invalid;lia].
+ - destruct Exit as [More _];lia.
+Qed.
