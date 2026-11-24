@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Lia.
-From Machine Require Import execution.LinkedCalls memory.FlatMemory memory.ByteMemory.
+From Machine Require Import execution.LinkedCalls memory.FlatMemory memory.ByteMemory memory.MemoryGeometry.
 From Ed25519Simd.PrepareChunk Require Object.
 From Ed25519Simd.Sha512Challenge Require Object.
 From Ed25519Simd.Zip215 Require Object.
@@ -140,11 +140,17 @@ Proof.
  - intros bias e c masks Input N.
    destruct (scalar_from_entry _ _ _ _ _ c masks Input N (Live _ _ Input N)) as [stop [Run Post]].
    exists stop;split;[exact Run|split;[exact Post|]].
-   assert (Digits:ScalarInputs.recoded e (LinkedRun.machine stop)).
-   {destruct Post as [_ [_ [_ [_ [_ Recoded]]]]]. apply Recoded;[exact N|].
-     destruct (batch_inputs _ _ _ _ _ Input N) as [_ [[_ Inputs] _]].
+   destruct (batch_inputs _ _ _ _ _ Input N) as [P [[_ Inputs] _]].
+   assert (Data:ScalarInputs.recoded e (LinkedRun.machine stop) /\ ScalarInputs.copy_ready e (LinkedRun.machine stop)).
+   { destruct Post as [_ [_ [_ [_ [_ Contract]]]]]. apply Contract;[exact N|].
      intros j J;exact (proj1 (proj2 (Inputs j J))). }
-   split;[exact Digits|]. intro Zero;split;[exact (ScalarInputs.zero_rejects pol e _ Digits Zero)|].
+   split;[exact (proj1 Data)|]. split.
+   { intro Nonzero;apply (BatchDecode.from_scalar pol bias pc text e c masks stop);
+       [exact P|exact (callee_image _ _ _ _ _ Input N)| |exact Run|exact Post|exact (proj2 Data)|exact Nonzero].
+     intros j sig J;destruct (Inputs _ (TailCopy.live_row e j N)) as [Key [Sig Msg]].
+     unfold ScalarInputs.encoding_ptr;destruct sig;[|exact Key]. destruct Sig as [[Low High] Away].
+     split;[unfold fits64;split;[exact Low|lia]|intros x X;apply Away;lia]. }
+   intro Zero;split;[exact (ScalarInputs.zero_rejects pol e _ (proj1 Data) Zero)|].
    destruct (batch_inputs _ _ _ _ _ Input N) as [Place [_ [[_ Apart] _]]].
    pose proof (callee_image _ _ _ _ _ Input N) as Loaded.
    destruct (PrepareUnwind.rejected _ _ _ _ _ Place Loaded Post Zero) as [caller [Unwind End]].

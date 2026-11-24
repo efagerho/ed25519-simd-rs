@@ -6,6 +6,7 @@ From Ed25519Simd.Sha512Challenge Require Audit ObjectBytes LiteralBytes.
 From Ed25519Simd.Zip215 Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.DalekPostHash Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Arguments Image Control Tables Scatter Loop Return LoadedImage EntryWrites CallWrites NestedRegions StageEntry RejectCall BatchScalar PrepareUnwind RejectDispatch RejectFinish RejectExecution.
+From Ed25519Simd.VerifyBatch Require BatchDecode.
 Local Open Scope Z_scope.
 
 Definition destination pol t := match t with
@@ -114,6 +115,9 @@ Record batch_contract pol pc text : Prop := {
    exists stop, BatchScalar.observe pol bias (bias+pc) text e carry masks=Some stop /\
                 BatchScalar.post pol bias (bias+pc) e stop /\
                 ScalarInputs.recoded e (LinkedRun.machine stop) /\
+                (regs (LinkedRun.machine stop) 0%nat mod 2^32<>0 ->
+                 exists decoder, BatchDecode.observe pol bias pc text e carry masks=Some decoder /\
+                                 BatchDecode.entry pol bias e decoder) /\
                 (regs (LinkedRun.machine stop) 0%nat mod 2^32=0 ->
                  (forall j,(j<8)%nat -> (j<count e)%nat -> ~signature_accepts pol (read_input (mem e) (regs e 7%nat) j)) /\
                  exists r, RejectExecution.scalar_rejection pol bias pc text e carry masks=Some r /\
