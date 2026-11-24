@@ -1,4 +1,4 @@
-From Coq Require Import List ZArith Lia.
+From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions isa.QwordRegister execution.LinkedCalls
  execution.WordSemantics execution.ScalarBytes execution.InstructionRoute execution.MappedFetch.
 Import ListNotations. Local Open Scope Z_scope.
@@ -46,3 +46,28 @@ Qed.
 Lemma arithmetic_lane load r code :
  lane load r (map Arithmetic code)=Instructions.run load code r.
 Proof. revert r;induction code as [|[d op] tail IH];intro r;cbn;auto. Qed.
+
+Definition same_operation (a b:operation) : {a=b}+{a<>b}.
+Proof. repeat decide equality. Defined.
+Definition projected i := match i with
+ | QwordOp (Alu ins)=>Some (Arithmetic ins)
+ | QwordOp (Or d a b)=>Some (BitOr d a b) | _=>None end.
+Lemma projected_native i op : projected i=Some op -> i=QwordOp (native op).
+Proof. destruct i;try discriminate;destruct i;intro E;try discriminate;injection E as <-;reflexivity. Qed.
+
+Fixpoint checks text pc code := match code with
+ | []=>true | i::rest=>match ScalarBytes.decode (skipn (Z.to_nat pc) text) with
+   | Some(n,ins)=>match projected ins with
+     | Some op=>if same_operation op i then
+        (0<=?pc) && Nat.eqb n (width i) && checks text (pc+Z.of_nat n) rest else false
+     | None=>false end | None=>false end end.
+Lemma checks_route text code pc : checks text pc code=true -> linked text (route pc code).
+Proof.
+ revert pc;induction code as [|i rest IH];intros pc H;[constructor|].
+ cbn [checks] in H;destruct (ScalarBytes.decode _) as [[n ins]|] eqn:D;try discriminate.
+ destruct (projected ins) as [op|] eqn:P;try discriminate.
+ destruct (same_operation op i) as [->|];try discriminate.
+ apply Bool.andb_true_iff in H as [A H];apply Bool.andb_true_iff in A as [Pos Size].
+ apply Nat.eqb_eq in Size;subst n;apply projected_native in P;subst ins.
+ constructor;[split;[apply Z.leb_le,Pos|exact D]|apply IH,H].
+Qed.
