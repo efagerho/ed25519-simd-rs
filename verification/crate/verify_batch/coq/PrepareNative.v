@@ -73,7 +73,8 @@ Qed.
 Definition common_post slide top s t :=
  loc t=Running (scalar-common) /\ regs (cpu_state t) 4%nat=top-112 /\
  regs (cpu_state t) 6%nat=top-104 /\ regs (cpu_state t) 7%nat=word(regs s 7%nat+512) /\
- read_word (mem (cpu_state t)) (top-112)=word(slide+common+65).
+ read_word (mem (cpu_state t)) (top-112)=word(slide+common+65) /\
+ regs(cpu_state t) 3%nat=regs s 7%nat /\ regs(cpu_state t) 15%nat=regs s 6%nat.
 
 Definition common_fetch slide := ScalarBytes.fetch (slide+common) CommonBytes.symbol_bytes.
 
@@ -100,7 +101,7 @@ Qed.
 
 Lemma assigned slide s carry top : regs s 4%nat=top-40 -> words_fit top ->
  exists u c,MappedFetch.run 5 (common_fetch slide) (at_pc 9 s carry)=Some(at_pc 25 u c,[]) /\
- regs u 4%nat=top-104 /\ regs u 3%nat=regs s 7%nat /\ regs u 6%nat=regs s 6%nat /\ mem u=mem s.
+ regs u 4%nat=top-104 /\ regs u 3%nat=regs s 7%nat /\ regs u 6%nat=regs s 6%nat /\ mem u=mem s /\ regs u 15%nat=regs s 6%nat.
 Proof.
  intros SP Fit;do 2 eexists;split;[apply (checked _ _ _ assign_linked);reflexivity|].
  simplify_cpu;rewrite SP;normalize;repeat split;lia.
@@ -111,13 +112,13 @@ Lemma stored slide s c top : regs s 4%nat=top-104 -> words_fit top ->
  exists u ws,MappedFetch.run 4 (common_fetch slide) (at_pc 25 s c)=Some(at_pc 50 u c,ws) /\
  regs u 4%nat=top-104 /\ regs u 3%nat=regs s 3%nat /\
  (forall j,(j<8)%nat -> read_word (mem u) (top-104+8*Z.of_nat j)=signed_pointer s j) /\
- confined (fun x=>top-104<=x<top-40) ws.
+ confined (fun x=>top-104<=x<top-40) ws /\ regs u 15%nat=regs s 15%nat.
 Proof.
  intros SP Fit;do 2 eexists;split;[apply (checked _ _ _ pointers_linked);reflexivity|].
  simplify_cpu;rewrite SP, Z.add_0_r;normalize.
  split;[reflexivity|]. split;[reflexivity|]. split.
  - intros j J. apply write_read_vector;[exact J|apply mod64_word].
- - constructor;[|constructor]. intros x X;change (top-104<=x<top-104+64) in X;unfold stack_range;lia.
+ - split;[|reflexivity]. constructor;[|constructor]. intros x X;change (top-104<=x<top-104+64) in X;unfold stack_range;lia.
 Qed.
 
 Lemma dispatched slide s c top : regs s 4%nat=top-104 -> words_fit top -> word64(slide+scalar) ->
@@ -126,7 +127,7 @@ Lemma dispatched slide s c top : regs s 4%nat=top-104 -> words_fit top -> word64
  regs (cpu_state t) 6%nat=top-104 /\ regs (cpu_state t) 7%nat=word(regs s 3%nat+512) /\
  read_word (mem (cpu_state t)) (top-112)=word(slide+common+65) /\
  (forall j,read_word (mem (cpu_state t)) (top-104+8*Z.of_nat j)=read_word (mem s) (top-104+8*Z.of_nat j)) /\
- confined (fun x=>top-112<=x<top-104) ws.
+ confined (fun x=>top-112<=x<top-104) ws /\ regs(cpu_state t) 3%nat=regs s 3%nat /\ regs(cpu_state t) 15%nat=regs s 15%nat.
 Proof.
  intros SP Fit PC;do 2 eexists;split;[apply (checked _ _ _ dispatch_linked);reflexivity|].
  simplify_cpu;rewrite SP,!Z.add_0_r;normalize.
@@ -137,7 +138,7 @@ Proof.
  - change (read_word (store_word (mem s) (top-112) (slide+common+65)) (top-112) = word(slide+common+65)).
    apply read_word_encoded;intros k K;apply write_at,K.
  - split;[intro j;apply read_other_word;unfold disjoint;lia|].
-   constructor;[|constructor];intros x X;change (top-112<=x<top-112+8) in X;unfold stack_range;lia.
+   split;[|split;reflexivity]. constructor;[|constructor];intros x X;change (top-112<=x<top-112+8) in X;unfold stack_range;lia.
 Qed.
 
 Definition ptr_row s j := regs s 6%nat+64+8*Z.of_nat j.
@@ -151,14 +152,14 @@ Lemma common_dispatch slide s carry top :
 Proof.
  intros SP Fit PC Table Separate.
  destruct (saved slide s carry top SP Fit) as [v [head [S [VSP [DI [SI [H Slots]]]]]]].
- destruct (assigned slide v carry top VSP Fit) as [a [ca [A [ASP [BX [RSI Mem]]]]]].
- destruct (stored slide a ca top ASP Fit) as [b [stores [B [BSP [RBX [Ptrs W]]]]]].
- destruct (dispatched slide b ca top BSP Fit PC) as [t [tail [T [IP [Top [R6 [R7 [Ret [Keep Safe]]]]]]]]].
+ destruct (assigned slide v carry top VSP Fit) as [a [ca [A [ASP [BX [RSI [Mem Rows]]]]]]].
+ destruct (stored slide a ca top ASP Fit) as [b [stores [B [BSP [RBX [Ptrs [W RowsB]]]]]]].
+ destruct (dispatched slide b ca top BSP Fit PC) as [t [tail [T [IP [Top [R6 [R7 [Ret [Keep [Safe [Scratch RowsT]]]]]]]]]]].
  pose proof(run_append _ _ _ _ _ S _ _ _ A) as First.
  pose proof(run_append _ _ _ _ _ First _ _ _ B) as Second.
  pose proof(run_append _ _ _ _ _ Second _ _ _ T) as All.
  exists t,(((head++[])++stores)++tail);split;[exact All|].
- split;[unfold common_post;rewrite R7,RBX,BX,DI;auto|]. split.
+ split;[unfold common_post;rewrite R7,Scratch,RBX,BX,DI,RowsT,RowsB,Rows,SI;repeat split;assumption || reflexivity|]. split.
  - rewrite app_nil_r;unfold confined;rewrite !Forall_app;repeat split.
    all: eapply Forall_impl;[|eassumption];intros w K x X;specialize (K x X);unfold stack_range in *;lia.
  - split.

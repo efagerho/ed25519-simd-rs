@@ -81,6 +81,11 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    the digit destination. The proof checks the scalar symbol against the live
    byte image, appends its digit stores, and reads the continuation from the
    stack. Replaying the combined log recovers every byte at that return.
+   If any scalar is canonical, both entries execute the two 32-byte stores
+   for each of eight lanes and call the paired decoder. Its 512 input bytes
+   match the original public keys and R encodings, including padded lanes.
+   The output point pointer, pair count and pushed return PC are established
+   on the same memory. [Decoder entry](coq/BatchDecode.v) · [Encoding copies](coq/PrepareCopies.v)
    If EAX is zero there, the decoded branches, pops and returns take both
    policies back to the wrapper's preparation continuation with RSP restored,
    the same EAX and no additional stores. The wrapper passes its original
