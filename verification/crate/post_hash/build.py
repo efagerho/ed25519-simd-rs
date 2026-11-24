@@ -29,10 +29,12 @@ def symbol_inputs(elf, dest, entries):
     return symbols, modules
 
 
-def load_callees(elf, work, dependencies, components_to_load, overrides):
+def load_callees(elf, work, dependencies, components_to_load, overrides, *, sources_only=False):
     dep_symbols = {}
     digest = sha256(elf)
     components = {ns: component for component, ns in COMPONENTS.items()}
+    proof_roots = {ns: HERE.parent / name / "coq" for ns, name in components.items()}
+    proof_roots.update(PostHash=HERE, sha512=HERE.parents[1] / "sha512")
     for name, namespaces in components_to_load.items():
         parent = overrides.get(name, dependencies)
         audit = parent / (name.replace("_", "-") + "-audit")
@@ -44,11 +46,10 @@ def load_callees(elf, work, dependencies, components_to_load, overrides):
             raise ValueError(f"{audit} was built against a different ELF")
         for symbol in manifest["symbols"]:
             entry = symbol["name"]
-            if name == "signature_scalar" and entry == "scalar_order":
-                # This unnamed constant is addressed by RIP-relative operands.
-                # The callee theorem checks their target and all 32 bytes.
+            if entry in ("scalar_order", "sha512_literals"):
+                # The callee certificate checks all RIP-relative operands and literal bytes.
                 pc = symbol["address"]
-                raw = symbol_bytes(elf, pc, 32, readonly_data=True)
+                raw = symbol_bytes(elf, pc, 32 if entry == "scalar_order" else 832, readonly_data=True)
             else:
                 pc, size = symbol_extent(elf, entry)
                 raw = symbol_bytes(elf, pc, size)
@@ -56,14 +57,18 @@ def load_callees(elf, work, dependencies, components_to_load, overrides):
                 raise ValueError(f"callee evidence differs from ELF for {entry}")
             dep_symbols[entry] = (entry, pc, raw)
         for ns in namespaces:
+            if sources_only:
+                (work / ns).mkdir()
             for source in (audit / ns).glob("*.v"):
-                root = HERE if ns == "PostHash" else HERE.parent / components[ns] / "coq"
-                checked_in = root / source.name
+                checked_in = proof_roots[ns] / source.name
                 if sha256(source) != manifest["files"][f"{ns}/{source.name}"]:
                     raise ValueError(f"corrupt callee proof source {source}")
                 if checked_in.exists() and source.read_bytes() != checked_in.read_bytes():
                     raise ValueError(f"callee evidence predates the current {checked_in}")
-            shutil.copytree(audit / ns, work / ns, ignore=shutil.ignore_patterns("Checked.*"))
+                if sources_only and source.name != "Checked.v":
+                    shutil.copyfile(source, work / ns / source.name)
+            if not sources_only:
+                shutil.copytree(audit / ns, work / ns, ignore=shutil.ignore_patterns("Checked.*"))
     return list(dep_symbols.values())
 
 

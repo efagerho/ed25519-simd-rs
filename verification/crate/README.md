@@ -6,6 +6,7 @@ README for its contract and release audit.
 
 | Routine | What the theorem covers |
 | --- | --- |
+| [verify_batch/](verify_batch/README.md) | Both production entry points, from original signature, key and message bytes to one policy verdict at each original output index. |
 | [dalek_post_hash/](dalek_post_hash/README.md) | Strict post-hash verification, including weak-key rejection, canonical R encoding and active-lane output placement. |
 | [zip215/](zip215/README.md) | Post-hash cofactored verification, deferred resolution, and active-lane output placement. |
 | [pow2/](pow2/README.md) | Paired field exponentiation. |
@@ -31,10 +32,10 @@ README for its contract and release audit.
 Use the [shared audit surface](../README.md#shared-audit-surface) for the
 machine, memory, and mathematical assumptions. For each release, follow the
 routine’s inputs from its caller to the public theorem and its outputs back
-to the caller. The certificates begin at the component assembly ABIs. The
-outer batch loop and its composition of preparation, hashing, and scoring
-still require a separate proof. Audit Rust's policy dispatch and input
-descriptors alongside the native loop's padding and output indices.
+to the caller. For production batch verification, start with the theorem for the
+policy selected by Rust. Check its caller premises and grouped execution
+boundary alongside the Rust dispatch, descriptor layout and output indices.
+[Batch contracts and audit guide](verify_batch/README.md) ·
 [Rust driver](../../src/verifier/driver.rs) · [Descriptor layout](../../src/batch.rs) ·
 [Batch assembly](../../src/wide/avx512ifma/verify_batch.S)
 
