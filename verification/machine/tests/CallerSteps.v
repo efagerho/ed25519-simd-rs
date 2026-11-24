@@ -113,3 +113,14 @@ Example preserved_register_at_instruction_boundaries :
  PreservedRegister.checks_at 5 epilogue 1 2=false /\
  PreservedRegister.checks_at 5 ([0xeb;1]++epilogue) 0 2=false.
 Proof. repeat split;reflexivity. Qed.
+
+Example eligibility_byte_store :
+ let code:=[0x44;0x0f;0xb6;0xf8;0xc1;0xe8;8;0x41;0x88;0x45;0x48;0x45;0x21;0xfe;0x41;0x21;0xc6] in
+ let s:=CPU (fun r=>if (r=?0)%nat then 2^40+0x81c3 else if (r=?13)%nat then 256 else 2^35+0xb1)
+    (fun _ _=>0) None (fun _=>19) in
+ match MappedFetch.run 5 (ScalarBytes.fetch 100 code) (ScalarBytes.State (ScalarBytes.Running 0) s None) with
+ | Some(t,[w])=>let v:=ScalarBytes.cpu_state t in
+   regs v 0%nat=0x81 /\ regs v 15%nat=0xc3 /\ regs v 14%nat=0x81 /\ flag v=Some false /\
+   WriteTrace.pc w=107 /\ WriteTrace.address w=328 /\ WriteTrace.size w=1%nat /\ mem v 328=129 /\ mem v 329=19
+ | _=>False end.
+Proof. repeat split;reflexivity. Qed.
