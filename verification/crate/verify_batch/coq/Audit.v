@@ -75,7 +75,8 @@ Definition first_chunk pol bias pc text e carry masks :=
                 ScalarInputs.recoded e (LinkedRun.machine stop) /\
                 (regs (LinkedRun.machine stop) 0%nat mod 2^32<>0 ->
                  exists decoder, BatchDecode.observe pol bias pc text e carry masks=Some decoder /\
-                                 BatchDecode.entry pol bias e decoder) /\
+                                 BatchDecode.entry pol bias e decoder /\
+                                 exists setup,BatchDecode.inner bias decoder=Some setup /\ BatchDecode.setup pol bias e setup) /\
                 (regs (LinkedRun.machine stop) 0%nat mod 2^32=0 ->
                  (forall j,(j<8)%nat -> (j<count e)%nat -> ~signature_accepts pol (read_input (mem e) (regs e 7%nat) j)) /\
                  exists r, RejectExecution.scalar_rejection pol bias pc text e carry masks=Some r /\

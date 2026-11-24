@@ -62,3 +62,65 @@ Proof.
      replace (common_top pol e-112) with (frame-8) by (unfold frame;ring).
      exact (conj Top (conj Ret Data)).
 Qed.
+
+From Ed25519Simd.VerifyBatch Require DecoderFrame.
+From Ed25519Simd.Decode Require HelperBytes.
+From Machine Require execution.ScalarByteMemory.
+Definition inner bias := segment (bias+DecoderFrame.origin) DecoderFrame.code 15.
+Definition setup pol bias e p := let stack:=common_top pol e-112 in let s:=machine p in
+ ip p=bias+DecoderFrame.origin+244 /\ accounted e (writable e) p /\
+ regs s 4%nat=DecoderFrame.top stack-8 /\ regs s 5%nat=stack-8 /\
+ regs s 3%nat=scratch e+1024 /\ regs s 7%nat=scratch e+1024 /\ regs s 6%nat=scratch e /\
+ regs s 12%nat=2 /\ read_word (mem s) (DecoderFrame.top stack-8)=word(bias+DecoderFrame.origin+73) /\
+ read_word (mem s) stack=word(bias+PrepareNative.common+142) /\
+ PrepareCopies.staged (mem e) (mem s) (scratch e) (encoding_ptr e) 8 /\
+ forall i j,(i<4)%nat -> vectors s j (28+i)%nat=DecoderFrame.constant i.
+
+Lemma helper_in pol : In (Decode.HelperBytes.address,Decode.HelperBytes.symbol_bytes) (children pol).
+Proof. apply in_or_app;left;do 7 right;left;reflexivity. Qed.
+
+Theorem from_decoder pol bias e p : placement e -> loaded pol bias (mem e) (writable e) ->
+ entry pol bias e p -> exists q,inner bias p=Some q /\ setup pol bias e q.
+Proof.
+ intros Place Image [PC [Acc [DI [SI [DX [SP [Ret Staged]]]]]]].
+ set (origin:=bias+DecoderFrame.origin) in *;set (stack:=common_top pol e-112) in *.
+ destruct (stack_ok _ Place) as [[Lo Hi] _].
+ assert (Bounds:sp e-1200<=stack<sp e-1000) by (unfold stack,common_top,Rows.frame,sp;destruct pol;lia).
+ assert (Private:forall x,DecoderFrame.private_stack stack x -> sp e-2048<=x<stack).
+ { intros x H;unfold DecoderFrame.private_stack,DecoderFrame.slot,DecoderFrame.top in H;
+   pose proof(Z.mod_pos_bound (stack-40) 64 ltac:(lia));lia. }
+ pose proof(proj1(symbols _ _ _ _ Image _ _ (decode_in pol))) as DecodeRange.
+ assert (Fits:word64(origin+244)).
+ { unfold origin,DecoderFrame.origin,word64;destruct DecodeRange as [L H].
+   assert (244<Z.of_nat(length DecoderBytes.symbol_bytes)) by (vm_compute;reflexivity);lia. }
+ destruct(mapped_now _ _ _ Image _ _ _ Acc (helper_in pol)) as [Helper Away].
+ pose proof(proj1(symbols _ _ _ _ Image _ _ (helper_in pol))) as HelperRange.
+ assert (Lit:forall i,(i<4)%nat -> word64(bias+DecoderFrame.at_literal i)).
+ { intros i I;pose proof(DecoderFrame.offsets i I) as [L H];unfold DecoderFrame.at_literal,DecoderFrame.helper;
+   unfold DecoderFrame.field_offset in *;unfold word64;destruct HelperRange;lia. }
+ destruct(DecoderFrame.to_setup origin (machine p) (carry p) stack SP ltac:(lia) Fits)
+   as [t [cf [ws [Run [[Stack [BP [Dest [Src [BX Count]]]]] [Back [Writes Values]]]]]]].
+ { intros i k I K;unfold origin;replace (bias+DecoderFrame.origin+DecoderFrame.at_literal i-DecoderFrame.origin)
+     with (bias+DecoderFrame.at_literal i) by ring;rewrite (word_fits _ (Lit i I)).
+   intro X;apply (Away (bias+DecoderFrame.at_literal i+k)).
+   - pose proof(DecoderFrame.offsets i I);unfold DecoderFrame.field_offset,DecoderFrame.at_literal,DecoderFrame.helper in *;lia.
+   - left;unfold DecoderFrame.slot,span in *;lia. }
+ assert (Safe:confined (writable e) ws) by (eapply Forall_impl;[|exact Writes];intros w W x X;left;
+    specialize(Private x (W x X));unfold span;lia).
+ destruct(mapped_now _ _ _ Image _ _ _ Acc (decode_in pol)) as [Map Apart].
+ assert (Start:ip p=origin+0) by (rewrite Z.add_0_r;exact PC).
+ destruct(at_segment _ _ _ _ DecoderFrame.code _ 0 _ _ Acc Start Map Apart Run Safe) as [Next Paid].
+ eexists;split;[exact Next|]. unfold setup;fold stack;cbn [LinkedRun.finish ip machine absolute cpu_state loc];
+   split;[reflexivity|split;[exact Paid|]].
+ split;[exact Stack|split;[exact BP|split;[exact (eq_trans BX DI)|split;[exact (eq_trans Dest DI)|split;[exact (eq_trans Src SI)|]]]]].
+ split;[rewrite Count,DX;reflexivity|split;[exact Back|]]. pose proof(steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ Run)) as M.
+ change (mem t=WriteTrace.replay (mem(machine p)) ws) in M.
+ assert (Unchanged:forall x,~DecoderFrame.private_stack stack x -> mem t x=mem(machine p) x)
+    by (intros x H;rewrite M;apply (WriteTrace.frame _ _ Writes),H).
+ split;[rewrite <-Ret;apply preserved_read with (outside:=fun x=>~DecoderFrame.private_stack stack x);
+   [exact Unchanged|intros k K H;specialize(Private _ H);change (0<=k<8) in K;lia]|].
+ split.
+ - intros j sig k J K;rewrite Unchanged;[exact (Staged j sig k J K)|].
+   intro T;specialize(Private _ T);destruct(scratch_stack _ Place);unfold PrepareCopies.dest in *;destruct sig;lia.
+ - intros i j I;rewrite (Values _ _ I);exact (DecoderFrame.mapped_value _ bias i I Helper (Lit _ I)).
+Qed.
