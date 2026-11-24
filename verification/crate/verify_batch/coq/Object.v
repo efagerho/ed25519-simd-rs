@@ -141,12 +141,12 @@ Proof.
    destruct (scalar_from_entry _ _ _ _ _ c masks Input N (Live _ _ Input N)) as [stop [Run Post]].
    exists stop;split;[exact Run|split;[exact Post|]].
    destruct (batch_inputs _ _ _ _ _ Input N) as [P [[_ Inputs] _]].
-   assert (Data:ScalarInputs.recoded e (LinkedRun.machine stop) /\ ScalarInputs.copy_ready e (LinkedRun.machine stop)).
+   assert (Data:ScalarInputs.recoded e (LinkedRun.machine stop) /\ ScalarInputs.copy_ready e (LinkedRun.machine stop) /\ StageEntry.metadata e (mem(LinkedRun.machine stop))).
    { destruct Post as [_ [_ [_ [_ [_ Contract]]]]]. apply Contract;[exact N|].
      intros j J;exact (proj1 (proj2 (Inputs j J))). }
    split;[exact (proj1 Data)|]. split.
    { intro Nonzero;apply (BatchDecode.from_scalar pol bias pc text e c masks stop);
-       [exact P|exact (callee_image _ _ _ _ _ Input N)| |exact Run|exact Post|exact (proj2 Data)|exact Nonzero].
+       [exact P|exact (callee_image _ _ _ _ _ Input N)| |exact Run|exact Post|exact (proj1(proj2 Data))|exact Nonzero].
      intros j sig J;destruct (Inputs _ (TailCopy.live_row e j N)) as [Key [Sig Msg]].
      unfold ScalarInputs.encoding_ptr;destruct sig;[|exact Key]. destruct Sig as [[Low High] Away].
      split;[unfold fits64;split;[exact Low|lia]|intros x X;apply Away;lia]. }
