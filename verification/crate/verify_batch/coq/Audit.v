@@ -5,7 +5,7 @@ From Ed25519Simd.PrepareChunk Require Audit CommonBytes StrictBytes.
 From Ed25519Simd.Sha512Challenge Require Audit ObjectBytes LiteralBytes.
 From Ed25519Simd.Zip215 Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.DalekPostHash Require Audit DecodedBytes ScatterBytes.
-From Ed25519Simd.VerifyBatch Require Import Policy Arguments Image Control Tables Scatter Loop Return LoadedImage EntryWrites CallWrites NestedRegions StageEntry RejectCall BatchScalar.
+From Ed25519Simd.VerifyBatch Require Import Policy Arguments Image Control Tables Scatter Loop Return LoadedImage EntryWrites CallWrites NestedRegions StageEntry RejectCall BatchScalar PrepareUnwind.
 Local Open Scope Z_scope.
 
 Definition destination pol t := match t with
@@ -112,7 +112,10 @@ Record batch_contract pol pc text : Prop := {
    StageEntry.physical (bias+pc) text (destination pol Prepare-pc) e;
  machine_scalar_return : forall bias e carry masks, admissible pol bias pc text e -> (0<count e)%nat ->
    exists stop, BatchScalar.observe pol bias (bias+pc) text e carry masks=Some stop /\
-                BatchScalar.post pol bias e stop;
+                BatchScalar.post pol bias (bias+pc) e stop /\
+                (regs (LinkedRun.machine stop) 0%nat mod 2^32=0 ->
+                 exists q, PrepareUnwind.unwind pol bias stop=Some q /\
+                    PrepareUnwind.prepared_again (bias+pc) e stop q);
  machine_empty : forall bias e, admissible pol bias pc text e -> count e=0%nat ->
    let '(ip,final):=empty_return e in
    returned pol e ip final /\ empty_mapped (bias+pc) text e

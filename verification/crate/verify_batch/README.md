@@ -78,7 +78,10 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    the digit destination. The proof checks the scalar symbol against the live
    byte image, appends its digit stores, and reads the continuation from the
    stack. Replaying the combined log recovers every byte at that return.
-   [Nested scalar call](coq/BatchScalar.v) · [Preparation prologues](coq/PrepareNative.v) ·
+   If EAX is zero there, the decoded branches, pops and returns take both
+   policies back to the wrapper's preparation continuation with RSP restored,
+   the same EAX and no additional stores.
+   [Rejection returns](coq/PrepareUnwind.v) · [Nested scalar call](coq/BatchScalar.v) · [Preparation prologues](coq/PrepareNative.v) ·
    [Empty return](coq/EntryWrites.v) · [Nonempty entry](coq/StageEntry.v) ·
    [Tail loop](coq/TailWrites.v) · [Preparation handoff](coq/StageWrites.v)
 5. **Nested writes.** The caller bounds cover SHA state and digest stores,
