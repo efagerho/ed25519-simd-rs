@@ -167,7 +167,8 @@ Theorem staged o text frame base n original s c :
  (forall x,base<=x<base+40*n -> mem s x=original x) ->
  exists t cf ws,run 90 (ScalarBytes.fetch o text) (State (Running 56) s c)=Some(State (Running 82) t cf,ws) /\
  regs t 3%nat=frame /\ (forall i k,(i<8)%nat -> 0<=k<40 ->
- mem t (frame+40*Z.of_nat i+k)=original (source base n i+k)) /\ read_word (mem t) (frame+928)=n.
+ mem t (frame+40*Z.of_nat i+k)=original (source base n i+k)) /\ read_word (mem t) (frame+928)=n /\
+ (forall x,frame+960<=x -> mem t x=mem s x).
 Proof.
  intros Start Jump Body N Fit Frame Sep SP BX Left Bytes Borrow.
  destruct (started o text frame base n s c Start N Fit Frame SP BX Left) as [u [w [R [Held Store]]]].
@@ -177,7 +178,8 @@ Proof.
  destruct (fill o text original frame base n Body ltac:(lia) Fit ltac:(unfold fits64 in *;lia)
     ltac:(unfold disjoint in *;lia) 8 0 u (Some false) eq_refl Held I) as [t [cf [ws [Copy [Base [[_ [_ Data]] Outside]]]]]].
  exists t,cf,((w++ws)++[]);split;[|split;[exact Base|split;[exact Data|]]].
- 2:{ apply read_word_exact;[unfold word64;lia|intros k K;rewrite Outside by lia;rewrite Store;apply write_at,K]. }
+ 2:{ split;[apply read_word_exact;[unfold word64;lia|intros k K;rewrite Outside by lia;rewrite Store;apply write_at,K]|].
+     intros x X;rewrite Outside by lia;rewrite Store;unfold store_word;apply write_outside;lia. }
  exact (run_append _ _ _ _ _ (run_append _ 9 _ _ _ R 80 _ _ Copy) 1 _ _ (jumped o text t cf Jump)).
 Qed.
 

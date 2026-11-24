@@ -48,7 +48,7 @@ Lemma strict_returns slide s c top : 8<=top -> top+8<2^64 ->
  regs (cpu_state last) 14%nat=regs s 14%nat /\ regs(cpu_state last) 12%nat=regs s 12%nat.
 Proof. intros L H SP Zero. unwind strict_bytes strict_reject SP Zero. Qed.
 
-From Machine Require Import execution.LinkedRun memory.FlatMemory memory.MemoryGeometry.
+From Machine Require Import execution.LinkedRun execution.PreservedRegister memory.FlatMemory memory.MemoryGeometry.
 From Machine Require execution.ScalarRefinement.
 From Ed25519Simd.VerifyBatch Require Import Policy Rows Image Return LoadedImage BatchScalar.
 
@@ -59,7 +59,7 @@ Definition unwind pol bias p :=
 Definition prepared_again entry e p q := ip q=word(entry+offset Prepared) /\
  regs(machine q) 4%nat=Rows.frame e /\ regs(machine q) 0%nat=regs(machine p) 0%nat /\
  mem(machine q)=mem(machine p) /\ log q=log p /\ Prologue.output_registers e (machine q) /\
- regs(machine q) 12%nat=Prologue.rows_left (regs e 6%nat).
+ regs(machine q) 12%nat=Prologue.rows_left (regs e 6%nat) /\ regs(machine q) 5%nat=regs(machine p) 5%nat.
 
 Theorem rejected pol bias entry e p :
  Return.placement e -> loaded pol bias (mem e) (writable e) ->
@@ -81,8 +81,9 @@ Proof.
  assert (Log:log q=log p) by (unfold q;cbn [LinkedRun.finish log];apply app_nil_r).
  assert (Outputs:Prologue.output_registers e (machine q)) by
    (split;[exact (eq_trans C Count)|exact (eq_trans O Out)]).
+ pose proof(PreservedRegister.run_keeps 5 _ CommonBytes.symbol_bytes _ _ _ _ ltac:(vm_compute;reflexivity) Run) as BP.
  unfold unwind;rewrite Next;cbn [bind]. fold q. destruct pol.
- - exists q;split;[reflexivity|]. unfold prepared_again;split;[|split;[|exact (conj Eax (conj Flat (conj Log (conj Outputs (eq_trans R12 Left)))))]].
+ - exists q;split;[reflexivity|]. unfold prepared_again;split;[|split;[|exact (conj Eax (conj Flat (conj Log (conj Outputs (conj (eq_trans R12 Left) BP)))))]].
    + unfold top,common_top in PC;rewrite Z.sub_0_r,Root,ScalarRefinement.word_idempotent in PC;exact PC.
    + change (regs(cpu_state last) 4%nat=Rows.frame e);rewrite Stack;unfold top,common_top;ring.
  - assert (Strict:ip q=bias+PrepareNative.strict+9).
@@ -99,5 +100,5 @@ Proof.
    exists (LinkedRun.finish (bias+PrepareNative.strict) q (endst,[]));split;[exact After|].
    unfold prepared_again;cbn [LinkedRun.finish ip machine log];unfold absolute;rewrite Back.
    change (mem(machine q)=mem(machine p)) in Flat;unfold outer;rewrite Flat,Root,ScalarRefinement.word_idempotent.
-   repeat split;[rewrite Top;unfold outer;ring|rewrite AX;exact Eax|now rewrite M|now rewrite app_nil_r,Log|rewrite N;exact (proj1 Outputs)|rewrite D;exact (proj2 Outputs)|rewrite L12;exact (eq_trans R12 Left)].
+   repeat split;[rewrite Top;unfold outer;ring|rewrite AX;exact Eax|now rewrite M|now rewrite app_nil_r,Log|rewrite N;exact (proj1 Outputs)|rewrite D;exact (proj2 Outputs)|rewrite L12;exact (eq_trans R12 Left)|exact (eq_trans (PreservedRegister.run_keeps 5 _ StrictBytes.symbol_bytes _ _ _ _ ltac:(vm_compute;reflexivity) End) BP)].
 Qed.

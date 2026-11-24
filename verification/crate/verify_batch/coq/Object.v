@@ -96,10 +96,10 @@ Proof.
      rewrite Trace in Native;injection Native as <-;exact (conj (Sound _ _ R) Safe).
 Qed.
 
-Lemma verified pol pc text : matches pc (destination pol) text -> empty_image text -> Prologue.bound text -> StageEntry.bound text -> TailWrites.bound text -> StageWrites.bound text (destination pol Prepare-pc) -> RejectCall.bound pc text -> RejectDispatch.bound pc text -> RejectFinish.bound text ->
+Lemma verified pol pc text : matches pc (destination pol) text -> empty_image text -> Prologue.bound text -> StageEntry.bound text -> TailWrites.bound text -> StageWrites.bound text (destination pol Prepare-pc) -> RejectCall.bound pc text -> RejectDispatch.bound pc text -> RejectFinish.bound text -> PreservedRegister.checks 5 text=true ->
  batch_contract pol pc text.
 Proof.
- intros Image Bytes Setup Select Pad Transfer Rejection ScatterCode ExitCode.
+ intros Image Bytes Setup Select Pad Transfer Rejection ScatterCode ExitCode RBP.
  assert (Empty:forall bias e,admissible pol bias pc text e -> count e=0%nat ->
    empty_mapped (bias+pc) text e).
  { intros bias e Input Z;apply mapped_return;[exact (entry_text _ _ _ _ _ Input)|].
@@ -108,7 +108,7 @@ Proof.
    StageEntry.physical (bias+pc) text (destination pol Prepare-pc) e).
  { intros bias e Input N;destruct (batch_inputs _ _ _ _ _ Input N) as [P [[Rows _] [[_ Apart] _]]].
    destruct Rows as [Fit Const].
-   apply StageEntry.from_entry;[exact Setup|exact Select|exact Pad|exact Transfer|exact P|exact N|exact Fit|exact Const|
+   apply StageEntry.from_entry;[exact Setup|exact Select|exact Pad|exact Transfer|exact RBP|exact P|exact N|exact Fit|exact Const|
      exact (entry_text _ _ _ _ _ Input)|exact Apart]. }
  constructor;[exact Image|exact Arguments.checked_arguments|exact static_tables_correct|
  exact (linked_calls pol)|exact (conj CallWrites.embedded (conj NestedRegions.embedded protected_slots))| | | | |].
@@ -141,7 +141,7 @@ Proof.
    destruct (scalar_from_entry _ _ _ _ _ c masks Input N (Live _ _ Input N)) as [stop [Run Post]].
    exists stop;split;[exact Run|split;[exact Post|]].
    destruct (batch_inputs _ _ _ _ _ Input N) as [P [[_ Inputs] _]].
-   assert (Data:ScalarInputs.recoded e (LinkedRun.machine stop) /\ ScalarInputs.copy_ready e (LinkedRun.machine stop) /\ StageEntry.metadata e (mem(LinkedRun.machine stop))).
+   assert (Data:ScalarInputs.recoded e (LinkedRun.machine stop) /\ ScalarInputs.copy_ready e (LinkedRun.machine stop) /\ StageEntry.metadata e (mem(LinkedRun.machine stop)) /\ StageEntry.saved_caller e (LinkedRun.machine stop)).
    { destruct Post as [_ [_ [_ [_ [_ Contract]]]]]. apply Contract;[exact N|].
      intros j J;exact (proj1 (proj2 (Inputs j J))). }
    split;[exact (proj1 Data)|]. split.
@@ -154,13 +154,13 @@ Proof.
    destruct (batch_inputs _ _ _ _ _ Input N) as [Place [_ [[_ Apart] [_ [Indices _]]]]].
    pose proof (callee_image _ _ _ _ _ Input N) as Loaded.
    destruct (PrepareUnwind.rejected _ _ _ _ _ Place Loaded Post Zero) as [caller [Unwind End]].
-   destruct End as [At [SP [AX [Memory [Log [Args Left]]]]]];destruct Post as [_ [_ [[Safe Replay] _]]].
+   destruct End as [At [SP [AX [Memory [Log [Args [Left BP]]]]]]];destruct Post as [_ [_ [[Safe Replay] _]]].
    assert (Paid:LinkedRun.accounted e (writable e) caller) by
      (split;[rewrite Log;exact Safe|intros x;rewrite Memory,Log;apply Replay]).
    pose proof (entry_text _ _ _ _ _ Input) as Mapped.
    destruct (RejectDispatch.resume pol bias pc text e caller ScatterCode Place Loaded (entry_range _ _ _ _ _ Input)
      (proj1 (proj2 (proj2 (proj2 Rejection)))) Mapped Apart Paid At SP Args Left ltac:(now rewrite AX) N Indices
-     ltac:(rewrite Memory;exact (proj2(proj2 Data)))) as [cont [Dispatched [Continued Outputs]]].
+     ltac:(rewrite Memory;exact (proj1(proj2(proj2 Data))))) as [cont [Dispatched [Continued Outputs]]].
    destruct (RejectFinish.next _ _ _ _ _ ExitCode Place Mapped Apart Continued) as [last [Finished Exit]].
    exists (RejectExecution.classify cont last);split;[|exact (RejectExecution.classified _ _ _ _ Place (proj2 (proj2 (proj2 Continued))) Exit Outputs)].
    unfold RejectExecution.scalar_rejection,RejectExecution.finish_chunk;rewrite Run;cbn [LinkedRun.bind].
@@ -172,8 +172,8 @@ Qed.
 
 Theorem assembled_zip215_verify_batch_correct :
  batch_contract Zip215 ZipBytes.address ZipBytes.symbol_bytes.
-Proof. apply verified;[vm_compute;split;reflexivity|vm_compute;repeat split;reflexivity|repeat constructor|repeat constructor|repeat constructor|vm_compute;repeat split;reflexivity|vm_compute;repeat split;discriminate || reflexivity|repeat constructor;vm_compute;discriminate || reflexivity|repeat constructor;vm_compute;discriminate || reflexivity]. Qed.
+Proof. apply verified;[vm_compute;split;reflexivity|vm_compute;repeat split;reflexivity|repeat constructor|repeat constructor|repeat constructor|vm_compute;repeat split;reflexivity|vm_compute;repeat split;discriminate || reflexivity|repeat constructor;vm_compute;discriminate || reflexivity|repeat constructor;vm_compute;discriminate || reflexivity|vm_compute;reflexivity]. Qed.
 
 Theorem assembled_dalek_verify_batch_correct :
  batch_contract Dalek DalekBytes.address DalekBytes.symbol_bytes.
-Proof. apply verified;[vm_compute;split;reflexivity|vm_compute;repeat split;reflexivity|repeat constructor|repeat constructor|repeat constructor|vm_compute;repeat split;reflexivity|vm_compute;repeat split;discriminate || reflexivity|repeat constructor;vm_compute;discriminate || reflexivity|repeat constructor;vm_compute;discriminate || reflexivity]. Qed.
+Proof. apply verified;[vm_compute;split;reflexivity|vm_compute;repeat split;reflexivity|repeat constructor|repeat constructor|repeat constructor|vm_compute;repeat split;reflexivity|vm_compute;repeat split;discriminate || reflexivity|repeat constructor;vm_compute;discriminate || reflexivity|repeat constructor;vm_compute;discriminate || reflexivity|vm_compute;reflexivity]. Qed.
