@@ -127,10 +127,12 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    The pow2 certificate starts with those exact registers and bytes. Its
    block interpreter attaches the linked instruction address to each vector
    store and call-stack push. Replaying those writes on the decoder’s live
-   memory gives the memory of the returned CPU. The theorem retains pow2’s
-   exponentiation result under its input-limb bounds. The block model
+   memory gives the memory of the returned CPU. For each of the sixteen inputs the theorem derives the limb bounds and
+   the exponentiation result from the corresponding descriptor bytes. With
+   Y equal to the low 255 bits and U = 121666·(Y² − 1), the output represents
+   (U·(Y² − U))^((p − 5)/8) modulo p. The block model
    exports ZF and leaves CF unspecified at this boundary.
-   [Exponentiation call](coq/DecoderPower.v) · [Return and write log](coq/PowerWrites.v)
+   [Field setup and inputs](coq/PowerInputs.v) · [Exponentiation call](coq/DecoderPower.v) · [Return and write log](coq/PowerWrites.v)
    If the signature-scalar call returns zero, the decoded branches, pops and returns take both
    policies back to the wrapper's preparation continuation with RSP restored,
    the same EAX and no additional stores. The wrapper passes its original
