@@ -55,3 +55,18 @@ Example signed_short_jumps :
  ScalarBytes.decode [0xeb;8]=Some(2%nat,ScalarBytes.Jump 8) /\
  ScalarBytes.decode [0xeb;0xfe]=Some(2%nat,ScalarBytes.Jump (-2)).
 Proof. split;reflexivity. Qed.
+
+From Coq Require Import Lia.
+From Machine Require isa.X86.
+
+Example rip_broadcast_all_registers (r:nat) : (r<32)%nat ->
+ ScalarBytes.decode (X86.prefix 2 1 (Z.of_nat r) 0 5 ++
+    [0x59;X86.modrm 0 (Z.of_nat r) 5;0xff;0xff;0xff;0xff])=
+ Some(10%nat,ScalarBytes.BroadcastRip r (-1)).
+Proof. intro R;do 32 (destruct r as [|r];[reflexivity|]);lia. Qed.
+
+Example rip_broadcast_requires_rip :
+ ScalarBytes.broadcast_reg 0xf2 0x2c=None /\
+ ScalarBytes.broadcast_reg 0xf2 0x6d=None /\
+ ScalarBytes.broadcast_reg 0xd2 0x2d=None.
+Proof. repeat split;reflexivity. Qed.

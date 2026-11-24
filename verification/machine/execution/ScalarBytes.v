@@ -35,12 +35,18 @@ Definition reg_move rex m : option (nat*instruction) :=
  let src:=Z.to_nat ((m/8) mod 8+8*((rex/4) mod 2)) in
  Some(3%nat,if 0x48<=?rex then CopyG dst src else Copy32 dst src)
  else None.
+(* The inverted EVEX.R and EVEX.R' bits select the bank of eight ZMM
+   destinations. RIP-relative addressing fixes the remaining extension bits. *)
+Definition broadcast_reg prefix modrm : option nat :=
+ let bank:=match prefix with 0xf2=>Some 0 | 0x72=>Some 8 |
+   0xe2=>Some 16 | 0x62=>Some 24 | _=>None end in
+ if (0<=?modrm)&&(modrm<?64)&&(modrm mod 8=?5) then
+   option_map (fun b=>Z.to_nat (b+modrm/8)) bank else None.
 Definition decode (bs:list Z) : option (nat*instruction) := match bs with
  | 0x55::_=>Some(1%nat,SaveG 5)
  | 0x48::0x83::0xe4::k::_=>Some(4%nat,AndImmediate 4 (signed_value 128 k))
- | 0x62::0x62::0xfd::0x48::0x59::m::a::b::c::d::_=>
-   if (0<=?m)&&(m<?64)&&(m mod 8=?5) then
-     Some(10%nat,BroadcastRip (24+Z.to_nat(m/8)) (displacement32 [a;b;c;d])) else None
+ | 0x62::p::0xfd::0x48::0x59::m::a::b::c::d::_=>
+   option_map (fun r=>(10%nat,BroadcastRip r (displacement32 [a;b;c;d]))) (broadcast_reg p m)
  | 0x5b::_=>Some (1%nat,RestoreG 3)
  | 0x41::0x5c::_=>Some (2%nat,RestoreG 12)
  | 0x41::0x5d::_=>Some (2%nat,RestoreG 13)
