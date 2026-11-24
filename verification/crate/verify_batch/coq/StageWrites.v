@@ -21,7 +21,8 @@ Definition bound text delta :=
 Definition entered ip delta e t :=
  loc t=Running (word(ip+delta)-ip) /\ regs (cpu_state t) 4%nat=Rows.frame e-8 /\
  read_word (mem (cpu_state t)) (Rows.frame e-8)=word(ip+offset Prepared) /\
- regs (cpu_state t) 6%nat=Rows.frame e+512 /\ regs (cpu_state t) 1%nat=Rows.frame e+768.
+ regs (cpu_state t) 6%nat=Rows.frame e+512 /\ regs (cpu_state t) 1%nat=Rows.frame e+768 /\
+ regs (cpu_state t) 7%nat=Return.scratch e.
 
 Definition body_prefix := inputs++publish++indices++[(7%nat,Add64 3 320)].
 Lemma setup_args origin text off s c e : decoded text off setup -> 0<=off -> placement e ->
@@ -73,9 +74,9 @@ Proof.
 Qed.
 
 Theorem instructions ip text delta e s c : bound text delta -> placement e ->
- regs s 4%nat=Rows.frame e -> Prologue.segment ip text e 42 (offset Stage) s c (fun child=>entered ip delta e child /\ matrix (Rows.frame e) s (mem (cpu_state child))).
+ regs s 4%nat=Rows.frame e -> regs s 15%nat=Return.scratch e -> Prologue.segment ip text e 42 (offset Stage) s c (fun child=>entered ip delta e child /\ matrix (Rows.frame e) s (mem (cpu_state child))).
 Proof.
- intros [Bytes Call] P SP. pose proof Bytes as Code.
+ intros [Bytes Call] P SP Scratch. pose proof Bytes as Code.
  change (decoded text (offset Stage) (body_prefix++setup)) in Bytes.
  destruct (prefix_decoded _ _ _ _ Bytes) as [Front Args].
  assert (Frame:fits64 (Rows.frame e) 960) by
@@ -83,7 +84,9 @@ Proof.
  destruct (sequence ip text 0 960 (Rows.frame e) body_prefix ltac:(lia) Frame ltac:(reflexivity)
    (offset Stage) s c ltac:(change (0<=82);lia) Front SP) as [mid [cf [head [F [R W]]]]].
  change (offset Stage+FrameInstructions.width body_prefix) with (offset PrepareArgs) in F,Args.
- destruct (setup_args ip text (offset PrepareArgs) mid cf e Args ltac:(change (0<=353);lia) P R) as [args [A [SP' [RSI [RCX _]]]]].
+ destruct (setup_args ip text (offset PrepareArgs) mid cf e Args ltac:(change (0<=353);lia) P R) as [args [A [SP' [RSI [RCX [RDI Table]]]]]].
+ pose proof (kept_sequence ip text 15 body_prefix (offset Stage) s c _ _ ltac:(change (0<=82);lia)
+   Front ltac:(reflexivity) F) as Keep;cbn [cpu_state] in Keep.
  change (offset PrepareArgs+27) with (offset CallPrepare) in A.
  set (pc:=offset CallPrepare). set (ret:=ip+offset Prepared).
  assert (Slot:word(Rows.frame e-8)=Rows.frame e-8) by (apply word_fits;destruct (stack_ok _ P) as [[Lo Hi] _];
@@ -108,7 +111,7 @@ Proof.
      exact (transferred _ _ _ _ _ _ _ _ Code Frame SP Prefix j f k J H K)].
    unfold entered. cbn [loc cpu_state]. split;[reflexivity|].
    assert (ChildSP:regs child 4%nat=Rows.frame e-8) by (change (word(regs args 4%nat-8)=Rows.frame e-8);rewrite SP';exact Slot).
-   split;[exact ChildSP|]. split;[|exact (conj RSI RCX)].
+   split;[exact ChildSP|]. split;[|exact (conj RSI (conj RCX (eq_trans RDI (eq_trans Keep Scratch))))].
    apply read_word_encoded;intros k K. change (store_word (mem args) (word(regs args 4%nat-8)) ret
       (Rows.frame e-8+k)=word_byte ret k). rewrite SP',Slot;unfold store_word;apply write_at,K.
 Qed.

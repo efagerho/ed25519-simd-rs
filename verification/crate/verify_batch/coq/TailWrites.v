@@ -16,7 +16,8 @@ Definition listing : list (Z*nat*ScalarBytes.instruction) :=
   (32,6%nat,Compare32 1 320);(38,2%nat,Branch ScalarBytes.Unequal (-40))].
 Definition bound text := Forall (fun '(a,n,i)=>
  ScalarBytes.decode (skipn (Z.to_nat (offset Pad+a)) text)=Some(n,i)) listing.
-Definition pointers e j s := regs s 3%nat=Rows.frame e /\ regs s 1%nat=40*Z.of_nat j /\ regs s 4%nat=Rows.frame e.
+Definition stack_and_scratch e s := regs s 4%nat=Rows.frame e /\ regs s 15%nat=scratch e.
+Definition pointers e j s := regs s 3%nat=Rows.frame e /\ regs s 1%nat=40*Z.of_nat j /\ stack_and_scratch e s.
 Definition end_of j := if Nat.eqb (S j) 8 then offset TailDone else offset Pad.
 Definition state_after e j st := loc st=Running (end_of j) /\ pointers e (S j) (cpu_state st).
 Definition target e j := sp e-1000+40*Z.of_nat j.
@@ -71,13 +72,13 @@ Proof.
  all: eapply Prologue.more;
  [rewrite (EntryWrites.fetch_at ip text (offset Pad+38) _ _ _ _ ltac:(change (0<=677);lia) ins8);
   cbn [ScalarBytes.step eval_condition flag with_zf option_map];reflexivity|constructor|].
- all: apply Prologue.finish;unfold state_after,end_of;cbn [loc cpu_state];split;[|repeat split;assumption].
+ all: apply Prologue.finish;unfold state_after,end_of;cbn [loc cpu_state];split;[|split;[exact B|split;assumption]].
  all: destruct (Nat.eqb_spec (S j) 8) as [E|N].
  all: first [rewrite (proj2 (Z.eqb_eq (40*Z.of_nat (S j)) 320) ltac:(lia));reflexivity|
       rewrite (proj2 (Z.eqb_neq (40*Z.of_nat (S j)) 320) ltac:(lia));reflexivity].
 Qed.
 
-Definition reached e t := loc t=Running (offset TailDone) /\ regs (cpu_state t) 4%nat=Rows.frame e.
+Definition reached e t := loc t=Running (offset TailDone) /\ stack_and_scratch e (cpu_state t).
 Lemma remaining ip text e : bound text -> placement e -> forall fuel j s carry,
  (fuel+j=8)%nat -> pointers e j s ->
  Prologue.segment ip text e (10*fuel)
