@@ -32,6 +32,7 @@ Proof.
  - vm_compute; split; reflexivity.
  - vm_compute; split; reflexivity.
  - vm_compute; intuition discriminate.
+ - intros pad P input initial;apply all_branch_writes;destruct pad as [|[|[|[|pad]]]];try lia;vm_compute;reflexivity.
  - intros pad p initial Pad B. rewrite (paths_checked pad Pad), exits.
    eexists; split; [reflexivity|].
    destruct (Z.eqb_spec (mask_value short (Wire 17) (inputs p) initial) 0) as [NoneSet|_].

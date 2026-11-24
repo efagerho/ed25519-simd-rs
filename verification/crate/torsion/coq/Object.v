@@ -41,7 +41,8 @@ Qed.
 Local Opaque result short long.
 Theorem assembled_torsion_correct : torsion_contract symbol_bytes.
 Proof.
- constructor; [vm_compute;reflexivity | vm_compute;reflexivity |].
+ constructor; [vm_compute;reflexivity | vm_compute;reflexivity | |].
+ 1: { intros pad P input initial;apply all_branch_writes;destruct pad as [|[|[|[|pad]]]];try lia;vm_compute;reflexivity. }
  intros pad p r ini Pad Bounds. rewrite (branch_result _ _ _ _ _ _ _ (paths_checked pad Pad)).
  eexists;split;[reflexivity|].
  apply full_meaning, select_mask.

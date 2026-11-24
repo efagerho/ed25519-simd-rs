@@ -1,4 +1,5 @@
 From Coq Require Import List ZArith.
+From Machine Require memory.PackedWrites memory.WriteTrace.
 From Machine Require Import abi.SysV execution.LinkedCalls execution.Packed memory.ByteMemory
   memory.FlatMemory memory.MemoryGeometry.
 From Curve25519 Require Import SignedRadix16.
@@ -58,12 +59,23 @@ Definition routing_op op := match op with
   | UnpackQ _ _ _ _ | Shuffle _ _ _ _ | StoreAligned _ _ => true
   | _ => false end.
 
+Fixpoint phase_writes pc s ks := match ks with nil=>nil | cons k rest=>
+ let loads:=load_block k in let loaded:=IndexedLoads.execute loads s in
+ PackedWrites.trace (pc+Z.of_nat(length(flat_map IndexedLoad.encode loads)))
+    loaded Packed.initial (route k) ++
+ phase_writes (pc+Z.of_nat(length(encode_phase k))) (phase s k) rest end.
+Definition writes pc s := phase_writes (pc+Z.of_nat(length(flat_map IndexedLoad.encode prefix)))
+  (IndexedLoads.execute prefix s) operands.
+
 Record stage_contract bs : Prop := {
   linked_code : image = bs /\ valid_code = true;
   access_coverage : IndexedLoads.loads (IndexedLoads.summary prefix) = nil /\
     forall k, forallb routing_op (route k) = true;
   initializes_output : forall k col, (col < columns k)%nat ->
     exists v, stores (fold_left Packed.step (route k) Packed.initial) (first_row k+col)%nat=Some v;
+  write_footprint : forall pc s, placement pc (Z.of_nat(length bs)) s ->
+    WriteTrace.confined (destination s) (writes pc s) /\ forall x,
+    mem (snd (run pc s)) x=WriteTrace.replay (mem s) (writes pc s) x;
   stage_correct : forall pc s, placement pc (Z.of_nat (length bs)) s ->
     well_formed s ->
     let entry := IndexedLoads.execute prefix s in

@@ -7,6 +7,7 @@ From Ed25519Simd.Dalek Require Import Batch.
 From Ed25519Simd.PostHash Require Import Product Staging.
 From Ed25519Simd.Zip215 Require Import Schedule.
 From Ed25519Simd.DalekPostHash Require Import Caller Binding Screen Keys Decoded Queue Audit.
+From Ed25519Simd.Zip215 Require ScatterTrace.
 Import ListNotations. Local Open Scope Z_scope.
 
 Lemma observed b q : candidate_returns b q ->
@@ -62,6 +63,7 @@ Proof.
  - split.
    + intros s H;destruct s;try (simpl in H;intuition discriminate);vm_compute;split;reflexivity.
    + vm_compute;repeat split;reflexivity.
+ - exact ScatterTrace.scatter_confined.
  - vm_compute;repeat split;reflexivity.
  - exact (conj (candidate_abi_ok false) push_abi_ok).
  - split;[intros [] [];repeat split;reflexivity|repeat split;reflexivity].

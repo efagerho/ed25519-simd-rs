@@ -5,6 +5,8 @@ From Ed25519Simd.Dalek Require Import Batch.
 From Ed25519Simd.PostHash Require Import Staging Product.
 From Ed25519Simd.Zip215 Require Import Caller Binding Equation Calls Schedule.
 Import ListNotations. Local Open Scope Z_scope.
+From Ed25519Simd.Zip215 Require ScatterTrace.
+From Ed25519Simd.Zip215 Require ScatterBytes.
 
 Definition resolve_byte exact (slow:nat->bool->option Z) src :=
  match src with
@@ -59,6 +61,7 @@ Definition direct_correct := forall q r Q raw valid meta len out pad init,
 
 Record zip215_contract : Prop := {
  caller_image : linked_image;
+  scatter_writes : ScatterTrace.confined_prefix ScatterBytes.symbol_bytes;
  staged_calls : candidate_abi true /\ push_abi /\
    exit_of Enqueue=Jump Eq false (Entry Flush) /\ exit_of Queued=Ret /\
    exit_of DecodedCheck=Jump Always false (Entry Scatter);

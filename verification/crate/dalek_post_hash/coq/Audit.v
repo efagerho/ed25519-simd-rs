@@ -9,6 +9,8 @@ From Ed25519Simd.PostHash Require Import Product Staging.
 From Ed25519Simd.Zip215 Require Import Schedule.
 From Ed25519Simd.DalekPostHash Require Import Caller Binding Screen Keys Decoded Queue.
 Local Open Scope Z_scope.
+From Ed25519Simd.Zip215 Require ScatterTrace.
+From Ed25519Simd.DalekPostHash Require ScatterBytes.
 
 (* The base and public keys denote the points in the caller's tables.
    Metadata describes the eight lanes before weak-key filtering. *)
@@ -76,6 +78,7 @@ Definition decoder_image dk := Decode.Image.kernel_image dk
 
 Record dalek_post_hash_contract : Prop := {
   wrapper_bytes : linked_image;
+  scatter_writes : ScatterTrace.confined_prefix ScatterBytes.symbol_bytes;
   arithmetic_bytes : exact_image Decode.Program.code /\ Kernels.carry Decode.Program.code = carry_code;
   call_arguments : candidate_abi false /\ push_abi;
   branches : screening_flow /\

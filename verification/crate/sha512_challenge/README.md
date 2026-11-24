@@ -53,6 +53,12 @@ transcription of FIPS 180-4 and the shared x86 and memory semantics have
 their own audit guides. [SHA-512 specification](../../sha512/README.md) ·
 [Shared audit surface](../../README.md#shared-audit-surface)
 
+The entry contract also gives the ordered store footprint of the grouped SHA
+execution. It includes the saved register, helper call pushes, state and
+length spills, and each enabled qword in the digest output. Replaying these
+writes produces the memory returned by that same digest computation.
+[Write footprint and replay](coq/Writes.v)
+
 ## Reproduce the certificate
 
 With the shared Coq libraries built, run this against the intended release ELF

@@ -11,5 +11,7 @@ Proof.
  - exact (Ed25519Simd.Scalar.Audit.code_matches Ed25519Simd.Scalar.Object.assembled_scalar_correct).
  - vm_compute; intuition discriminate.
  - intros j J;destruct(routed j 0 J ltac:(lia)) as [v [Store _]];now exists v.
+ - exact traced_unique.
+ - intros slide entry ip out;cbv zeta;intros P W R;exact (traced_digest slide entry P W ip out R).
  - exact digest_returns.
 Qed.

@@ -89,7 +89,7 @@ Proof.
    assert(S:forall a,allowed_write pad(ReturnSlot a)->tracked k pad(ReturnSlot a)).
    { intros a H;destruct k;now left. }
    destruct(F L S)as[A [Outside [Pre Pop]]]. rewrite Ops in A.
-   eapply recorded_bytes;[apply Ret|exact W|exact Bytes|exact R|exact A|exact Outside| |exact Pop].
+   eapply recorded_bytes;[apply Ret|exact W|exact Bytes|exact R|exact A|intros x Hit;exact (permitted_bytes loc pad es x Pad Writes Hit)| |exact Pop].
    intros;apply (proj1 (Pre _ _ H)).
  - exact I.
 Qed.

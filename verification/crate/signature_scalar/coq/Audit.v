@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith Bool.
 From Machine Require Import execution.LinkedCalls execution.IndexedLoads execution.WordSemantics
- memory.ByteMemory memory.FlatMemory memory.MemoryGeometry abi.SysV.
+ memory.PackedWrites memory.WriteTrace memory.ByteMemory memory.FlatMemory memory.MemoryGeometry abi.SysV.
 From Curve25519 Require Import Scalar SignedRadix16.
 From ProofArithmetic Require Import Radix.
 From Ed25519Simd.SignatureScalar Require Import Program.
@@ -31,6 +31,17 @@ Definition literal_access ro i := match i with
  | _=>true end.
 Definition no_row_load op := match op with Packed.AddRow _ _ _=>false | _=>true end.
 
+(* The digit stores are the only memory writes in the entry. Their PCs
+   start immediately after the input loads and register comparison. *)
+Definition digit_start pc size slide :=
+ let suffix := flat_map Packed.encode Radix16Output.write_digits ++
+   MaskTrace.encoding (MaskTrace.KmovEax result_mask) ++ Packed.encode Packed.Upper ++
+   LinkedCalls.encoding 0 LinkedCalls.Return in
+ slide+pc+size-Z.of_nat(length suffix).
+Definition digit_writes pc size ro slide entry incoming :=
+ PackedWrites.trace (digit_start pc size slide)
+   (prepared ro slide entry incoming) Packed.initial Radix16Output.write_digits.
+
 Record signature_scalar_contract pc code ro literal : Prop := {
  linked_code : image pc ro = Some code /\ forallb IndexedLoad.valid inputs=true /\
                forallb (Packed.valid 8) Radix16Output.write_digits=true;
@@ -40,6 +51,10 @@ Record signature_scalar_contract pc code ro literal : Prop := {
      read_le 32 (fun a=>nth (Z.to_nat a) literal 0) 0=L;
  initializes_output : forall j,(j<8)%nat -> exists row,
      Packed.stores Radix16Output.output_state j=Some row;
+ write_footprint : forall slide entry incoming,
+   let n:=Z.of_nat(length code) in let ws:=digit_writes pc n ro slide entry incoming in
+   confined (output entry) ws /\ forall x,
+   mem (snd (run pc n ro slide entry incoming)) x=WriteTrace.replay (mem entry) ws x;
  returns_correct : forall slide entry incoming,
    placement entry (slide+pc) (Z.of_nat(length code)) (slide+ro) ->
    well_formed entry -> mapped entry (slide+ro) literal ->

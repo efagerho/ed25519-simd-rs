@@ -35,7 +35,7 @@ def replay(elf, work, dependencies, overrides):
     callees = load_callees(elf, work, dependencies, DEPENDENCIES, overrides)
     compile_shared(work, FLAGS)
     (work / "Zip215").mkdir()
-    for ns, names, sources in (("Zip215", ["Caller", "Schedule"], HERE.parent / "zip215/coq"),
+    for ns, names, sources in (("Zip215", ["Caller", "ScatterTrace", "Schedule"], HERE.parent / "zip215/coq"),
                                ("DalekPostHash", [*modules, "Caller", "Binding", "Screen", "Keys",
                                 "Decoded", "Queue", "Audit", "Object"], HERE / "coq")):
         for name in names:
