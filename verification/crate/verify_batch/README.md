@@ -86,7 +86,10 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    for each of eight lanes and call the paired decoder. Its 512 input bytes
    match the original public keys and R encodings, including padded lanes.
    The output point pointer, pair count and pushed return PC are established
-   on the same memory. [Decoder entry](coq/BatchDecode.v) · [Encoding copies](coq/PrepareCopies.v)
+   on the same memory. The decoder pushes its five saved registers, aligns RSP,
+   allocates 640 bytes, and calls its first field setup. The proof checks the two
+   live return words, the four broadcast field constants in every vector lane,
+   and confinement of the stack stores. [Decoder frame](coq/DecoderFrame.v) · [Decoder entry](coq/BatchDecode.v) · [Encoding copies](coq/PrepareCopies.v)
    If EAX is zero there, the decoded branches, pops and returns take both
    policies back to the wrapper's preparation continuation with RSP restored,
    the same EAX and no additional stores. The wrapper passes its original
