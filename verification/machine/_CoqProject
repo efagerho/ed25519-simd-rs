@@ -76,6 +76,7 @@ execution/VectorProcedure.v
 execution/AlignedRows.v
 execution/VectorWindow.v
 execution/LinkedRun.v
+execution/LocatedReturn.v
 execution/MaskTransfer.v
 execution/ProjectionWords.v
 execution/ScalarWords.v
