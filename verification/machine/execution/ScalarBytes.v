@@ -24,7 +24,8 @@ Inductive instruction :=
 | Branch (c:condition) (disp:Z) | Ret
 | QwordOp (i:QwordRegister.op)
 | AndImmediate (r:nat) (mask:Z) | BroadcastRip (r:nat) (disp:Z)
-| AlignedRow (i:VectorMoves.aligned_row).
+| AlignedRow (i:VectorMoves.aligned_row)
+| Shl32 (r:nat) (imm:Z) | Or32 (dst src:nat) | ZeroUpper.
 
 Definition little32 bs := read_le 4 (fun i=>nth (Z.to_nat i) bs 0) 0.
 (* REX-prefixed opcode 89 /r with a register destination. REX.R extends the source
@@ -43,6 +44,11 @@ Definition broadcast_reg prefix modrm : option nat :=
  if (0<=?modrm)&&(modrm<?64)&&(modrm mod 8=?5) then
    option_map (fun b=>Z.to_nat (b+modrm/8)) bank else None.
 Definition decode (bs:list Z) : option (nat*instruction) := match bs with
+ | 0xc1::m::imm::_=>if (0xe0<=?m)&&(m<?0xe8) then Some(3%nat,Shl32 (Z.to_nat(m-0xe0)) imm) else None
+ | 0x44::0x09::0xe8::_=>Some(3%nat,Or32 0 13)
+ | 0xc5::0xf8::0x77::_=>Some(3%nat,ZeroUpper)
+ | 0x48::0x8d::0x65::d::_=>Some(4%nat,LeaG 4 (Address 5 None (signed_value 128 d)))
+ | 0x5d::_=>Some(1%nat,RestoreG 5)
  | 0x55::_=>Some(1%nat,SaveG 5)
  | 0x48::0x83::0xe4::k::_=>Some(4%nat,AndImmediate 4 (signed_value 128 k))
  | 0x62::p::0xfd::0x48::0x59::m::a::b::c::d::_=>
@@ -188,6 +194,13 @@ Definition step origin off n op s carry : option (state*list store) :=
  | Zero32 r=>go (with_zf (set s r 0) true) (Some false)
  | And8 d r=>let v:=Z.land (regs s d mod 256) (regs s r mod 256) in
       go (with_zf (low_byte s d v) (v=?0)) (Some false)
+ | Shl32 r imm=>let n:=imm mod 32 in let a:=regs s r mod 2^32 in
+      let v:=Z.shiftl a n mod 2^32 in
+      if n=?0 then go (set s r v) carry
+      else go (with_zf (set s r v) (v=?0)) (Some(Z.testbit a (32-n)))
+ | Or32 d r=>let v:=Z.lor (regs s d) (regs s r) mod 2^32 in
+      go (with_zf (set s d v) (v=?0)) (Some false)
+ | ZeroUpper=>go (CPU (regs s) (fun j r=>if (r<?16)%nat && (2<=?j)%nat then 0 else vectors s j r) (flag s) (mem s)) carry
  | ShrEax=>let v:=regs s 0%nat mod 2^32 in let t:=v/2 in
       go (with_zf (set s 0 t) (t=?0)) (Some (Z.odd v))
  | Inc r=>let t:=word(regs s r+1) in go (with_zf (set s r t) (t=?0)) carry
@@ -274,6 +287,7 @@ Proof.
  - destruct (eval_condition _ _ _) as [[]|];intro E;try discriminate;injection E as <- <-;reflexivity.
  - destruct (qword_op _ _ _) as [v|] eqn:V;intro E;try discriminate;injection E as <- <-;exact (proj1(qword_state _ _ _ _ V)).
  - destruct (_=?0), (VectorMoves.writing i);intro E;try discriminate;injection E as <- <-;reflexivity.
+ - destruct (_=?0);intro E;injection E as <- <-;reflexivity.
 Qed.
 Theorem steps_memory o text s ws t : steps o text s ws t ->
  mem (cpu_state t)=WriteTrace.replay (mem (cpu_state s)) ws.

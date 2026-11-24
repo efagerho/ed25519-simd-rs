@@ -11,6 +11,7 @@ Proof.
  intros B;destruct op;cbn [step];intro R.
  all: try solve [destruct (qword_op _ _ _) as [v|] eqn:QV;try discriminate;injection R as <- <-;cbn [cpu_state];rewrite (proj1(qword_state _ _ _ _ QV));exact B].
  all: try match type of R with context[VectorMoves.writing ?i]=>destruct (VectorMoves.writing i) end.
+ all: try match type of R with context[if ?b then Some _ else Some _]=>destruct b end.
  all: try match type of R with context[option_map _ ?b]=>destruct b as [[]|];try discriminate end.
  all: try match type of R with context[if ?b then Some (_,_) else None]=>destruct b;try discriminate end.
  all: try (injection R as <- <-;cbn [cpu_state]).

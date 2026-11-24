@@ -81,7 +81,7 @@ Proof.
  assert (Log:log q=log p) by (unfold q;cbn [LinkedRun.finish log];apply app_nil_r).
  assert (Outputs:Prologue.output_registers e (machine q)) by
    (split;[exact (eq_trans C Count)|exact (eq_trans O Out)]).
- pose proof(PreservedRegister.run_keeps 5 _ CommonBytes.symbol_bytes _ _ _ _ ltac:(vm_compute;reflexivity) Run) as BP.
+ pose proof(PreservedRegister.run_keeps_at 5 _ CommonBytes.symbol_bytes ltac:(vm_compute;reflexivity) 9 65 _ _ _ _ ltac:(vm_compute;reflexivity) Run) as BP.
  unfold unwind;rewrite Next;cbn [bind]. fold q. destruct pol.
  - exists q;split;[reflexivity|]. unfold prepared_again;split;[|split;[|exact (conj Eax (conj Flat (conj Log (conj Outputs (conj (eq_trans R12 Left) BP)))))]].
    + unfold top,common_top in PC;rewrite Z.sub_0_r,Root,ScalarRefinement.word_idempotent in PC;exact PC.

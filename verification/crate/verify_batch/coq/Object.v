@@ -143,7 +143,7 @@ Proof.
      rewrite Path in Trace;injection Trace as <-;exact (conj (Sound _ _ R) Safe).
 Qed.
 
-Lemma verified pol pc text : matches pc (destination pol) text -> empty_image text -> Prologue.bound text -> StageEntry.bound text -> TailWrites.bound text -> StageWrites.bound text (destination pol Prepare-pc) -> RejectCall.bound pc text -> RejectDispatch.bound pc text -> RejectFinish.bound text -> PreservedRegister.checks 5 text=true ->
+Lemma verified pol pc text : matches pc (destination pol) text -> empty_image text -> Prologue.bound text -> StageEntry.bound text -> TailWrites.bound text -> StageWrites.bound text (destination pol Prepare-pc) -> RejectCall.bound pc text -> RejectDispatch.bound pc text -> RejectFinish.bound text -> StageEntry.preserves_bp text=true ->
  batch_contract pol pc text.
 Proof.
  intros Image Bytes Setup Select Pad Transfer Rejection ScatterCode ExitCode RBP.

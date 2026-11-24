@@ -95,3 +95,21 @@ Example predicate_word_width :
  | Some(_,mask)=>mask 4%nat 15%nat=true /\ mask 4%nat 16%nat=false
  | _=>False end.
 Proof. split;reflexivity. Qed.
+
+Example decoder_mask_packing_and_epilogue :
+ let code:=[0xc1;0xe0;8;0x44;0x09;0xe8;0xc5;0xf8;0x77] in
+ let s:=CPU (fun r=>if (r=?0)%nat then 2^40+0x81 else 0x42) (fun _ _=>55) (Some true) (fun _=>0) in
+ match MappedFetch.run 3 (ScalarBytes.fetch 0 code) (ScalarBytes.State (ScalarBytes.Running 0) s None) with
+ | Some(t,[])=>let v:=ScalarBytes.cpu_state t in regs v 0%nat=0x8142 /\ flag v=Some false /\ ScalarBytes.cf t=Some false /\
+   vectors v 1%nat 15%nat=55 /\ vectors v 2%nat 15%nat=0 /\ vectors v 2%nat 16%nat=55
+ | _=>False end.
+Proof. repeat split;reflexivity. Qed.
+
+From Machine Require execution.PreservedRegister.
+
+Example preserved_register_at_instruction_boundaries :
+ let epilogue:=[0x41;0x5d;0xc3] in
+ PreservedRegister.checks_at 5 epilogue 0 2=true /\
+ PreservedRegister.checks_at 5 epilogue 1 2=false /\
+ PreservedRegister.checks_at 5 ([0xeb;1]++epilogue) 0 2=false.
+Proof. repeat split;reflexivity. Qed.

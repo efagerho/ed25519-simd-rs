@@ -66,6 +66,7 @@ Proof.
  intros W;destruct op;cbn [step];intro S.
  all: try solve [destruct (qword_op _ _ _) as [v|] eqn:QV;try discriminate;injection S as <- <-;eapply qword_wf;eassumption].
  all: try match type of S with context[VectorMoves.writing ?i]=>destruct (VectorMoves.writing i) end.
+ all: try match type of S with context[if ?b then Some _ else Some _]=>destruct b end.
  all: try match type of S with context[option_map _ ?b]=>destruct b as [[]|];try discriminate end.
  all: try match type of S with context[if ?align then Some (_,_) else None]=>destruct align;try discriminate end.
  all: try (injection S as <- <-;cbn [cpu_state]).
@@ -84,6 +85,8 @@ Proof.
  - destruct op;injection S as <- <-;cbn [cpu_state].
    + apply indexed_words,W.
    + apply commit_words;[exact W|intros;apply word_byte_bound].
+ - destruct W as [G [V M]];split;[exact G|split;[|exact M]];intros j r J;cbn [vectors].
+   match goal with |- context[if ?b then _ else _]=>destruct b end;[unfold word64;lia|apply V,J].
 Qed.
 
 Lemma fetched_wf o text s t ws : well_formed(cpu_state s) -> ScalarBytes.fetch o text s=Some(t,ws) ->
