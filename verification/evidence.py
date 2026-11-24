@@ -40,21 +40,23 @@ def write_evidence(binary, work, component, checks, symbols, sources, flags, cas
         shutil.copyfile(path, dest / path.name)
     for path in [HERE / "proof_build.py", HERE / "elf.py", Path(__file__)]:
         shutil.copyfile(path, dest / path.name)
-    if component in ("prepare_chunk", "key_table", "torsion", "small_order", "decompress_r", "dalek_recompress", "zip215", "dalek_post_hash"):
+    if component in ("verify_batch", "prepare_chunk", "key_table", "torsion", "small_order", "decompress_r", "dalek_recompress", "zip215", "dalek_post_hash"):
         shutil.copyfile(HERE / "mask_listing.py", dest / "mask_listing.py")
     dependencies = {component} if component in ("small_order", "stage_round", "signature_scalar", "sha512_challenge") else {"pow2", component}
     if component == "key_table":
         dependencies.update(("cached_add", "decompress_r", "post_hash"))
     if component == "dalek_recompress":
         dependencies = {component, "decompress_r", "small_order"}
-    if component in ("zip215", "dalek_post_hash", "prepare_chunk"):
+    if component in ("zip215", "dalek_post_hash", "prepare_chunk", "verify_batch"):
         dependencies.add("post_hash")
         dependencies.update(("radix16", "scalar", "full_ladder", "ladder_step", "stage_round",
                              "double4", "cached_add", "decompress_r", "dalek_recompress",
                              "small_order"))
-    if component == "prepare_chunk":
+    if component in ("prepare_chunk", "verify_batch"):
         dependencies.update(("signature_scalar", "key_table", "dalek_post_hash", "zip215"))
-    if component == "zip215":
+    if component == "verify_batch":
+        dependencies.update(("prepare_chunk", "sha512_challenge"))
+    if component in ("zip215", "verify_batch"):
         dependencies.add("torsion")
     if component == "full_ladder":
         dependencies.update(("ladder_step", "stage_round"))

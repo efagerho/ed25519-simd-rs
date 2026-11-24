@@ -1,4 +1,4 @@
-# Each audit writes to its own directory. The ZIP benchmark retains the decoder symbol.
+# Both production entries and all their component audits use the same linked image.
 routines := pow2 double4 cached-add scalar
 linked_checks := $(addsuffix -conformance,$(routines))
 timed = /usr/bin/time -f '$@ elapsed %E'
@@ -7,7 +7,7 @@ export XED_KIT := $(RUNNER_TEMP)/xed-kit
 .PHONY: prepare-chunk prepare-chunk-mutations signature-scalar signature-scalar-mutations key-table key-table-mutations dalek-post-hash dalek-post-hash-mutations zip215 zip215-mutations dalek-recompress dalek-recompress-mutations decompress-r decompress-r-mutations full-ladder stage-round stage-round-mutations radix16 radix16-mutations verify certificates ladder-mutations ladder torsion torsion-mutations small-order small-order-mutations pow2-z3 xed-kit fixed-conformance \
         $(routines) $(linked_checks) cached-add-mutations scalar-mutations
 
-verify: sha512-challenge-mutations prepare-chunk-mutations signature-scalar-mutations key-table-mutations dalek-post-hash-mutations zip215-mutations dalek-recompress-mutations decompress-r-mutations full-ladder stage-round-mutations radix16-mutations ladder-mutations certificates cached-add-mutations $(linked_checks) \
+verify: verify-batch-mutations sha512-challenge-mutations prepare-chunk-mutations signature-scalar-mutations key-table-mutations dalek-post-hash-mutations zip215-mutations dalek-recompress-mutations decompress-r-mutations full-ladder stage-round-mutations radix16-mutations ladder-mutations certificates cached-add-mutations $(linked_checks) \
         scalar-mutations torsion-mutations small-order-mutations fixed-conformance pow2-z3
 
 # Pure hash specification, known answers and single-lane refinement.
@@ -23,11 +23,11 @@ sha512-spec:
 
 .PHONY: sha512-challenge sha512-challenge-mutations
 sha512-challenge:
-	$(timed) python3 -B verification/crate/sha512_challenge/audit.py "$(ZIP_ELF)" \
+	$(timed) python3 -B verification/crate/sha512_challenge/audit.py "$(POLICY_ELF)" \
 	  --output "$(RUNNER_TEMP)/sha512-challenge-audit" $(if $(filter all,$(MACHINE_BACKEND)),--native)
 
 sha512-challenge-mutations: sha512-challenge
-	$(timed) python3 -B verification/crate/sha512_challenge/mutations.py "$(ZIP_ELF)" \
+	$(timed) python3 -B verification/crate/sha512_challenge/mutations.py "$(POLICY_ELF)" \
 	  --audit "$(RUNNER_TEMP)/sha512-challenge-audit"
 
 certificates:
@@ -49,15 +49,15 @@ ladder:
 	  --output "$(RUNNER_TEMP)/ladder-step-audit"
 
 ladder-mutations: full-ladder
-	$(timed) /usr/bin/python3 -B verification/crate/ladder_step/mutations.py "$(ZIP_ELF)" \
+	$(timed) /usr/bin/python3 -B verification/crate/ladder_step/mutations.py "$(POLICY_ELF)" \
 	  --audit "$(RUNNER_TEMP)/full-ladder-audit"
 
 torsion:
-	$(timed) python3 -B verification/crate/torsion/audit.py "$(ZIP_ELF)" \
+	$(timed) python3 -B verification/crate/torsion/audit.py "$(POLICY_ELF)" \
 	  --output "$(RUNNER_TEMP)/torsion-audit"
 
 torsion-mutations: torsion
-	$(timed) python3 -B verification/crate/torsion/mutations.py "$(ZIP_ELF)" \
+	$(timed) python3 -B verification/crate/torsion/mutations.py "$(POLICY_ELF)" \
 	  --audit "$(RUNNER_TEMP)/torsion-audit"
 
 small-order:
@@ -84,11 +84,11 @@ $(linked_checks): %-conformance: % xed-kit
 	  --report "$(RUNNER_TEMP)/$*-report.json" --failure "$(RUNNER_TEMP)/$*-failure.json"
 
 radix16:
-	$(timed) python3 -B verification/crate/radix16/audit.py "$(ZIP_ELF)" \
+	$(timed) python3 -B verification/crate/radix16/audit.py "$(POLICY_ELF)" \
 		--output "$(RUNNER_TEMP)/radix16-audit"
 
 radix16-mutations: radix16
-	$(timed) python3 -B verification/crate/radix16/mutations.py "$(ZIP_ELF)" \
+	$(timed) python3 -B verification/crate/radix16/mutations.py "$(POLICY_ELF)" \
 		--audit "$(RUNNER_TEMP)/radix16-audit"
 
 stage-round:
@@ -96,79 +96,72 @@ stage-round:
 		--output "$(RUNNER_TEMP)/stage-round-audit"
 
 stage-round-mutations: full-ladder
-	$(timed) python3 -B verification/crate/stage_round/mutations.py "$(ZIP_ELF)" \
+	$(timed) python3 -B verification/crate/stage_round/mutations.py "$(POLICY_ELF)" \
 		--audit "$(RUNNER_TEMP)/full-ladder-audit"
 
 full-ladder:
-	$(timed) python3 -B verification/crate/full_ladder/audit.py "$(ZIP_ELF)" \
+	$(timed) python3 -B verification/crate/full_ladder/audit.py "$(POLICY_ELF)" \
 	  --output "$(RUNNER_TEMP)/full-ladder-audit"
 
 key-table: full-ladder
-	$(timed) python3 -B verification/crate/key_table/audit.py "$(ZIP_ELF)" \
+	$(timed) python3 -B verification/crate/key_table/audit.py "$(POLICY_ELF)" \
 		--output "$(RUNNER_TEMP)/key-table-audit" --dependencies "$(RUNNER_TEMP)"
 
 key-table-mutations: key-table
-	$(timed) python3 -B verification/crate/key_table/mutations.py "$(ZIP_ELF)" \
+	$(timed) python3 -B verification/crate/key_table/mutations.py "$(POLICY_ELF)" \
 		--audit "$(RUNNER_TEMP)/key-table-audit"
 
 decompress-r:
-	$(timed) python3 -B verification/crate/decompress_r/audit.py "$(ZIP_ELF)" \
+	$(timed) python3 -B verification/crate/decompress_r/audit.py "$(POLICY_ELF)" \
 		--output "$(RUNNER_TEMP)/decompress-r-audit"
 
 decompress-r-mutations: decompress-r
-	$(timed) python3 -B verification/crate/decompress_r/mutations.py "$(ZIP_ELF)" \
+	$(timed) python3 -B verification/crate/decompress_r/mutations.py "$(POLICY_ELF)" \
 		--audit "$(RUNNER_TEMP)/decompress-r-audit"
 
 dalek-recompress:
-	$(timed) python3 -B verification/crate/dalek_recompress/audit.py "$(DALEK_ELF)" \
+	$(timed) python3 -B verification/crate/dalek_recompress/audit.py "$(POLICY_ELF)" \
 	  --output "$(RUNNER_TEMP)/dalek-recompress-audit"
 
 dalek-recompress-mutations: dalek-recompress
-	$(timed) python3 -B verification/crate/dalek_recompress/mutations.py "$(DALEK_ELF)" \
+	$(timed) python3 -B verification/crate/dalek_recompress/mutations.py "$(POLICY_ELF)" \
 	  --audit "$(RUNNER_TEMP)/dalek-recompress-audit"
 
-zip215: full-ladder radix16 torsion decompress-r
-	$(timed) python3 -B verification/crate/zip215/audit.py "$(ZIP_ELF)" \
-		--output "$(RUNNER_TEMP)/zip215-audit" --dependencies "$(RUNNER_TEMP)" \
-		--recompress-dependencies "$(RUNNER_TEMP)/zip215-callees"
+zip215: full-ladder radix16 torsion decompress-r dalek-recompress
+	$(timed) python3 -B verification/crate/zip215/audit.py "$(POLICY_ELF)" \
+		--output "$(RUNNER_TEMP)/zip215-audit" --dependencies "$(RUNNER_TEMP)"
 
 zip215-mutations: zip215
-	$(timed) python3 -B verification/crate/zip215/mutations.py "$(ZIP_ELF)" --audit "$(RUNNER_TEMP)/zip215-audit"
+	$(timed) python3 -B verification/crate/zip215/mutations.py "$(POLICY_ELF)" --audit "$(RUNNER_TEMP)/zip215-audit"
 
-# Callee proofs bind absolute addresses and relative operands in this ELF.
-dalek_dependencies := $(addprefix $(RUNNER_TEMP)/dalek-callees/,$(addsuffix -audit/manifest.json,radix16 full-ladder decompress-r))
-$(dalek_dependencies): $(RUNNER_TEMP)/dalek-callees/%-audit/manifest.json:
-	$(timed) python3 -B verification/crate/$(subst -,_,$*)/audit.py "$(DALEK_ELF)" --output "$(@D)"
-
-dalek-post-hash: dalek-recompress $(dalek_dependencies)
-	$(timed) python3 -B verification/crate/dalek_post_hash/audit.py "$(DALEK_ELF)" \
-		--output "$(RUNNER_TEMP)/dalek-post-hash-audit" --dependencies "$(RUNNER_TEMP)/dalek-callees" \
-		--recompress-dependencies "$(RUNNER_TEMP)"
+dalek-post-hash: dalek-recompress radix16 full-ladder decompress-r
+	$(timed) python3 -B verification/crate/dalek_post_hash/audit.py "$(POLICY_ELF)" \
+		--output "$(RUNNER_TEMP)/dalek-post-hash-audit" --dependencies "$(RUNNER_TEMP)"
 
 dalek-post-hash-mutations: dalek-post-hash
-	$(timed) python3 -B verification/crate/dalek_post_hash/mutations.py "$(DALEK_ELF)" --audit "$(RUNNER_TEMP)/dalek-post-hash-audit"
+	$(timed) python3 -B verification/crate/dalek_post_hash/mutations.py "$(POLICY_ELF)" --audit "$(RUNNER_TEMP)/dalek-post-hash-audit"
 
 signature-scalar:
-	$(timed) python3 -B verification/crate/signature_scalar/audit.py "$(ZIP_ELF)" \
+	$(timed) python3 -B verification/crate/signature_scalar/audit.py "$(POLICY_ELF)" \
 		--output "$(RUNNER_TEMP)/signature-scalar-audit"
 
 signature-scalar-mutations: signature-scalar
-	$(timed) python3 -B verification/crate/signature_scalar/mutations.py "$(ZIP_ELF)" \
+	$(timed) python3 -B verification/crate/signature_scalar/mutations.py "$(POLICY_ELF)" \
 		--audit "$(RUNNER_TEMP)/signature-scalar-audit"
 
-prepare_deps := $(RUNNER_TEMP)/dalek-callees
-$(prepare_deps)/signature-scalar-audit/manifest.json:
-	$(timed) python3 -B verification/crate/signature_scalar/audit.py "$(DALEK_ELF)" --output "$(@D)"
-
-$(prepare_deps)/key-table-audit/manifest.json: $(prepare_deps)/full-ladder-audit/manifest.json
-	$(timed) python3 -B verification/crate/key_table/audit.py "$(DALEK_ELF)" --output "$(@D)" \
-		--dependencies "$(prepare_deps)"
-
-prepare-chunk: dalek-post-hash $(addprefix $(prepare_deps)/,signature-scalar-audit/manifest.json key-table-audit/manifest.json)
-	$(timed) python3 -B verification/crate/prepare_chunk/audit.py "$(DALEK_ELF)" \
-		--output "$(RUNNER_TEMP)/prepare-chunk-audit" --dependencies "$(prepare_deps)" \
-		--dalek-dependencies "$(RUNNER_TEMP)"
+prepare-chunk: dalek-post-hash key-table signature-scalar
+	$(timed) python3 -B verification/crate/prepare_chunk/audit.py "$(POLICY_ELF)" \
+		--output "$(RUNNER_TEMP)/prepare-chunk-audit" --dependencies "$(RUNNER_TEMP)"
 
 prepare-chunk-mutations: prepare-chunk
-	$(timed) python3 -B verification/crate/prepare_chunk/mutations.py "$(DALEK_ELF)" \
+	$(timed) python3 -B verification/crate/prepare_chunk/mutations.py "$(POLICY_ELF)" \
 		--audit "$(RUNNER_TEMP)/prepare-chunk-audit"
+
+.PHONY: verify-batch verify-batch-mutations
+verify-batch: sha512-challenge prepare-chunk zip215
+	$(timed) python3 -B verification/crate/verify_batch/audit.py "$(POLICY_ELF)" \
+		--output "$(RUNNER_TEMP)/verify-batch-audit" --dependencies "$(RUNNER_TEMP)"
+
+verify-batch-mutations: verify-batch
+	$(timed) python3 -B verification/crate/verify_batch/mutations.py "$(POLICY_ELF)" \
+		--audit "$(RUNNER_TEMP)/verify-batch-audit"

@@ -59,13 +59,11 @@ jobs:
         run: |
           cargo build --locked --release --features asm --bench cold_profile_dalek \
             --target x86_64-unknown-linux-gnu --message-format=json > "$RUNNER_TEMP/release-build.json"
-          # The post-hash theorems also certify standalone queue entry points.
-          # Keep those sections in the audit binaries so their bytes can be checked.
-          for policy in zip215 dalek; do
-            cargo rustc --locked --release --features asm --bench "cold_profile_$policy" \
-              --target x86_64-unknown-linux-gnu --message-format=json -- \
-              -C "link-arg=-Wl,--undefined=ed25519_simd_${policy}_push" > "$RUNNER_TEMP/$policy-build.json"
-          done
+          # Keep both Rust-facing entries and the queue symbols used by their callee certificates.
+          cargo rustc --locked --release --features asm --bench cold_profile_dalek \
+            --target x86_64-unknown-linux-gnu --message-format=json -- \
+            -C link-arg=-Wl,--undefined=ed25519_simd_zip215_verify_batch,--undefined=ed25519_simd_zip215_push,--undefined=ed25519_simd_dalek_push \
+            > "$RUNNER_TEMP/policies-build.json"
 
       - name: Build shared Coq libraries
         run: |
@@ -80,9 +78,8 @@ jobs:
       - name: Verify release proofs, mutation rejection and machine conformance
         run: |
           artifact=$(jq -r 'select(.target.name == "cold_profile_dalek" and .executable != null) | .executable' "$RUNNER_TEMP/release-build.json")
-          zip_elf=$(jq -r 'select(.target.name == "cold_profile_zip215" and .executable != null) | .executable' "$RUNNER_TEMP/zip215-build.json")
-          dalek_elf=$(jq -r 'select(.target.name == "cold_profile_dalek" and .executable != null) | .executable' "$RUNNER_TEMP/dalek-build.json")
-          test -x "$artifact" && test -x "$zip_elf" && test -x "$dalek_elf"
+          policy_elf=$(jq -r 'select(.target.name == "cold_profile_dalek" and .executable != null) | .executable' "$RUNNER_TEMP/policies-build.json")
+          test -x "$artifact" && test -x "$policy_elf"
           backend=xed
           if grep -qw avx512ifma /proc/cpuinfo && grep -qw avx512dq /proc/cpuinfo && grep -qw avx512bw /proc/cpuinfo && grep -qw avx512f /proc/cpuinfo; then
             backend=all
@@ -90,7 +87,7 @@ jobs:
             echo "Native comparison skipped on this runner (requires AVX-512F/BW/DQ/IFMA)."
           fi
           make -f .github/verification.mk -j4 --keep-going --output-sync=target verify \
-            RELEASE_ELF="$artifact" ZIP_ELF="$zip_elf" DALEK_ELF="$dalek_elf" MACHINE_BACKEND="$backend"
+            RELEASE_ELF="$artifact" POLICY_ELF="$policy_elf" MACHINE_BACKEND="$backend"
 
       - name: Retain conformance reports, inputs, and release proof evidence
         if: always()
@@ -116,6 +113,7 @@ jobs:
             ${{ runner.temp }}/dalek-post-hash-audit/
             ${{ runner.temp }}/dalek-recompress-audit/
             ${{ runner.temp }}/zip215-audit/
+            ${{ runner.temp }}/verify-batch-audit/
             ${{ runner.temp }}/scalar-cases.jsonl
             ${{ runner.temp }}/scalar-audit/
             ${{ runner.temp }}/sha512-challenge-audit/

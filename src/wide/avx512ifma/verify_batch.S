@@ -44,34 +44,38 @@
     mov [rsp + .Lvb_identity], r8
     mov [rsp + .Lvb_base], r9
 .Lvb_chunk\@:
-    mov eax, 8
-    cmp r12, rax
-    cmovb rax, r12
-    mov [rsp + .Lvb_active], rax
-    sub r12, rax
-    mov rsi, rbx
-    lea rax, [rax + 4*rax]
-    lea rbx, [rbx + 8*rax]            // end of active 40-byte records
-    lea rdi, [rbx - 40]               // repeat last real row for padding
-    xor ecx, ecx
-.Lvb_gather\@:
-    mov rax, [rsi]
-    mov [rsp + .Lvb_keys + rcx], rax
-    mov rax, [rsi + 8]
-    mov [rsp + .Lvb_sigs + rcx], rax
-    mov rax, [rsi + 16]
-    mov [rsp + .Lvb_messages + rcx], rax
-    mov rax, [rsi + 24]
-    mov [rsp + .Lvb_lengths + rcx], rax
-    mov rax, [rsi + 32]
-    mov [rsp + .Lvb_indices + rcx], rax
-    lea rax, [rsi + 40]
-    cmp rsi, rdi
-    cmovb rsi, rax
-    add ecx, 8
-    cmp ecx, 64
-    jne .Lvb_gather\@
-
+    cmp r12, 8
+    jb .Lvb_tail\@
+    mov qword ptr [rsp + .Lvb_active], 8
+    sub r12, 8
+.Lvb_stage\@:
+    // Each half-register holds one row's key, signature, message and length.
+    vmovdqu ymm0, [rbx + 40*0]
+    vmovdqu ymm1, [rbx + 40*1]
+    vmovdqu ymm2, [rbx + 40*4]
+    vmovdqu ymm3, [rbx + 40*5]
+    vinserti64x4 zmm0, zmm0, [rbx + 40*2], 1
+    vinserti64x4 zmm1, zmm1, [rbx + 40*3], 1
+    vinserti64x4 zmm2, zmm2, [rbx + 40*6], 1
+    vinserti64x4 zmm3, zmm3, [rbx + 40*7], 1
+    // Interleave adjacent rows, then select the four even or odd 128-bit pairs.
+    vpunpcklqdq zmm4, zmm0, zmm1
+    vpunpckhqdq zmm5, zmm0, zmm1
+    vpunpcklqdq zmm6, zmm2, zmm3
+    vpunpckhqdq zmm7, zmm2, zmm3
+    vshufi64x2 zmm0, zmm4, zmm6, 0x88
+    vshufi64x2 zmm1, zmm5, zmm7, 0x88
+    vshufi64x2 zmm2, zmm4, zmm6, 0xdd
+    vshufi64x2 zmm3, zmm5, zmm7, 0xdd
+    vmovdqu64 [rsp + .Lvb_keys], zmm0
+    vmovdqu64 [rsp + .Lvb_sigs], zmm1
+    vmovdqu64 [rsp + .Lvb_messages], zmm2
+    vmovdqu64 [rsp + .Lvb_lengths], zmm3
+.irp i,0,1,2,3,4,5,6,7
+    mov rax, [rbx + 40*\i + 32]
+    mov [rsp + .Lvb_indices + 8*\i], rax
+.endr
+    add rbx, 320
     mov rdi, r15
     lea rsi, [rsp + .Lvb_keys]
     mov rdx, [rsp + .Lvb_identity]
@@ -80,6 +84,12 @@
     test eax, eax
     jz .Lvb_reject\@
 
+    // Scatter always rejects ineligible lanes. Hash an empty message in
+    // those lanes so they cannot extend the SIMD hash loop.
+    vpmovzxbq zmm0, qword ptr [rsp + .Lvb_tables + 64]
+    vptestmq k1, zmm0, zmm0
+    vmovdqu64 zmm0{k1}{z}, [rsp + .Lvb_lengths]
+    vmovdqu64 [rsp + .Lvb_lengths], zmm0
     lea rdi, [rsp + .Lvb_digest]
     lea rsi, [r15 + 256]              // original R encodings
     mov rdx, r15                      // original key encodings
@@ -129,6 +139,28 @@
 .Lvb_empty\@:
     mov eax, 1
     ret
+.Lvb_tail\@:
+    // Pad the last chunk to eight rows, repeating the last live record.
+    // The digest buffer is free until the call to SHA-512.
+    mov [rsp + .Lvb_active], r12
+    mov rsi, rbx
+    lea rax, [r12 + 4*r12]
+    lea rdi, [rbx + 8*rax - 40]
+    lea rbx, [rsp + .Lvb_digest]
+    xor r12d, r12d
+    xor ecx, ecx
+.Lvb_pad\@:
+    vmovdqu ymm0, [rsi]
+    mov rax, [rsi + 32]
+    vmovdqu [rbx + rcx], ymm0
+    mov [rbx + rcx + 32], rax
+    lea rax, [rsi + 40]
+    cmp rsi, rdi
+    cmovb rsi, rax
+    add ecx, 40
+    cmp ecx, 320
+    jne .Lvb_pad\@
+    jmp .Lvb_stage\@
 .size \name,.-\name
 .popsection
 .endm
