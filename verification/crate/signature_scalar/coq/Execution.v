@@ -82,6 +82,15 @@ Proof.
 Qed.
 Local Lemma final_mem a : mem out a=mem rows a.
 Proof. change (mem last a=mem rows a);unfold last,body;rewrite upper_memory;reflexivity. Qed.
+Lemma recorded_digits :
+ let ws:=digit_writes pc n ro slide s ks in
+ WriteTrace.confined (output s) ws /\ forall x, mem out x=WriteTrace.replay (mem s) ws x.
+Proof.
+ unfold digit_writes;cbv zeta.
+ pose proof (PackedWrites.execution false 8 (digit_start pc n slide) write_digits prep eq_refl) as H.
+ split;[exact (proj1 H)|intro x;rewrite final_mem;exact (proj2 H x)].
+Qed.
+
 Local Lemma frame : preserved (fun a=>~output s a) (mem s) (mem out).
 Proof. intros a A;rewrite final_mem;change (mem s a) with (mem prep a);apply outside_rows,A. Qed.
 Local Lemma final_bytes : byte_memory (mem out).

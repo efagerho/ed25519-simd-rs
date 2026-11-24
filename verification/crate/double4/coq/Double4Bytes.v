@@ -61,7 +61,7 @@ Lemma memory_safe_bytes p size loc pad initial final before :
  exists after,byte_result p loc pad initial final before after.
 Proof.
  intros Place W Bytes Agree [R End] [fuel [es [Trace [_ [_ Frame]]]]].
- destruct(Frame loc Place)as[_ F];destruct(F before Agree)as[A[Outside[Prefixes Pops]]].
+ destruct(Frame loc Place)as[WriteBound F];destruct(F before Agree)as[A[Outside[Prefixes Pops]]].
  exists(replay p loc es(snd initial)before).
  eapply recorded_bytes; try eassumption.
  intros pre tail E; exact(proj1(Prefixes _ _ E)).

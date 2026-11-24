@@ -38,7 +38,7 @@ def replay(elf, work, dependencies, recompress_dependencies=None):
     overrides = {"dalek_recompress": recompress_dependencies} if recompress_dependencies else {}
     callees = load_callees(elf, work, dependencies, DEPENDENCIES, overrides)
     compile_shared(work, FLAGS)
-    for module in (*modules, "Caller", "Binding", "Equation", "Calls", "Schedule", "Audit", "Object"):
+    for module in (*modules, "Caller", "ScatterTrace", "ScatterMutation", "Binding", "Equation", "Calls", "Schedule", "Audit", "Object"):
         path = dest / (module + ".v")
         if module not in modules:
             shutil.copyfile(HERE / "coq" / path.name, path)

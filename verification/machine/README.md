@@ -188,6 +188,23 @@ used by `AlignRsp64`. The scalar subset
 models the zero flag written by `DEC`. Stack-pointer arithmetic and alignment make ZF
 unknown, and executing `JNE` requires a known ZF. [State and permissions](execution/MachineState.v) · [Intel instruction reference, Vol. 2](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html)
 
+## Auditing individual writes
+
+A write event gives the instruction address and the exact byte interval and
+contents written. It records a store even when the destination already contains
+those bytes. Masked qword stores emit only enabled lanes. Check the instruction
+semantics that emit the events and the theorem relating their replay to the
+existing interpreter. The plain block, packed SIMD and scalar interpreters have
+different instruction subsets. The scalar decoder fails on an unsupported
+encoding. [Write events](memory/WriteTrace.v) · [Block execution](memory/BlockWrites.v) ·
+[Packed SIMD](memory/PackedWrites.v) · [Scalar execution](execution/ScalarBytes.v)
+
+The call rule covers a prefix that ends inside an unreturned child. It accounts
+for the implicit return-address push at the caller and requires the child's
+permission to fit inside the caller's. Each program using the rule must prove
+those obligations for its own entry states. [Call rule](abi/TracedCalls.v) ·
+[Same-value write control](tests/WriteFootprints.v) · [Unreturned child control](tests/CallFootprints.v)
+
 ## Run the conformance suite
 
 Run these commands from this directory with Python 3, `coqdep` and `coqc` on

@@ -13,6 +13,12 @@ The assembly batch driver calls the predecoded entry for every eligible
 chunk. The theorem also covers the standalone queue entries.
 [Batch caller](../../../src/wide/avx512ifma/verify_batch.S)
 
+Both policies use the same verdict scatter. Every prefix of its linked scalar
+instructions writes only inside the caller's output array, including when
+metadata contains an out-of-range index. Reversing the unsigned bounds branch
+produces a one-byte out-of-range store in the same interpreter.
+[Scatter theorem](coq/ScatterTrace.v) · [Counterexample](coq/ScatterMutation.v)
+
 ## What to audit
 
 * Check the release ELF and the six symbol extents in the manifest.

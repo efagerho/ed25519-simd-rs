@@ -14,6 +14,7 @@ Inductive label := Block | Rows | Expanded | Next | Return | Tails
   | AfterUpper | AfterLower | FullAdvance | TailAdvance | FrameSize
 | PrefixLength | LastBias | IV (word:nat) | SwapMask (first:nat) | PublishMask
 | KeyStart | KeyLimit | KeyIncrement | FinalRounds
+| SaveLength (row:nat) | SpillRow (row:nat) | StoreDigest (row:nat)
 | Full (lane:nat) | Empty (lane:nat) | Loaded (lane:nat).
 Scheme Equality for label.
 Inductive atom := Bytes (raw:list Z) | Label (l:label)
@@ -50,7 +51,7 @@ Definition entry :=
   Rip (evex 1 1 25 24 5 true ++ [0xd4;0x0d]) 64; Label PrefixLength;
   Rip (evex 1 1 26 24 5 true ++ [0xd4;0x15]) 72; Label LastBias;
   Bytes (encode_vpsrlq 24 25 61 ++ encode_vpsllq 25 25 3 ++ encode_vpsrlq 26 26 7)] ++
- map (fun i=>Bytes (rm_memory 1 1 0x7f (24+i)%nat 0 4 (512+64*Z.of_nat i))) (seq 0 3) ++
+ flat_map (fun i=>[Label (SaveLength i); Bytes (rm_memory 1 1 0x7f (24+i)%nat 0 4 (512+64*Z.of_nat i))]) (seq 0 3) ++
  lanes (fun i=>[Rip (prefix 2 1 (16+Z.of_nat i) 0 5 ++ [0x59;modrm 0 (Z.of_nat i) 5]) (128+8*Z.of_nat i); Label (IV i)]) ++
  lanes prefix_row ++ [Bytes [0x31;0xf6;0x45;0x31;0xc0]].
 
@@ -68,7 +69,7 @@ Definition body :=
   Bytes (rm_memory 3 1 0x1e 5 24 4 640 ++ [1]);
   Bytes (with_mask 4 (rm_memory 1 1 0x6f 14 0 4 512));
   Bytes (with_mask 4 (rm_memory 1 1 0x6f 15 0 4 576))] ++
- lanes (fun i=>[Bytes (rm_memory 1 1 0x7f (16+i)%nat 0 4 (64*Z.of_nat i))]) ++
+ lanes (fun i=>[Label (SpillRow i); Bytes (rm_memory 1 1 0x7f (16+i)%nat 0 4 (64*Z.of_nat i))]) ++
  [Label KeyStart; Rip [0x4c;0x8d;0x15] 192; Label KeyLimit; Rip [0x48;0x8d;0x15] (192+512); Label Expanded] ++
  round_code true ++
  [Label KeyIncrement; Bytes [0x49;0x81;0xc2;0x80;0;0;0;0x49;0x39;0xd2]; Branch false [0x0f;0x85] Expanded; Label FinalRounds] ++
@@ -77,7 +78,7 @@ Definition body :=
  [Bytes [0xc5;0xf8;0x98;0xe4]; Branch true [0x74] Next;
   Rip (prefix 1 1 25 0 5 ++ [0x6f;0x0d]) 0; Label PublishMask] ++
  lanes (fun i=>[Bytes (rr_w0 2 1 0 24 (16+i)%nat 25);
-   Bytes (with_mask 4 (rm_memory 1 2 0x7f 24 0 7 (64*Z.of_nat i)))]) ++
+   Label (StoreDigest i); Bytes (with_mask 4 (rm_memory 1 2 0x7f 24 0 7 (64*Z.of_nat i)))]) ++
  [Label Next; Bytes [0xc5;0xf8;0x98;0xed]; Branch true [0x74] Return;
   Bytes [0x48;0xff;0xc6]; Branch false [0xe8] Rows; Label AfterLower; Branch false [0xe9] Block;
   Label Return; Bytes (op_bytes (Program [] []) (MovReg 4 5) ++ exit_bytes PopRbp ++

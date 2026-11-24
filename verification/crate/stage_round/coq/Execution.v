@@ -51,6 +51,31 @@ Proof.
    + rewrite (output_base _ _ R);exact X.
 Qed.
 
+Lemma phase_stores ks : forall ip st,ready s st ->
+ WriteTrace.confined (destination s) (phase_writes ip st ks) /\ forall x,
+ mem (fold_left phase ks st) x=WriteTrace.replay (mem st) (phase_writes ip st ks) x.
+Proof.
+ induction ks as [|k rest IH];intros ip st R;[split;[constructor|reflexivity]|].
+ cbn [phase_writes fold_left].
+ set (loaded:=IndexedLoads.execute (load_block k) st).
+ set (at_store:=ip+Z.of_nat(length(flat_map IndexedLoad.encode (load_block k)))).
+ assert (V:forallb (Packed.valid_with_alignment true 55) (route k)=true) by (destruct k;reflexivity).
+ destruct (PackedWrites.execution true 55 at_store (route k) loaded V) as [W M].
+ destruct (IH (ip+Z.of_nat(length(encode_phase k))) (phase st k) (phase_ready _ _ R)) as [T F].
+ split.
+ - apply Forall_app;split;[|exact T]. unfold PackedWrites.region,loaded in W;
+   rewrite (output_base _ _ R) in W;exact W.
+ - intro x;rewrite F,WriteTrace.replay_app;apply PackedWrites.replay_ext,M.
+Qed.
+Lemma stage_writes :
+ WriteTrace.confined (destination s) (writes pc s) /\ forall x,
+ mem (snd (run pc s)) x=WriteTrace.replay (mem s) (writes pc s) x.
+Proof.
+ destruct (phase_stores operands (pc+Z.of_nat(length(flat_map IndexedLoad.encode prefix)))
+   (IndexedLoads.execute prefix s) prefix_ready) as [W M]. split;[exact W|intro x].
+ change (mem (Packed.execute 55 [Upper] (body s)) x=WriteTrace.replay (mem s) (writes pc s) x);rewrite upper_memory;apply M.
+Qed.
+
 Definition at_byte row i := regs s 7%nat+64*Z.of_nat row+Z.of_nat i.
 Lemma phase_selected st k c i : ready s st -> (c<columns k)%nat -> (i<64)%nat ->
  mem (phase st k) (at_byte (first_row k+c) i) =

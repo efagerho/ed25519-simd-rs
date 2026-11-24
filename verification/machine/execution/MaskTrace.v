@@ -137,10 +137,12 @@ Definition vector_step rows f s (i : instruction) :=
     | Compute g => emit s dst g
     end) (lower_vector (load rows f) (regs s) dst op).
 
+Record access := Access { instruction_pc:Z; base_register:nat; stack_offset:Z; byte_count:Z }.
 Inductive tree :=
 | Fault
 | Exit (gs : circuit) (result : arg)
-| Branch (gs : circuit) (mask : arg) (imm : Z) (taken fallthrough : tree).
+| Branch (gs : circuit) (mask : arg) (imm : Z) (taken fallthrough : tree)
+| Written (at_site:access) (rest:tree).
 
 (* Translate both sides of a conditional jump before choosing a path. Only
    result below inspects lane values. Fetching literal data, accessing an
@@ -182,8 +184,8 @@ Fixpoint walk fuel rows code literal_at bottom entry pc f s :=
         | ZeroEax => go next f (Data (regs s) (masks s) (Some (Lit 0)) (Some (Lit 0,0)) (count s) (reversed s))
         | Store src base disp =>
           let addr := sp f + disp in
-          if Nat.eqb base 4 && (sp f <=? addr) && (addr+64 <=? entry) && (addr mod 8 =? 0)
-          then go next (write_vec f addr (regs s src)) s else Fault
+          Written (Access pc base addr 64) (if Nat.eqb base 4 && (sp f <=? addr) && (addr+64 <=? entry) && (addr mod 8 =? 0)
+          then go next (write_vec f addr (regs s src)) s else Fault)
         | CompareQ dst a b => go next f (emit_mask s dst (EqQ (regs s a) (regs s b)))
         | OrMask dst a b =>
           match masks s a, masks s b with
@@ -201,7 +203,8 @@ Fixpoint walk fuel rows code literal_at bottom entry pc f s :=
           match cmp s with
           | Some (a,imm) => Branch (rev (reversed s)) a imm (go (next+disp) f s) (go next f s)
           | None => Fault end
-        | PushBP => match bp f with None => go next (push f SavedBP) s | _ => Fault end
+        | PushBP => Written (Access pc 4 (sp f-8) 8)
+            (match bp f with None => go next (push f SavedBP) s | _ => Fault end)
         | SetBP => go next (Frame (sp f) (Some (sp f)) (stack f)) s
         | AlignSP | SubSP _ =>
           let addr := match i with SubSP k => sp f-k | _ => sp f-sp f mod 64 end in
@@ -212,7 +215,7 @@ Fixpoint walk fuel rows code literal_at bottom entry pc f s :=
         | PopBP =>
           match stack f (sp f) with
           | Some SavedBP => go next (Frame (sp f+8) None (stack f)) s | _ => Fault end
-        | Call disp => go (next+disp) (push f (CodePC next)) s
+        | Call disp => Written (Access pc 4 (sp f-8) 8) (go (next+disp) (push f (CodePC next)) s)
         | Return =>
           match stack f (sp f) with
           | Some (CodePC target) => go target (pop f) s
@@ -229,14 +232,14 @@ Fixpoint walk fuel rows code literal_at bottom entry pc f s :=
     else Fault
   end.
 
-Definition program_tree fuel depth rows p pad :=
+Definition program_writes fuel depth rows p pad :=
   let entry := 8 + 16 * Z.of_nat pad in
   walk fuel (fun _ => rows) (layout p 0) (read_literal (bytes p)) (entry-depth) entry 0 (initial_frame entry) initial_data.
 
 (* Calls, jumps and RIP-relative qword loads can cross either symbol boundary.
    Both regions use the same linked PC space. No instruction or qword can be
    fetched from a gap. The caller checks disjointness and the 64-bit extent. *)
-Definition linked_tree fuel depth rows pad start code other helper :=
+Definition linked_writes fuel depth rows pad start code other helper :=
   let entry := 8 + 16 * Z.of_nat pad in
   let main_literal := read_literal (bytes code) in
   let other_literal := read_literal (bytes helper) in
@@ -245,12 +248,56 @@ Definition linked_tree fuel depth rows pad start code other helper :=
   walk fuel rows (layout code start ++ layout helper other) read
        (entry-depth) entry start (initial_frame entry) initial_data.
 
+Fixpoint erase_writes t := match t with
+ | Written _ rest=>erase_writes rest
+ | Branch gs a imm yes no=>Branch gs a imm (erase_writes yes) (erase_writes no)
+ | _=>t end.
+Definition program_tree fuel depth rows p pad := erase_writes (program_writes fuel depth rows p pad).
+Definition linked_tree fuel depth rows pad start code other helper :=
+ erase_writes (linked_writes fuel depth rows pad start code other helper).
+
 Definition mask_value gs a (input : nat -> nat -> nat -> Z) (initial : nat -> nat -> Z) :=
   mask_word 8 (fun j => value j gs (input j) (initial j) a).
 
 Fixpoint result t input initial := match t with
   | Fault => None
+  | Written _ rest=>result rest input initial
   | Exit gs a => Some (mask_value gs a input initial)
   | Branch gs a imm yes no =>
     result (if mask_value gs a input initial =? imm then yes else no) input initial
   end.
+
+Lemma erase_result t input initial : result (erase_writes t) input initial=result t input initial.
+Proof.
+ induction t;cbn [erase_writes result];try reflexivity;try assumption.
+ destruct (_=?_);assumption.
+Qed.
+
+Fixpoint writes_on t input initial := match t with
+ | Written a rest=>a::writes_on rest input initial
+ | Branch gs a imm yes no=>writes_on (if mask_value gs a input initial=?imm then yes else no) input initial
+ | _=>[] end.
+Definition in_frame bottom top a := base_register a=4%nat /\
+ bottom<=stack_offset a /\ stack_offset a+byte_count a<=top.
+Fixpoint check_writes bottom top t := match t with
+ | Fault=>false | Exit _ _=>true
+ | Branch _ _ _ yes no=>check_writes bottom top yes && check_writes bottom top no
+ | Written a rest=> Nat.eqb (base_register a) 4 && (bottom<=?stack_offset a) &&
+   (stack_offset a+byte_count a<=?top) && check_writes bottom top rest end.
+
+Lemma all_branch_writes bottom top t : check_writes bottom top t=true ->
+ forall input initial, Forall (in_frame bottom top) (writes_on t input initial) /\
+ exists mask,result t input initial=Some mask.
+Proof.
+ induction t;intros H input initial;cbn [check_writes] in H;cbn [writes_on result].
+ - discriminate.
+ - split;[constructor|eauto].
+ - apply andb_true_iff in H as [Y N];destruct (_=?_);[apply IHt1|apply IHt2];assumption.
+ - repeat rewrite andb_true_iff in H;destruct H as [[[B L] U] R].
+   destruct (IHt R input initial) as [W E];split;[constructor|exact E];[|exact W].
+   unfold in_frame;apply Nat.eqb_eq in B;apply Z.leb_le in L,U;auto.
+Qed.
+
+Definition stack_writes depth pad t := forall input initial,
+ let top:=8+16*Z.of_nat pad in Forall (in_frame (top-depth) top) (writes_on t input initial) /\
+ exists mask,result t input initial=Some mask.

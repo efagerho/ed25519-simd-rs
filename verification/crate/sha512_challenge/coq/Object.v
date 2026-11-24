@@ -1,7 +1,7 @@
 From Coq Require Import List ZArith Lia.
 From Machine Require Import isa.Instructions execution.LinkedCalls execution.WordSemantics execution.WordBounds memory.ByteMemory memory.MemoryGeometry abi.SysV.
 From SHA512 Require Import Spec.
-From Ed25519Simd.Sha512Challenge Require Import Image Control Frame Lanes Execution Refinement Audit Rows Output ObjectBytes LiteralBytes.
+From Ed25519Simd.Sha512Challenge Require Import Image Control Frame Lanes Execution Refinement Writes Audit Rows Output ObjectBytes LiteralBytes.
 Local Open Scope Z_scope.
 
 Local Definition rom a := nth (Z.to_nat a) LiteralBytes.symbol_bytes 0.
@@ -40,6 +40,7 @@ Proof.
  - vm_compute; reflexivity.
  - exact masked_reads.
  - exact cursor_fits.
+ - apply run_writes;vm_compute;reflexivity.
  - intros slide s P W M. set (pc:=slide+ObjectBytes.address) in *.
    set (ro:=slide+LiteralBytes.address) in *.
    assert (Extent:0<=pc /\ pc+7328<=2^64) by (apply (proj1 (image_fits _ _ _ _ P))).

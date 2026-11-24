@@ -23,6 +23,7 @@ Definition lane_result mask j q r :=
 Record torsion_contract (symbol_bytes : list Z) : Prop := {
   code_matches : bytes code = symbol_bytes;
   code_valid : well_formed code = true;
+  write_footprint : forall pad, (pad<4)%nat -> stack_writes 1032 pad (program_writes 1500 1032 20 code pad);
   run_correct : forall pad p r initial, (pad < 4)%nat -> input_bounds p r ->
     exists mask,
       result (program_tree 1500 1032 20 code pad) (inputs p r) initial = Some mask /\

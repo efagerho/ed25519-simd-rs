@@ -4,6 +4,7 @@ From Curve25519.group Require Import PrimeField Affine Representation.
 From Ed25519Simd.Dalek Require Import Batch.
 From Ed25519Simd.PostHash Require Import Staging Product.
 From Ed25519Simd.Zip215 Require Import Caller Equation Binding Calls Schedule Audit.
+From Ed25519Simd.Zip215 Require ScatterTrace.
 Import ListNotations. Local Open Scope Z_scope.
 
 Lemma image_ok : linked_image.
@@ -117,4 +118,4 @@ Proof.
 Qed.
 
 Theorem assembled_zip215_correct : zip215_contract.
-Proof. constructor;[exact image_ok|exact (conj (candidate_abi_ok true) (conj push_abi_ok (conj eq_refl (conj eq_refl eq_refl))))|exact queue_lifecycle_ok|exact (product_ok true)|exact direct_ok|exact deferred_ok]. Qed.
+Proof. constructor;[exact image_ok|exact ScatterTrace.scatter_confined|exact (conj (candidate_abi_ok true) (conj push_abi_ok (conj eq_refl (conj eq_refl eq_refl))))|exact queue_lifecycle_ok|exact (product_ok true)|exact direct_ok|exact deferred_ok]. Qed.

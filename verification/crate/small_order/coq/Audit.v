@@ -28,6 +28,7 @@ Record small_order_contract (entry : Z) (entry_bytes : list Z)
     0 <= entry /\ entry + Z.of_nat (length entry_bytes) < 2^64 /\
     0 <= other /\ other + Z.of_nat (length other_bytes) < 2^64 /\
     (entry + Z.of_nat (length entry_bytes) <= other \/ other + Z.of_nat (length other_bytes) <= entry);
+  write_footprint : forall pad, (pad<4)%nat -> stack_writes 24 pad (linked_writes 350 24 readable_rows pad entry code other helper);
   run_correct : forall pad p initial, (pad<4)%nat -> bounded p ->
     exists mask,
       result (run_at entry other pad) (inputs p) initial = Some mask /\

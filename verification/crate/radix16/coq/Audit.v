@@ -1,3 +1,4 @@
+From Machine Require execution.LocatedEvents execution.StoreInstructions memory.PackedWrites memory.WriteTrace.
 From Coq Require Import List ZArith.
 From Curve25519 Require Import SignedRadix16.
 From Machine Require Import isa.ProgramLayout execution.LinkedCalls execution.Packed
@@ -52,6 +53,24 @@ Definition run slide pc target n entry ip out :=
     let resumed := snd (caller_step slide (pc + 6) (Restore 7) mid) in
     caller_step slide (pc + n - 1) Return (execute 8 tail resumed) = (ip, out).
 
+(* A located execution of the scalar helper, followed by the wrapper's actual
+   packed tail. Both consume the byte memory of their immediate predecessor. *)
+Definition child_events pc s ws := let loc:=location pc s in
+ let initial:=entry_from_bytes loc (regs s) (vectors s) (flag s) (mem s) in
+ exists fuel final es,LocatedEvents.run pc fuel Ed25519Simd.Scalar.Program.scalar_program abi_layout
+    (fst initial)=Some(final,es) /\
+ ws=LocatedEvents.stores Ed25519Simd.Scalar.Program.scalar_program loc (snd initial) es.
+Definition traced slide pc target n entry ip out ws :=
+ let saved:=snd (caller_step slide pc (Save 7) entry) in
+ let '(dest,invoked):=caller_step slide (pc+1) (Invoke target) saved in
+ let own:=StoreInstructions.caller_stores slide pc (Save 7) entry ++
+          StoreInstructions.caller_stores slide (pc+1) (Invoke target) saved in
+ dest=slide+target /\ exists mid child,
+ reduce dest invoked (word (slide+(pc+6))) mid /\ child_events dest invoked child /\
+ let resumed:=snd (caller_step slide (pc+6) (Restore 7) mid) in
+ caller_step slide (pc+n-1) Return (execute 8 tail resumed)=(ip,out) /\
+ ws=own++child++PackedWrites.trace (slide+pc+7) resumed Packed.initial tail.
+
 Definition signed_digits m dst lane :=
   map (fun k => signed_byte (m (dst + 64 * Z.of_nat lane + Z.of_nat k)))
       (seq 0 64).
@@ -63,6 +82,15 @@ Record digest_contract pc bs target callee_bytes : Prop := {
   separate_code : disjoint pc (size bs) target (size callee_bytes);
   initializes_output : forall lane, (lane < 8)%nat ->
     exists row, stores (fold_left step tail initial) lane = Some row;
+  trace_unique : forall slide entry ip out xs ys,
+    traced slide pc target (size bs) entry ip out xs -> traced slide pc target (size bs) entry ip out ys -> xs=ys;
+  write_footprint : forall slide entry ip out,
+    let sp:=regs entry 4%nat in let dst:=regs entry 7%nat in
+    placement sp dst (regs entry 6%nat) (slide+pc) (size bs) (slide+target) (size callee_bytes) ->
+    well_formed entry -> run slide pc target (size bs) entry ip out ->
+    exists ws,traced slide pc target (size bs) entry ip out ws /\
+      (forall x,mem out x=WriteTrace.replay (mem entry) ws x) /\
+      forall pre rest,ws=pre++rest -> WriteTrace.confined (writable sp dst) pre;
   run_correct : forall slide entry,
     let sp := regs entry 4%nat in
     let dst := regs entry 7%nat in

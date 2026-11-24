@@ -18,7 +18,7 @@ SYMBOL = "ed25519_simd_sha512_challenge"
 COMPONENT = "sha512_challenge"
 NAMESPACE = "Ed25519Simd.Sha512Challenge"
 MODULES = ("Compression", "Output", "Rounds", "Block", "Transpose", "Loader",
-           "Probe", "Lanes", "Image", "Control", "Frame", "Rows", "Execution", "Refinement", "Audit", "Object")
+           "Probe", "Lanes", "Image", "Control", "Frame", "Rows", "Execution", "Refinement", "Writes", "Audit", "Object")
 
 
 def flags(root):

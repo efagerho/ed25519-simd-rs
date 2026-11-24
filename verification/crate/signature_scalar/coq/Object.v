@@ -10,6 +10,7 @@ Proof.
  - vm_compute;split;reflexivity.
  - vm_compute;split;reflexivity.
  - intros j J;destruct (output_routed j 0 J ltac:(lia)) as [v [Store _]];now exists v.
+ - intros slide entry ks;apply recorded_digits.
  - intros slide entry ks P W M.
    apply (verified_call ObjectBytes.address (Z.of_nat (length ObjectBytes.symbol_bytes))
      OrderBytes.address slide OrderBytes.symbol_bytes entry ks);try assumption.

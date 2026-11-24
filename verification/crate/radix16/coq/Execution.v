@@ -1,3 +1,4 @@
+From Machine Require memory.BlockWrites memory.PackedWrites memory.WriteTrace abi.TracedCalls.
 From Curve25519 Require Import SignedRadix16.
 From Coq Require Import List ZArith Lia.
 From Machine Require Import execution.Blocks execution.WordBounds execution.WordSemantics
@@ -12,12 +13,29 @@ Local Notation pc := wrapper_pc. Local Notation target := reducer_pc.
 Local Notation n := (size LinkedBytes.symbol_bytes).
 Local Notation m := (size Ed25519Simd.Scalar.Object.object_bytes).
 
+Lemma child_events_unique a s xs ys : child_events a s xs -> child_events a s ys -> xs=ys.
+Proof.
+ intros [n [f [es [R ->]]]] [m [g [ts [S ->]]]].
+ pose proof (walk_unique _ _ _ _ _ _ R S) as E;injection E as _ ->;reflexivity.
+Qed.
+
+Lemma traced_unique slide entry ip out xs ys : traced slide pc target n entry ip out xs ->
+ traced slide pc target n entry ip out ys -> xs=ys.
+Proof.
+ unfold traced;cbv zeta;destruct (caller_step slide (pc+1) (Invoke target) _) as [a s].
+ intros [_ [m [u [A [U [_ ->]]]]]] [_ [f [v [B [V [_ ->]]]]]].
+ destruct(callee_unique _ _ _ _ _ _ _ _ _ A B) as [_ ->].
+ now rewrite (child_events_unique _ _ _ _ U V).
+Qed.
+
 Local Lemma reduce_ok addr s : well_formed s -> word64 (regs s 4%nat+8) ->
  valid_placement (location addr s) m ->
  exists out, reduce addr s (caller_pc (location addr s)) out /\
  sysv_return (writable_byte (location addr s)) s out /\
  scalar_spec (ByteMemory.buffer_words (mem s) (regs s 6%nat))
-             (ByteMemory.buffer_words (mem out) (regs s 7%nat)).
+             (ByteMemory.buffer_words (mem out) (regs s 7%nat)) /\
+ exists ws,child_events addr s ws /\ mem out=WriteTrace.replay (mem s) ws /\
+ WriteTrace.confined (writable_byte (location addr s)) ws.
 Proof.
  intros [Words [Vec Bytes]] SP Place; set (loc:=location addr s).
  assert (E:concrete_entry loc m (regs s) (vectors s) (mem s)) by
@@ -29,7 +47,11 @@ Proof.
  assert (Known:known_registers (fst (entry_from_bytes loc (regs s) (vectors s) (flag s) (mem s)))).
  { intros r U;specialize (Entry r);rewrite U in Entry;discriminate. }
  destruct (lift_return _ _ _ _ _ _ _ _ _ Known Run Frame) as [C [W F]].
- exists (export_state loc final after);split;[exact C|];split;[|exact (computed_output R)].
+ destruct (BlockWrites.byte_execution_writes _ _ _ _ _ _ _ _ _ Frame) as [fuel [es [Trace [Replay Bound]]]].
+ exists (export_state loc final after);split;[exact C|];split.
+ 2: { split;[exact (computed_output R)|].
+      eexists;split;[unfold child_events;eexists _,_,_;split;[exact Trace|reflexivity]|].
+      split;[exact Replay|apply (Bound es nil);symmetry;apply app_nil_r]. }
  eapply project_sysv_return with (next_rsp:=(0%nat,8));try eassumption;
  [reflexivity|reflexivity|apply (SysV.restored_stack R)|apply (SysV.saved_registers R)].
 Qed.
@@ -129,6 +151,58 @@ Proof.
  destruct(callee_unique _ _ _ _ _ _ _ _ _ A B)as[_ ->];congruence || (rewrite X in Y;inversion Y;auto).
 Qed.
 
+Local Lemma restored_destination mid : regs mid 4%nat=sp-8 ->
+ preserved (fun x=>~(dst<=x<dst+320)) (mem invoked) (mem mid) -> regs (pop mid 7) 7%nat=dst.
+Proof.
+ intros S Frame. change (read_word (mem mid) (word (regs mid 4%nat))=dst).
+ rewrite S,(word_fits (sp-8)) by geom.
+ assert (Read:read_word (mem mid) (sp-8)=read_word (mem invoked) (sp-8)).
+ { apply preserved_read with (outside:=fun x=>~(dst<=x<dst+320));[exact Frame|].
+   intros k K;change (0<=k<8) in K;geom. }
+ rewrite Read,image_mem,read_other_word by (unfold disjoint;lia). apply write_read_word,W.
+Qed.
+
+Theorem traced_digest ip out : run slide pc target n entry ip out ->
+ exists ws,traced slide pc target n entry ip out ws /\
+ (forall x,mem out x=WriteTrace.replay (mem entry) ws x) /\
+ forall pre rest,ws=pre++rest -> WriteTrace.confined (writable sp dst) pre.
+Proof.
+ intro Run;apply run_view in Run as [other [Exec End]].
+ assert (Wcall:well_formed invoked) by (apply push_wf,push_wf,W).
+ destruct (reduce_ok _ _ Wcall ltac:(rewrite sp2;geom) reducer_placement) as
+   [mid [Call [[_ [SP [_ _]]] [_ [child [Trace [Replay Bound]]]]]]].
+ rewrite call_ret in Call. destruct(callee_unique _ _ _ _ _ _ _ _ _ Exec Call) as [_ ->].
+ set (back:=pop mid 7).
+ assert (Dest:regs back 7%nat=dst).
+ { apply restored_destination;[rewrite SP,sp2;ring|]. intros x X;rewrite Replay;apply (WriteTrace.frame _ _ Bound);exact X. }
+ set (tail_writes:=PackedWrites.trace (slide+pc+7) back Packed.initial tail).
+ destruct (PackedWrites.execution false 8 (slide+pc+7) tail back ltac:(vm_compute;reflexivity)) as [Tail TailReplay].
+ set (own:=StoreInstructions.caller_stores slide pc (Save 7) entry ++
+    StoreInstructions.caller_stores slide (pc+1) (Invoke target) saved).
+ exists (own++child++tail_writes);split.
+ - unfold traced;cbn zeta;change (snd (caller_step slide pc (Save 7) entry)) with saved.
+   rewrite call_step,(word_fits (slide+target)),(word_fits (slide+(pc+6))) by geom.
+   split;[reflexivity|exists mid,child;split;[exact Call|split;[exact Trace|split;[exact End|reflexivity]]]].
+ - assert (OwnMem:WriteTrace.replay (mem entry) own=mem invoked).
+   { unfold own;rewrite WriteTrace.replay_app;reflexivity. }
+   split.
+   + intros x;rewrite !WriteTrace.replay_app,OwnMem,<-Replay.
+     change (mem out x=WriteTrace.replay (mem back) tail_writes x).
+     assert (M:mem out=mem (execute 8 tail back)).
+     { pose proof(f_equal (fun res=>mem (snd res)) End) as H;symmetry;exact H. }
+     rewrite M;apply TailReplay.
+   + assert (All:WriteTrace.confined (writable sp dst) (own++child++tail_writes)).
+     { apply Forall_app;split.
+       - unfold own,StoreInstructions.caller_stores;cbn [app]. fold sp;rewrite sp1.
+         rewrite (word_fits (sp-8)),(word_fits (sp-8-8)) by geom.
+         repeat apply Forall_cons;try apply Forall_nil;intros x X;right;
+           unfold WriteTrace.touches in X;cbn [WriteTrace.address WriteTrace.size WriteTrace.qword] in X;lia.
+       - apply Forall_app;split.
+         + eapply TracedCalls.lend;[|exact Bound]. intros x X;left;change (dst<=x<dst+320) in X;lia.
+         + eapply TracedCalls.lend;[|exact Tail]. intros x X;left;unfold PackedWrites.region in X;now rewrite Dest in X. }
+     intros pre rest Eq;rewrite Eq in All;now apply Forall_app in All as [A _].
+Qed.
+
 Theorem digest_returns : exists out,
  run slide pc target n entry ret out /\
  (forall ip oth,run slide pc target n entry ip oth ->ip=ret /\ oth=out) /\
@@ -140,21 +214,13 @@ Theorem digest_returns : exists out,
 Proof.
  assert (Wcall:well_formed invoked) by (apply push_wf,push_wf,W).
  destruct(reduce_ok _ _ Wcall ltac:(rewrite sp2;geom) reducer_placement)
-   as [mid [Call [[Wmid [SP [Saved Frame]]] Spec]]].
+   as [mid [Call [[Wmid [SP [Saved Frame]]] [Spec _]]]].
  rewrite call_ret in Call. rewrite sp2 in SP;replace (sp-16+8) with (sp-8) in SP by ring.
  change (preserved (fun x=>~(dst<=x<dst+320)) (mem invoked) (mem mid)) in Frame.
  change (scalar_spec (ByteMemory.buffer_words (mem invoked) src)
                      (ByteMemory.buffer_words (mem mid) dst)) in Spec.
- assert (Slots:forall a,sp-8<=a<=sp -> read_word (mem mid) a=read_word (mem invoked) a).
- { intros a A;apply preserved_read with(outside:=fun x=>~(dst<=x<dst+320));[exact Frame|].
-   intros k K;change (0<=k<8) in K;geom. }
- assert (Slot:read_word (mem mid) (sp-8)=dst).
- { rewrite Slots,image_mem,read_other_word by (unfold disjoint;lia).
-   apply write_read_word,W. }
  set (resume:=pop mid 7).
- assert (D:regs resume 7%nat=dst).
- { change (read_word (mem mid) (word (regs mid 4%nat))=dst);
-   rewrite word_fits by apply Wmid;now rewrite SP. }
+ assert (D:regs resume 7%nat=dst) by (apply restored_destination;assumption).
  assert (S:regs resume 4%nat=sp).
  { change (word (regs mid 4%nat+8)=sp). rewrite SP,word_fits by geom;lia. }
  set (body:=execute 8 tail resume).

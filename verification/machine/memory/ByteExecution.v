@@ -53,6 +53,7 @@ Definition byte_execution p l loc tracked writable initial final before after :=
  (forall x,~writable x ->after x=before x) /\
  exists fuel es,record_path fuel p l(fst initial)=Some(fst final,es) /\
  after=replay p loc es(snd initial)before /\
+ (forall x,writes_at loc es x -> writable x) /\
  (forall pre tail,es=pre++tail ->
  let d:=effects p(data_effects pre)(snd initial)in
  let flat:=replay p loc pre(snd initial)before in
@@ -64,7 +65,7 @@ Theorem recorded_bytes fuel p l loc tracked writable initial final before es :
  reaches p l initial final -> state_words initial -> byte_memory before ->
  record_path fuel p l(fst initial)=Some(fst final,es) ->
  agrees loc tracked(snd final)(return_memory(fst final))(replay p loc es(snd initial)before) ->
- (forall x,~writable x ->replay p loc es(snd initial)before x=before x) ->
+ (forall x,writes_at loc es x -> writable x) ->
  (forall pre tail,es=pre++tail ->
  agrees loc tracked(effects p(data_effects pre)(snd initial))
  (fold_left update_slots pre(return_memory(fst initial)))(replay p loc pre(snd initial)before)) ->
@@ -72,12 +73,13 @@ Theorem recorded_bytes fuel p l loc tracked writable initial final before es :
  replay p loc pre(snd initial)before(address_of loc a+k)=word_byte(pc_word loc t)k) ->
  byte_execution p l loc tracked writable initial final before(replay p loc es(snd initial)before).
 Proof.
- intros R W Bytes Trace A Outside Prefixes Pops.
+ intros R W Bytes Trace A WriteBound Prefixes Pops.
  pose proof(execution_preserves_words _ _ _ _ R W)as Final.
  split;[intros middle Reach;eapply execution_preserves_words;eassumption|].
  split;[now apply replay_well_formed|].
  split;[intros a j M J;eapply agrees_read_vector;eauto;exact(proj2 Final)|].
- split;[exact Outside|];exists fuel,es;split;[exact Trace|];split;[reflexivity|];split.
+ split;[intros x O;apply replay_frame;intro H;apply O,WriteBound,H|].
+ exists fuel,es;split;[exact Trace|];split;[reflexivity|];split;[exact WriteBound|];split.
  - intros pre tail E.
    assert(D:data_words(effects p(data_effects pre)(snd initial)))by
      (destruct initial;eapply recorded_prefix_words;eassumption).

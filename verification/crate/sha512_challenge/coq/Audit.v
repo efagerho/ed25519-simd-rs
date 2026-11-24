@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith.
 From Machine Require Import execution.LinkedCalls execution.WordBounds memory.ByteMemory abi.SysV.
-From Ed25519Simd.Sha512Challenge Require Import Output Frame Image Execution Rows.
+From Ed25519Simd.Sha512Challenge Require Import Output Frame Image Execution Rows Writes.
 Local Open Scope Z_scope.
 
 Record sha512_contract pc code ro literal : Prop := {
@@ -11,6 +11,7 @@ Record sha512_contract pc code ro literal : Prop := {
     (reads_message s m off j k=true <-> (off+k<length_at s m j)%nat);
   message_offsets_fit : forall s t, bounded_lengths s -> (t<=Lanes.maximum (challenge_input s))%nat ->
     word64 (128*Z.of_nat t+128);
+  write_footprint : writes_correct pc code ro;
   returns_correct : forall slide entry,
     placement entry (slide+pc) (Z.of_nat (length code)) (slide+ro) ->
     well_formed entry -> mapped entry (slide+ro) literal ->

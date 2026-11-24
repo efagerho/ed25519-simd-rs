@@ -8,6 +8,13 @@ the integer sum of `digit[k] * 16^k` for k from 0 through 63 equals
 **H mod L**. This covers every digest, including zero and the maximal input.
 [Public contract](coq/Audit.v) · [Theorem](coq/Object.v)
 
+The same return has a unique store trace. It includes the saved RDI, the
+implicit call push, the scalar reducer's stores and the packed digit stores
+after the reducer returns. Replay starts with the caller's memory and produces
+the entire returned byte memory. Every prefix stays within the 512-byte
+output and the 16 bytes immediately below entry RSP.
+[Trace and permission bounds](coq/Execution.v)
+
 ## What to audit
 
 1. Check the two linked symbols and their relative addresses against the
