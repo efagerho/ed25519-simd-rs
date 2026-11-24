@@ -13,7 +13,7 @@ Definition keeps r op := let other d:=negb (Nat.eqb d r) in match op with
  | SaveG _ | CallRelative _ | Ret=>other 4%nat
  | RestoreG d=>other 4%nat && other d
  | VectorMove (VectorMoves.Input i)=>match i with
-   | IndexedLoad.LoadY _ _ | IndexedLoad.InsertY _ _ _ _ | IndexedLoad.UnpackWords _ _ _ _
+   | IndexedLoad.LoadZ _ _ | IndexedLoad.LoadY _ _ | IndexedLoad.InsertY _ _ _ _ | IndexedLoad.UnpackWords _ _ _ _
    | IndexedLoad.ShuffleWords _ _ _ _=>true | _=>false end
  | _=>true end.
 
@@ -21,6 +21,7 @@ Lemma step_keeps r o off n op s c t ws : keeps r op=true ->
  step o off n op s c=Some(t,ws) -> regs(cpu_state t) r=regs s r.
 Proof.
  destruct op;cbn [keeps];intros K Run;cbn [step] in Run.
+ all: try solve [destruct (qword_op _ _ _) as [v|] eqn:QV;try discriminate;injection Run as <- <-;exact (f_equal (fun f=>f r) (proj1(proj2(qword_state _ _ _ _ QV))))].
  all: try match type of Run with context[option_map _ ?b]=>destruct b as [[]|];try discriminate end.
  all: try match type of Run with context[if ?b then Some (_,_) else None]=>destruct b;try discriminate end.
  all: try (injection Run as <- <-;cbn [cpu_state]).

@@ -54,3 +54,17 @@ Example decoder_frame_and_literal :
  (exists t,ScalarBytes.fetch 0x1004 [0x62;0x62;0xfd;0x48;0x59;0x35;0xf2;0xff;0xff;0xff] start=Some(t,[]) /\
   vectors (ScalarBytes.cpu_state t) 7%nat 30%nat=7 /\ vectors (ScalarBytes.cpu_state t) 7%nat 29%nat=11).
 Proof. split;eexists;repeat split;reflexivity. Qed.
+
+Example two_table_permutation :
+ let s:=CPU (fun _=>0) (fun j r=>if Nat.eqb r 8 then 8+Z.of_nat j else
+   if Nat.eqb r 5 then 40+Z.of_nat j else 10+Z.of_nat j) None (fun _=>0) in
+ exists t,ScalarBytes.fetch 0 [0x62;0xf2;0xbd;0x48;0x7e;0xc5]
+   (ScalarBytes.State (ScalarBytes.Running 0) s None)=Some(t,[]) /\
+   vectors (ScalarBytes.cpu_state t) 2%nat 0%nat=42.
+Proof. eexists;split;reflexivity. Qed.
+
+Example aligned_zmm_literal :
+ let bs:=[0x62;0x71;0xfd;0x48;0x6f;0x05;0xf6;0xff;0xff;0xff] in
+ let fetch pc:=ScalarBytes.fetch pc bs (ScalarBytes.State (ScalarBytes.Running 0) entry None) in
+ fetch 63=None /\ exists t,fetch 64=Some(t,[]) /\ vectors (ScalarBytes.cpu_state t) 7%nat 8%nat=0x0707070707070707.
+Proof. split;[reflexivity|eexists;split;reflexivity]. Qed.

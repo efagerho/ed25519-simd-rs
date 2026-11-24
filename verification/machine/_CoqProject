@@ -53,6 +53,7 @@ memory/PackedMemory.v
 tests/PackedRows.v
 isa/IndexedLoad.v
 isa/VectorMoves.v
+isa/QwordRegister.v
 execution/IndexedLoads.v
 tests/Indexed.v
 execution/MaskedWords.v
