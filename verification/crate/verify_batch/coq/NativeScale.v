@@ -68,9 +68,10 @@ Qed.
 Definition row s ptr j i:=read_word (mem s) (ptr+64*Z.of_nat i+8*Z.of_nat j).
 Theorem at_scale signature pol bias e p : placement e -> loaded pol bias (mem e) (writable e) ->
  squared signature pol bias e p -> well_formed(machine p) ->
- exists q,step_at bias 43 p=Some q /\ forall j i,(j<8)%nat -> (i<5)%nat ->
+ exists q,step_at bias 43 p=Some q /\ (forall j i,(j<8)%nat -> (i<5)%nat ->
  row (machine q) (point e signature) j i=Scale.scaled (vectors(machine p) j) i /\
- vectors(machine q) j i=Scale.difference (vectors(machine p) j) i.
+ vectors(machine q) j i=Scale.difference (vectors(machine p) j) i) /\
+ preserved (fun x=>~(point e signature<=x<point e signature+320)) (mem(machine p)) (mem(machine q)).
 Proof.
  intros P M [PC [Acc [[DI [_ [_ [C Env]]]] Rest]]] W.
  set (o:=base bias);set (a:=point e signature) in *;set (s:=machine p) in *.
@@ -92,7 +93,11 @@ Proof.
    intros w V x X;specialize(V x X);right;left;unfold VectorWindow.interval,span,a,point,point_offset in *;destruct signature;lia. }
  destruct(mapped_now _ _ _ M _ _ _ Acc (decode_in pol)) as [Map Away].
  destruct(at_segment _ _ _ o text 43 509 _ _ Acc PC Map Away All Bound) as [Next Paid].
- eexists;split;[exact Next|]. intros j i J I;set (old:=row mid a j).
+ eexists;split;[exact Next|split].
+ 2:{ pose proof(steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ Run)) as Mem.
+     change (mem t=WriteTrace.replay (mem s) ws) in Mem;intros x X;change (mem t x=mem s x);rewrite Mem.
+     apply (WriteTrace.frame _ _ Safe);unfold VectorWindow.interval;lia. }
+ intros j i J I;set (old:=row mid a j).
  pose proof(VectorSpills.execute o text 7 a 5 j actions 535 mid (LinkedRun.carry p) _ ws (View (feed (vectors s j)) old)
    (proj1(proj2 bound)) (proj2(proj2 bound)) J WM DI Al Fit
     ltac:(split;[intro r;reflexivity|intros;reflexivity]) Run) as [Regs Rows].

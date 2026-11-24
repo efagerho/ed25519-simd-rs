@@ -237,7 +237,7 @@ Theorem from_setup signature pol bias e p incoming : placement e -> loaded pol b
  (bias+DecoderFrame.origin) mod 64=0 -> setup signature pol bias e p ->
  exists r,input_setup bias p incoming=Some r /\ post signature pol bias e r.
 Proof.
- intros P M Al E;destruct(KeySquare.from_setup signature _ _ _ _ incoming P M Al E) as [sq [k [Trace Value]]].
+ intros P M Al E;destruct(KeySquare.from_setup signature _ _ _ _ incoming P M Al E) as [sq [k [Trace [Value _]]]].
  destruct(to_caller signature _ _ _ P M _ Value) as [q [Run Back]].
  exists (Checkpoints sq q k);split;[unfold input_setup;rewrite Trace;cbn [bind];now rewrite Run|exact (conj Value Back)].
 Qed.
