@@ -82,3 +82,43 @@ Proof.
  - destruct B as [D B]. destruct (IH (a+Z.of_nat n) ys B) as [L R].
    split;[split;assumption|]. cbn [width fold_right fst] in R|-*;now rewrite Z.add_assoc.
 Qed.
+
+(* A fixed frame may carry live caller registers across many stores.
+   Check register destinations independently of the memory footprint. *)
+Definition keeps (r:nat) op := match op with
+ | CopyG d _ | LeaG d _ | Load64 d _ | Add64 d _=>negb (Nat.eqb d r)
+ | Store64 _ _ | VectorMove (VectorMoves.Output _ _ _)=>true
+ | VectorMove (VectorMoves.Input i)=>match i with
+   | IndexedLoad.LoadY _ _ | IndexedLoad.InsertY _ _ _ _ | IndexedLoad.UnpackWords _ _ _ _
+   | IndexedLoad.ShuffleWords _ _ _ _=>true | _=>false end
+ | _=>false end.
+
+Lemma kept_step origin off n op s c t ws r : keeps r op=true ->
+ step origin off n op s c=Some(t,ws) -> regs (cpu_state t) r=regs s r.
+Proof.
+ destruct op;cbn [keeps];try discriminate;intros K S;cbn [step] in S;
+ try solve [injection S as <- <-;reflexivity];
+ try solve [apply Bool.negb_true_iff in K;injection S as <- <-;
+   cbn [cpu_state with_zf set set_regs regs];unfold Instructions.put;now rewrite K].
+ destruct op;[destruct i;try discriminate|];injection S as <- <-;reflexivity.
+Qed.
+
+Lemma kept_sequence origin text r ops : forall off s c t ws, 0<=off -> decoded text off ops ->
+ forallb (fun p=>keeps r (snd p)) ops=true ->
+ run (length ops) (ScalarBytes.fetch origin text) (State (Running off) s c)=Some(t,ws) ->
+ regs (cpu_state t) r=regs s r.
+Proof.
+ induction ops as [|[n op] ops IH];intros off s c t ws O D K R.
+ - injection R as <- _;reflexivity.
+ - destruct D as [D Ds];apply Bool.andb_true_iff in K as [K Ks].
+   cbn [length run] in R;unfold ScalarBytes.fetch at 1 in R;cbn [loc cpu_state ScalarBytes.cf] in R.
+   rewrite (proj2 (Z.ltb_ge _ _) O),D in R.
+   destruct (step origin off n op s c) as [[mid own]|] eqn:M;try discriminate.
+   destruct (run _ _ mid) as [[last tail]|] eqn:T;try discriminate;injection R as <- _.
+   pose proof (kept_step _ _ _ _ _ _ _ _ _ K M) as G.
+   assert (Fall:loc mid=Running(off+Z.of_nat n)).
+   { destruct op;cbn [keeps snd] in K;try discriminate;try (injection M as <- _;reflexivity).
+     destruct op;injection M as <- _;reflexivity. }
+   destruct mid as [pc m cf];cbn [loc cpu_state] in Fall,G;subst pc.
+   rewrite (IH (off+Z.of_nat n) _ _ _ _ ltac:(lia) Ds Ks T);exact G.
+Qed.

@@ -69,3 +69,5 @@ memory/PackedWrites.v
 memory/RowWrites.v
 execution/MappedFetch.v
 execution/FrameInstructions.v
+execution/InstructionRoute.v
+execution/LinkedRun.v
