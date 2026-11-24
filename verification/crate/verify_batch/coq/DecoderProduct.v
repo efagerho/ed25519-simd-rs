@@ -91,16 +91,14 @@ Definition kernel:=Ed25519Simd.Decode.Program.code.
 Lemma multiplication : Kernels.verified kernel Kernels.Multiply=true /\ Kernels.kernel_frame kernel Kernels.Multiply.
 Proof. split;[vm_compute;reflexivity|apply Kernels.frame_ok;vm_compute;reflexivity]. Qed.
 
-Lemma lane_square r y :
- split_field y -> (forall i,(i<5)%nat -> r i=y i /\ r (5+i)%nat=y i) ->
+Lemma lane_product r x y :
+ (forall i,(i<5)%nat -> r i=x i /\ r (5+i)%nat=y i) ->
  (forall i,(i<4)%nat -> r (28+i)%nat=DecoderFrame.constant i) ->
- let out:=Instructions.run no_read (Kernels.product kernel) r in
- field_bound (Kernels.out_bound Kernels.Multiply) out /\
- represents (limbs out) (limbs y*limbs y) /\ 2<=out 0%nat.
+ forall i,(i<5)%nat -> Instructions.run no_read (Kernels.product kernel) r i=
+   Power.apply_kernel kernel Kernels.Multiply x y i.
 Proof.
- intros Y Inputs Constants out;destruct multiplication as [Checked Frame].
- pose proof (Power.apply_ok _ Kernels.Multiply _ _ Checked Y Y) as [Bounds [Value Positive]].
- assert (Live:forall i,Kernels.live Kernels.Multiply i=true -> r i=Power.feed y y i).
+ intros Inputs Constants;destruct multiplication as [_ Frame].
+ assert (Live:forall i,Kernels.live Kernels.Multiply i=true -> r i=Power.feed x y i).
  { intros i On;destruct (Nat.lt_ge_cases i 10) as [L|H].
    - pose proof (Inputs 0%nat ltac:(lia)) as [A F0];pose proof (Inputs 1%nat ltac:(lia)) as [B F1];
      pose proof (Inputs 2%nat ltac:(lia)) as [C F2];pose proof (Inputs 3%nat ltac:(lia)) as [D F3];
@@ -111,7 +109,20 @@ Proof.
      do 4 (destruct i as [|i];[first [exact (Constants 0%nat ltac:(lia))|exact (Constants 1%nat ltac:(lia))|
         exact (Constants 2%nat ltac:(lia))|exact (Constants 3%nat ltac:(lia))]|]);discriminate. }
  destruct (Frame no_read no_read _ _ Live) as [Same _].
- assert (E:forall i,(i<5)%nat -> out i=Power.apply_kernel kernel Kernels.Multiply y y i) by exact Same.
+ exact Same.
+Qed.
+
+Lemma lane_square r y :
+ split_field y -> (forall i,(i<5)%nat -> r i=y i /\ r (5+i)%nat=y i) ->
+ (forall i,(i<4)%nat -> r (28+i)%nat=DecoderFrame.constant i) ->
+ let out:=Instructions.run no_read (Kernels.product kernel) r in
+ field_bound (Kernels.out_bound Kernels.Multiply) out /\
+ represents (limbs out) (limbs y*limbs y) /\ 2<=out 0%nat.
+Proof.
+ intros Y Inputs Constants out.
+ pose proof (Power.apply_ok _ Kernels.Multiply _ _ (proj1 multiplication) Y Y) as [Bounds [Value Positive]].
+ assert (E:forall i,(i<5)%nat -> out i=Power.apply_kernel kernel Kernels.Multiply y y i)
+   by exact (lane_product _ _ _ Inputs Constants).
  split;[intros i I;rewrite E by exact I;apply Bounds,I|split].
  - erewrite limbs_ext;[exact Value|exact E].
  - rewrite E by lia;apply Positive;reflexivity.
