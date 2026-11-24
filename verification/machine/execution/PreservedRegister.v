@@ -7,7 +7,7 @@ Import ListNotations. Local Open Scope Z_scope.
 (* A sufficient instruction-level test that r survives. A decoded branch
    may still choose any target and all implicit RSP writes are included. *)
 Definition keeps r op := let other d:=negb (Nat.eqb d r) in match op with
- | Load64 d _ | Load8 d _ | Zero32 d | And8 d _ | Inc d | Imm32 d _ | CopyG d _
+ | AndImmediate d _ | Load64 d _ | Load8 d _ | Zero32 d | And8 d _ | Inc d | Imm32 d _ | CopyG d _
  | LeaG d _ | Sub64 d _ | Add32 d _ | Add64 d _ | MoveBelow d _ | Copy32 d _=>other d
  | OneEax | ShrEax=>other 0%nat
  | SaveG _ | CallRelative _ | Ret=>other 4%nat

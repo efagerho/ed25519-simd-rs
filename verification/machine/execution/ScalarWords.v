@@ -63,6 +63,7 @@ Proof.
    apply commit_words;[exact W|intros;apply Z.mod_pos_bound;lia]].
  all: try solve [apply set_vector_words;[exact W|intros;apply W]|
    apply set_vector_words;[exact W|intros;apply mod64_word]|
+   apply set_vector_words;[exact W|intros;apply read_word_bound,W]|
    apply set_vector_words;[exact W|intros;destruct (_<?_)%nat;[apply read_word_bound,W|unfold word64;lia]]].
  - apply set_wf;[exact W|]. pose proof (Z.mod_pos_bound (regs s 0%nat) (2^32) ltac:(lia)).
    change (word64 ((regs s 0%nat mod 2^32)/2));unfold word64;split;[apply Z.div_pos|apply Z.div_lt_upper_bound];lia.

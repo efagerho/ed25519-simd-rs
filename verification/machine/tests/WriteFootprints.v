@@ -44,3 +44,13 @@ Example aligned_ymm_store :
  (exists s w,ymm_store true 32=Some(s,[w]) /\ address w=32 /\ size w=32%nat) /\
  (exists s w,ymm_store false 31=Some(s,[w]) /\ address w=31 /\ size w=32%nat).
 Proof. split;[reflexivity|split];do 2 eexists;repeat split;reflexivity. Qed.
+
+(* AND RSP,-64 and a negative RIP-relative VPBROADCASTQ at a nonzero PC. *)
+Example decoder_frame_and_literal :
+ let s:=CPU (fun _=>127) (fun _ _=>11) None (fun x=>if x=?0x1000 then 7 else 0) in
+ let start:=ScalarBytes.State (ScalarBytes.Running 0) s None in
+ (exists t,ScalarBytes.fetch 0 [0x48;0x83;0xe4;0xc0] start=Some(t,[]) /\
+  regs (ScalarBytes.cpu_state t) 4%nat=64 /\ ScalarBytes.cf t=Some false) /\
+ (exists t,ScalarBytes.fetch 0x1004 [0x62;0x62;0xfd;0x48;0x59;0x35;0xf2;0xff;0xff;0xff] start=Some(t,[]) /\
+  vectors (ScalarBytes.cpu_state t) 7%nat 30%nat=7 /\ vectors (ScalarBytes.cpu_state t) 7%nat 29%nat=11).
+Proof. split;eexists;repeat split;reflexivity. Qed.

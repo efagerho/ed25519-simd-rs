@@ -21,10 +21,18 @@ Inductive instruction :=
 | LoadY (r:nat) (a:addr) | StoreY (r:nat) (a:addr)
 | VectorMove (op:VectorMoves.operation) | Add64 (r:nat) (k:Z) | CallRelative (disp:Z)
 | StoreImmediate (a:addr) (k:Z) | Jump (disp:Z)
-| Branch (c:condition) (disp:Z) | Ret.
+| Branch (c:condition) (disp:Z) | Ret
+| AndImmediate (r:nat) (mask:Z) | BroadcastRip (r:nat) (disp:Z).
 
 Definition little32 bs := read_le 4 (fun i=>nth (Z.to_nat i) bs 0) 0.
 Definition decode (bs:list Z) : option (nat*instruction) := match bs with
+ | 0x55::_=>Some(1%nat,SaveG 5)
+ | 0x48::0x89::0xe5::_=>Some(3%nat,CopyG 5 4)
+ | 0x41::0x89::0xd4::_=>Some(3%nat,Copy32 12 2)
+ | 0x48::0x83::0xe4::k::_=>Some(4%nat,AndImmediate 4 (signed_value 128 k))
+ | 0x62::0x62::0xfd::0x48::0x59::m::a::b::c::d::_=>
+   if (0<=?m)&&(m<?64)&&(m mod 8=?5) then
+     Some(10%nat,BroadcastRip (24+Z.to_nat(m/8)) (displacement32 [a;b;c;d])) else None
  | 0x5b::_=>Some (1%nat,RestoreG 3)
  | 0x41::0x5c::_=>Some (2%nat,RestoreG 12)
  | 0x41::0x5d::_=>Some (2%nat,RestoreG 13)
@@ -205,6 +213,9 @@ Definition step origin off n op s carry : option (state*list store) :=
  | Jump d=>Some (State (Running (next+d)) s carry,[])
  | Branch cc d=>option_map (fun take:bool=>(State (Running (if take then next+d else next)) s carry,[]))
      (eval_condition cc (flag s) carry)
+ | AndImmediate r k=>let v:=word (Z.land (regs s r) k) in go (with_zf (set s r v) (v=?0)) (Some false)
+ | BroadcastRip r d=>let v:=read_word (mem s) (word (origin+next+d)) in
+   go (CPU (regs s) (fun j=>Instructions.put (vectors s j) r v) (flag s) (mem s)) carry
  | Ret=>let '(ip,out):=caller_step 0 0 Return s in Some (State (Returned ip) out carry,[])
  end.
 
