@@ -20,8 +20,9 @@ Proof. repeat constructor;vm_compute;discriminate || reflexivity. Qed.
 Theorem from_limbs pol bias e p : placement e -> loaded pol bias (mem e) (writable e) ->
  regs(machine p) 7%nat=scratch e+1024 -> unpacked bias e p ->
  exists q,preserve bias p=Some q /\ saved bias e q /\ regs(machine q)=regs(machine p) /\
- vectors(machine q)=vectors(machine p) /\ forall j i,(j<8)%nat -> (i<5)%nat ->
- digits e (machine q) j i=vectors(machine p) j i.
+ vectors(machine q)=vectors(machine p) /\
+ (forall j i,(j<8)%nat -> (i<5)%nat -> digits e (machine q) j i=vectors(machine p) j i) /\
+ forall x,~range (address e) 5 x -> mem(machine q) x=mem(machine p) x.
 Proof.
  intros Place Image DI [PC [Acc [Mask Data]]];set (o:=bias+DecoderFrame.origin) in *.
  destruct(scratch_ok _ Place) as [[Lo Hi] Al].
@@ -41,29 +42,37 @@ Proof.
    rewrite Regs;split;[exact Mask|]. intros j J;destruct(Data j J) as [Bound [Y Sign]].
    assert (D:forall i,(i<5)%nat -> digits e s j i=vectors(machine p) j i) by (intros i I;apply Rows;assumption).
    split;[intros i I;rewrite D by exact I;apply Bound,I|split;[rewrite <-Y;apply limbs_ext,D|exact Sign]].
- - split;[exact Regs|split;[exact Vec|]]. intros j i J I;apply Rows;assumption.
+ - split;[exact Regs|split;[exact Vec|split;[intros j i J I;apply Rows;assumption|]]].
+   pose proof(steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ Run)) as Replay.
+   change (mem s=WriteTrace.replay (mem(machine p)) ws) in Replay.
+   intros x X;change (mem s x=mem(machine p) x);rewrite Replay;apply (WriteTrace.frame _ _ Safe),X.
 Qed.
 
 Definition key_setup bias decoder incoming :=
  bind (inner bias decoder) (fun s=>bind (transpose bias s) (fun words=>
  bind (unpack bias words incoming) (fun '(y,k)=>option_map (fun p=>(p,k)) (preserve bias y)))).
-Definition frame pol e s := let sp:=common_top pol e-112 in
+Definition frame pol bias e s := let sp:=common_top pol e-112 in
  regs s 7%nat=scratch e+1024 /\ regs s 4%nat=DecoderFrame.top sp-8 /\
+ read_word (mem s) (DecoderFrame.top sp-8)=word(bias+DecoderFrame.origin+73) /\
  forall i j,(i<4)%nat -> vectors s j (28+i)%nat=DecoderFrame.constant i.
 
 Theorem from_decoder pol bias e p incoming : placement e -> loaded pol bias (mem e) (writable e) ->
  (bias+DecoderFrame.origin) mod 64=0 -> entry pol bias e p ->
  exists q updated,key_setup bias p incoming=Some(q,updated) /\ saved bias e q /\
- frame pol e (machine q) /\ forall j i,(j<8)%nat -> (i<5)%nat -> digits e (machine q) j i=vectors(machine q) j i.
+ frame pol bias e (machine q) /\ forall j i,(j<8)%nat -> (i<5)%nat -> digits e (machine q) j i=vectors(machine q) j i.
 Proof.
  intros P M Al Entry;destruct(BatchDecode.from_decoder _ _ _ _ P M Entry) as [s [Inner Setup]].
- destruct(BatchDecode.from_setup _ _ _ _ P M Al Setup) as [v [Next [Words [_ [_ G]]]]].
- destruct(BatchDecode.from_words _ _ _ _ incoming P M Words) as [y [k [Unpack [Value [_ [_ [Other Constants]]]]]]].
- destruct Setup as [_ [_ [SP [_ [_ [DI _]]]]]].
+ destruct(BatchDecode.from_setup _ _ _ _ P M Al Setup) as [v [Next [Words [_ [WordsMem G]]]]].
+ destruct(BatchDecode.from_words _ _ _ _ incoming P M Words) as [y [k [Unpack [Value [_ [UnpackMem [Other Constants]]]]]]].
+ destruct Setup as [_ [_ [SP [_ [_ [DI [_ [_ [Link _]]]]]]]]].
  assert (Dest:regs(machine y) 7%nat=scratch e+1024) by (rewrite Other,G by discriminate;exact DI).
- destruct(from_limbs _ _ _ _ P M Dest Value) as [q [Save [Saved [Regs [Vec Data]]]]].
+ destruct(from_limbs _ _ _ _ P M Dest Value) as [q [Save [Saved [Regs [Vec [Data Keep]]]]]].
  exists q,k;split;[unfold key_setup;rewrite Inner;cbn [bind];rewrite Next;cbn [bind];rewrite Unpack;cbn [bind];now rewrite Save|].
  split;[exact Saved|split].
- - unfold frame;rewrite Regs;split;[exact Dest|split;[rewrite Other,G by discriminate;exact SP|intros i j I;rewrite Vec;apply Constants,I]].
+ - unfold frame;rewrite Regs;split;[exact Dest|split;[rewrite Other,G by discriminate;exact SP|split];[|intros i j I;rewrite Vec;apply Constants,I]].
+   rewrite <-Link,<-WordsMem,<-UnpackMem;apply preserved_read with (outside:=fun x=>~range (address e) 5 x).
+   + exact Keep.
+   + intros off K;change (0<=off<8) in K;pose proof(Z.mod_pos_bound (common_top pol e-112-40) 64 ltac:(lia)).
+     destruct(scratch_stack _ P);unfold range,address,DecoderFrame.top,FlatMemory.disjoint,common_top,Rows.frame,sp in *;destruct pol;lia.
  - intros j i J I;rewrite Vec;exact (Data j i J I).
 Qed.
