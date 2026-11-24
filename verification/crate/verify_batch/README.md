@@ -93,6 +93,10 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    transpose the public keys. For each lane and each of the four qwords, the
    resulting ZMM register contains the word at the original descriptor’s key
    pointer. The aligned permutation tables are read from the live image.
+   The next two instructions collect bit 255 of each key into EAX. The
+   following fifteen produce five bounded radix-51 limbs per lane whose
+   integer value is the original key modulo 2²⁵⁵. This includes Y encodings
+   greater than or equal to the field prime. [Sign and Y extraction](coq/DecoderUnpack.v)
    [Decoder transpose](coq/DecoderWords.v) · [Decoder frame](coq/DecoderFrame.v) · [Decoder entry](coq/BatchDecode.v) · [Encoding copies](coq/PrepareCopies.v)
    If EAX is zero there, the decoded branches, pops and returns take both
    policies back to the wrapper's preparation continuation with RSP restored,
