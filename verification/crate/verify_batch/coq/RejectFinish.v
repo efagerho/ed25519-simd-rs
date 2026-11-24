@@ -67,7 +67,7 @@ Theorem next bias pc text e p : bound text -> placement e ->
  RejectDispatch.continued bias pc e p ->
  exists q,leave (bias+pc) text p=Some q /\ post (bias+pc) e p q.
 Proof.
- intros [Status [More End]] Place Image Apart [PC [SP Acc]].
+ intros [Status [More End]] Place Image Apart [PC [SP [Acc Left]]].
  set (o:=bias+pc) in *. change (ip p=o+574) in PC.
  pose proof (status_step o text (machine p) (carry p) Status) as First.
  pose proof (image_after _ _ _ _ _ Acc Image Apart) as Mapped.

@@ -1,5 +1,5 @@
-From Coq Require Import List ZArith Bool.
-From Machine Require Import execution.LinkedCalls execution.ScalarBytes execution.LinkedRun memory.ByteMemory.
+From Coq Require Import List ZArith Bool Lia.
+From Machine Require Import execution.WordSemantics execution.LinkedCalls execution.ScalarBytes execution.LinkedRun memory.ByteMemory.
 From Ed25519Simd.VerifyBatch Require Import Policy Rows Image Return BatchScalar PrepareUnwind RejectDispatch RejectFinish.
 Local Open Scope Z_scope.
 
@@ -17,10 +17,21 @@ Definition scalar_rejection pol bias pc text e c masks :=
 Definition post entry e r := accounted e (writable e) (at_end r) /\
  match r with
  | BatchReturned q=>ip q=read_word (mem e) (sp e) /\ regs(machine q) 4%nat=sp e+8
- | NextChunk q=>ip q=entry+offset Choose /\ regs(machine q) 4%nat=Rows.frame e
+ | NextChunk q=>(8<Scatter.count e)%nat /\ ip q=entry+offset Choose /\ regs(machine q) 4%nat=Rows.frame e
  end.
-Lemma classified entry e p q : RejectFinish.post entry e p q -> post entry e (classify p q).
-Proof. intros [A [_ [_ [_ Exit]]]];unfold classify;destruct(RejectFinish.stopping p);exact (conj A Exit). Qed.
+Lemma classified entry e p q : placement e ->
+ regs(machine p) 12%nat=Prologue.rows_left (regs e 6%nat) ->
+ RejectFinish.post entry e p q -> post entry e (classify p q).
+Proof.
+ intros Place Left [A [_ [_ [_ Exit]]]];unfold classify;destruct(RejectFinish.stopping p) eqn:Stop;
+   [exact (conj A Exit)|split;[exact A|split;[|exact Exit]]].
+ unfold stopping in Stop;apply Bool.orb_false_iff in Stop as [_ More].
+ rewrite Left in More;unfold Prologue.rows_left in More.
+ pose proof(proj1(initial_cpu _ Place) 6%nat) as N.
+ rewrite (word_fits _ N) in More;destruct(regs e 6%nat <? 8) eqn:Small;[discriminate|].
+ apply Z.ltb_ge in Small;unfold Scatter.count;destruct (Z.eq_dec (regs e 6%nat) 8) as [Full|NotFull];
+   [rewrite Full in More;discriminate|lia].
+Qed.
 
 Theorem final_bytes pol bias pc text e c masks r :
  scalar_rejection pol bias pc text e c masks=Some r -> replays e (at_end r).

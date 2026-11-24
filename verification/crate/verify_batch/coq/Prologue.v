@@ -102,6 +102,7 @@ Proof.
  - apply K;[exact R|exact Regs].
 Qed.
 
+Definition rows_left n := if word n <? 8 then 0 else word(word n-8).
 Definition output_registers e s := regs s 13%nat=regs e 6%nat /\ regs s 14%nat=output e.
 Definition context_registers e s := regs s 15%nat=scratch e /\ output_registers e s.
 Definition bindings e s := regs s 3%nat=regs e 7%nat /\ regs s 12%nat=regs e 6%nat /\

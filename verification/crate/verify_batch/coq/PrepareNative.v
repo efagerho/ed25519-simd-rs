@@ -52,7 +52,7 @@ Lemma strict_dispatch slide s carry top :
  regs (cpu_state t) 7%nat=regs s 7%nat /\ regs (cpu_state t) 6%nat=regs s 6%nat /\
  read_word (mem (cpu_state t)) (top-16)=word(slide+strict+9) /\
  confined (stack_range top 16) ws /\
- regs (cpu_state t) 13%nat=regs s 13%nat /\ regs (cpu_state t) 14%nat=regs s 14%nat.
+ regs (cpu_state t) 13%nat=regs s 13%nat /\ regs (cpu_state t) 14%nat=regs s 14%nat /\ regs (cpu_state t) 12%nat=regs s 12%nat.
 Proof.
  intros SP Fit PC.
  lazymatch goal with |- exists t ws, _ => do 2 eexists end;split.
@@ -65,7 +65,7 @@ Proof.
    split;[lia|]. split;[reflexivity|]. split;[reflexivity|]. split.
    + apply read_word_encoded;intros k K;unfold store_word;replace (top-16+k) with (top-8-8+k) by ring;
        apply write_at,K.
-   + split;[|split;reflexivity]. constructor;[|constructor;[|constructor]];intros x X;
+   + split;[|repeat split;reflexivity]. constructor;[|constructor;[|constructor]];intros x X;
        unfold stack_range,touches in *;cbn [caller_stores qword address size] in X;
        simplify_cpu;rewrite ?SP in X;repeat rewrite word_fits in X by (unfold words_fit,word64 in *;lia);lia.
 Qed.
@@ -78,7 +78,8 @@ Definition common_post slide top s t :=
 Definition common_fetch slide := ScalarBytes.fetch (slide+common) CommonBytes.symbol_bytes.
 
 Definition spilled_output top (s:cpu) m :=
- read_word m (top-24)=word(regs s 13%nat) /\ read_word m (top-32)=word(regs s 14%nat).
+ read_word m (top-24)=word(regs s 13%nat) /\ read_word m (top-32)=word(regs s 14%nat) /\
+ read_word m (top-16)=word(regs s 12%nat).
 
 Lemma saved slide s carry top : regs s 4%nat=top -> words_fit top ->
  exists u ws, MappedFetch.run 5 (common_fetch slide) (at_pc 0 s carry)=Some(at_pc 9 u carry,ws) /\
@@ -91,7 +92,7 @@ Proof.
  split.
  - cbn [app]. repeat apply Forall_cons;try apply Forall_nil.
    all: intros x X;unfold stack_range,touches in *;cbn [qword address size] in X;lia.
- - unfold spilled_output;split;apply read_word_encoded;intros k Bounds;unfold store_word;
+ - unfold spilled_output;repeat split;apply read_word_encoded;intros k Bounds;unfold store_word;
      repeat rewrite write_outside by lia;
      match goal with |-write_bytes _ ?a _ _ (?b+k)=_=>replace (b+k) with (a+k) by ring end;
      rewrite write_at by lia;reflexivity.
@@ -161,13 +162,13 @@ Proof.
  - rewrite app_nil_r;unfold confined;rewrite !Forall_app;repeat split.
    all: eapply Forall_impl;[|eassumption];intros w K x X;specialize (K x X);unfold stack_range in *;lia.
  - split.
-   { destruct Slots as [Count Output]. pose proof (run_append _ _ _ _ _ B _ _ _ T) as Run.
+   { destruct Slots as [Count [Output Left]]. pose proof (run_append _ _ _ _ _ B _ _ _ T) as Run.
      pose proof(steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ Run)) as M.
      cbn [at_pc cpu_state] in M.
      assert (Both:confined (fun x=>top-112<=x<top-40) (stores++tail)).
      { apply Forall_app;split;[eapply Forall_impl;[|exact W]|eapply Forall_impl;[|exact Safe]];
        intros w K x X;specialize(K x X);cbv beta in K|-*;lia. }
-     split;[rewrite <-Count|rewrite <-Output];rewrite M;rewrite <-Mem.
+     repeat split;[rewrite <-Count|rewrite <-Output|rewrite <-Left];rewrite M;rewrite <-Mem.
      all: apply preserved_read with (outside:=fun x=>~(top-112<=x<top-40));
        [exact (WriteTrace.frame _ _ Both _)|intros k K;change (0<=k<8) in K;lia]. }
    intros j J;rewrite Keep,Ptrs by exact J.

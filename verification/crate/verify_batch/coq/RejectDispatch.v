@@ -20,7 +20,8 @@ Lemma dispatch bias pc text s c top : bound pc text -> regs s 0%nat mod 2^32=0 -
  exists last ws,run 8 (ScalarBytes.fetch (bias+pc) text) (State (Running 385) s c)=Some(last,ws) /\
  loc last=Running (scatter-pc) /\ regs(cpu_state last) 4%nat=top-8 /\
  regs(cpu_state last) 6%nat=regs s 14%nat /\ regs(cpu_state last) 2%nat=regs s 13%nat /\
- read_word (mem(cpu_state last)) (top-8)=word(bias+pc+574) /\ confined (pending top) ws.
+ read_word (mem(cpu_state last)) (top-8)=word(bias+pc+574) /\
+ regs(cpu_state last) 12%nat=regs s 12%nat /\ confined (pending top) ws.
 Proof.
  intros Bound Zero SP Lo Hi Dest;do 2 eexists;split.
  - apply (checked _ _ _ Bound);cbn [path follow loc cpu_state cf step option_map eval_condition with_zf flag];
@@ -32,16 +33,39 @@ Proof.
        rewrite ?(word_fits _ Dest);ring|].
    split;[reflexivity|]. split;[reflexivity|]. split;[reflexivity|]. split.
    + apply read_word_encoded;intros k K;unfold store_word;rewrite write_at by lia;reflexivity.
-   + apply Forall_cons;[|apply Forall_cons;[|apply Forall_nil]].
+   + split;[reflexivity|]. apply Forall_cons;[|apply Forall_cons;[|apply Forall_nil]].
      * intros x X;right;change (top+0+856<=x<top+0+856+8) in X;lia.
      * intros x X;left;change (top-8<=x<top-8+8) in X;lia.
+Qed.
+
+Module S := Zip215.ScatterTrace.
+
+Local Lemma keeps_counter o l s c t ws :
+ ScalarBytes.fetch o S.code (State (Running (S.offset l)) s c)=Some(t,ws) ->
+ regs(cpu_state t) 12%nat=regs s 12%nat.
+Proof.
+ rewrite S.fetched;destruct l;
+ match goal with |-context[S.fetch_at ?lab]=>let op:=eval vm_compute in (S.fetch_at lab) in
+   change (S.fetch_at lab) with op end;cbn [step];intro Run.
+ all: try match type of Run with context[option_map _ ?flag]=>destruct flag as [[]|];try discriminate end.
+ all: injection Run as <- <-;reflexivity.
+Qed.
+
+Local Lemma counter_after o a n s ws t : ScalarBytes.steps o S.code s ws t ->
+ word64 n -> fits64 a n -> S.invariant a n s -> regs(cpu_state t) 12%nat=regs(cpu_state s) 12%nat.
+Proof.
+ induction 1 as [s|s mid last own tail F R IH];intros N Range Inv;[reflexivity|].
+ destruct s as [[off|back] s c];[|discriminate]. destruct Inv as [D [L [l [PC Guard]]]].
+ cbn [loc] in PC;subst off.
+ destruct(S.live_step o a n l s c N Range D L Guard) as [u [log [Step [_ Next]]]].
+ rewrite F in Step;injection Step as <- <-. rewrite (IH N Range Next);exact (keeps_counter _ _ _ _ _ _ F).
 Qed.
 
 Definition scatter_stores bias pc text p :=
  bind (LinkedRun.segment (bias+pc) text 8 p)
       (returning (bias+scatter) (length Zip215.ScatterBytes.symbol_bytes) 88).
 Definition continued bias pc e q := ip q=bias+pc+offset Continue /\
- regs(machine q) 4%nat=Rows.frame e /\ accounted e (writable e) q.
+ regs(machine q) 4%nat=Rows.frame e /\ accounted e (writable e) q /\ regs(machine q) 12%nat=Prologue.rows_left (regs e 6%nat).
 
 Theorem resume pol bias pc text e p :
  bound pc text -> placement e -> loaded pol bias (mem e) (writable e) ->
@@ -50,10 +74,10 @@ Theorem resume pol bias pc text e p :
  (forall x,bias+pc<=x<bias+pc+Z.of_nat(length text)->~writable e x) ->
  accounted e (writable e) p -> ip p=word(bias+pc+offset Prepared) ->
  regs(machine p) 4%nat=Rows.frame e -> Prologue.output_registers e (machine p) ->
- regs(machine p) 0%nat mod 2^32=0 ->
+ regs(machine p) 12%nat=Prologue.rows_left (regs e 6%nat) -> regs(machine p) 0%nat mod 2^32=0 ->
  exists q,scatter_stores bias pc text p=Some q /\ continued bias pc e q.
 Proof.
- intros Code Place Image Range Length Bytes Apart Prev IP SP [Count Out] Zero.
+ intros Code Place Image Range Length Bytes Apart Prev IP SP [Count Out] Left Zero.
  change 574 with (offset Continue) in *.
  assert (R:word64(bias+pc+574) /\ word64(bias+pc+385)) by
    (change (574<Z.of_nat(length text)) in Length;unfold fits64,word64 in *;lia).
@@ -61,7 +85,7 @@ Proof.
  destruct (dispatch bias pc text (machine p) (carry p) (Rows.frame e) Code Zero SP
   ltac:(unfold Rows.frame,sp in *;lia) ltac:(unfold Rows.frame,sp in *;lia)
   (mapped_word _ _ _ Image _ _ (LoadedImage.scatter _) ltac:(vm_compute;reflexivity)))
-   as [s [w [Step [Target [Stack [D [N [Back Safe]]]]]]]].
+   as [s [w [Step [Target [Stack [D [N [Back [CarryLeft Safe]]]]]]]]].
  assert (W:confined (writable e) w) by (eapply Forall_impl;[|exact Safe];intros z K x X;left;
      specialize(K x X);unfold pending,Rows.frame,sp,span in *;lia).
  change (ip p=word(bias+pc+385)) in IP;rewrite (word_fits _ (proj2 R)) in IP.
@@ -88,6 +112,14 @@ Proof.
    Top RegD RegN Stack Back Protected Map Const Run) as [Return [Child [M _]]].
  unfold Zip215.ScatterReturn.stack_position in Return;rewrite Ret in Return.
  destruct Return as [Dest NextSP].
+ assert (Keep:regs(cpu_state t) 12%nat=regs(machine s0) 12%nat).
+ { assert (All:forall xs u,ScalarBytes.steps (bias+scatter) S.code (State (Running 0) (machine s0) (carry s0)) xs u ->
+          confined (S.output (output e) len) xs).
+   { intros xs u Trace. pose proof(S.scatter_confined (bias+scatter) (machine s0) (carry s0) xs u) as H.
+     unfold S.destination,S.length64 in H;rewrite RegD,RegN in H;exact (proj1 (H L (out_ok _ Place) Trace)). }
+   apply (MappedFetch.same_prefixes (bias+scatter) S.code (State (Running 0) (machine s0) (carry s0)) _ Map Const All) in Run.
+   apply (counter_after (bias+scatter) (output e) len (State (Running 0) (machine s0) (carry s0)) ws t Run L (out_ok _ Place)).
+   split;[exact RegD|split;[exact RegN|exists S.Count;split;[reflexivity|exact I]]]. }
  exists (LinkedRun.finish (bias+scatter) s0 (t,ws));split.
  - unfold scatter_stores;rewrite Dispatch;cbn [bind];fold s0;unfold returning.
    pose proof (until_exact _ _ _ _ _ _ _ _ Bound Steps Ret) as ToRet;fold scatter in ToRet;rewrite At,Z.sub_diag,ToRet;reflexivity.
@@ -95,6 +127,6 @@ Proof.
    split;[rewrite Dest,ScalarRefinement.word_idempotent,(word_fits _ (proj1 R));reflexivity|].
    split;[rewrite NextSP;replace (Rows.frame e-8+8) with (Rows.frame e) by ring;
        apply word_fits;unfold Rows.frame,sp,word64 in *;lia|].
-   apply append_accounted;[exact Paid| |intro x;rewrite M;reflexivity].
+   split;[|exact (eq_trans Keep (eq_trans CarryLeft Left))]. apply append_accounted;[exact Paid| |intro x;rewrite M;reflexivity].
    eapply Forall_impl;[|exact Child];intros v K x X;right;right;exact (K x X).
 Qed.
