@@ -101,6 +101,12 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    the corresponding register limb. The store log covers the 320 destination
    bytes starting at scratch offset 1344. [Sign and Y extraction](coq/DecoderUnpack.v) ·
    [Y in scratch memory](coq/DecoderSave.v)
+   The decoder uses this saved Y as its second multiplication operand. The
+   proof follows the calls into the column and convolution helpers, their stack
+   writes and returns, and the carry pass. At decoder offset 509, the live
+   limbs represent Y² modulo p and limb zero is at least two, as required by
+   the following subtraction. [First multiplication](coq/KeySquare.v) ·
+   [Native field kernels](coq/DecoderProduct.v) ·
    [Decoder transpose](coq/DecoderWords.v) · [Decoder frame](coq/DecoderFrame.v) · [Decoder entry](coq/BatchDecode.v) · [Encoding copies](coq/PrepareCopies.v)
    If EAX is zero there, the decoded branches, pops and returns take both
    policies back to the wrapper's preparation continuation with RSP restored,

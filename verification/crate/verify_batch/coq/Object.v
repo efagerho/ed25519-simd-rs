@@ -152,7 +152,7 @@ Proof.
    { intro Nonzero;destruct (BatchDecode.from_scalar pol bias pc text e c masks stop) as [d [Trace Entry]];
        [exact P|exact (callee_image _ _ _ _ _ Input N)| |exact Run|exact Post|exact (proj1(proj2 Data))|exact Nonzero|].
      2:{ exists d;split;[exact Trace|split;[exact Entry|]].
-         intro incoming;apply DecoderSave.from_decoder;[exact P|exact (callee_image _ _ _ _ _ Input N)|
+         intro incoming;apply KeySquare.from_decoder;[exact P|exact (callee_image _ _ _ _ _ Input N)|
            exact (decoder_aligned _ _ _ _ _ Input N)|exact Entry]. }
      intros j sig J;destruct (Inputs _ (TailCopy.live_row e j N)) as [Key [Sig Msg]].
      unfold ScalarInputs.encoding_ptr;destruct sig;[|exact Key]. destruct Sig as [[Low High] Away].

@@ -6,7 +6,7 @@ From Ed25519Simd.Sha512Challenge Require Audit ObjectBytes LiteralBytes.
 From Ed25519Simd.Zip215 Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.DalekPostHash Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Arguments Image Control Tables Scatter Loop Return LoadedImage EntryWrites CallWrites NestedRegions StageEntry RejectCall BatchScalar PrepareUnwind RejectDispatch RejectFinish RejectExecution.
-From Ed25519Simd.VerifyBatch Require BatchDecode DecoderSave.
+From Ed25519Simd.VerifyBatch Require BatchDecode KeySquare.
 Local Open Scope Z_scope.
 
 Definition destination pol t := match t with
@@ -89,10 +89,8 @@ Definition first_chunk pol bias pc text e carry masks :=
                 (regs (LinkedRun.machine stop) 0%nat mod 2^32<>0 ->
                  exists decoder, BatchDecode.observe pol bias pc text e carry masks=Some decoder /\
                                  BatchDecode.entry pol bias e decoder /\
-                                 forall incoming,exists q updated,DecoderSave.key_setup bias decoder incoming=Some(q,updated) /\
-                                   DecoderSave.saved bias e q /\ DecoderSave.frame pol e (LinkedRun.machine q) /\
-                                   forall j i,(j<8)%nat -> (i<5)%nat ->
-                                    DecoderSave.digits e (LinkedRun.machine q) j i=LinkedCalls.vectors (LinkedRun.machine q) j i) /\
+                                 forall incoming,exists q updated,KeySquare.from_key bias decoder incoming=Some(q,updated) /\
+                                   KeySquare.squared pol bias e q) /\
                 (regs (LinkedRun.machine stop) 0%nat mod 2^32=0 ->
                  (forall j,(j<8)%nat -> (j<count e)%nat -> ~signature_accepts pol (read_input (mem e) (regs e 7%nat) j)) /\
                  exists r, RejectExecution.scalar_rejection pol bias pc text e carry masks=Some r /\
