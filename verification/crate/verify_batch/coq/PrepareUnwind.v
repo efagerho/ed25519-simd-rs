@@ -66,7 +66,7 @@ Theorem rejected pol bias entry e p :
  BatchScalar.post pol bias entry e p -> regs(machine p) 0%nat mod 2^32=0 ->
  exists q,unwind pol bias p=Some q /\ prepared_again entry e p q.
 Proof.
- intros Place Image [IP [SP [Acc [[Root Shim] [Count [Out Left]]]]]] Zero.
+ intros Place Image [IP [SP [Acc [[Root Shim] [[Count [Out Left]] _]]]]] Zero.
  destruct (stack_ok _ Place) as [[Low High] _].
  set (top:=common_top pol e) in *.
  assert (Limits:112<=top /\ top+8<2^64) by
