@@ -18,7 +18,8 @@ Theorem checked sig pol bias e p : placement e -> loaded pol bias (mem e) (writa
  ip p=base bias+1380 -> accounted e (writable e) p -> well_formed(machine p) -> regs(machine p) 7%nat=point e sig ->
  exists q,execute bias p=Some q /\ ip q=base bias+1431 /\ accounted e (writable e) q /\ well_formed(machine q) /\
  regs(machine q)=regs(machine p) /\ preserved (fun x=>~(point e sig+640<=x<point e sig+960)) (mem(machine p)) (mem(machine q)) /\
- forall j i,(j<8)%nat -> (i<5)%nat -> row (machine q) (point e sig+640) j i=Decode.one i.
+ (forall j i,(j<8)%nat -> (i<5)%nat -> row (machine q) (point e sig+640) j i=Decode.one i) /\
+ forall j r,(28<=r)%nat -> vectors(machine q) j r=vectors(machine p) j r.
 Proof.
  intros P I PC Acc W DI;set (o:=base bias) in *;set (s:=machine p) in *;set (a:=point e sig) in *.
  destruct(mapped_now _ _ _ I _ _ _ Acc (decode_in pol)) as [Map Sep].
@@ -45,7 +46,11 @@ Proof.
  split;[reflexivity|split;[exact Done|split;[exact (segment_wf o text 6 mid _ WM Store)|split;[exact G|split]]]].
  - pose proof(steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ Run)) as M;change (mem t=WriteTrace.replay (mem v) ws) in M.
    intros x X;change (mem t x=mem v x);rewrite M;exact (WriteTrace.frame _ _ Safe _ x X).
- - intros j i J N;set (old:=row v a j).
+ - split.
+   2:{ intros j r High;change (vectors t j r=vectors s j r);
+       transitivity (vectors v j r);[exact (VectorWindow.upper_registers o text 28 6 1390 v (LinkedRun.carry p) _ ws ltac:(vm_compute;reflexivity) Run j r High)|];
+       unfold v,vector_dest;cbn [vectors];unfold put;now rewrite (proj2(Nat.eqb_neq 0 r) ltac:(lia)). }
+   intros j i J N;set (old:=row v a j).
    destruct(VectorSpills.execute o text 7 a 20 j spills 1390 v (LinkedRun.carry p) _ ws (View (vectors v j) old)
      (proj1(proj2 images)) (proj1(proj2(proj2 images))) J WM DI Al
      ltac:(unfold fits64,a,point,point_offset;destruct sig;change (Z.of_nat 20) with 20;lia)
