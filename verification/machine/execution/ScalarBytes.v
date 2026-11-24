@@ -1,6 +1,7 @@
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions execution.LinkedCalls execution.StoreInstructions
  execution.WordSemantics memory.ByteMemory memory.FlatMemory memory.WriteTrace.
+From Machine Require isa.VectorMoves execution.IndexedLoads.
 Import ListNotations. Local Open Scope Z_scope.
 
 (* Scalar and vector-move forms used by scatter and the batch wrapper.
@@ -15,6 +16,7 @@ Inductive instruction :=
 | Sub64 (r:nat) (k:Z) | Add32 (r:nat) (k:Z) | Compare32 (r:nat) (k:Z)
 | MoveBelow (dst src:nat) | Store64 (r:nat) (a:addr)
 | LoadY (r:nat) (a:addr) | StoreY (r:nat) (a:addr)
+| VectorMove (op:VectorMoves.operation) | Add64 (r:nat) (k:Z) | CallRelative (disp:Z)
 | StoreImmediate (a:addr) (k:Z) | Jump (disp:Z)
 | Branch (c:condition) (disp:Z) | Ret.
 
@@ -76,7 +78,17 @@ Definition decode (bs:list Z) : option (nat*instruction) := match bs with
  | 0x73::d::_ => Some (2%nat,Branch AtLeast (signed_value 128 d))
  | 0x72::d::_ => Some (2%nat,Branch Below (signed_value 128 d))
  | 0x0f::0x84::a::b::c::d::_ => Some (6%nat,Branch Equal (displacement32 [a;b;c;d]))
- | 0xc3::_ => Some (1%nat,Ret) | _=>None end.
+ | 0x48::0x8b::0x43::d::_=>Some (4%nat,Load64 0 (Address 3 None (signed_value 128 d)))
+ | 0x48::0x8b::0x83::a::b::c::d::_=>Some (7%nat,Load64 0 (Address 3 None (displacement32 [a;b;c;d])))
+ | 0x48::0x89::0x84::0x24::a::b::c::d::_=>Some (8%nat,Store64 0 (Address 4 None (displacement32 [a;b;c;d])))
+ | 0x48::0x81::0xc3::a::b::c::d::_=>Some (7%nat,Add64 3 (displacement32 [a;b;c;d]))
+ | 0x4c::0x89::0xff::_=>Some (3%nat,CopyG 7 15)
+ | 0x48::0x8d::0xb4::0x24::a::b::c::d::_=>Some (8%nat,LeaG 6 (Address 4 None (displacement32 [a;b;c;d])))
+ | 0x48::0x8b::0x94::0x24::a::b::c::d::_=>Some (8%nat,Load64 2 (Address 4 None (displacement32 [a;b;c;d])))
+ | 0x48::0x8d::0x8c::0x24::a::b::c::d::_=>Some (8%nat,LeaG 1 (Address 4 None (displacement32 [a;b;c;d])))
+ | 0xe8::a::b::c::d::_=>Some (5%nat,CallRelative (displacement32 [a;b;c;d]))
+ | 0xc3::_ => Some (1%nat,Ret)
+ | _=>option_map (fun '(n,i)=>(n,VectorMove i)) (VectorMoves.decode bs) end.
 
 Definition effective s a := match a with Address b ix d=>word (regs s b+
  (match ix with Some (i,k)=>regs s i*k | None=>0 end)+d) end.
@@ -124,6 +136,17 @@ Definition step origin off n op s carry : option (state*list store) :=
    go (CPU (regs s) (fun j=>Instructions.put (vectors s j) r (lanes j)) (flag s) (mem s)) carry
  | StoreY r a=>let w:=Store (word (origin+off)) (effective s a) 32 (vector_byte (fun j=>vectors s j r)) in
    Some (State (Running next) (with_words s (regs s) (commit (mem s) w)) carry,[w])
+ | VectorMove (VectorMoves.Input i)=>go (IndexedLoads.execute [i] s) carry
+ | VectorMove (VectorMoves.Output src base disp)=>
+   let w:=vector (word (origin+off)) (word (regs s base+disp)) (fun j=>vectors s j src) in
+   Some (State (Running next) (with_words s (regs s) (commit (mem s) w)) carry,[w])
+ | Add64 r k=>let sum:=word (regs s r)+word k in let v:=word sum in
+   go (with_zf (set s r v) (v=?0)) (Some (2^64<=?sum))
+ | CallRelative d=>
+   let target:=next+d in
+   let child:=push s (origin+next) in
+   Some (State (Running (word (origin+target)-origin)) child carry,
+         [qword (word (origin+off)) (word (regs s 4%nat-8)) (origin+next)])
  | StoreImmediate a k=>let w:=qword (word (origin+off)) (effective s a) k in
    Some (State (Running next) (with_words s (regs s) (commit (mem s) w)) carry,[w])
  | Jump d=>Some (State (Running (next+d)) s carry,[])
@@ -146,6 +169,7 @@ Lemma step_memory o off n op s c t ws : step o off n op s c=Some(t,ws) ->
 Proof.
  destruct op;cbn [step];try solve [intro E;injection E as <- <-;reflexivity].
  - destruct c as [[]|];intro E;try discriminate;injection E as <- <-;reflexivity.
+ - destruct op;intro E;injection E as <- <-;reflexivity.
  - destruct (eval_condition _ _ _) as [[]|];intro E;try discriminate;injection E as <- <-;reflexivity.
 Qed.
 Theorem steps_memory o text s ws t : steps o text s ws t ->

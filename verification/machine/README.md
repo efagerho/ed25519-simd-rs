@@ -196,7 +196,10 @@ those bytes. Masked qword stores emit only enabled lanes. Check the instruction
 semantics that emit the events and the theorem relating their replay to the
 existing interpreter. The plain block, packed SIMD and scalar interpreters have
 different instruction subsets. The scalar decoder fails on an unsupported
-encoding. [Write events](memory/WriteTrace.v) · [Block execution](memory/BlockWrites.v) ·
+encoding. Its vector-move decoder checks the full candidate instruction against
+the shared encoder. The straight-line frame theorem derives byte bounds for
+each executed store from its decoded operands and the incoming RSP.
+[Vector decoder](isa/VectorMoves.v) · [Frame theorem](execution/FrameInstructions.v) · [Write events](memory/WriteTrace.v) · [Block execution](memory/BlockWrites.v) ·
 [Packed SIMD](memory/PackedWrites.v) · [Scalar execution](execution/ScalarBytes.v)
 
 The call rule covers a prefix that ends inside an unreturned child. It accounts
