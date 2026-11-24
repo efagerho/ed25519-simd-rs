@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool Lia.
-From Machine Require Import execution.WordSemantics execution.LinkedCalls execution.ScalarBytes execution.LinkedRun memory.ByteMemory.
+From Machine Require Import execution.WordSemantics execution.WordBounds execution.LinkedCalls execution.ScalarBytes execution.LinkedRun memory.ByteMemory.
 From Ed25519Simd.VerifyBatch Require Import Policy Rows Image Return BatchScalar PrepareUnwind RejectDispatch RejectFinish.
 Local Open Scope Z_scope.
 
@@ -16,7 +16,7 @@ Definition scalar_rejection pol bias pc text e c masks :=
  else None).
 Definition post entry e r := accounted e (writable e) (at_end r) /\ RejectOutputs.outputs e (machine(at_end r)) /\ byte_memory(mem(machine(at_end r))) /\
  match r with
- | BatchReturned q=>ip q=read_word (mem e) (sp e) /\ regs(machine q) 4%nat=sp e+8 /\ RejectFinish.callee_saved e (machine q)
+ | BatchReturned q=>(Scatter.count e<=8)%nat /\ ip q=read_word (mem e) (sp e) /\ regs(machine q) 4%nat=sp e+8 /\ RejectFinish.callee_saved e (machine q)
  | NextChunk q=>(8<Scatter.count e)%nat /\ ip q=entry+offset Choose /\ regs(machine q) 4%nat=Rows.frame e
  end.
 Lemma classified entry e p q : placement e ->
@@ -27,13 +27,19 @@ Proof.
  assert (Outputs:RejectOutputs.outputs e (machine q)) by
    (split;[now rewrite Status|intros j J;rewrite Mem;apply Zeros,J]).
  assert (Octets:byte_memory(mem(machine q))) by (now rewrite Mem).
+ assert (Small:RejectFinish.stopping p=true -> (Scatter.count e<=8)%nat).
+ { unfold stopping;rewrite OK,Left;change ((word (Prologue.rows_left (regs e 6%nat))=?0)=true -> (Scatter.count e<=8)%nat).
+   pose proof(proj1(initial_cpu _ Place) 6%nat) as Fit;unfold Prologue.rows_left,Scatter.count.
+   rewrite (word_fits _ Fit);destruct (Z.ltb_spec (regs e 6%nat) 8);[lia|].
+   rewrite (word_fits (regs e 6%nat-8)),(word_fits (regs e 6%nat-8)) by (unfold word64 in *;lia).
+   intro Z;apply Z.eqb_eq in Z;lia. }
  unfold classify;destruct(RejectFinish.stopping p) eqn:Stop;
-   [exact (conj A (conj Outputs (conj Octets Exit)))|split;[exact A|split;[exact Outputs|split;[exact Octets|split;[|exact Exit]]]]].
+   [exact (conj A (conj Outputs (conj Octets (conj (Small eq_refl) Exit))))|split;[exact A|split;[exact Outputs|split;[exact Octets|split;[|exact Exit]]]]].
  unfold stopping in Stop;apply Bool.orb_false_iff in Stop as [_ More].
  rewrite Left in More;unfold Prologue.rows_left in More.
  pose proof(proj1(initial_cpu _ Place) 6%nat) as N.
- rewrite (word_fits _ N) in More;destruct(regs e 6%nat <? 8) eqn:Small;[discriminate|].
- apply Z.ltb_ge in Small;unfold Scatter.count;destruct (Z.eq_dec (regs e 6%nat) 8) as [Full|NotFull];
+ rewrite (word_fits _ N) in More;destruct(regs e 6%nat <? 8) eqn:Less;[discriminate|].
+ apply Z.ltb_ge in Less;unfold Scatter.count;destruct (Z.eq_dec (regs e 6%nat) 8) as [Full|NotFull];
    [rewrite Full in More;discriminate|lia].
 Qed.
 

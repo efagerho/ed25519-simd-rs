@@ -96,6 +96,15 @@ Definition first_chunk pol bias pc text e carry masks :=
                  exists r, RejectExecution.scalar_rejection pol bias pc text e carry masks=Some r /\
                            RejectExecution.post (bias+pc) e r).
 
+(* The recorded prefix ends at the last native cursor established for the
+   actual branch. Both continuations retain the write log of their caller. *)
+Definition continuing_prefix pol bias pc text e carry masks stop :=
+ if regs(LinkedRun.machine stop) 0%nat mod 2^32=?0 then
+   LinkedRun.bind (RejectExecution.scalar_rejection pol bias pc text e carry masks)
+     (fun r=>match r with RejectExecution.NextChunk p=>Some p | _=>None end)
+ else LinkedRun.bind (BatchDecode.observe pol bias pc text e carry masks)
+     (fun d=>option_map fst (KeySquare.from_key bias d masks)).
+
 (* A single rejected chunk reaches the outer RET on the same store log. *)
 Inductive observation pol bias pc text e carry masks : list WriteTrace.store -> Z -> cpu -> Prop :=
  | observe_empty ws ip final : count e=0%nat ->
@@ -107,11 +116,12 @@ Inductive observation pol bias pc text e carry masks : list WriteTrace.store -> 
    regs(LinkedRun.machine stop) 0%nat mod 2^32=0 ->
    RejectExecution.scalar_rejection pol bias pc text e carry masks=Some(RejectExecution.BatchReturned q) ->
    observation pol bias pc text e carry masks (LinkedRun.log q) (LinkedRun.ip q) (LinkedRun.machine q)
- | observe_batch stop ip final : (0<count e)%nat ->
+ | observe_batch stop prefix ip final : (0<count e)%nat ->
    ((8<count e)%nat \/ regs(LinkedRun.machine stop) 0%nat mod 2^32<>0) ->
    BatchScalar.observe pol bias (bias+pc) text e carry masks=Some stop ->
+   continuing_prefix pol bias pc text e carry masks stop=Some prefix ->
    execution pol bias pc text (bias+pc) e ip final ->
-   observation pol bias pc text e carry masks (LinkedRun.log stop) ip final.
+   observation pol bias pc text e carry masks (LinkedRun.log prefix) ip final.
 
 Definition immutable_after pol bias pc text e ip final :=
  (0<count e)%nat -> execution pol bias pc text (bias+pc) e ip final ->

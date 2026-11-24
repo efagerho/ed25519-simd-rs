@@ -83,13 +83,28 @@ Proof.
  intros Caller [Live Size] [s [Run [_ [_ [_ Reject]]]]] O Zero;rewrite O in Run;injection Run as <-.
  destruct(Reject Zero) as [Invalid [[q|q] [Path [Paid [[Status Outputs] [Bytes Exit]]]]]].
  2:{ destruct Exit as [More _];lia. }
- destruct Exit as [PC [SP Saved]]. destruct(batch_inputs _ _ _ _ _ Caller Live) as [_ [_ [_ [_ [Idx _]]]]].
+ destruct Exit as [_ [PC [SP Saved]]]. destruct(batch_inputs _ _ _ _ _ Caller Live) as [_ [_ [_ [_ [Idx _]]]]].
  exists q;split;[exact Path|split].
  - unfold returned;repeat apply conj;try assumption.
    + intros x Outside;rewrite (proj2 Paid);apply (WriteTrace.frame _ _ (proj1 Paid)),Outside.
    + intros j J;destruct(indices_cover e Idx j J) as [i [I <-]];left;apply Outputs;lia.
    + intros i I;exists false;split;[apply Outputs;lia|split;[discriminate|intro A;exfalso;exact (Invalid i ltac:(lia) I A)]].
  - split;[exact Paid|intros i I;split;[apply Outputs;lia|apply Invalid;lia]].
+Qed.
+
+Lemma continuing_footprint pol bias pc text e c masks stop :
+ first_chunk pol bias pc text e c masks ->
+ BatchScalar.observe pol bias (bias+pc) text e c masks=Some stop ->
+ ((8<count e)%nat \/ regs(LinkedRun.machine stop) 0%nat mod 2^32<>0) ->
+ exists p,continuing_prefix pol bias pc text e c masks stop=Some p /\ LinkedRun.accounted e (writable e) p.
+Proof.
+ intros [s [Run [_ [_ [Checked Rejected]]]]] O More;rewrite O in Run;injection Run as <-.
+ unfold continuing_prefix;destruct (Z.eqb_spec (regs(LinkedRun.machine stop) 0%nat mod 2^32) 0) as [Zero|Positive].
+ - destruct(Rejected Zero) as [_ [[q|q] [Trace [Paid [_ [_ Exit]]]]]].
+   + destruct More as [Large|H];[|contradiction];destruct Exit as [Small _];lia.
+   + exists q;rewrite Trace;auto.
+ - destruct(Checked Positive) as [d [Trace [_ Body]]].
+   destruct (Body masks) as [q [k [R [_ [Paid _]]]]];exists q;rewrite Trace;cbn [LinkedRun.bind];rewrite R;auto.
 Qed.
 
 Lemma observed_correct pol pc text bias e carry masks :
@@ -109,20 +124,22 @@ Proof.
      destruct Full as [stop [O _]].
      assert (Grouped:((8<count e)%nat \/ regs(LinkedRun.machine stop) 0%nat mod 2^32<>0) ->
           exists ws ip f,observation pol bias pc text e carry masks ws ip f).
-     { intros More;destruct Exists as [ip [f R]];do 3 eexists;exact (observe_batch _ _ _ _ _ _ _ _ _ _ N More O R). }
+     { intros More;destruct Exists as [ip [f R]].
+       destruct(continuing_footprint _ _ _ _ _ _ _ _ (Batch N) O More) as [q [Trace _]].
+       do 3 eexists;exact (observe_batch _ _ _ _ _ _ _ _ _ _ _ N More O Trace R). }
      destruct(le_dec (count e) 8) as [Small|Large];[|apply Grouped;left;lia].
      destruct(Z.eq_dec (regs(LinkedRun.machine stop) 0%nat mod 2^32) 0) as [Zero|Nonzero];[|apply Grouped;right;exact Nonzero].
      destruct(rejected_verdict _ _ _ _ _ _ _ _ Caller (conj N Small) (Batch N) O Zero) as [q [Run _]].
      do 3 eexists;exact (observe_rejected _ _ _ _ _ _ _ _ _ (conj N Small) O Zero Run).
- - intros ws ip f O;inversion O as [ws' ip' f' Z Run|st q Size Native Zero Path|st ip' f' N More Native R];subst.
+ - intros ws ip f O;inversion O as [ws' ip' f' Z Run|st q Size Native Zero Path|st prefix ip' f' N More Native Path R];subst.
    + specialize (Empty Z);unfold empty_mapped in Empty;destruct(empty_return e) as [back last] eqn:E.
      destruct (proj2 (Empty carry) _ _ Run) as [-> Same].
      inversion Same as [|s t u own rest Impossible];[|discriminate].
      subst;split;[apply Sound,empty_path;[exact Image|now rewrite Z|exact E]|constructor].
    + destruct(rejected_verdict _ _ _ _ _ _ _ _ Caller Size (Batch (proj1 Size)) Native Zero) as [q' [Run [ABI [Paid _]]]].
      rewrite Path in Run;injection Run as <-;exact (conj ABI (proj1 Paid)).
-   + destruct (Batch N) as [mid [Trace [[_ [_ [[Safe _] _]]] _]]].
-     rewrite Trace in Native;injection Native as <-;exact (conj (Sound _ _ R) Safe).
+   + destruct(continuing_footprint _ _ _ _ _ _ _ _ (Batch N) Native More) as [q [Trace [Safe _]]].
+     rewrite Path in Trace;injection Trace as <-;exact (conj (Sound _ _ R) Safe).
 Qed.
 
 Lemma verified pol pc text : matches pc (destination pol) text -> empty_image text -> Prologue.bound text -> StageEntry.bound text -> TailWrites.bound text -> StageWrites.bound text (destination pol Prepare-pc) -> RejectCall.bound pc text -> RejectDispatch.bound pc text -> RejectFinish.bound text -> PreservedRegister.checks 5 text=true ->
