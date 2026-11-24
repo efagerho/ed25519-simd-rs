@@ -13,7 +13,7 @@ of its instruction-level entry prefix. The zero-length return executes
 through `ret`. A batch of up to eight signatures whose S values are all at least L also
 executes through the outer `ret`. For other nonempty batches, the returned
 log reaches the next chunk if the first scalar check rejects every lane. If
-that check accepts any lane, the log reaches decoder offset 1076. At this point bit j of R10 is set exactly when the original public key in lane j has an Edwards x-coordinate for its encoded y. The final verdict in both cases comes from the grouped execution on
+that check accepts any lane, the decoder writes the public key’s extended coordinates and returns from root selection to decoder offset 190. Bit j of EAX is set exactly when the encoded Y in that lane admits an Edwards X coordinate. The final signature verdict for these paths comes from grouped execution on
 the original inputs. Every such return has
 status 1, resumes at the caller's return address with RSP advanced by eight,
 restores the SysV callee-saved integer registers and leaves byte-valued memory.
@@ -118,9 +118,9 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    by 256 bytes and the point destination by 1280 bytes, then calls the same
    setup on the eight staged signature encodings. Both calls share one store
    log. The returned CPU retains R’s Y digits and both sign masks.
-   [Paired setup](coq/PairedSetup.v) The instruction-level claim on this tail covers its
-   control flow and write addresses. Its U, V and UV equations currently come
-   from the component’s arithmetic projection. [Setup return](coq/SetupTail.v)
+   Each call derives the U, V and UV limbs in live memory from the native
+   scale, carry and product instructions. [Paired setup](coq/PairedSetup.v) ·
+   [Setup memory and arithmetic](coq/SetupValues.v)
    The next five instructions save R’s signs and call pow2. The proof checks
    the live arguments, return word, stack alignment, and separation of the
    640-byte result from both 320-byte inputs, private stack and code.
@@ -146,8 +146,9 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    The alternate-root multiply loads the five limbs of the square root of
    minus one from the linked ELF. The decoder then selects a candidate per
    lane, computes its parity and conditionally negates it using the original
-   sign bit. The native trace reaches the first X store at offset 1299.
-   [Signed root](coq/SignedRoot.v)
+   sign bit. The final stores write X, Z = 1 and T = XY, preserving Y. The
+   nested return reads its target from the live stack and delivers the eight
+   validity bits in EAX. [Signed root](coq/SignedRoot.v) · [Coordinate stores](coq/ExtendedPoint.v) · [Public-key return](coq/KeyReturn.v)
    [Field setup and inputs](coq/PowerInputs.v) · [Exponentiation call](coq/DecoderPower.v) · [Return and write log](coq/PowerWrites.v) · [Root comparison input](coq/RootTest.v) · [Validity byte](coq/Selection.v) · [Root candidate](coq/RootCandidate.v)
    If the signature-scalar call returns zero, the decoded branches, pops and returns take both
    policies back to the wrapper's preparation continuation with RSP restored,

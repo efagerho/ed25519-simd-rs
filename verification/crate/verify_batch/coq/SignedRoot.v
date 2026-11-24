@@ -44,3 +44,28 @@ Proof.
  exists (Trace r q s m);split;[unfold observe;rewrite A;cbn [bind];fold p0 k0;rewrite B;cbn [bind];now rewrite D|].
  constructor;cbn [candidate at_store selected];try assumption;now exists k.
 Qed.
+
+Definition begin t:=RootTest.finish_entry(Selection.test(RootCandidate.decision(candidate t))).
+Lemma register pol bias e t : post pol bias e t -> forall r,r<>8%nat -> r<>10%nat ->
+ regs(machine(at_store t)) r=regs(machine(begin t)) r.
+Proof.
+ intros S r B K;destruct(selection _ _ _ _ S) as [k A];rewrite (regs_after _ _ _ _ S),(RootAdjusted.gprs _ _ _ _ _ _ _ A).
+ exact (RootCandidate.saved_register _ _ _ _ (raw _ _ _ _ S) r B K).
+Qed.
+Lemma byte pol bias e t : post pol bias e t ->
+ regs(machine(at_store t)) 10%nat=regs(machine(Selection.selection(RootCandidate.decision(candidate t)))) 10%nat.
+Proof.
+ intro S;destruct(selection _ _ _ _ S) as [k A];rewrite (regs_after _ _ _ _ S),(RootAdjusted.gprs _ _ _ _ _ _ _ A),
+ (RootCandidate.regs_after _ _ _ _ _ _ (RootCandidate.native _ _ _ _ (raw _ _ _ _ S)));reflexivity.
+Qed.
+
+Definition protected pol e x:=~(link_slot pol e-24<=x<link_slot pol e) /\ ~(point e false+960<=x<point e false+1280).
+Lemma before_x pol bias e t : post pol bias e t ->
+ preserved (protected pol e) (mem(machine(begin t))) (mem(machine(at_store t))).
+Proof.
+ intro S;pose proof(raw _ _ _ _ S) as R;pose proof(RootCandidate.selection _ _ _ _ R) as Select.
+ destruct(selection _ _ _ _ S) as [k A];destruct(RootTest.root_product _ _ _ _ (Selection.test_result _ _ _ _ Select)) as [_ [_ [_ [_ [Keep _]]]]].
+ intros x [Stack Point];rewrite (memory_after _ _ _ _ S),(RootAdjusted.frame _ _ _ _ _ _ _ A x Stack),
+   (RootCandidate.frame _ _ _ _ _ _ (RootCandidate.native _ _ _ _ R) x (conj Stack Point)),
+   (Selection.test_memory _ _ _ _ Select);apply Keep,Stack.
+Qed.
