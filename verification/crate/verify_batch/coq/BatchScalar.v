@@ -80,7 +80,7 @@ Proof.
 Qed.
 
 Definition input_view e p := well_formed(machine p) /\
- ScalarInputs.matrix e (machine p).
+ ScalarInputs.matrix e (machine p) /\ StageEntry.metadata e (mem(machine p)).
 Definition arguments e p top :=
  regs (machine p) 4%nat=top /\ regs (machine p) 7%nat=Return.scratch e /\
  regs (machine p) 6%nat=Rows.frame e+512 /\ Prologue.output_registers e (machine p) /\
@@ -111,7 +111,7 @@ Lemma reach_common pol bias entry e p : Return.placement e -> loaded pol bias (m
 Proof.
  intros P Image Acc At Args Root. destruct pol.
  - exists p;split;[reflexivity|split;[exact Acc|split;[exact At|]]]. split;[unfold common_top;replace (Rows.frame e-8-0) with (Rows.frame e-8) by ring;exact Args|exact (conj Root I)].
- - destruct Args as [SP [DI [SI [[N Out] [Left [Words Matrix]]]]]].
+ - destruct Args as [SP [DI [SI [[N Out] [Left [Words [Matrix Indices]]]]]]].
    assert (Fit:words_fit (Rows.frame e-8)) by (destruct (stack_ok _ P) as [[L U] _];unfold words_fit,Rows.frame,sp in *;lia).
    destruct (strict_dispatch bias (machine p) (carry p) (Rows.frame e-8) SP Fit
        (mapped_word _ _ _ Image _ _ (in_common _) ltac:(vm_compute;reflexivity))) as [t [ws [R [PC [Stack [D [S [Ret [Bounds [Count [Dst R12]]]]]]]]]]].
@@ -129,7 +129,8 @@ Proof.
    + split;[exact Stack|split;[exact (eq_trans D DI)|split;[exact (eq_trans S SI)|]]].
      split;[exact (conj (eq_trans Count N) (eq_trans Dst Out))|split;[exact (eq_trans R12 Left)|]].
      split;[exact (segment_wf _ _ _ _ _ Words Next)|].
-     intros j sig J;rewrite <- (Matrix j sig J);apply PrepareChunk.Staging.read_block;intros k K;apply Frame;destruct sig;lia.
+     split;[intros j sig J;rewrite <- (Matrix j sig J);apply PrepareChunk.Staging.read_block;intros k K;apply Frame;destruct sig;lia|].
+     eapply IndexStores.metadata_preserved;[|exact Indices];intros x X;apply Frame;lia.
    + split;[|exact Ret]. unfold caller_word in *;rewrite <-Root.
      apply PrepareChunk.Staging.read_block;intros k K;apply Frame;lia.
 Qed.
@@ -141,13 +142,13 @@ Definition saved_outputs pol e m :=
 Definition post pol bias entry e p :=
  ip p=bias+common+65 /\ regs (machine p) 4%nat=common_top pol e-104 /\
  accounted e (writable e) p /\ return_slots pol bias entry e (mem(machine p)) /\ saved_outputs pol e (mem(machine p)) /\
- ((0<Scatter.count e)%nat -> ScalarInputs.borrowed e -> ScalarInputs.recoded e (machine p) /\ ScalarInputs.copy_ready e (machine p)).
+ ((0<Scatter.count e)%nat -> ScalarInputs.borrowed e -> ScalarInputs.recoded e (machine p) /\ ScalarInputs.copy_ready e (machine p) /\ StageEntry.metadata e (mem(machine p))).
 Lemma through_scalar pol bias entry e p ks : Return.placement e -> loaded pol bias (mem e) (writable e) ->
  accounted e (writable e) p -> ip p=bias+common -> arguments e p (common_top pol e) ->
  return_slots pol bias entry e (mem(machine p)) ->
  exists q, bind (to_scalar bias p) (scalar_call bias ks)=Some q /\ post pol bias entry e q.
 Proof.
- intros Place Image Acc At [SP [DI [SI [[Count Out] [Left [Words Matrix]]]]]] Slots.
+ intros Place Image Acc At [SP [DI [SI [[Count Out] [Left [Words [Matrix Indices]]]]]]] Slots.
  set (top:=common_top pol e) in *.
  destruct (stack_ok _ Place) as [[Lo Hi] _]. assert (Pos:words_fit top).
  { unfold top,common_top,words_fit,Rows.frame,sp in *;destruct pol;lia. }
@@ -213,14 +214,18 @@ Proof.
        intros j J;unfold SignatureScalar.Audit.ptr;change (read_word (mem(cpu_state t)) (regs(cpu_state t) 6%nat+8*Z.of_nat j)=word(32+ScalarInputs.sig_ptr e (TailCopy.row_index e j))).
        rewrite Src,Fields by exact J;unfold ptr_row;rewrite SI.
        exact (f_equal (fun a=>word(32+a)) (Matrix j true J)). }
-       split;[exact (proj2 Data)|]. split;[exact (proj1 Data)|]. split.
-       { intros j sig J;rewrite <- (Matrix j sig J).
-         apply PrepareChunk.Staging.read_block;intros k K;rewrite Memory,(WriteTrace.frame _ _ Inside).
-         - lazymatch goal with |-_=mem _ ?a=>change (mem (cpu_state t) a=mem(machine p) a) end.
+       assert (FrameBytes:forall x,Rows.frame e+512<=x<Rows.frame e+936 -> mem out x=mem(machine p) x).
+       { intros x X;rewrite Memory,(WriteTrace.frame _ _ Inside).
+         - change (mem (cpu_state t) x=mem(machine p) x).
            rewrite (steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ R));apply (WriteTrace.frame _ _ W).
-           unfold stack_range,top,common_top;destruct pol,sig;lia.
+           unfold stack_range,top,common_top;destruct pol;lia.
          - unfold SignatureScalar.Audit.output;rewrite Dest;destruct (scratch_stack _ Place);
-           unfold Rows.frame,sp in *;destruct sig;lia. }
+           unfold Rows.frame,sp in *;lia. }
+       split;[exact (proj2 Data)|]. split.
+       2:{ eapply IndexStores.metadata_preserved;[|exact Indices];intros x X;apply FrameBytes;lia. }
+       split;[exact (proj1 Data)|]. split.
+       { intros j sig J;rewrite <- (Matrix j sig J);apply PrepareChunk.Staging.read_block;
+         intros k K;apply FrameBytes;destruct sig;lia. }
        assert (Keep:regs out 3%nat=regs (machine v) 3%nat /\ regs out 15%nat=regs(machine v) 15%nat).
        { change (regs (snd (resume_ip,out)) 3%nat=regs(machine v) 3%nat /\ regs (snd(resume_ip,out)) 15%nat=regs(machine v) 15%nat).
          rewrite <- Call;split;reflexivity. }
@@ -233,7 +238,7 @@ Theorem from_entry pol bias pc text e c ks :
  exists q,observe pol bias (bias+pc) text e c ks=Some q /\ post pol bias (bias+pc) e q.
 Proof.
  intros Place Loaded Start.
- destruct(Start c) as [n [N [Budget [last [writes [Run [[ABI [Matrix _]] [Replay Prefix]]]]]]]].
+ destruct(Start c) as [n [N [Budget [last [writes [Run [[ABI [Matrix [Indices _]]] [Replay Prefix]]]]]]]].
  destruct(Prefix n ltac:(lia)) as [u [pre [R Safe]]];rewrite Run in R;injection R as <- <-.
  set (p:=LinkedRun.finish (bias+pc) (LinkedRun.initial (bias+pc) e c) (last,writes)).
  assert (Acc:accounted e (writable e) p) by (split;[exact Safe|intro x;unfold p;cbn [LinkedRun.finish log machine LinkedRun.initial];now rewrite Replay]).
@@ -247,7 +252,7 @@ Proof.
    rewrite (word_fits _ Fit);ring. }
  assert (View:input_view e p).
  { split;[exact (mapped_run_wf _ _ _ (State (Running 0) e c) _ _ (initial_cpu _ Place) Run)|].
-   intros j sig J;unfold ScalarInputs.encoding_ptr,descriptor.
+   split;[|exact Indices]. intros j sig J;unfold ScalarInputs.encoding_ptr,descriptor.
    apply PrepareChunk.Staging.read_block;intros k K. destruct sig.
    - exact (Matrix j 1%nat k J ltac:(lia) K).
    - exact (Matrix j 0%nat k J ltac:(lia) K). }

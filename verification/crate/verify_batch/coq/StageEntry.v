@@ -2,7 +2,7 @@ From Coq Require Import List ZArith Lia.
 From Machine Require Import isa.Instructions execution.ScalarBytes execution.LinkedCalls execution.WordSemantics
  execution.WordBounds memory.WriteTrace memory.MemoryGeometry memory.FlatMemory memory.ByteMemory.
 From Machine Require execution.MappedFetch execution.ScalarWords execution.InstructionRoute.
-From Ed25519Simd.VerifyBatch Require TailCopy.
+From Ed25519Simd.VerifyBatch Require TailCopy IndexStores.
 From Ed25519Simd.VerifyBatch Require Import Image Rows Scatter Return EntryWrites Prologue TailWrites StageWrites DescriptorStores.
 Import ListNotations. Local Open Scope Z_scope.
 
@@ -22,6 +22,26 @@ Proof.
  do 12 (let D:=fresh in apply Forall_cons_iff in B as [D B];cbv beta iota in D).
  repeat constructor;try discriminate;assumption.
 Qed.
+Definition full_path := firstn 4 listing.
+Lemma full_active ip text s c frame : bound text -> 8<=word(regs s 12%nat) ->
+ regs s 4%nat=frame -> fits64 frame 960 ->
+ exists t cf ws,MappedFetch.run 4 (ScalarBytes.fetch ip text) (State (Running 56) s c)=Some(State (Running 82) t cf,ws) /\
+ read_word (mem t) (frame+928)=8.
+Proof.
+ intros B Full SP Fit;assert (Code:InstructionRoute.linked text full_path).
+ { unfold bound,listing in B;do 4 (let H:=fresh in apply Forall_cons_iff in B as [H B];cbv beta iota in H).
+   repeat constructor;try discriminate;assumption. }
+ assert (FalseCmp:(word(regs s 12%nat)<?8)=false) by (apply Z.ltb_ge;lia).
+ do 3 eexists;split.
+ - apply (InstructionRoute.checked _ _ _ Code);cbn [full_path firstn listing InstructionRoute.follow
+   loc cf cpu_state ScalarBytes.step eval_condition option_map];rewrite FalseCmp;reflexivity.
+ - cbn [loc cf cpu_state ScalarBytes.step eval_condition option_map set set_regs with_zf regs with_words mem effective].
+   rewrite SP,Z.add_0_r,(word_fits (frame+928)) by (destruct Fit;unfold word64;lia).
+   apply read_word_exact;[unfold word64;lia|intros k K;apply write_at,K].
+Qed.
+Definition active e := Z.of_nat (Nat.min (count e) 8).
+Definition index_value e j := Policy.descriptor (mem e) (regs e 7%nat) (TailCopy.row_index e j) 32.
+Definition metadata e := IndexStores.metadata (Rows.frame e) (active e) (index_value e).
 Definition reached e st := loc st=Running (offset Stage) /\ caller_registers e (cpu_state st).
 
 Local Ltac ins_at a :=
@@ -102,7 +122,7 @@ Definition handoff ip (text:list Z) delta e carry n child :=
  StageWrites.entered ip delta e child /\
  (forall j f k,(j<8)%nat -> (f<4)%nat -> 0<=k<8 ->
    mem (cpu_state child) (bank (Rows.frame e) f+8*Z.of_nat j+k)=
-   mem e (regs e 7%nat+40*Z.of_nat (TailCopy.row_index e j)+8*Z.of_nat f+k)) /\ exists stage writes,
+   mem e (regs e 7%nat+40*Z.of_nat (TailCopy.row_index e j)+8*Z.of_nat f+k)) /\ metadata e (mem(cpu_state child)) /\ exists stage writes,
  MappedFetch.run (n-42) (MappedFetch.fetch ip (length text)) (State (Running 0) e carry)=Some(stage,writes) /\
  StageWrites.matrix (Rows.frame e) (cpu_state stage) (mem (cpu_state child)).
 
@@ -133,48 +153,65 @@ Proof.
    pose proof(MappedFetch.run_append _ _ _ _ _ F _ _ _ Pad) as First.
    exists child,((front++pad)++stores);split;[eapply MappedFetch.run_append;[exact First|exact Body]|].
    split;[unfold confined in *;rewrite !Forall_app;auto|].
-   split;[exact ABI|]. split.
-   { intros j f k J H K. rewrite Matrix by assumption. unfold value.
-     assert (CountZ: Z.of_nat (count e)=regs e 6%nat).
-     { unfold count;apply Z2Nat.id;apply (initial_cpu _ P). }
-     assert (FrameFit:fits64 (Rows.frame e) 960).
-     { destruct(stack_ok _ P) as [[Lo Hi] _];unfold fits64,Rows.frame,sp in *;lia. }
-     unfold short in Pad. destruct (word (regs s 12%nat) <? 8) eqn:Small.
+   assert (CountZ: Z.of_nat (count e)=regs e 6%nat).
+   { unfold count;apply Z2Nat.id;apply (initial_cpu _ P). }
+   assert (FrameFit:fits64 (Rows.frame e) 960).
+   { destruct(stack_ok _ P) as [[Lo Hi] _];unfold fits64,Rows.frame,sp in *;lia. }
+   set (rows:=regs e 7%nat) in *;set (base:=regs t 3%nat).
+   assert (Away:disjoint (Rows.frame e) 960 rows (40*regs e 6%nat)).
+   { unfold disjoint;destruct (Z_le_dec (Rows.frame e+960) rows);[auto|right].
+     destruct (Z_le_dec (rows+40*regs e 6%nat) (Rows.frame e));[auto|].
+     exfalso;apply (RowsApart (Z.max (Rows.frame e) rows) ltac:(lia));left;unfold span,Rows.frame,sp in *;lia. }
+   assert (Source:fits64 base 320 /\ IndexStores.allowed_inputs (Rows.frame e) base /\
+       read_word (mem t) (Rows.frame e+928)=active e /\
+       forall j k,(j<8)%nat -> 0<=k<40 -> mem t (base+40*Z.of_nat j+k)=mem e (rows+40*Z.of_nat(TailCopy.row_index e j)+k)).
+   { unfold short in Pad. destruct (word (regs s 12%nat) <? 8) eqn:Small.
      - assert (Size:1<=regs e 6%nat<8).
        { apply Z.ltb_lt in Small;rewrite Count,(word_fits _ (proj1(initial_cpu _ P) _)) in Small;lia. }
        pose proof (MappedFetch.run_lift _ _ _ _ _ _ _ F W Image Apart) as Mapped.
        pose proof (ScalarWords.mapped_run_wf _ _ _ (State (Running 0) e carry) _ _ (initial_cpu _ P) Mapped) as Words.
        destruct (pad_code _ Select) as [Start Jump].
-       assert (Dis:disjoint (Rows.frame e) 960 (regs e 7%nat) (40*regs e 6%nat)).
-       { unfold disjoint;destruct (Z_le_dec (Rows.frame e+960) (regs e 7%nat));[auto|right].
-         destruct (Z_le_dec (regs e 7%nat+40*regs e 6%nat) (Rows.frame e));[auto|].
-         exfalso;apply (RowsApart (Z.max (Rows.frame e) (regs e 7%nat)) ltac:(lia)).
-         left;unfold span,Rows.frame,sp in *;lia. }
-       assert (Original:forall x,regs e 7%nat<=x<regs e 7%nat+40*regs e 6%nat -> mem s x=mem e x).
+       assert (Original:forall x,rows<=x<rows+40*regs e 6%nat -> mem s x=mem e x).
        { intros x X;pose proof (steps_memory _ _ _ _ _ (MappedFetch.run_steps _ _ _ _ _ _ F)) as M.
          cbn [cpu_state] in M;rewrite M;apply (WriteTrace.frame _ _ W),RowsApart;lia. }
        rewrite CountZ in Fit.
-       destruct(TailCopy.staged ip text (Rows.frame e) (regs e 7%nat) (regs e 6%nat) (mem e) s c
-         Start Jump Tail Size Fit FrameFit Dis SP BX Count (proj2(proj2 Words)) Original) as [v [cv [ws [Run [Base Data]]]]].
+       destruct(TailCopy.staged ip text (Rows.frame e) rows (regs e 6%nat) (mem e) s c
+         Start Jump Tail Size Fit FrameFit Away SP BX Count (proj2(proj2 Words)) Original) as [v [cv [ws [Run [Base [Data Active]]]]]].
        change (MappedFetch.run 90 (ScalarBytes.fetch ip text) (State (Running 56) s c)=Some(State (Running 82) t cf,pad)) in Pad.
-       rewrite Pad in Run;injection Run as <- <- <-. rewrite Base,word_fits by (destruct FrameFit;unfold word64;lia).
-       rewrite <- (TailCopy.source_row e j N).
-       assert (Fields:read_word (mem t) (Rows.frame e+40*Z.of_nat j+8*Z.of_nat f)=
-           read_word (mem e) (TailCopy.source (regs e 7%nat) (regs e 6%nat) j+8*Z.of_nat f)).
-       { apply PrepareChunk.Staging.read_block;intros b B;rewrite <- (Z.add_assoc (Rows.frame e+40*Z.of_nat j)),
-           <- (Z.add_assoc (TailCopy.source _ _ j));apply Data;[exact J|change (0<=b<8) in B;lia]. }
-       rewrite Fields,read_word_byte by (try exact K;exact (proj2 (proj2 (initial_cpu _ P))));reflexivity.
+       rewrite Pad in Run;injection Run as <- <- <-. unfold base;rewrite Base.
+       split;[unfold fits64 in *;lia|split;[unfold IndexStores.allowed_inputs,disjoint;lia|]].
+       split;[rewrite Active;unfold active;rewrite Nat.min_l;lia|].
+       intros j k J K;rewrite (Data j k J K);unfold rows;now rewrite TailCopy.source_row by exact N.
      - apply Z.ltb_ge in Small.
        assert (Live:(8<=count e)%nat) by (rewrite Count,(word_fits _ (proj1(initial_cpu _ P) _)) in Small;lia).
-       rewrite TailCopy.own_row by lia. rewrite (Full Small),BX,word_fits by
-         (destruct Fit;unfold word64;lia).
-       pose proof (steps_memory _ _ _ _ _ (MappedFetch.run_steps _ _ _ _ _ _ First)) as Mem.
-       cbn [cpu_state] in Mem;rewrite Mem.
-       assert (Fields:read_word (WriteTrace.replay (mem e) (front++pad)) (regs e 7%nat+40*Z.of_nat j+8*Z.of_nat f)=
-         read_word (mem e) (regs e 7%nat+40*Z.of_nat j+8*Z.of_nat f)).
-       { apply PrepareChunk.Staging.read_block;intros b B;apply (WriteTrace.frame (writable e));
-         [apply Forall_app;auto|apply RowsApart;change (0<=b<8) in B;lia]. }
-       rewrite Fields,read_word_byte by (try exact K;exact (proj2 (proj2 (initial_cpu _ P))));reflexivity. }
+       destruct (full_active ip text s c (Rows.frame e) Select Small SP FrameFit) as [v [cv [ws [R Active]]]].
+       change (MappedFetch.run 4 (ScalarBytes.fetch ip text) (State (Running 56) s c)=Some(State (Running 82) t cf,pad)) in Pad.
+       rewrite Pad in R;injection R as <- <- <-. unfold base;rewrite (Full Small),BX.
+       split;[unfold fits64 in *;lia|split;[unfold IndexStores.allowed_inputs,disjoint in *;lia|]].
+       split;[rewrite Active;unfold active;rewrite Nat.min_r by lia;reflexivity|].
+       intros j k J K;rewrite TailCopy.own_row by lia.
+       pose proof(steps_memory _ _ _ _ _ (MappedFetch.run_steps _ _ _ _ _ _ First)) as M;cbn [cpu_state] in M;rewrite M.
+       apply (WriteTrace.frame (writable e));[apply Forall_app;auto|apply RowsApart;lia]. }
+   destruct Source as [FitBase [Dis [Active Data]]].
+   assert (Fields:forall j off,(j<8)%nat -> 0<=off<=32 ->
+     read_word (mem t) (base+40*Z.of_nat j+off)=read_word (mem e) (rows+40*Z.of_nat(TailCopy.row_index e j)+off)).
+   { intros j off J H;apply PrepareChunk.Staging.read_block;intros b B;
+     rewrite <- (Z.add_assoc (base+40*Z.of_nat j)),<- (Z.add_assoc (rows+40*Z.of_nat(TailCopy.row_index e j)));
+     apply Data;[exact J|change (0<=b<8) in B;lia]. }
+   split;[exact ABI|]. split.
+   { intros j f k J H K;rewrite Matrix by assumption;unfold value;fold base.
+     rewrite word_fits by (destruct FitBase;unfold word64;lia).
+     rewrite Fields,read_word_byte by (try exact J;try lia;exact (proj2(proj2(initial_cpu _ P))));reflexivity. }
+   split.
+   { apply (IndexStores.transfer ip text delta e t cf child stores base (index_value e) (active e)).
+     - exact Transfer.
+     - exact P.
+     - exact (conj (proj1 Frame) eq_refl).
+     - exact FitBase.
+     - exact Dis.
+     - intros j J;split;[apply read_word_bound,(initial_cpu _ P)|exact (Fields j 32 J ltac:(lia))].
+     - exact Active.
+     - exact Body. }
    exists (State (Running (offset Stage)) t cf),(front++pad);split;[|exact Matrix].
    replace (n-42)%nat with (15+(if short then 90 else 4))%nat by (unfold n;destruct short;reflexivity).
    eapply MappedFetch.run_lift;[exact First|apply Forall_app;split;[exact W|exact Safe]|exact Image|exact Apart].
