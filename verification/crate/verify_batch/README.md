@@ -82,8 +82,11 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    policies back to the wrapper's preparation continuation with RSP restored,
    the same EAX and no additional stores. The wrapper passes its original
    output pointer and count to scatter. The proof follows the nested return
-   back to the wrapper with the combined store log and restored RSP.
-   [Rejection scatter](coq/RejectDispatch.v) · [Rejection returns](coq/PrepareUnwind.v) · [Nested scalar call](coq/BatchScalar.v) · [Preparation prologues](coq/PrepareNative.v) ·
+   back to the wrapper with the combined store log and restored RSP. Its
+   status and remaining-count tests then either enter the next chunk or
+   execute the five pops and outermost return. For that return the caller
+   PC, RSP and every final memory byte are derived from the same execution.
+   [Rejection result](coq/RejectExecution.v) · [Wrapper exit](coq/RejectFinish.v) · [Rejection scatter](coq/RejectDispatch.v) · [Rejection returns](coq/PrepareUnwind.v) · [Nested scalar call](coq/BatchScalar.v) · [Preparation prologues](coq/PrepareNative.v) ·
    [Empty return](coq/EntryWrites.v) · [Nonempty entry](coq/StageEntry.v) ·
    [Tail loop](coq/TailWrites.v) · [Preparation handoff](coq/StageWrites.v)
 5. **Nested writes.** The caller bounds cover SHA state and digest stores,
