@@ -8,7 +8,8 @@ From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchDecod
 From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderFinish DecoderPower PowerInputs PowerWrites RootTest RootAccept PairedSetup SetupTail.
 Local Open Scope Z_scope.
 
-Definition decodable e j:=exists x,on_curve x (residue (original_encoding false e j mod 2^255)).
+Definition decodes sig e j:=exists x,on_curve x (residue (original_encoding sig e j mod 2^255)).
+Definition decodable:=decodes false.
 Lemma uv_field y : residue (PowerInputs.uv y)=(numerator(residue y)*denominator(residue y))%fp.
 Proof. unfold PowerInputs.uv,denominator,numerator;repeat first [rewrite residue_mul|rewrite residue_sub];reflexivity. Qed.
 Lemma test_field y :
@@ -20,18 +21,17 @@ Proof.
  rewrite uv_field;unfold test_value;ring.
 Qed.
 
-Theorem bits pol bias e r : RootTest.post pol bias e r -> forall j,(j<8)%nat ->
- RootAccept.bits false e (machine(RootTest.at_test r)) j=true <-> decodable e j.
+Lemma from_comparison sig pol bias e sq cmp :
+ KeySquare.squared sig pol bias e sq -> RootTest.math sig e cmp ->
+ (forall j i,(j<8)%nat -> (i<5)%nat ->
+  row (machine cmp) (point e sig) j i=u_digits (vectors(machine sq) j) i) ->
+ forall j,(j<8)%nat -> RootAccept.bits sig e (machine cmp) j=true <-> decodes sig e j.
 Proof.
- intros Out j J;set (q:=vectors(machine(RootTest.at_test r)) j).
- set (t:=PowerWrites.before_power(RootTest.power r));set (s:=SetupTail.after_square(PowerInputs.half t false)).
- set (h:=vectors(machine s) j);set (u:=row (machine(RootTest.at_test r)) (point e false) j).
- set (y:=original_encoding false e j mod 2^255);set (fy:=residue y).
- pose proof(RootTest.root_test _ _ _ _ Out j J) as [Bq [Low Q]];fold y q in Bq,Low,Q.
- pose proof(RootTest.setup_fields_live _ _ _ _ Out false) as F.
- assert (U:forall i,(i<5)%nat -> u i=u_digits h i) by (intros i I;exact (proj1(F j i J I))).
- destruct(RootTest.power_result _ _ _ _ Out) as [D _].
- destruct D as [Both _];destruct Both as [[KeySq _] _];change (KeySquare.squared false pol bias e s) in KeySq;destruct KeySq as [_ [_ [_ [_ Square]]]].
+ intros [_ [_ [_ [_ Square]]]] Math Numerator j J.
+ set (q:=vectors(machine cmp) j);set (h:=vectors(machine sq) j);set (u:=row (machine cmp) (point e sig) j).
+ set (y:=original_encoding sig e j mod 2^255);set (fy:=residue y).
+ destruct(Math j J) as [Bq [Low Q]];fold y q in Bq,Low,Q.
+ assert (U:forall i,(i<5)%nat -> u i=u_digits h i) by (intros i I;apply Numerator;assumption).
  destruct(Square j J) as [Bound [YY Pos]];fold y h in Bound,YY,Pos.
  assert (H:bounded h) by (intros i I;specialize(Bound i I);change (0<=h i<=radix+2^16) in Bound;lia).
  assert (B:bounded q) by (intros i I;specialize(Bq i I);lia).
@@ -55,4 +55,14 @@ Proof.
  assert (Minus:high_test q (-1)=true <-> Decode.value q=(0-1)%fp) by (apply Test;lia).
  change ((high_test q 1 || high_test u 0 || high_test q (-1))%bool=true <-> exists x,on_curve x fy).
  rewrite !orb_true_iff,Plus,Minus,Zero,Qfield;rewrite <-root_criterion;tauto.
+Qed.
+
+Theorem bits pol bias e r : RootTest.post pol bias e r -> forall j,(j<8)%nat ->
+ RootAccept.bits false e (machine(RootTest.at_test r)) j=true <-> decodable e j.
+Proof.
+ intro R;set (t:=PowerWrites.before_power(RootTest.power r)).
+ apply (from_comparison false pol bias e (SetupTail.after_square(PowerInputs.half t false))).
+ - exact (proj1(proj1(proj1(proj1(RootTest.power_result _ _ _ _ R))))).
+ - exact (RootTest.root_test _ _ _ _ R).
+ - intros j i J I;exact (proj1(RootTest.setup_fields_live _ _ _ _ R false j i J I)).
 Qed.

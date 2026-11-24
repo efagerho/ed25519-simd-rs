@@ -22,47 +22,77 @@ Proof.
  split;[exact B|split;[apply L;reflexivity|]];eapply ctrans;[exact M|apply ctimes;[eapply ctrans;[exact SS|apply ctimes];exact RX|exact RV]].
 Qed.
 
-Definition math e q:=forall j,(j<8)%nat ->
- let v:=vectors(machine q) j in let y:=original_encoding false e j mod 2^255 in
+Definition math sig e q:=forall j,(j<8)%nat ->
+ let v:=vectors(machine q) j in let y:=original_encoding sig e j mod 2^255 in
  let uv:=PowerInputs.uv y in let power:=uv^Pow2Spec.exponent in
  field_bound (fun _=>radix+2^16) v /\ 2<=v 0%nat /\ represents (limbs v) (power*power*uv).
 
-Lemma from_bytes pol bias e t returned start q :
+Definition operands sig pol e (start:cursor):=forall j,(j<8)%nat ->
+ let uv:=PowerInputs.uv(original_encoding sig e j mod 2^255) in
+ let x:=FinishSquare.operand sig pol e (machine start) j in let v:=row (machine start) (point e sig+960) j in
+ Radix51.squared x /\ split_field v /\ represents (limbs x) (uv^Pow2Spec.exponent) /\ represents (limbs v) uv.
+
+Definition operand_bytes sig pol e x:=
+ span (link_slot pol e+8+DecoderFinish.power_offset sig) 320 x \/ span (point e sig) 1280 x.
+
+Lemma operands_preserved sig pol e a b : operands sig pol e a ->
+ preserved (operand_bytes sig pol e) (mem(machine a)) (mem(machine b)) -> operands sig pol e b.
+Proof.
+ intros Args Memory j J;destruct(Args j J) as [Squared [Split [Power UV]]].
+ assert (X:forall i,(i<5)%nat -> FinishSquare.operand sig pol e (machine b) j i=FinishSquare.operand sig pol e (machine a) j i).
+ { intros i N;unfold FinishSquare.operand;apply (keep_row _ _ _ _ Memory);[intros x H;left;exact H|exact J|exact N]. }
+ assert (V:forall i,(i<5)%nat -> row (machine b) (point e sig+960) j i=row (machine a) (point e sig+960) j i).
+ { intros i N;apply (keep_row _ _ _ _ Memory);[intros x H;right;unfold span;lia|exact J|exact N]. }
+ split;[intros i I;rewrite X by exact I;apply Squared,I|split;[intros i I;rewrite V by exact I;apply Split,I|]].
+ split;[rewrite (limbs_ext _ _ X);exact Power|rewrite (limbs_ext _ _ V);exact UV].
+Qed.
+
+Lemma at_comparison sig pol bias e start q : operands sig pol e start ->
+ FinishProduct.post sig pol bias e start q -> math sig e q.
+Proof.
+ intros In [_ [_ [_ [_ [_ [_ Out]]]]]] j J;destruct(In j J) as [X [V [RX RV]]].
+ destruct(result _ _ _ _ X V RX RV) as [Bounds [Low Value]].
+ split;[intros i I;rewrite Out by assumption;apply Bounds,I|split;[rewrite Out by lia;exact Low|]].
+ erewrite limbs_ext;[exact Value|intros i I;apply Out;assumption].
+Qed.
+
+Lemma from_bytes sig pol bias e t returned start :
  placement e -> DecoderPower.post pol bias e t -> PowerInputs.inputs e t -> PowerWrites.powers pol e returned ->
  preserved (fun x=>~Pow2Memory.writable_byte (DecoderPower.locations pol bias e) x)
     (mem(machine(DecoderPower.exponent_entry t))) (mem(machine returned)) ->
  preserved (fun x=>~span (link_slot pol e) 8 x) (mem(machine returned)) (mem(machine start)) ->
- FinishProduct.post false pol bias e start q -> math e q.
+ operands sig pol e start.
 Proof.
- intros P D Inputs Powers After Enter [_ [_ [_ [_ [_ [_ Out]]]]]] j J.
+ intros P D Inputs Powers After Enter j J.
  set (st:=link_slot pol e) in *;set (w:=DecoderPower.exponent_entry t) in *.
- set (uv:=PowerInputs.uv(original_encoding false e j mod 2^255)).
- set (x:=FinishSquare.operand false pol e (machine start) j);set (v:=row (machine start) (point e false+960) j).
- set (out:=buffer_words (mem(machine returned)) (st+8));set (input:=PowerInputs.argument e (machine w) false).
- destruct(Powers false j J) as [B E];fold st out uv in B,E.
- pose proof(PowerInputs.certified _ _ _ _ D Inputs false j J) as [V Rep];fold w input uv in V,Rep.
- assert (X:forall i,(i<5)%nat -> x i=cell out i j).
- { intros i I;unfold out;rewrite PowerInputs.limb_word;unfold x,FinishSquare.operand;cbn [DecoderFinish.power_offset];rewrite Z.add_0_r;fold st.
-   apply (keep_row _ _ (st+8) _ Enter);[unfold span;lia|exact J|exact I]. }
+ set (uv:=PowerInputs.uv(original_encoding sig e j mod 2^255)).
+ set (x:=FinishSquare.operand sig pol e (machine start) j);set (v:=row (machine start) (point e sig+960) j).
+ set (out:=buffer_words (mem(machine returned)) (st+8));set (input:=PowerInputs.argument e (machine w) sig).
+ destruct(Powers sig j J) as [B E];fold st out uv in B,E.
+ pose proof(PowerInputs.certified _ _ _ _ D Inputs sig j J) as [V Rep];fold w input uv in V,Rep.
+ set (first:=if sig then 5%nat else 0%nat) in *.
+ assert (X:forall i,(i<5)%nat -> x i=cell out (first+i)%nat j).
+ { intros i I;unfold out;rewrite PowerInputs.limb_word;unfold x,FinishSquare.operand;fold st.
+   rewrite (keep_row _ _ (st+8+DecoderFinish.power_offset sig) _ Enter)
+     by (unfold span,DecoderFinish.power_offset;destruct sig;lia).
+   unfold row,first,DecoderFinish.power_offset;f_equal;destruct sig;lia. }
  assert (Y:forall i,(i<5)%nat -> v i=cell input i j).
  { intros i I;unfold v,input,PowerInputs.argument;rewrite PowerInputs.limb_word.
-   apply keep_row with (protect:=span (point e false) 1280);[|unfold span;lia|exact J|exact I].
+   apply keep_row with (protect:=span (point e sig) 1280);[|unfold span;lia|exact J|exact I].
    intros a A;pose proof(depth pol e) as Depth;fold st in Depth;destruct(scratch_stack _ P) as [Dis|Dis];
-   unfold span,disjoint,point,point_offset in *;rewrite Enter by (unfold span;lia);apply After;
+   unfold span,disjoint,point,point_offset in *;destruct sig;rewrite Enter by (unfold span;lia);apply After;
    change (~(st+8<=a<st+8+640 \/ st-1928+1928-1936<=a<st-1928+1928-8));lia. }
  assert (InX:Radix51.squared x).
- { intros i I;rewrite X by exact I;specialize(B i I);change (0<=cell out i j<=Pow2Spec.public_bound i) in B.
+ { intros i I;rewrite X by exact I;specialize(B i I);change (0<=cell out (first+i)%nat j<=Pow2Spec.public_bound i) in B.
    split;[exact (proj1 B)|eapply Z.le_trans;[exact (proj2 B)|]].
    destruct i as [|[|[|[|[|i]]]]];try lia;vm_compute;discriminate || reflexivity. }
  assert (InY:split_field v) by (intros i I;rewrite Y by exact I;specialize(V i I);lia).
  assert (RX:represents (limbs x) (uv^Pow2Spec.exponent)).
- { assert (F:limbs x=field_at out 0 j) by (apply limbs_ext,X).
-   change (field_at out 0 j mod prime=uv^Pow2Spec.exponent mod prime) in E.
-   rewrite F;eapply ctrans with (y:=field_at out 0 j mod prime);[apply csym,cut_p|];rewrite E;apply cut_p. }
+ { assert (F:limbs x=field_at out first j) by (apply limbs_ext,X).
+   change (field_at out first j mod prime=uv^Pow2Spec.exponent mod prime) in E.
+   rewrite F;eapply ctrans with (y:=field_at out first j mod prime);[apply csym,cut_p|];rewrite E;apply cut_p. }
  assert (RY:represents (limbs v) uv) by (erewrite limbs_ext;[exact Rep|exact Y]).
- destruct(result x v (uv^Pow2Spec.exponent) uv InX InY RX RY) as [Bounds [Low Value]].
- split;[intros i I;rewrite Out by assumption;apply Bounds,I|split;[rewrite Out by lia;exact Low|]].
- erewrite limbs_ext;[exact Value|intros i I;apply Out;assumption].
+ exact (conj InX (conj InY (conj RX RY))).
 Qed.
 
 Record trace:=Trace { power:PowerWrites.checkpoints; finish_entry:cursor; at_test:cursor }.
@@ -73,7 +103,8 @@ Record post pol bias e t : Prop:=Post {
  power_result:PowerWrites.post pol bias e (power t);
  finish_arguments:DecoderFinish.entry false pol bias e (finish_entry t);
  root_product:FinishProduct.post false pol bias e (finish_entry t) (at_test t);
- root_test:math e (at_test t);
+ root_test:math false e (at_test t);
+ signature_operands:operands true pol e (finish_entry t);
  signature_signs:forall j,(j<8)%nat -> Z.testbit (regs(machine(finish_entry t)) 14%nat) (Z.of_nat j)=Z.testbit (original_encoding true e j) 255;
  setup_fields_live:forall sig,fields sig e
    (SetupTail.after_square(PowerInputs.half (PowerWrites.before_power(power t)) sig)) (at_test t)
@@ -93,8 +124,9 @@ Proof.
  destruct(FinishProduct.from_entry false _ _ _ _ P I Arguments) as [q [Body Post]].
  exists (Trace r a q);split;[unfold observe;rewrite Run;cbn [bind];rewrite Start;cbn [bind];now rewrite Body|].
  pose proof(PowerInputs.from_decoder _ _ _ _ _ _ P I Al E W Link) as Inputs.
- constructor;[exact (conj D (conj R Powers))|exact Arguments|exact Post| |exact Signs|].
- - eapply from_bytes;[exact P|exact D|exact Inputs|exact Powers|exact After|exact Enter|exact Post].
+ constructor;[exact (conj D (conj R Powers))|exact Arguments|exact Post| | |exact Signs|].
+ - eapply at_comparison;[eapply from_bytes;[exact P|exact D|exact Inputs|exact Powers|exact After|exact Enter]|exact Post].
+ - eapply from_bytes;[exact P|exact D|exact Inputs|exact Powers|exact After|exact Enter].
  - intro sig;destruct(Inputs sig) as [Fields Keep].
    set (s:=machine(SetupTail.in_decoder(PowerInputs.half (PowerWrites.before_power r) sig))).
    assert (Stayed:preserved (PowerInputs.point_bytes e sig) (mem s) (mem(machine q))).
