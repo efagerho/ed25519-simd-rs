@@ -74,6 +74,7 @@ Record post pol bias e t : Prop:=Post {
  finish_arguments:DecoderFinish.entry false pol bias e (finish_entry t);
  root_product:FinishProduct.post false pol bias e (finish_entry t) (at_test t);
  root_test:math e (at_test t);
+ signature_signs:forall j,(j<8)%nat -> Z.testbit (regs(machine(finish_entry t)) 14%nat) (Z.of_nat j)=Z.testbit (original_encoding true e j) 255;
  setup_fields_live:forall sig,fields sig e
    (SetupTail.after_square(PowerInputs.half (PowerWrites.before_power(power t)) sig)) (at_test t)
 }.
@@ -88,11 +89,11 @@ Proof.
    cbn [bind] in Run;destruct(PowerWrites.execute _ _ _ _) as [last|];[|discriminate];injection Run as <-;reflexivity. }
  destruct Out as [D [R Powers]].
  destruct(DecoderResume.after_return _ _ _ _ _ P (proj1(proj2 D)) (NativeWords.pow2_entry_words _ _ _ _ W Link) R) as [Ready After].
- destruct(DecoderFinish.from_power _ _ _ _ P I Ready) as [a [Start [Arguments Enter]]].
+ destruct(DecoderFinish.from_power _ _ _ _ P I Ready) as [a [Start [Arguments [Enter Signs]]]].
  destruct(FinishProduct.from_entry false _ _ _ _ P I Arguments) as [q [Body Post]].
  exists (Trace r a q);split;[unfold observe;rewrite Run;cbn [bind];rewrite Start;cbn [bind];now rewrite Body|].
  pose proof(PowerInputs.from_decoder _ _ _ _ _ _ P I Al E W Link) as Inputs.
- constructor;[exact (conj D (conj R Powers))|exact Arguments|exact Post| |].
+ constructor;[exact (conj D (conj R Powers))|exact Arguments|exact Post| |exact Signs|].
  - eapply from_bytes;[exact P|exact D|exact Inputs|exact Powers|exact After|exact Enter|exact Post].
  - intro sig;destruct(Inputs sig) as [Fields Keep].
    set (s:=machine(SetupTail.in_decoder(PowerInputs.half (PowerWrites.before_power r) sig))).
