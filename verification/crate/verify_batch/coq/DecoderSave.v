@@ -54,7 +54,7 @@ Definition save_input bias s incoming :=
 Definition frame signature pol bias e s := let sp:=common_top pol e-112 in
  regs s 7%nat=point e signature /\ regs s 4%nat=DecoderFrame.top sp-8 /\
  read_word (mem s) (DecoderFrame.top sp-8)=word(bias+DecoderFrame.origin+resume_offset signature) /\
- forall i j,(i<4)%nat -> vectors s j (28+i)%nat=DecoderFrame.constant i.
+ (forall i j,(i<4)%nat -> vectors s j (28+i)%nat=DecoderFrame.constant i) /\ setup_caller signature pol bias e s.
 
 Theorem from_setup signature pol bias e p incoming : placement e -> loaded pol bias (mem e) (writable e) ->
  (bias+DecoderFrame.origin) mod 64=0 -> setup signature pol bias e p ->
@@ -64,15 +64,22 @@ Proof.
  intros P M Al Setup.
  destruct(BatchDecode.from_setup signature _ _ _ _ P M Al Setup) as [v [Next [Words [_ [WordsMem G]]]]].
  destruct(BatchDecode.from_words signature _ _ _ _ incoming P M Words) as [y [k [Unpack [Value [_ [UnpackMem [Other Constants]]]]]]].
+ pose proof(environment _ _ _ _ _ Setup) as Caller.
  destruct Setup as [_ [_ [SP [_ [_ [DI [_ [_ [Link _]]]]]]]]].
  assert (Dest:regs(machine y) 7%nat=point e signature) by (rewrite Other,G by discriminate;exact DI).
  destruct(from_limbs signature _ _ _ _ P M Dest Value) as [q [Save [Saved [Regs [Vec [Data Keep]]]]]].
  exists q,k;split;[unfold save_input;rewrite Next;cbn [bind];rewrite Unpack;cbn [bind];now rewrite Save|].
  split;[exact Saved|split].
- - unfold frame;rewrite Regs;split;[exact Dest|split;[rewrite Other,G by discriminate;exact SP|split];[|intros i j I;rewrite Vec;apply Constants,I]].
-   rewrite <-Link,<-WordsMem,<-UnpackMem;apply preserved_read with (outside:=fun x=>~range (address signature e) 5 x).
-   + exact Keep.
-   + intros off K;change (0<=off<8) in K;pose proof(Z.mod_pos_bound (common_top pol e-112-40) 64 ltac:(lia)).
+ - unfold frame;rewrite Regs;split;[exact Dest|split;[rewrite Other,G by discriminate;exact SP|split]].
+   + rewrite <-Link,<-WordsMem,<-UnpackMem;apply preserved_read with (outside:=fun x=>~range (address signature e) 5 x).
+     * exact Keep.
+     * intros off K;change (0<=off<8) in K;pose proof(Z.mod_pos_bound (common_top pol e-112-40) 64 ltac:(lia)).
      destruct(scratch_stack _ P);unfold range,address,point,point_offset,DecoderFrame.top,FlatMemory.disjoint,common_top,Rows.frame,sp in *;destruct pol,signature;lia.
+   + split;[intros i j I;rewrite Vec;apply Constants,I|].
+     apply (keep_caller _ _ _ _ _ _ Caller).
+     * intros r R;rewrite Regs,Other,G;[reflexivity|intros ->;unfold caller_reg in R;cbn in R;lia].
+     * intros x X;rewrite Keep,UnpackMem,WordsMem;[reflexivity|].
+       unfold caller_bytes in X;pose proof(Z.mod_pos_bound (common_top pol e-112-40) 64 ltac:(lia)).
+       destruct(scratch_stack _ P);unfold range,address,point,point_offset,FlatMemory.disjoint,common_top,Rows.frame,sp in *;destruct pol,signature;lia.
  - intros j i J I;rewrite Vec;exact (Data j i J I).
 Qed.
