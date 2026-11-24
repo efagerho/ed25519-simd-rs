@@ -70,3 +70,31 @@ Proof.
  - intros j i J N;assert (Data:vectors(machine mul) j i=candidate s j i) by exact (Product j i J N).
    split;[rewrite Vec;exact Data|unfold row;rewrite (Rows i j N J);exact Data].
 Qed.
+
+From Ed25519Simd.VerifyBatch Require Selection RootTest RootDecision.
+Record trace:=Trace { decision:Selection.trace; saved_x:cursor }.
+Definition observe pol bias e p bank:=bind (Selection.observe pol bias e p bank) (fun r=>
+ option_map (Trace r) (execute bias (Selection.selection r))).
+Record post pol bias e t : Prop:=Post {
+ selection:Selection.post pol bias e (decision t);
+ native:result false pol bias e (Selection.selection(decision t)) (saved_x t)
+}.
+
+Theorem from_decoder pol bias e p bank : placement e -> loaded pol bias (mem e) (writable e) ->
+ (bias+DecoderFrame.origin) mod 64=0 -> BatchDecode.entry pol bias e p -> well_formed(machine p) ->
+ exists t,observe pol bias e p bank=Some t /\ post pol bias e t.
+Proof.
+ intros P I Al Entry W;destruct(Selection.from_decoder _ _ _ _ bank P I Al Entry W) as [r [R S]].
+ pose proof(Selection.test_result _ _ _ _ S) as T.
+ destruct(RootTest.finish_arguments _ _ _ _ T) as [_ [_ [_ [SP [DI [SI _]]]]]].
+ destruct(RootTest.root_product _ _ _ _ T) as [_ [_ [_ [G _]]]].
+ assert (Reg:forall n,n<>8%nat -> n<>10%nat -> regs(machine(Selection.selection r)) n=
+   regs(machine(RootTest.finish_entry(Selection.test r))) n) by
+   (intros n B K;rewrite (Selection.scalar_registers _ _ _ _ S n K);apply G,B).
+ destruct(checked false pol bias e (Selection.selection r) P I (Selection.at_selection _ _ _ _ S)
+   (Selection.writes _ _ _ _ S) (Selection.machine_words _ _ _ _ S)
+   ltac:(rewrite Reg by discriminate;exact SP) ltac:(rewrite Reg by discriminate;exact DI)
+   ltac:(rewrite Reg by discriminate;exact SI) (Selection.curve_constants _ _ _ _ S))
+   as [q [Run Result]].
+ exists(Trace r q);split;[unfold observe;rewrite R;cbn [bind];now rewrite Run|exact (Post pol bias e (Trace r q) S Result)].
+Qed.

@@ -139,7 +139,11 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    masked comparisons, the numerator-zero test, the predicate ORs and the
    transfer to R10. The resulting byte classifies root existence for all
    eight keys. The negative-root mask is kept for the sign-adjustment code.
-   [Field setup and inputs](coq/PowerInputs.v) · [Exponentiation call](coq/DecoderPower.v) · [Return and write log](coq/PowerWrites.v) · [Root comparison input](coq/RootTest.v) · [Validity byte](coq/Selection.v)
+   The next nested multiply takes U from the live registers and the power
+   from the stack. The five stores at offsets 1084 through 1112 write the
+   resulting X candidate to point scratch. The theorem identifies all forty
+   stored limbs and preserves the validity byte across the call.
+   [Field setup and inputs](coq/PowerInputs.v) · [Exponentiation call](coq/DecoderPower.v) · [Return and write log](coq/PowerWrites.v) · [Root comparison input](coq/RootTest.v) · [Validity byte](coq/Selection.v) · [Root candidate](coq/RootCandidate.v)
    If the signature-scalar call returns zero, the decoded branches, pops and returns take both
    policies back to the wrapper's preparation continuation with RSP restored,
    the same EAX and no additional stores. The wrapper passes its original
