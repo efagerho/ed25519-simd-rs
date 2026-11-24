@@ -12,6 +12,8 @@ Inductive instruction :=
 | Load64 (r:nat) (a:addr) | Load8 (r:nat) (a:addr) | Store8 (i:indexed_byte)
 | CompareImm (r:nat) (k:Z) | Compare (l r:nat) | Test (r:nat)
 | Zero32 (r:nat) | OneEax | And8 (d r:nat) | ShrEax | Inc (r:nat)
+| RestoreG (r:nat) | Imm32 (r:nat) (imm:Z) | Test32 (r:nat)
+| BroadcastG (dst src:nat) | AddVectorMem (dst src:nat) (a:addr)
 | SaveG (r:nat) | CopyG (dst src:nat) | LeaG (dst:nat) (a:addr)
 | Sub64 (r:nat) (k:Z) | Add32 (r:nat) (k:Z) | Compare32 (r:nat) (k:Z)
 | MoveBelow (dst src:nat) | Store64 (r:nat) (a:addr)
@@ -22,6 +24,25 @@ Inductive instruction :=
 
 Definition little32 bs := read_le 4 (fun i=>nth (Z.to_nat i) bs 0) 0.
 Definition decode (bs:list Z) : option (nat*instruction) := match bs with
+ | 0x5b::_=>Some (1%nat,RestoreG 3)
+ | 0x41::0x5c::_=>Some (2%nat,RestoreG 12)
+ | 0x41::0x5d::_=>Some (2%nat,RestoreG 13)
+ | 0x41::0x5e::_=>Some (2%nat,RestoreG 14)
+ | 0x41::0x5f::_=>Some (2%nat,RestoreG 15)
+ | 0x48::0x83::0xec::d::_=>Some (4%nat,Sub64 4 (signed_value 128 d))
+ | 0x48::0x83::0xc4::d::_=>Some (4%nat,Add64 4 (signed_value 128 d))
+ | 0x48::0x81::0xc4::a::b::c::d::_=>Some (7%nat,Add64 4 (displacement32 [a;b;c;d]))
+ | 0x49::0x89::0xd4::_=>Some (3%nat,CopyG 12 2)
+ | 0x49::0x89::0xcd::_=>Some (3%nat,CopyG 13 1)
+ | 0x49::0x89::0xf7::_=>Some (3%nat,CopyG 15 6)
+ | 0x48::0x89::0xcb::_=>Some (3%nat,CopyG 3 1)
+ | 0x48::0x89::0xe6::_=>Some (3%nat,CopyG 6 4)
+ | 0x48::0x8d::0xbb::a::b::c::d::_=>Some (7%nat,LeaG 7 (Address 3 None (displacement32 [a;b;c;d])))
+ | 0x85::0xc0::_=>Some (2%nat,Test32 0)
+ | 0xb8::0x20::0::0::0::_=>Some (5%nat,Imm32 0 32)
+ | 0x62::0xf2::0xfd::0x48::0x7c::0xc0::_=>Some (6%nat,BroadcastG 0 0)
+ | 0x62::0xf1::0xfd::0x48::0xd4::0x46::d::_=>
+   Some (7%nat,AddVectorMem 0 0 (Address 6 None (64*signed_value 128 d)))
  | 0x53::_=>Some (1%nat,SaveG 3)
  | 0x41::0x54::_=>Some (2%nat,SaveG 12)
  | 0x41::0x55::_=>Some (2%nat,SaveG 13)
@@ -118,6 +139,14 @@ Definition step origin off n op s carry : option (state*list store) :=
  | ShrEax=>let v:=regs s 0%nat mod 2^32 in let t:=v/2 in
       go (with_zf (set s 0 t) (t=?0)) (Some (Z.odd v))
  | Inc r=>let t:=word(regs s r+1) in go (with_zf (set s r t) (t=?0)) carry
+ | RestoreG r=>go (pop s r) carry
+ | Imm32 r k=>go (set s r (k mod 2^32)) carry
+ | Test32 r=>go (with_zf s (regs s r mod 2^32=?0)) (Some false)
+ | BroadcastG d r=>go (CPU (regs s) (fun j=>Instructions.put (vectors s j) d (regs s r))
+                            (flag s) (mem s)) carry
+ | AddVectorMem d r a=>let base:=effective s a in
+   let lane j:=word (vectors s j r+read_word (mem s) (base+8*Z.of_nat j)) in
+   go (CPU (regs s) (fun j=>Instructions.put (vectors s j) d (lane j)) (flag s) (mem s)) carry
  | SaveG r=>Some (State (Running next) (snd (caller_step origin off (Save r) s)) carry,
                     caller_stores origin off (Save r) s)
  | CopyG d r=>go (set s d (regs s r)) carry
