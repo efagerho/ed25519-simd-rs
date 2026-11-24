@@ -10,8 +10,9 @@ initial contents of the output array and any batch length, including zero.
 
 For an admissible call the master theorem provides a return and the store log
 of its instruction-level entry prefix. The zero-length return executes
-through `ret`. For a nonempty batch, the log reaches the first scalar checker’s return to chunk
-preparation. The grouped verdict uses the original inputs. Every such return has
+through `ret`. A batch of up to eight signatures whose S values are all at least L also
+executes through the outer `ret`. Other nonempty batches use the scalar-checker prefix
+and the grouped verdict on the original inputs. Every such return has
 status 1, resumes at the caller's return address with RSP advanced by eight,
 restores the SysV callee-saved integer registers and leaves byte-valued memory.
 Each output byte is 0 or 1. The byte at a descriptor's original output index
@@ -96,8 +97,10 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    PC, RSP and every final memory byte are derived from the same execution.
    With one to eight descriptors whose original S values all exceed or
    equal L, the assembly returns 1 and writes zero to every original output
-   index. The verdict, return PC, RSP and final memory come from the same
-   store log. The proof also covers an arbitrary permutation of the output
+   index. The master theorem requires this instruction-level return. Its five
+   pops recover the original saved registers from the stack and RBP retains
+   its entry value. The proof derives the verdict, byte memory, and SysV return
+   guarantees from this execution. The proof also covers an arbitrary permutation of the output
    indices and the actual active count of a short chunk.
    [Single-chunk corollary](coq/Audit.v) · [Index staging](coq/IndexStores.v) · [Scatter values](coq/ScatterZeros.v)
    [Scalar input and digit correspondence](coq/ScalarInputs.v) · [Rejection result](coq/RejectExecution.v) · [Wrapper exit](coq/RejectFinish.v) · [Rejection scatter](coq/RejectDispatch.v) · [Rejection returns](coq/PrepareUnwind.v) · [Nested scalar call](coq/BatchScalar.v) · [Preparation prologues](coq/PrepareNative.v) ·
@@ -120,10 +123,10 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    exclude the wrapper's five saved GPRs and its caller's return word.
    [Rejection call and return](coq/RejectCall.v) · [Caller regions](coq/CallWrites.v) · [Nested regions](coq/NestedRegions.v) ·
    [Scorer alignment](coq/Score.v) · [Mapped image](coq/LoadedImage.v)
-6. **The remaining boundary.** For a nonempty batch the verdict and
-   final-memory guarantee still use grouped execution. It permits arbitrary
+6. **The remaining boundary.** For batches longer than eight or with a canonical S in the first
+   chunk, the verdict and final-memory guarantee still use grouped execution. It permits arbitrary
    final contents in private storage and restores the wrapper's saved slots.
-   For the same nonempty entry CPU and the same prefix log, it permits both
+   For such an entry CPU and the same prefix log, it permits both
    0 and 1 as the final value of the first scratch byte.
    A continuous byte-memory execution through preparation, decoding, table
    construction, the ladder and the scoring wrappers is still needed to

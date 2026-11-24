@@ -69,14 +69,31 @@ Definition returned pol e ip final :=
    mem final (output e+Z.of_nat (position e i))=Z.b2z v /\
    (v=true <-> signature_accepts pol (read_input (mem e) (regs e 7%nat) i)).
 
-(* A nonempty log includes the first preparation prologue and its nested
-   scalar call through RET. The grouped continuation describes the verdict. *)
+Definition first_chunk pol bias pc text e carry masks :=
+ exists stop, BatchScalar.observe pol bias (bias+pc) text e carry masks=Some stop /\
+                BatchScalar.post pol bias (bias+pc) e stop /\
+                ScalarInputs.recoded e (LinkedRun.machine stop) /\
+                (regs (LinkedRun.machine stop) 0%nat mod 2^32<>0 ->
+                 exists decoder, BatchDecode.observe pol bias pc text e carry masks=Some decoder /\
+                                 BatchDecode.entry pol bias e decoder) /\
+                (regs (LinkedRun.machine stop) 0%nat mod 2^32=0 ->
+                 (forall j,(j<8)%nat -> (j<count e)%nat -> ~signature_accepts pol (read_input (mem e) (regs e 7%nat) j)) /\
+                 exists r, RejectExecution.scalar_rejection pol bias pc text e carry masks=Some r /\
+                           RejectExecution.post (bias+pc) e r).
+
+(* A single rejected chunk reaches the outer RET on the same store log. *)
 Inductive observation pol bias pc text e carry masks : list WriteTrace.store -> Z -> cpu -> Prop :=
  | observe_empty ws ip final : count e=0%nat ->
    MappedFetch.steps (bias+pc) (length text) (ScalarBytes.State (ScalarBytes.Running 0) e carry) ws
      (ScalarBytes.State (ScalarBytes.Returned ip) final (Some false)) ->
    observation pol bias pc text e carry masks ws ip final
+ | observe_rejected stop q : (0<count e<=8)%nat ->
+   BatchScalar.observe pol bias (bias+pc) text e carry masks=Some stop ->
+   regs(LinkedRun.machine stop) 0%nat mod 2^32=0 ->
+   RejectExecution.scalar_rejection pol bias pc text e carry masks=Some(RejectExecution.BatchReturned q) ->
+   observation pol bias pc text e carry masks (LinkedRun.log q) (LinkedRun.ip q) (LinkedRun.machine q)
  | observe_batch stop ip final : (0<count e)%nat ->
+   ((8<count e)%nat \/ regs(LinkedRun.machine stop) 0%nat mod 2^32<>0) ->
    BatchScalar.observe pol bias (bias+pc) text e carry masks=Some stop ->
    execution pol bias pc text (bias+pc) e ip final ->
    observation pol bias pc text e carry masks (LinkedRun.log stop) ip final.
@@ -112,16 +129,7 @@ Record batch_contract pol pc text : Prop := {
  machine_prepare_entry : forall bias e, admissible pol bias pc text e -> (0<count e)%nat ->
    StageEntry.physical (bias+pc) text (destination pol Prepare-pc) e;
  machine_scalar_return : forall bias e carry masks, admissible pol bias pc text e -> (0<count e)%nat ->
-   exists stop, BatchScalar.observe pol bias (bias+pc) text e carry masks=Some stop /\
-                BatchScalar.post pol bias (bias+pc) e stop /\
-                ScalarInputs.recoded e (LinkedRun.machine stop) /\
-                (regs (LinkedRun.machine stop) 0%nat mod 2^32<>0 ->
-                 exists decoder, BatchDecode.observe pol bias pc text e carry masks=Some decoder /\
-                                 BatchDecode.entry pol bias e decoder) /\
-                (regs (LinkedRun.machine stop) 0%nat mod 2^32=0 ->
-                 (forall j,(j<8)%nat -> (j<count e)%nat -> ~signature_accepts pol (read_input (mem e) (regs e 7%nat) j)) /\
-                 exists r, RejectExecution.scalar_rejection pol bias pc text e carry masks=Some r /\
-                           RejectExecution.post (bias+pc) e r);
+   first_chunk pol bias pc text e carry masks;
  machine_empty : forall bias e, admissible pol bias pc text e -> count e=0%nat ->
    let '(ip,final):=empty_return e in
    returned pol e ip final /\ empty_mapped (bias+pc) text e
@@ -130,16 +138,17 @@ Record batch_contract pol pc text : Prop := {
 Theorem single_rejected_return pol pc text : batch_contract pol pc text ->
  forall bias e c masks,admissible pol bias pc text e -> (0<count e<=8)%nat -> ScalarInputs.noncanonical_chunk e ->
  exists q,RejectExecution.scalar_rejection pol bias pc text e c masks=Some(RejectExecution.BatchReturned q) /\
- LinkedRun.ip q=read_word (mem e) (sp e) /\ regs(LinkedRun.machine q) 4%nat=sp e+8 /\
- regs(LinkedRun.machine q) 0%nat=1 /\ LinkedRun.accounted e (writable e) q /\
+ returned pol e (LinkedRun.ip q) (LinkedRun.machine q) /\ LinkedRun.accounted e (writable e) q /\
  forall i,(i<count e)%nat -> mem(LinkedRun.machine q)(output e+Z.of_nat(position e i))=0 /\
  ~signature_accepts pol (read_input (mem e) (regs e 7%nat) i).
 Proof.
  intros Checked bias e c masks A [Live Size] Bad.
- destruct(machine_scalar_return _ _ _ Checked bias e c masks A Live) as [s [_ [_ [Digits [_ Reject]]]]].
- destruct(Reject (proj2 (ScalarInputs.zero_iff _ _ Live Digits) Bad))
-   as [Invalid [[q|q] [Run [Paid [[Status Outputs] Exit]]]]].
- - destruct Exit as [PC SP];exists q;split;[exact Run|split;[exact PC|split;[exact SP|split;[exact Status|split;[exact Paid|]]]]].
-   intros i I;split;[apply Outputs;lia|apply Invalid;lia].
- - destruct Exit as [More _];lia.
+ destruct(machine_scalar_return _ _ _ Checked _ _ c masks A Live) as [s [Run [_ [Digits [_ Reject]]]]].
+ pose proof(proj2 (ScalarInputs.zero_iff _ _ Live Digits) Bad) as Zero.
+ destruct(Reject Zero) as [Invalid [[q|q] [End [Paid [[Status Outputs] [Bytes Exit]]]]]].
+ 2:{ destruct Exit as [More _];lia. }
+ exists q;split;[exact End|split].
+ - exact (proj1 (proj2 (verify _ _ _ Checked _ _ c masks A) _ _ _
+     (observe_rejected _ _ _ _ _ _ _ _ _ (conj Live Size) Run Zero End))).
+ - split;[exact Paid|intros i I;split;[apply Outputs;lia|apply Invalid;lia]].
 Qed.

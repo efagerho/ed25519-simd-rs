@@ -14,20 +14,21 @@ Definition scalar_rejection pol bias pc text e c masks :=
  if regs(machine scalar) 0%nat mod 2^32=?0 then
  bind (PrepareUnwind.unwind pol bias scalar) (finish_chunk bias pc text)
  else None).
-Definition post entry e r := accounted e (writable e) (at_end r) /\ RejectOutputs.outputs e (machine(at_end r)) /\
+Definition post entry e r := accounted e (writable e) (at_end r) /\ RejectOutputs.outputs e (machine(at_end r)) /\ byte_memory(mem(machine(at_end r))) /\
  match r with
- | BatchReturned q=>ip q=read_word (mem e) (sp e) /\ regs(machine q) 4%nat=sp e+8
+ | BatchReturned q=>ip q=read_word (mem e) (sp e) /\ regs(machine q) 4%nat=sp e+8 /\ RejectFinish.callee_saved e (machine q)
  | NextChunk q=>(8<Scatter.count e)%nat /\ ip q=entry+offset Choose /\ regs(machine q) 4%nat=Rows.frame e
  end.
 Lemma classified entry e p q : placement e ->
  regs(machine p) 12%nat=Prologue.rows_left (regs e 6%nat) ->
- RejectFinish.post entry e p q -> RejectOutputs.outputs e (machine p) -> post entry e (classify p q).
+ RejectFinish.post entry e p q -> RejectOutputs.outputs e (machine p) -> byte_memory(mem(machine p)) -> post entry e (classify p q).
 Proof.
- intros Place Left [A [_ [Mem [Status Exit]]]] [OK Zeros].
+ intros Place Left [A [_ [Mem [Status Exit]]]] [OK Zeros] Bytes.
  assert (Outputs:RejectOutputs.outputs e (machine q)) by
    (split;[now rewrite Status|intros j J;rewrite Mem;apply Zeros,J]).
+ assert (Octets:byte_memory(mem(machine q))) by (now rewrite Mem).
  unfold classify;destruct(RejectFinish.stopping p) eqn:Stop;
-   [exact (conj A (conj Outputs Exit))|split;[exact A|split;[exact Outputs|split;[|exact Exit]]]].
+   [exact (conj A (conj Outputs (conj Octets Exit)))|split;[exact A|split;[exact Outputs|split;[exact Octets|split;[|exact Exit]]]]].
  unfold stopping in Stop;apply Bool.orb_false_iff in Stop as [_ More].
  rewrite Left in More;unfold Prologue.rows_left in More.
  pose proof(proj1(initial_cpu _ Place) 6%nat) as N.
