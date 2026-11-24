@@ -29,7 +29,7 @@ Theorem from_scalar pol bias pc text e c ks p :
  copy_ready e (machine p) -> regs(machine p) 0%nat mod 2^32<>0 ->
  exists q,observe pol bias pc text e c ks=Some q /\ entry pol bias e q.
 Proof.
- intros Place Image Inputs Prefix [PC [SP [Acc _]]] [Bytes [Ptr [BX Rows]]] Live.
+ intros Place Image Inputs Prefix [PC [SP [Acc _]]] [Bytes [Ptr [BX [Rows Meta]]]] Live.
  set (frame:=common_top pol e-104) in *;set (dst:=scratch e) in *.
  set (table:=Rows.frame e+512) in *.
  destruct(stack_ok _ Place) as [[Lo Hi] _];destruct(scratch_ok _ Place) as [[D U] Al].
