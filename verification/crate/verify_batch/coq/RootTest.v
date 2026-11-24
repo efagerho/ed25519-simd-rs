@@ -73,7 +73,9 @@ Record post pol bias e t : Prop:=Post {
  power_result:PowerWrites.post pol bias e (power t);
  finish_arguments:DecoderFinish.entry false pol bias e (finish_entry t);
  root_product:FinishProduct.post false pol bias e (finish_entry t) (at_test t);
- root_test:math e (at_test t)
+ root_test:math e (at_test t);
+ setup_fields_live:forall sig,fields sig e
+   (SetupTail.after_square(PowerInputs.half (PowerWrites.before_power(power t)) sig)) (at_test t)
 }.
 
 Theorem from_decoder pol bias e p bank : placement e -> loaded pol bias (mem e) (writable e) ->
@@ -89,8 +91,24 @@ Proof.
  destruct(DecoderFinish.from_power _ _ _ _ P I Ready) as [a [Start [Arguments Enter]]].
  destruct(FinishProduct.from_entry false _ _ _ _ P I Arguments) as [q [Body Post]].
  exists (Trace r a q);split;[unfold observe;rewrite Run;cbn [bind];rewrite Start;cbn [bind];now rewrite Body|].
- constructor;[exact (conj D (conj R Powers))|exact Arguments|exact Post|].
- eapply from_bytes;[exact P|exact D|exact (PowerInputs.from_decoder _ _ _ _ _ _ P I Al E W Link)|exact Powers|exact After|exact Enter|exact Post].
+ pose proof(PowerInputs.from_decoder _ _ _ _ _ _ P I Al E W Link) as Inputs.
+ constructor;[exact (conj D (conj R Powers))|exact Arguments|exact Post| |].
+ - eapply from_bytes;[exact P|exact D|exact Inputs|exact Powers|exact After|exact Enter|exact Post].
+ - intro sig;destruct(Inputs sig) as [Fields Keep].
+   set (s:=machine(SetupTail.in_decoder(PowerInputs.half (PowerWrites.before_power r) sig))).
+   assert (Stayed:preserved (PowerInputs.point_bytes e sig) (mem s) (mem(machine q))).
+   { destruct Post as [_ [_ [_ [_ [Held _]]]]];intros x X;pose proof(depth pol e);
+     assert (Range:scratch e<=x<scratch e+25344) by (unfold PowerInputs.point_bytes,span,point,point_offset in X;destruct sig;lia).
+     destruct(scratch_stack _ P) as [Sep|Sep];unfold disjoint in *;
+     rewrite Held,Enter,After,Keep;try reflexivity;try exact X;try (unfold span;lia);
+     change (~(link_slot pol e+8<=x<link_slot pol e+8+640 \/
+       link_slot pol e-1928+1928-1936<=x<link_slot pol e-1928+1928-8));lia. }
+   assert (Same:forall off j i,0<=off<=960 -> (j<8)%nat -> (i<5)%nat ->
+     row (machine q) (point e sig+off) j i=row s (point e sig+off) j i).
+   { intros off j i O;apply keep_row with (protect:=PowerInputs.point_bytes e sig);[exact Stayed|unfold PowerInputs.point_bytes,span;lia]. }
+   intros j i J K;cbn [at_test power];destruct(Fields j i J K) as [U [V UV]];fold s in U,V,UV.
+   split;[replace (point e sig) with (point e sig+0) at 1 by ring;rewrite Same by lia;now rewrite Z.add_0_r|
+    split;rewrite Same by lia;assumption].
 Qed.
 
 Lemma accounted_at_test pol bias e t : post pol bias e t -> accounted e (writable e) (at_test t).
