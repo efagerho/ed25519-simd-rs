@@ -46,3 +46,18 @@ Definition decode (bs:list Z) : option (nat*operation) :=
    | 0x7f=>let '(a,_):=operands 64 m rest in candidate (Output dst (base a) (displacement a)) bs
    | _=>None end
  | _=>None end.
+
+(* Aligned 512-bit VMOVDQA64 with a GPR base, including R8--R15.
+   Re-encoding rejects masked, indexed, RIP-relative and register forms. *)
+Record aligned_row := Row { writing:bool; zmm:nat; gpr:nat; offset:Z }.
+Definition row_encoding i := X86.rm_memory 1 1 (if writing i then 0x7f else 0x6f)
+ (zmm i) 0 (Z.of_nat (gpr i)) (offset i).
+Definition decode_row (bs:list Z) := match bs with
+ | 0x62::p0::0xfd::0x48::opcode::m::rest=>
+   let '(a,_):=operands 64 m rest in
+   let r:=Z.to_nat (m/8 mod 8+8*X86.invbit p0 7+16*X86.invbit p0 4) in
+   let b:=Z.to_nat (m mod 8+8*X86.invbit p0 5) in
+   let i:=Row (opcode=?0x7f) r b (displacement a) in
+   let enc:=row_encoding i in
+   if list_eq_dec Z.eq_dec (firstn (length enc) bs) enc then Some(length enc,i) else None
+ | _=>None end.

@@ -22,6 +22,7 @@ Lemma step_keeps r o off n op s c t ws : keeps r op=true ->
 Proof.
  destruct op;cbn [keeps];intros K Run;cbn [step] in Run.
  all: try solve [destruct (qword_op _ _ _) as [v|] eqn:QV;try discriminate;injection Run as <- <-;exact (f_equal (fun f=>f r) (proj1(proj2(qword_state _ _ _ _ QV))))].
+ all: try match type of Run with context[VectorMoves.writing ?i]=>destruct (VectorMoves.writing i) end.
  all: try match type of Run with context[option_map _ ?b]=>destruct b as [[]|];try discriminate end.
  all: try match type of Run with context[if ?b then Some (_,_) else None]=>destruct b;try discriminate end.
  all: try (injection Run as <- <-;cbn [cpu_state]).

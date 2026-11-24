@@ -76,3 +76,16 @@ Example sign_mask_clears_upper_bits :
  let '(out,_):=MaskTransfer.effect t k (MaskTransfer.ToEax 2) in
  regs out 0%nat=128 /\ k 2%nat 15%nat=false /\ k 1%nat 15%nat=true.
 Proof. vm_compute;auto. Qed.
+
+Example aligned_zmm_base_moves :
+ let memop pc op base:=ScalarBytes.fetch pc op (ScalarBytes.State (ScalarBytes.Running 0)
+    (CPU (fun _=>base) (fun j r=>Z.of_nat (32*j+r)) None (fun _=>1)) None) in
+ let store:=[0x62;0xf1;0xfd;0x48;0x7f;0x47;0x05] in
+ let load:=[0x62;0xd1;0xfd;0x48;0x6f;0x28] in
+ memop 17 store 1=None /\ memop 42 load 1=None /\
+ (exists t w,memop 17 store 64=Some(t,[w]) /\ pc w=17 /\ address w=384 /\ size w=64%nat /\
+    mem (ScalarBytes.cpu_state t) (384+56)=224) /\
+ (exists t,memop 42 load 64=Some(t,[]) /\ vectors (ScalarBytes.cpu_state t) 7%nat 5%nat=0x0101010101010101) /\
+ ScalarBytes.decode load=Some(6%nat,ScalarBytes.AlignedRow(VectorMoves.Row false 5 8 0)).
+Proof. split;[reflexivity|split;[reflexivity|split;[do 2 eexists;repeat split;reflexivity|]]].
+ split;[eexists;split;reflexivity|reflexivity]. Qed.
