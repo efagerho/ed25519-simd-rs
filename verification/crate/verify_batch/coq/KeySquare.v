@@ -31,7 +31,7 @@ Theorem from_saved signature pol bias e p : placement e -> loaded pol bias (mem 
  (forall j i,(j<8)%nat -> (i<5)%nat -> digits signature e (machine p) j i=vectors(machine p) j i) ->
  exists q,square bias p=Some q /\ squared signature pol bias e q.
 Proof.
- intros P M [PC [Acc [_ Raw]]] [DI [SP [Link Constants]]] Data.
+ intros P M [PC [Acc [_ Raw]]] [DI [SP [Link [Constants Caller]]]] Data.
  set (s:=machine p) in *;set (o:=base bias) in *;set (stack:=link_slot pol e) in *;change (regs s 4%nat=stack) in SP;change (read_word (mem s) stack=word(o+resume_offset signature)) in Link.
  pose proof(depth pol e) as Deep;fold stack in Deep.
  destruct(Return.stack_ok _ P) as [[Lo Hi] _];destruct(scratch_ok _ P) as [[SL SH] Al].
@@ -75,8 +75,15 @@ Proof.
  - unfold frame;split;[rewrite G;exact DI|split;[rewrite G;exact SP|split]].
    + change (read_word (mem(machine q)) stack=word(o+resume_offset signature));rewrite <-Link.
      apply preserved_read with (outside:=fun x=>~(stack-24<=x<stack));[exact K|intros;lia].
-   + intros i j I;rewrite YY;destruct ((proj2 DecoderProduct.multiplication) no_read no_read (args j) (args j)
+   + split.
+     * intros i j I;rewrite YY;destruct ((proj2 DecoderProduct.multiplication) no_read no_read (args j) (args j)
        ltac:(reflexivity)) as [_ High];rewrite High by lia;apply C,I.
+     * eapply keep_caller;[exact Caller| |].
+       -- intros r InReg;rewrite G;change (Instructions.put (regs s) 8 (address signature e) r=regs s r);
+          unfold Instructions.put;destruct (Nat.eqb_spec 8 r);[subst;unfold caller_reg in InReg;cbn in InReg;lia|reflexivity].
+       -- intros x X;apply K;unfold caller_bytes in X;unfold stack,link_slot,DecoderFrame.top in *;
+          pose proof(Z.mod_pos_bound (common_top pol e-112-40) 64 ltac:(lia));destruct(scratch_stack _ P);
+          unfold disjoint,common_top,Rows.frame,sp in *;destruct pol;lia.
  - split;intros j J;destruct(Raw j J) as [B [Y Sign]].
    + split;[intros i I;rewrite D by assumption;apply B,I|split].
      * rewrite <-Y;apply limbs_ext;intros;apply D;assumption.

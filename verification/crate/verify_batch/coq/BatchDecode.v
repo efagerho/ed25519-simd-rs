@@ -75,6 +75,35 @@ Definition source e signature := scratch e+source_offset signature.
 Definition point e signature := scratch e+point_offset signature.
 Lemma point_aligned e signature : scratch e mod 64=0 -> point e signature mod 64=0.
 Proof. intro A;unfold point,point_offset;destruct signature;[replace 2304 with (36*64) by reflexivity|replace 1024 with (16*64) by reflexivity];now rewrite Z.mod_add by lia. Qed.
+Definition original_encoding (signature:bool) e j := let input:=read_input (mem e) (regs e 7%nat) (TailCopy.row_index e j) in
+ little_endian (if signature then r_bytes input else key_bytes input).
+Definition key_signs e s := forall j,(j<8)%nat ->
+ Z.testbit (regs s 13%nat) (Z.of_nat j)=Z.testbit (original_encoding false e j) 255.
+Definition caller_bytes pol e x := scratch e<=x<scratch e+512 \/
+ common_top pol e-112<=x<common_top pol e-104.
+Definition caller_reg (r:nat) := In r (3::5::6::12::13::nil)%nat.
+Record setup_caller signature pol bias e s : Prop := {
+ caller_base : regs s 3%nat=scratch e+1024;
+ caller_bp : regs s 5%nat=common_top pol e-120;
+ caller_source : regs s 6%nat=source e signature;
+ caller_count : regs s 12%nat=2;
+ caller_return : read_word (mem s) (common_top pol e-112)=word(bias+PrepareNative.common+142);
+ caller_inputs : PrepareCopies.staged (mem e) (mem s) (scratch e) (encoding_ptr e) 8;
+ caller_signs : signature=true -> key_signs e s
+}.
+Lemma keep_caller signature pol bias e s t : setup_caller signature pol bias e s ->
+ (forall r,caller_reg r -> regs t r=regs s r) ->
+ preserved (caller_bytes pol e) (mem s) (mem t) -> setup_caller signature pol bias e t.
+Proof.
+ intros [Base BP SI Count Back Data Signs] G M;constructor.
+ - rewrite G;[exact Base|cbn;tauto].
+ - rewrite G;[exact BP|cbn;tauto].
+ - rewrite G;[exact SI|cbn;tauto].
+ - rewrite G;[exact Count|cbn;tauto].
+ - rewrite <-Back;apply preserved_read with (outside:=caller_bytes pol e);[exact M|intros k K;right;lia].
+ - intros j sig k J K;rewrite M;[exact (Data j sig k J K)|left;unfold PrepareCopies.dest;destruct sig;lia].
+ - intros Eq j J;unfold key_signs in Signs;rewrite G;[apply Signs;assumption|cbn;tauto].
+Qed.
 Definition setup (signature:bool) pol bias e p := let stack:=common_top pol e-112 in let s:=machine p in
  ip p=bias+DecoderFrame.origin+244 /\ accounted e (writable e) p /\
  regs s 4%nat=DecoderFrame.top stack-8 /\ regs s 5%nat=stack-8 /\
@@ -82,7 +111,11 @@ Definition setup (signature:bool) pol bias e p := let stack:=common_top pol e-11
  regs s 12%nat=2 /\ read_word (mem s) (DecoderFrame.top stack-8)=word(bias+DecoderFrame.origin+resume_offset signature) /\
  read_word (mem s) stack=word(bias+PrepareNative.common+142) /\
  PrepareCopies.staged (mem e) (mem s) (scratch e) (encoding_ptr e) 8 /\
- forall i j,(i<4)%nat -> vectors s j (28+i)%nat=DecoderFrame.constant i.
+ (forall i j,(i<4)%nat -> vectors s j (28+i)%nat=DecoderFrame.constant i) /\
+ (signature=true -> key_signs e s).
+
+Lemma environment signature pol bias e p : setup signature pol bias e p -> setup_caller signature pol bias e (machine p).
+Proof. intros [_ [_ [_ [BP [BX [_ [SI [N [_ [Back [Data [_ Signs]]]]]]]]]]]];constructor;try assumption;lia. Qed.
 
 Lemma helper_in pol : In (Decode.HelperBytes.address,Decode.HelperBytes.symbol_bytes) (children pol).
 Proof. apply in_or_app;left;do 7 right;left;reflexivity. Qed.
@@ -130,7 +163,7 @@ Proof.
  split.
  - intros j sig k J K;rewrite Unchanged;[exact (Staged j sig k J K)|].
    intro T;specialize(Private _ T);destruct(scratch_stack _ Place);unfold PrepareCopies.dest in *;destruct sig;lia.
- - intros i j I;rewrite (Values _ _ I);exact (DecoderFrame.mapped_value _ bias i I Helper (Lit _ I)).
+ - split;[intros i j I;rewrite (Values _ _ I);exact (DecoderFrame.mapped_value _ bias i I Helper (Lit _ I))|discriminate].
 Qed.
 
 From Ed25519Simd.VerifyBatch Require DecoderWords.
@@ -145,7 +178,7 @@ Theorem from_setup signature pol bias e p : placement e -> loaded pol bias (mem 
  exists q,transpose bias p=Some q /\ transposed signature bias e q /\
  (log q=log p /\ mem(machine q)=mem(machine p) /\ regs(machine q)=regs(machine p)).
 Proof.
- intros Place Image Al [PC [Acc [_ [_ [_ [_ [SI [_ [_ [_ [Data Constants]]]]]]]]]]].
+ intros Place Image Al [PC [Acc [_ [_ [_ [_ [SI [_ [_ [_ [Data [Constants _]]]]]]]]]]]].
  set (o:=bias+DecoderFrame.origin) in *.
  destruct(mapped_now _ _ _ Image _ _ _ Acc (decode_in pol)) as [Map Apart].
  destruct(DecoderWords.mapped_indices _ o Al (proj1(symbols _ _ _ _ Image _ _ (decode_in pol))) Map) as [Aligned L].
@@ -170,8 +203,6 @@ From Ed25519Simd.VerifyBatch Require DecoderUnpack.
 Definition unpack bias p ks := match DecoderUnpack.take_signs p ks with
  | Some (q,updated)=>option_map (fun r=>(r,updated)) (segment (bias+DecoderFrame.origin) DecoderFrame.code 15 q)
  | None=>None end.
-Definition original_encoding (signature:bool) e j := let input:=read_input (mem e) (regs e 7%nat) (TailCopy.row_index e j) in
- little_endian (if signature then r_bytes input else key_bytes input).
 Definition unpacked signature bias e p := ip p=bias+DecoderFrame.origin+462 /\ accounted e (writable e) p /\
  0<=regs(machine p) 0%nat<256 /\ forall j,(j<8)%nat -> let y:=vectors(machine p) j in
  Radix51.split_field y /\ Radix51.limbs y=original_encoding signature e j mod 2^255 /\
