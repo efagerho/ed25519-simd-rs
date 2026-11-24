@@ -72,7 +72,9 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    pointer matrix and output metadata addresses in RSI and RCX. All 256 matrix
    bytes match the corresponding fields at the start of the transpose. When
    the first chunk is full, they also match the original descriptor bytes in
-   Rust's argument array. The ZIP-215 path enters common preparation directly.
+   Rust's argument array. On that full chunk the scalar return mask tests each
+   original S against L. Valid lanes have 64 signed digits in −8 through 7
+   reconstructing S, and invalid lanes have 64 zero digits. The ZIP-215 path enters common preparation directly.
    The Dalek path first pushes RBX and calls common preparation. Both prepare
    the eight scalar pointers in the actual stack and pass scratch + 512 as
    the digit destination. The proof checks the scalar symbol against the live
@@ -89,7 +91,7 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    With one to eight descriptors, a zero scalar mask always reaches the
    outermost return. The proof tracks R12 through tail padding, the nested
    push/pop pairs and scatter to rule out another chunk.
-   [Rejection result](coq/RejectExecution.v) · [Wrapper exit](coq/RejectFinish.v) · [Rejection scatter](coq/RejectDispatch.v) · [Rejection returns](coq/PrepareUnwind.v) · [Nested scalar call](coq/BatchScalar.v) · [Preparation prologues](coq/PrepareNative.v) ·
+   [Scalar input and digit correspondence](coq/ScalarInputs.v) · [Rejection result](coq/RejectExecution.v) · [Wrapper exit](coq/RejectFinish.v) · [Rejection scatter](coq/RejectDispatch.v) · [Rejection returns](coq/PrepareUnwind.v) · [Nested scalar call](coq/BatchScalar.v) · [Preparation prologues](coq/PrepareNative.v) ·
    [Empty return](coq/EntryWrites.v) · [Nonempty entry](coq/StageEntry.v) ·
    [Tail loop](coq/TailWrites.v) · [Preparation handoff](coq/StageWrites.v)
 5. **Nested writes.** The caller bounds cover SHA state and digest stores,

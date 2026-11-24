@@ -97,7 +97,7 @@ def check(elf, audit, work):
         f.write(b"\x00")
     table_inputs(damaged, dest)
     shutil.copyfile(audit / NS / "Audit.v", contract)
-    for module in ("IdentityTable", "LoadedImage", "RejectCall", "BatchScalar", "PrepareUnwind", "RejectDispatch", "RejectFinish", "RejectExecution", "Tables", "Audit"):
+    for module in ("IdentityTable", "LoadedImage", "RejectCall", "ScalarInputs", "BatchScalar", "PrepareUnwind", "RejectDispatch", "RejectFinish", "RejectExecution", "Tables", "Audit"):
         compile_module(work, FLAGS, NS, module)
     (dest / "DamagedTable.v").write_text(
         "From Ed25519Simd.VerifyBatch Require Import Audit Tables.\n"
