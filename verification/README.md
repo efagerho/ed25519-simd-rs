@@ -41,6 +41,15 @@ aliasing, on a CPU and OS that enable the required instructions. Page faults,
 concurrent interference, and timing or side-channel behavior lie outside
 this execution model. [Pointers and permissions](machine/execution/MachineState.v) · [Address placement and writes](machine/memory/FlatMemory.v) · [Byte execution](machine/memory/ByteExecution.v) · [SysV contract](machine/abi/SysV.v)
 
+**Instruction write traces.** Store events include their instruction address
+and every byte written, including same-value writes and enabled lanes of
+masked stores. Audit the semantics that emit the events, their connection to
+byte-memory execution and the caller's region definitions. The mapped scalar
+interpreter fetches instructions from the same memory the stores update.
+Each component's statement identifies which execution its trace covers.
+[Events and replay](machine/memory/WriteTrace.v) · [Instruction fetch](machine/execution/MappedFetch.v) ·
+[Call and return](machine/abi/TracedCalls.v)
+
 **Packed byte operations.** Signature-scalar preparation, digest conversion and table staging use a straight-line interpreter
 for one RDI-relative buffer. Check byte order within qwords, 128-bit unpack
 boundaries, shuffle immediates, and the EVEX element width. A row read uses

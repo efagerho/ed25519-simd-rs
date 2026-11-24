@@ -16,7 +16,11 @@ chunk. The theorem also covers the standalone queue entries.
 Both policies use the same verdict scatter. Every prefix of its linked scalar
 instructions writes only inside the caller's output array, including when
 metadata contains an out-of-range index. Reversing the unsigned bounds branch
-produces a one-byte out-of-range store in the same interpreter.
+produces a one-byte out-of-range store in the same interpreter. The scatter
+returns within 88 instructions for all lane counts and indices. When its
+return slot is separate from the output, the terminal RIP and RSP come from
+the original return word and stack pointer.
+[Mapped execution and termination](coq/ScatterReturn.v) ·
 [Scatter theorem](coq/ScatterTrace.v) · [Counterexample](coq/ScatterMutation.v)
 
 ## What to audit
