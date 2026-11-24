@@ -13,8 +13,8 @@ of its instruction-level entry prefix. The zero-length return executes
 through `ret`. A batch of up to eight signatures whose S values are all at least L also
 executes through the outer `ret`. For other nonempty batches, the returned
 log reaches the next chunk if the first scalar check rejects every lane. If
-that check accepts any lane, the log reaches the return from the decoder’s
-second field setup, after processing both A and R. The final verdict in both cases comes from the grouped execution on
+that check accepts any lane, the log reaches the paired exponentiation call, after processing both A
+and R. The final verdict in both cases comes from the grouped execution on
 the original inputs. Every such return has
 status 1, resumes at the caller's return address with RSP advanced by eight,
 restores the SysV callee-saved integer registers and leaves byte-valued memory.
@@ -122,6 +122,10 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    [Paired setup](coq/PairedSetup.v) The instruction-level claim on this tail covers its
    control flow and write addresses. Its U, V and UV equations currently come
    from the component’s arithmetic projection. [Setup return](coq/SetupTail.v)
+   The next five instructions save R’s signs and call pow2. The proof checks
+   the live arguments, return word, stack alignment, and separation of the
+   640-byte result from both 320-byte inputs, private stack and code.
+   [Exponentiation call](coq/DecoderPower.v)
    If the signature-scalar call returns zero, the decoded branches, pops and returns take both
    policies back to the wrapper's preparation continuation with RSP restored,
    the same EAX and no additional stores. The wrapper passes its original
