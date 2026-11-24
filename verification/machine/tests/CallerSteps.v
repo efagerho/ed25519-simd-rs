@@ -42,3 +42,16 @@ Example signed_add_to_rsi :
    flag (ScalarBytes.cpu_state s)=Some true /\ ScalarBytes.cf s=Some true
  | _=>False end.
 Proof. repeat split;reflexivity. Qed.
+
+Example decoder_register_moves :
+ ScalarBytes.decode [0x40;0x89;0xdf]=Some(3%nat,ScalarBytes.Copy32 7 3) /\
+ ScalarBytes.decode [0x48;0x89;0xdf]=Some(3%nat,ScalarBytes.CopyG 7 3) /\
+ ScalarBytes.decode [0x45;0x89;0xe9]=Some(3%nat,ScalarBytes.Copy32 9 13) /\
+ ScalarBytes.decode [0x4c;0x89;0xff]=Some(3%nat,ScalarBytes.CopyG 7 15) /\
+ ScalarBytes.reg_move 0x48 0x84=None.
+Proof. repeat split;reflexivity. Qed.
+
+Example signed_short_jumps :
+ ScalarBytes.decode [0xeb;8]=Some(2%nat,ScalarBytes.Jump 8) /\
+ ScalarBytes.decode [0xeb;0xfe]=Some(2%nat,ScalarBytes.Jump (-2)).
+Proof. split;reflexivity. Qed.
