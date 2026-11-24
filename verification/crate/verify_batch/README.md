@@ -13,7 +13,7 @@ of its instruction-level entry prefix. The zero-length return executes
 through `ret`. A batch of up to eight signatures whose S values are all at least L also
 executes through the outer `ret`. For other nonempty batches, the returned
 log reaches the next chunk if the first scalar check rejects every lane. If
-that check accepts any lane, the log reaches the return from paired exponentiation on A and R. The final verdict in both cases comes from the grouped execution on
+that check accepts any lane, the log reaches decoder offset 952, where the first root comparison for A begins after the paired exponentiation on A and R. The final verdict in both cases comes from the grouped execution on
 the original inputs. Every such return has
 status 1, resumes at the caller's return address with RSP advanced by eight,
 restores the SysV callee-saved integer registers and leaves byte-valued memory.
@@ -131,8 +131,12 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    the exponentiation result from the corresponding descriptor bytes. With
    Y equal to the low 255 bits and U = 121666·(Y² − 1), the output represents
    (U·(Y² − U))^((p − 5)/8) modulo p. The block model
-   exports ZF and leaves CF unspecified at this boundary.
-   [Field setup and inputs](coq/PowerInputs.v) · [Exponentiation call](coq/DecoderPower.v) · [Return and write log](coq/PowerWrites.v)
+   exports ZF and leaves CF unspecified at this boundary. On the returned
+   CPU, the decoder reloads the four curve constants, enters root selection,
+   squares the power for A and multiplies it by the saved U×V. At the first
+   comparison the five registers represent (power²)·U·V for each original
+   key and satisfy the comparison kernel’s limb bounds.
+   [Field setup and inputs](coq/PowerInputs.v) · [Exponentiation call](coq/DecoderPower.v) · [Return and write log](coq/PowerWrites.v) · [Root comparison input](coq/RootTest.v)
    If the signature-scalar call returns zero, the decoded branches, pops and returns take both
    policies back to the wrapper's preparation continuation with RSP restored,
    the same EAX and no additional stores. The wrapper passes its original
