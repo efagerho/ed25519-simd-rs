@@ -2,7 +2,7 @@ From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions execution.LinkedCalls execution.WordSemantics execution.WordBounds
  execution.StoreInstructions execution.ScalarBytes execution.MappedFetch execution.InstructionRoute
  memory.ByteMemory memory.FlatMemory memory.WriteTrace memory.MemoryGeometry.
-From Machine Require isa.VectorMoves.
+From Machine Require isa.VectorMoves execution.PreservedRegister.
 From Ed25519Simd.PrepareChunk Require CommonBytes StrictBytes.
 From Ed25519Simd.SignatureScalar Require ObjectBytes OrderBytes Program Audit Object.
 Import ListNotations. Local Open Scope Z_scope.
@@ -74,7 +74,7 @@ Definition common_post slide top s t :=
  loc t=Running (scalar-common) /\ regs (cpu_state t) 4%nat=top-112 /\
  regs (cpu_state t) 6%nat=top-104 /\ regs (cpu_state t) 7%nat=word(regs s 7%nat+512) /\
  read_word (mem (cpu_state t)) (top-112)=word(slide+common+65) /\
- regs(cpu_state t) 3%nat=regs s 7%nat /\ regs(cpu_state t) 15%nat=regs s 6%nat.
+ regs(cpu_state t) 3%nat=regs s 7%nat /\ regs(cpu_state t) 15%nat=regs s 6%nat /\ regs(cpu_state t) 13%nat=regs s 1%nat.
 
 Definition common_fetch slide := ScalarBytes.fetch (slide+common) CommonBytes.symbol_bytes.
 
@@ -101,7 +101,7 @@ Qed.
 
 Lemma assigned slide s carry top : regs s 4%nat=top-40 -> words_fit top ->
  exists u c,MappedFetch.run 5 (common_fetch slide) (at_pc 9 s carry)=Some(at_pc 25 u c,[]) /\
- regs u 4%nat=top-104 /\ regs u 3%nat=regs s 7%nat /\ regs u 6%nat=regs s 6%nat /\ mem u=mem s /\ regs u 15%nat=regs s 6%nat.
+ regs u 4%nat=top-104 /\ regs u 3%nat=regs s 7%nat /\ regs u 6%nat=regs s 6%nat /\ mem u=mem s /\ regs u 15%nat=regs s 6%nat /\ regs u 13%nat=regs s 1%nat.
 Proof.
  intros SP Fit;do 2 eexists;split;[apply (checked _ _ _ assign_linked);reflexivity|].
  simplify_cpu;rewrite SP;normalize;repeat split;lia.
@@ -152,12 +152,15 @@ Lemma common_dispatch slide s carry top :
 Proof.
  intros SP Fit PC Table Separate.
  destruct (saved slide s carry top SP Fit) as [v [head [S [VSP [DI [SI [H Slots]]]]]]].
- destruct (assigned slide v carry top VSP Fit) as [a [ca [A [ASP [BX [RSI [Mem Rows]]]]]]].
+ destruct (assigned slide v carry top VSP Fit) as [a [ca [A [ASP [BX [RSI [Mem [Rows Sel]]]]]]]].
  destruct (stored slide a ca top ASP Fit) as [b [stores [B [BSP [RBX [Ptrs [W RowsB]]]]]]].
  destruct (dispatched slide b ca top BSP Fit PC) as [t [tail [T [IP [Top [R6 [R7 [Ret [Keep [Safe [Scratch RowsT]]]]]]]]]]].
  pose proof(run_append _ _ _ _ _ S _ _ _ A) as First.
  pose proof(run_append _ _ _ _ _ First _ _ _ B) as Second.
  pose proof(run_append _ _ _ _ _ Second _ _ _ T) as All.
+ pose proof(PreservedRegister.run_keeps_at 1 _ CommonBytes.symbol_bytes ltac:(vm_compute;reflexivity) 5 0 _ _ _ _ ltac:(vm_compute;reflexivity) S) as FirstArg.
+ pose proof(PreservedRegister.run_keeps_at 13 _ CommonBytes.symbol_bytes ltac:(vm_compute;reflexivity) 7 25 _ _ _ _ ltac:(vm_compute;reflexivity) (run_append _ _ _ _ _ B _ _ _ T)) as LastArg.
+ change (regs v 1%nat=regs s 1%nat) in FirstArg;rewrite Sel,FirstArg in LastArg.
  exists t,(((head++[])++stores)++tail);split;[exact All|].
  split;[unfold common_post;rewrite R7,Scratch,RBX,BX,DI,RowsT,RowsB,Rows,SI;repeat split;assumption || reflexivity|]. split.
  - rewrite app_nil_r;unfold confined;rewrite !Forall_app;repeat split.
