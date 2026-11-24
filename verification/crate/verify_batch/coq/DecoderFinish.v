@@ -23,7 +23,8 @@ Definition entry (sig:bool) pol bias e p:=
 
 Theorem from_power pol bias e p : placement e -> loaded pol bias (mem e) (writable e) ->
  DecoderResume.ready pol bias e p -> exists q,enter bias p=Some q /\ entry false pol bias e q /\
- preserved (fun x=>~span (link_slot pol e) 8 x) (mem(machine p)) (mem(machine q)).
+ preserved (fun x=>~span (link_slot pol e) 8 x) (mem(machine p)) (mem(machine q)) /\
+ forall j,(j<8)%nat -> Z.testbit (regs(machine q) 14%nat) (Z.of_nat j)=Z.testbit (original_encoding true e j) 255.
 Proof.
  intros P Image [PC [Acc [W [SP [[BX [BP Count]] [Key Sig]]]]]].
  set (s:=machine p) in *;set (o:=base bias) in *;set (st:=link_slot pol e) in *.
@@ -53,7 +54,9 @@ Proof.
  destruct(mapped_now _ _ _ Image _ _ _ Acc (helper_in pol)) as [Helper _].
  pose proof(proj1(symbols _ _ _ _ Image _ _ (helper_in pol))) as LiteralRange.
  eexists;split;[exact Next|split].
- 2:{ intros x X;change (mem child x=mem s x);rewrite M;apply write_outside,X. }
+ 2:{ split.
+     2:{ intros j J;change (Z.testbit (regs child 14%nat) (Z.of_nat j)=Z.testbit (original_encoding true e j) 255);rewrite G;apply Sig,J. }
+     intros x X;change (mem child x=mem s x);rewrite M;apply write_outside,X. }
  unfold entry;cbn [LinkedRun.finish ip machine absolute cpu_state loc];fold o st.
  split;[reflexivity|split;[exact Paid|split;[exact WF|]]].
  rewrite G;cbn [put Nat.eqb power_offset return_offset].

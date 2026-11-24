@@ -13,6 +13,7 @@ Record result sig pol bias e p q : Prop:=Result {
  stack:regs(machine q) 4%nat=link_slot pol e+8;
  mask:regs(machine q) 0%nat=regs(machine p) 10%nat mod 2^32;
  preserved_regs:forall r,r<>0%nat -> r<>4%nat -> r<>8%nat -> regs(machine q) r=regs(machine p) r;
+ high:RowProduct.constants(machine q);
  untouched:preserved (ExtendedPoint.protected sig pol e) (mem(machine p)) (mem(machine q))
 }.
 
@@ -30,7 +31,7 @@ Proof.
    destruct(scratch_stack _ P);unfold ExtendedPoint.protected,FlatMemory.disjoint,point,point_offset in *;destruct sig;lia. }
  destruct(FinishRet.checked sig pol bias e t P I (ExtendedPoint.next _ _ _ _ _ _ R) (ExtendedPoint.writes _ _ _ _ _ _ R)
   (ExtendedPoint.words _ _ _ _ _ _ R) ltac:(rewrite (ExtendedPoint.gprs _ _ _ _ _ _ R);exact SP) Slot)
-  as [q [Ret [End [Done [WF [Stack [EAX [G [M _]]]]]]]]].
+  as [q [Ret [End [Done [WF [Stack [EAX [G [M [V _]]]]]]]]]].
  exists q;split;[unfold execute,then_run;rewrite T;exact Ret|constructor].
  - exists t;auto.
  - exact End.
@@ -39,5 +40,6 @@ Proof.
  - exact Stack.
  - rewrite EAX,(ExtendedPoint.gprs _ _ _ _ _ _ R);reflexivity.
  - intros r Z F B;rewrite G,(ExtendedPoint.gprs _ _ _ _ _ _ R),(proj2(Nat.eqb_neq r 8) B) by assumption;reflexivity.
+ - intros i j N;rewrite V;exact (ExtendedPoint.constants_after _ _ _ _ _ _ R i j N).
  - intros x X;rewrite M;apply (ExtendedPoint.frame _ _ _ _ _ _ R),X.
 Qed.
