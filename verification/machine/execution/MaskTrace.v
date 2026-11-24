@@ -40,6 +40,7 @@ Inductive ins :=
 | RipLessUnsigned (k src:nat) (disp:Z) | TestMask (k:nat) | Jne8 (disp:Z)
 | Jump (disp:Z) | ZeroEax
 | PushBP | SetBP | AlignSP | SubSP (size:Z) | RestoreSP | PopBP | Call (disp:Z) | Return | VZeroUpper.
+Definition kmov_to_gpr (dst k:nat) := [0xc5;if (dst<?8)%nat then 0xf8 else 0x78;0x93;modrm 3 (Z.of_nat dst) (Z.of_nat k)].
 Definition encoding i := match i with
  | Vector v=>encode v | Store s b d=>Move.encode_store s (Z.of_nat b) d
  | MemALU sub r v b d=>rm_memory 1 1 (if sub then 0xfb else 0xd4) r v (Z.of_nat b) d
@@ -51,7 +52,7 @@ Definition encoding i := match i with
  | Jne8 d=>[0x75;d mod 256] | Jump d=>0xe9::le32 d | ZeroEax=>[0x31;0xc0]
  | CompareQ k a b=>rr 2 1 0x29 k a b
  | OrMask k a b=>[0xc5;0x84 + 8*(15-Z.of_nat a);0x45;modrm 3 (Z.of_nat k) (Z.of_nat b)]
- | KmovEax k=>[0xc5;0xf8;0x93;modrm 3 0 (Z.of_nat k)]
+ | KmovEax k=>kmov_to_gpr 0 k
  | CmpEax n=>0x3d::le32 n | Je d=>[0x0f;0x84]++le32 d
  | PushBP=>exit_bytes PushRbp | PopBP=>exit_bytes PopRbp
  | SetBP=>op_bytes (Program [] []) (MovReg 5 4)
