@@ -67,14 +67,14 @@ Definition source_reg w j := (4+2*(w/2)+(selected w j)/8)%nat.
 
 Lemma pick o s c : even_odd s ->
  exists v,run 6 (ScalarBytes.fetch o DecoderFrame.code) (State (Running 319) s c)=Some(State (Running 355) v c,[]) /\
- mem v=mem s /\ regs v=regs s /\ (forall j,vectors v j 29%nat=vectors s j 29%nat) /\ forall j w,(j<8)%nat -> (w<4)%nat ->
+ mem v=mem s /\ regs v=regs s /\ (forall j i,(i<4)%nat -> vectors v j (28+i)%nat=vectors s j (28+i)%nat) /\ forall j w,(j<8)%nat -> (w<4)%nat ->
  vectors v j (result_reg w)=vectors s ((selected w j) mod 8)%nat (source_reg w j).
 Proof.
  intros E;assert (Even:forall j,(j<8)%nat -> vectors s j 8%nat=2*Z.of_nat j) by (intros;apply E;assumption).
  assert (Odd:forall j,(j<8)%nat -> vectors s j 9%nat=2*Z.of_nat j+1) by (intros;apply E;assumption).
  eexists;split;[apply (checked _ _ _ linked_permutes);reflexivity|].
  split;[reflexivity|split;[reflexivity|]].
- split;[intros j;reflexivity|]. intros j w J W;destruct w as [|[|[|[|w]]]];try lia;
+ split;[intros j [|[|[|[|i]]]] I;try lia;reflexivity|]. intros j w J W;destruct w as [|[|[|[|w]]]];try lia;
  do 8 (destruct j as [|j];[shelve|]);try lia. Unshelve.
  all: cbn [result_reg nth permutes follow loc cf cpu_state step qword_op vector_dest bits option_map
    vectors put Nat.eqb fst snd Move.copy].
@@ -88,17 +88,18 @@ Qed.
 
 Lemma read_words o s c : placed o -> literal_values o (mem s) ->
  exists v,run 16 (ScalarBytes.fetch o DecoderFrame.code) (State (Running 244) s c)=Some(State (Running 355) v c,[]) /\
- mem v=mem s /\ regs v=regs s /\ (forall j,vectors v j 29%nat=vectors s j 29%nat) /\ forall j w,(j<8)%nat -> (w<4)%nat ->
+ mem v=mem s /\ regs v=regs s /\ (forall j i,(i<4)%nat -> vectors v j (28+i)%nat=vectors s j (28+i)%nat) /\ forall j w,(j<8)%nat -> (w<4)%nat ->
  vectors v j (result_reg w)=word_at s (4*j+w)%nat.
 Proof.
  intros P L;pose proof(read_block o DecoderFrame.code words 244 s c ltac:(lia) linked_words) as W.
  set (mid:=load_vectors words s) in *.
  change (run 8 (ScalarBytes.fetch o DecoderFrame.code) (State (Running 244) s c)=Some(State (Running 299) mid c,[])) in W.
  destruct (load_tables o mid c P L) as [t [T [E [Rows [MT RT]]]]].
- destruct(pick o t c E) as [v [V [MV [RV [C29 Data]]]]].
+ destruct(pick o t c E) as [v [V [MV [RV [Constants Data]]]]].
  pose proof(run_append _ _ _ _ _ (run_append _ _ _ _ _ W _ _ _ T) _ _ _ V) as Run.
  exists v;split;[exact Run|]. split;[now rewrite MV,MT|split;[now rewrite RV,RT|]].
- split;[intros j;rewrite C29,Rows by lia;reflexivity|]. intros j w J H;rewrite Data by assumption. assert (R:(4<=source_reg w j<8)%nat).
+ split;[intros j i I;rewrite Constants,Rows by lia;destruct i as [|[|[|[|i]]]];try lia;reflexivity|].
+ intros j w J H;rewrite Data by assumption. assert (R:(4<=source_reg w j<8)%nat).
  { do 4 (destruct w as [|w];[do 8 (destruct j as [|j];[vm_compute;lia|]);lia|]);lia. }
  rewrite Rows by lia;unfold mid;rewrite shuffled by (lia || apply Nat.mod_upper_bound;lia).
  f_equal;do 4 (destruct w as [|w];[do 8 (destruct j as [|j];[reflexivity|]);lia|]);lia.

@@ -57,11 +57,12 @@ Lemma limbs o s c flat (source:nat->Z) :
  (forall j,(j<8)%nat -> vectors s j 29%nat=Z.ones 51) ->
  (forall j w,(j<8)%nat -> (w<4)%nat -> vectors s j (DecoderWords.result_reg w)=Unpack.qword flat (source j) w 0%nat) ->
  exists v,run 15 (ScalarBytes.fetch o DecoderFrame.code) (State (Running 365) s c)=Some(State (Running 462) v c,[]) /\
- regs v=regs s /\ mem v=mem s /\ forall j i,(j<8)%nat -> (i<5)%nat ->
+ regs v=regs s /\ mem v=mem s /\ (forall j i,(i<4)%nat -> vectors v j (28+i)%nat=vectors s j (28+i)%nat) /\ forall j i,(j<8)%nat -> (i<5)%nat ->
  vectors v j i=Unpack.unpack flat (source j) 0%nat i.
 Proof.
  intros Mask Words;destruct (execute o _ _ _ s c bound) as [v [Run [Regs [Mem [_ Values]]]]].
  exists v;split;[exact Run|split;[exact Regs|split;[exact Mem|]]].
+ split;[intros j i I;rewrite Values;destruct i as [|[|[|[|i]]]];try lia;reflexivity|].
  intros j i J I;pose proof(Words j 0%nat J ltac:(lia)) as A;pose proof(Words j 1%nat J ltac:(lia)) as B;
  pose proof(Words j 2%nat J ltac:(lia)) as C;pose proof(Words j 3%nat J ltac:(lia)) as D.
  change (DecoderWords.result_reg 0) with 0%nat in A;change (DecoderWords.result_reg 1) with 4%nat in B;

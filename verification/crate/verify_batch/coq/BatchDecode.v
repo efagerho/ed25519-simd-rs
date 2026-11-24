@@ -130,7 +130,7 @@ Definition transpose bias := segment (bias+DecoderFrame.origin) DecoderFrame.cod
 Definition key_words e s := forall j w,(j<8)%nat -> (w<4)%nat ->
  vectors s j (DecoderWords.result_reg w)=read_word (mem e) (encoding_ptr e j false+8*Z.of_nat w).
 Definition transposed bias e p := ip p=bias+DecoderFrame.origin+355 /\ accounted e (writable e) p /\ key_words e (machine p) /\
- (forall j,vectors(machine p) j 29%nat=2^51-1).
+ (forall i j,(i<4)%nat -> vectors(machine p) j (28+i)%nat=DecoderFrame.constant i).
 
 Theorem from_setup pol bias e p : placement e -> loaded pol bias (mem e) (writable e) ->
  (bias+DecoderFrame.origin) mod 64=0 -> setup pol bias e p ->
@@ -146,7 +146,7 @@ Proof.
  eexists;split;[exact Next|split].
  - split;[reflexivity|split;[exact Paid|]].
    split.
-   2:{ intros j;cbn [LinkedRun.finish machine cpu_state];rewrite C29;exact (Constants 1%nat j ltac:(lia)). }
+   2:{ intros i j I;cbn [LinkedRun.finish machine cpu_state];rewrite C29 by exact I;apply Constants,I. }
    intros j w J W;cbn [LinkedRun.finish machine cpu_state];rewrite Words by assumption.
    rewrite (DecoderWords.contiguous _ _ _ _ SI) by (try assumption;destruct(scratch_ok _ Place) as [[Lo Hi] _];unfold fits64;lia).
    apply PrepareChunk.Staging.read_block;intros k K.
@@ -170,18 +170,20 @@ Definition unpacked bias e p := ip p=bias+DecoderFrame.origin+462 /\ accounted e
 
 Theorem from_words pol bias e p ks : placement e -> loaded pol bias (mem e) (writable e) ->
  transposed bias e p -> exists q updated,unpack bias p ks=Some(q,updated) /\ unpacked bias e q /\
- log q=log p /\ mem(machine q)=mem(machine p).
+ log q=log p /\ mem(machine q)=mem(machine p) /\
+ (forall r,r<>0%nat -> regs(machine q) r=regs(machine p) r) /\
+ (forall i j,(i<4)%nat -> vectors(machine q) j (28+i)%nat=DecoderFrame.constant i).
 Proof.
  intros Place Image [PC [Acc [Keys Mask]]];set (o:=bias+DecoderFrame.origin) in *.
  destruct(mapped_now _ _ _ Image _ _ _ Acc (decode_in pol)) as [Map Apart].
  destruct(DecoderUnpack.signs o p ks PC (proj1(symbols _ _ _ _ Image _ _ (decode_in pol))) Map)
-   as [sg [updated [Signs [At [Log [Mem [Vec [_ [_ [Range Bits]]]]]]]]]].
+   as [sg [updated [Signs [At [Log [Mem [Vec [Other [_ [Range Bits]]]]]]]]]].
  assert (A:accounted e (writable e) sg) by (split;[rewrite Log;apply Acc|intros x;rewrite Mem,Log;apply Acc]).
  set (src:=fun j=>encoding_ptr e j false).
  assert (View:forall j w,(j<8)%nat -> (w<4)%nat -> vectors(machine sg) j (DecoderWords.result_reg w)=Unpack.qword (mem e) (src j) w 0%nat).
  { intros j w J W;rewrite Vec,(Keys _ _ J W);unfold Unpack.qword;rewrite Unpack.transpose_ok by lia;reflexivity. }
  destruct(DecoderUnpack.limbs o (machine sg) (carry sg) (mem e) src
-   ltac:(intros j J;rewrite Vec,Mask;reflexivity) View) as [v [Run [Regs [Flat Values]]]].
+   ltac:(intros j J;rewrite Vec;exact (Mask 1%nat j ltac:(lia))) View) as [v [Run [Regs [Flat [Constants Values]]]]].
  destruct(at_segment _ _ _ o DecoderFrame.code _ 365 _ _ A At ltac:(rewrite Mem;exact Map) Apart Run (Forall_nil _)) as [Next Paid].
  eexists;exists updated;split;[unfold unpack;rewrite Signs;fold o;rewrite Next;reflexivity|split].
  - split;[reflexivity|split;[exact Paid|]];cbn [LinkedRun.finish machine cpu_state];rewrite Regs;split;[exact Range|].
@@ -195,6 +197,7 @@ Proof.
      change (Z.testbit (vectors(machine p) j (DecoderWords.result_reg 3)) 63=
              Z.testbit (Unpack.qword (mem e) (src j) 3%nat 0%nat) 63).
      rewrite <- (View _ 3%nat J ltac:(lia)),Vec;reflexivity.
- - change (List.app (log sg) nil=log p /\ mem v=mem(machine p)).
-   split;[exact (eq_trans (app_nil_r _) Log)|exact (eq_trans Flat Mem)].
+ - split;[exact (eq_trans (app_nil_r _) Log)|split;[exact (eq_trans Flat Mem)|split]].
+   + intros r R;change (regs v r=regs(machine p) r);rewrite Regs;apply Other,R.
+   + intros i j I;change (vectors v j (28+i)%nat=DecoderFrame.constant i);rewrite Constants,Vec by exact I;apply Mask,I.
 Qed.

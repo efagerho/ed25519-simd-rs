@@ -151,12 +151,9 @@ Proof.
    split;[exact (proj1 Data)|]. split.
    { intro Nonzero;destruct (BatchDecode.from_scalar pol bias pc text e c masks stop) as [d [Trace Entry]];
        [exact P|exact (callee_image _ _ _ _ _ Input N)| |exact Run|exact Post|exact (proj1(proj2 Data))|exact Nonzero|].
-     2:{ pose proof(callee_image _ _ _ _ _ Input N) as ImageNow.
-         destruct(BatchDecode.from_decoder _ _ _ _ P ImageNow Entry) as [s [Inner SetupState]].
-         destruct(BatchDecode.from_setup _ _ _ _ P ImageNow (decoder_aligned _ _ _ _ _ Input N) SetupState)
-           as [v [Next [Words _]]].
-         exists d;split;[exact Trace|split;[exact Entry|exists s;split;[exact Inner|split;[exact SetupState|exists v;split;[exact Next|split;[exact Words|]]]]]].
-         intros incoming;destruct (BatchDecode.from_words _ _ _ _ incoming P ImageNow Words) as [y [k [Actual [Value _]]]];exists y,k;auto. }
+     2:{ exists d;split;[exact Trace|split;[exact Entry|]].
+         intro incoming;apply DecoderSave.from_decoder;[exact P|exact (callee_image _ _ _ _ _ Input N)|
+           exact (decoder_aligned _ _ _ _ _ Input N)|exact Entry]. }
      intros j sig J;destruct (Inputs _ (TailCopy.live_row e j N)) as [Key [Sig Msg]].
      unfold ScalarInputs.encoding_ptr;destruct sig;[|exact Key]. destruct Sig as [[Low High] Away].
      split;[unfold fits64;split;[exact Low|lia]|intros x X;apply Away;lia]. }
