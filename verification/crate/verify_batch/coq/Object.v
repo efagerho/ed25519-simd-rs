@@ -104,7 +104,7 @@ Proof.
    + destruct More as [Large|H];[|contradiction];destruct Exit as [Small _];lia.
    + exists q;rewrite Trace;auto.
  - destruct(Checked Positive) as [d [Trace [_ Body]]].
-   destruct (Body masks) as [r [R [_ [_ [Paid _]]]]];exists (SetupTail.in_decoder r);rewrite Trace;cbn [LinkedRun.bind];rewrite R;auto.
+   destruct (Body masks) as [r [R [_ [_ [_ [Paid _]]]]]];exists (SetupTail.in_decoder (PairedSetup.signature_r r));rewrite Trace;cbn [LinkedRun.bind];rewrite R;auto.
 Qed.
 
 Lemma observed_correct pol pc text bias e carry masks :
@@ -169,7 +169,7 @@ Proof.
    { intro Nonzero;destruct (BatchDecode.from_scalar pol bias pc text e c masks stop) as [d [Trace Entry]];
        [exact P|exact (callee_image _ _ _ _ _ Input N)| |exact Run|exact Post|exact (proj1(proj2 Data))|exact Nonzero|].
      2:{ exists d;split;[exact Trace|split;[exact Entry|]].
-         intro incoming;apply SetupTail.from_decoder;[exact P|exact (callee_image _ _ _ _ _ Input N)|
+         intro incoming;apply PairedSetup.from_decoder;[exact P|exact (callee_image _ _ _ _ _ Input N)|
            exact (decoder_aligned _ _ _ _ _ Input N)|exact Entry]. }
      intros j sig J;destruct (Inputs _ (TailCopy.live_row e j N)) as [Key [Sig Msg]].
      unfold ScalarInputs.encoding_ptr;destruct sig;[|exact Key]. destruct Sig as [[Low High] Away].

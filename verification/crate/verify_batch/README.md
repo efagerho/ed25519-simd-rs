@@ -14,7 +14,7 @@ through `ret`. A batch of up to eight signatures whose S values are all at least
 executes through the outer `ret`. For other nonempty batches, the returned
 log reaches the next chunk if the first scalar check rejects every lane. If
 that check accepts any lane, the log reaches the return from the decoder’s
-first field setup. The final verdict in both cases comes from the grouped execution on
+second field setup, after processing both A and R. The final verdict in both cases comes from the grouped execution on
 the original inputs. Every such return has
 status 1, resumes at the caller's return address with RSP advanced by eight,
 restores the SysV callee-saved integer registers and leaves byte-valued memory.
@@ -101,7 +101,7 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    greater than or equal to the field prime. Five aligned 64-byte stores
    then save Y. Reading each qword back from the live scratch buffer recovers
    the corresponding register limb. The store log covers the 320 destination
-   bytes starting at scratch offset 1344. [Sign and Y extraction](coq/DecoderUnpack.v) ·
+   bytes starting at scratch offset 1344 for A and 2624 for R. [Sign and Y extraction](coq/DecoderUnpack.v) ·
    [Y in scratch memory](coq/DecoderSave.v)
    The decoder uses this saved Y as its second multiplication operand. The
    proof follows the calls into the column and convolution helpers, their stack
@@ -112,8 +112,12 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    [Decoder transpose](coq/DecoderWords.v) · [Decoder frame](coq/DecoderFrame.v) · [Decoder entry](coq/BatchDecode.v) · [Encoding copies](coq/PrepareCopies.v)
    The trace continues through the scaling instructions, the carry helper,
    the second multiplication and the stores of U, V and UV. Setup returns
-   to decoder offset 73 using its live stack word. Its original Y digits and
-   sign mask survive. The instruction-level claim on this tail covers its
+   to decoder offset 73 for A and offset 101 for R using its live stack word.
+   The decoder saves the eight public-key signs in R13D, advances the source
+   by 256 bytes and the point destination by 1280 bytes, then calls the same
+   setup on the eight staged signature encodings. Both calls share one store
+   log. The returned CPU retains R’s Y digits and both sign masks.
+   [Paired setup](coq/PairedSetup.v) The instruction-level claim on this tail covers its
    control flow and write addresses. Its U, V and UV equations currently come
    from the component’s arithmetic projection. [Setup return](coq/SetupTail.v)
    If the signature-scalar call returns zero, the decoded branches, pops and returns take both
