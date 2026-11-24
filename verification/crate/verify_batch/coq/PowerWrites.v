@@ -2,6 +2,10 @@ From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import execution.Blocks execution.LinkedCalls execution.LinkedRun execution.WordBounds
  execution.LocatedReturn execution.KnownRegisters memory.MemoryTrace memory.FlatMemory memory.ByteMemory memory.WriteTrace memory.BlockWrites abi.SysV.
 From Machine Require execution.LocatedEvents.
+From Coqprime.Z Require Import ZCAux.
+From Curve25519 Require Field Radix51.
+From Ed25519Simd Require Wide51.
+From Ed25519Simd.VerifyBatch Require PowerInputs.
 From Ed25519Simd.Pow2 Require Import Pow2ABI Pow2Memory Pow2Spec Pow2Bytes.
 From Ed25519Simd.Pow2 Require Program FrameProof Object Audit ObjectBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage DecoderPower NativeWords.
@@ -64,16 +68,52 @@ Proof.
  intro x;change (after x=WriteTrace.replay (mem e) (log p++ws) x);rewrite Mem,WriteTrace.replay_app;apply replay_equal, Paid.
 Qed.
 
+(* The input to each exponentiation comes from that lane's original 32
+   descriptor bytes, including the noncanonical encodings accepted by ZIP-215. *)
+Definition powers pol e q:=let out:=buffer_words (mem(machine q)) (KeySquare.link_slot pol e+8) in
+ forall (sig:bool) j,(j<8)%nat ->
+ let first:=if sig then 5%nat else 0%nat in
+ (forall i,(i<5)%nat -> 0<=Wide51.cell out (first+i)%nat j<=public_bound i) /\
+ Wide51.field_at out first j mod Field.prime=
+  ((PowerInputs.uv (BatchDecode.original_encoding sig e j mod 2^255))^exponent) mod Field.prime.
+
+Lemma pow_residue a b k : 0<=k -> Field.represents a b -> a^k mod Field.prime=b^k mod Field.prime.
+Proof.
+ intros K V;apply Field.represents_mod in V.
+ rewrite (Zpower_mod a k Field.prime), (Zpower_mod b k Field.prime) by (unfold Field.prime;lia).
+ now rewrite V.
+Qed.
+
+Lemma computed pol bias e t r : DecoderPower.post pol bias e t -> PowerInputs.inputs e t ->
+ returned pol bias e (exponent_entry t) r -> powers pol e (resumed r).
+Proof.
+ intros D Inputs [Cert _];pose proof(PowerInputs.certified _ _ _ _ D Inputs) as Values.
+ pose proof(computed_output Cert) as Result.
+ set (s:=machine(exponent_entry t)) in *;set (out:=buffer_words (mem(machine(resumed r))) (KeySquare.link_slot pol e+8)).
+ change (pow2_spec (buffer_words (mem s) (Return.scratch e+1984)) (buffer_words (mem s) (Return.scratch e+3264)) out) in Result.
+ replace (Return.scratch e+1984) with (BatchDecode.point e false+960) in Result by (unfold BatchDecode.point,BatchDecode.point_offset;ring).
+ replace (Return.scratch e+3264) with (BatchDecode.point e true+960) in Result by (unfold BatchDecode.point,BatchDecode.point_offset;ring).
+ change (pow2_spec (PowerInputs.argument e s false) (PowerInputs.argument e s true) out) in Result.
+ assert (Bounds:forall i j,(i<5)%nat -> (j<8)%nat ->
+  0<=Wide51.cell (PowerInputs.argument e s false) i j<Radix51.split /\
+  0<=Wide51.cell (PowerInputs.argument e s true) i j<Radix51.split).
+ { intros i j I J;split;[apply (proj1(Values false j J))|apply (proj1(Values true j J))];exact I. }
+ unfold powers;fold out;intros sig j J;destruct(Result Bounds sig j J) as [B R];split;[exact B|].
+ rewrite R;apply pow_residue;[vm_compute;discriminate || reflexivity|].
+ destruct sig;apply (proj2(Values _ j J)).
+Qed.
+
 Record checkpoints:=Checkpoints { before_power:DecoderPower.trace; after_power:result }.
 Definition observe pol bias e p bank:=
  bind (DecoderPower.observe bias p bank) (fun args=>option_map (Checkpoints args) (execute pol bias e (exponent_entry args))).
 Definition post pol bias e r:=DecoderPower.post pol bias e (before_power r) /\
- returned pol bias e (exponent_entry(before_power r)) (after_power r).
+ returned pol bias e (exponent_entry(before_power r)) (after_power r) /\ powers pol e (resumed(after_power r)).
 Theorem from_decoder pol bias e p bank : Return.placement e -> loaded pol bias (mem e) (Return.writable e) ->
  (bias+DecoderFrame.origin) mod 64=0 -> BatchDecode.entry pol bias e p -> well_formed(machine p) ->
  exists r,observe pol bias e p bank=Some r /\ post pol bias e r.
 Proof.
  intros P I Al Entry W;destruct(DecoderPower.from_decoder _ _ _ _ bank P I Al Entry) as [args [To Args]].
  destruct(from_entry _ _ _ _ P I (proj1(proj2 Args)) (pow2_entry_words _ _ _ _ W To) (proj2(proj2 Args))) as [r [R Done]].
- exists (Checkpoints args r);split;[unfold observe;rewrite To;cbn [bind];now rewrite R|exact (conj Args Done)].
+ exists (Checkpoints args r);split;[unfold observe;rewrite To;cbn [bind];now rewrite R|split;[exact Args|split;[exact Done|]]].
+ eapply computed;[exact Args|exact (PowerInputs.from_decoder _ _ _ _ _ _ P I Al Entry W To)|exact Done].
 Qed.

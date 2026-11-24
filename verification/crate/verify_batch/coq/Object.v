@@ -104,7 +104,7 @@ Proof.
    + destruct More as [Large|H];[|contradiction];destruct Exit as [Small _];lia.
    + exists q;rewrite Trace;auto.
  - destruct(Checked Positive) as [d [Trace [_ Body]]].
-   destruct Body as [bank [r [Bank [R [_ [_ [_ [_ [_ Paid]]]]]]]]];exists (LocatedReturn.resumed (PowerWrites.after_power r));
+   destruct Body as [bank [r [Bank [R [_ [[_ [_ [_ [_ Paid]]]] _]]]]]];exists (LocatedReturn.resumed (PowerWrites.after_power r));
      rewrite Trace;cbn [LinkedRun.bind];rewrite Bank;cbn [LinkedRun.bind];rewrite R;auto.
 Qed.
 
