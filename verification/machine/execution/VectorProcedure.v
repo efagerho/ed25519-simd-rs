@@ -27,16 +27,22 @@ Definition then_run (a b:procedure) p := bind (a p) b.
 
 (* The body ends at an instruction boundary, before the caller's next
    instruction. It may use the given depth below the incoming RSP. *)
-Record result e allowed p q depth finish code := {
+Record effect_result e allowed p q depth finish (effect:cpu->cpu->Prop) := {
  at_end:ip q=finish; paid:accounted e allowed q;
  registers:forall r,regs(machine q) r=regs(machine p) r;
  outside:forall x,~(regs(machine p) 4%nat-depth<=x<regs(machine p) 4%nat) ->
    mem(machine q) x=mem(machine p) x;
- arithmetic:forall j,vectors(machine q) j=Instructions.run no_read code (vectors(machine p) j)
+ outcome:effect (machine p) (machine q)
 }.
-Definition contract e allowed a start finish depth code (f:procedure) := forall p,
+Definition projects code (s t:cpu) := forall j,vectors t j=Instructions.run no_read code (vectors s j).
+Definition effect_contract e allowed a start finish depth effect (f:procedure) := forall p,
  ip p=start -> accounted e allowed p -> room a depth (machine p) ->
- exists q,f p=Some q /\ result e allowed p q depth finish code.
+ exists q,f p=Some q /\ effect_result e allowed p q depth finish effect.
+Definition guarded e allowed a start finish depth (need:cpu->Prop) effect (f:procedure) := forall p,
+ need (machine p) -> ip p=start -> accounted e allowed p -> room a depth (machine p) ->
+ exists q,f p=Some q /\ effect_result e allowed p q depth finish effect.
+Definition contract e allowed a start finish depth code :=
+ effect_contract e allowed a start finish depth (projects code).
 
 Lemma compose e allowed a start mid finish da db ca cb f g :
  contract e allowed a start mid da ca f -> contract e allowed a mid finish db cb g ->
@@ -69,17 +75,18 @@ Qed.
 Definition wrapped base text retbase rettext (f:procedure) p :=
  bind (segment base text 1 p) (fun child=>bind (f child) (segment retbase rettext 1)).
 
-Lemma invoke e allowed a base text pc disp retbase rettext retpc depth code f :
+Lemma invoke_effect e allowed a base text pc disp retbase rettext retpc depth (need:cpu->Prop) (inner outer:cpu->cpu->Prop) f :
+ (forall s t,inner (push s (base+(pc+5))) t -> outer s (LinkedCalls.returning t)) ->
  stack_ok a allowed -> 0<=depth ->
  available e allowed base text -> available e allowed retbase rettext ->
  0<=pc -> ScalarBytes.decode (skipn (Z.to_nat pc) text)=Some(5%nat,CallRelative disp) ->
  0<=retpc -> ScalarBytes.decode (skipn (Z.to_nat retpc) rettext)=Some(1%nat,Ret) ->
  word64(base+(pc+5)+disp) -> word64(base+(pc+5)) ->
- contract e allowed a (base+(pc+5)+disp) (retbase+retpc) depth code f ->
- contract e allowed a (base+pc) (base+(pc+5)) (8+depth) code (wrapped base text retbase rettext f).
+ guarded e allowed a (base+(pc+5)+disp) (retbase+retpc) depth need inner f ->
+ guarded e allowed a (base+pc) (base+(pc+5)) (8+depth) (fun s=>need (push s (base+(pc+5)))) outer (wrapped base text retbase rettext f).
 Proof.
- intros [Low [High Allowed]] Depth [Image Sep] [RetImage RetSep] Pos Decode RetPos RetDecode Dest Back Body
-   p PC Acc Space;set (s:=machine p) in *;set (sp:=regs s 4%nat).
+ intros Lift [Low [High Allowed]] Depth [Image Sep] [RetImage RetSep] Pos Decode RetPos RetDecode Dest Back Body
+   p Need PC Acc Space;set (s:=machine p) in *;set (sp:=regs s 4%nat).
  assert (Slot:word64(sp-8)) by (unfold sp,word64,room in *;lia).
  set (link:=base+(pc+5));set (mid:=push s link);set (w:=qword (word(base+pc)) (sp-8) link).
  assert (Stack:regs mid 4%nat=sp-8) by (change (word(sp-8)=sp-8);apply word_fits,Slot).
@@ -97,7 +104,7 @@ Proof.
    as [Enter A].
  set (child:=LinkedRun.finish base p (State (Running (pc+5+disp)) mid (carry p),[w])) in *.
  assert (ChildAt:ip child=base+(pc+5)+disp) by (change (base+(pc+5+disp)=base+(pc+5)+disp);ring).
- destruct(Body child ChildAt A ltac:(change (room a depth mid);unfold room;rewrite Stack;unfold room,sp in *;lia))
+ destruct(Body child Need ChildAt A ltac:(change (room a depth mid);unfold room;rewrite Stack;unfold room,sp in *;lia))
    as [last [Inside [At AtAcc Reg Keep Values]]].
  assert (LastSP:regs(machine last) 4%nat=sp-8) by (rewrite Reg;exact Stack).
  assert (ReturnWord:read_word (mem(machine last)) (sp-8)=link).
@@ -124,5 +131,20 @@ Proof.
    + change (store_word (mem s) (word(sp-8)) link x=mem s x);rewrite (word_fits _ Slot);
      apply FlatMemory.write_outside;change (~(sp-(8+depth)<=x<sp)) in X;lia.
    + change (~(regs mid 4%nat-depth<=x<regs mid 4%nat));rewrite Stack;change (~(sp-(8+depth)<=x<sp)) in X;lia.
- - exact Values.
+ - apply Lift;exact Values.
+Qed.
+
+Lemma invoke e allowed a base text pc disp retbase rettext retpc depth code f :
+ stack_ok a allowed -> 0<=depth ->
+ available e allowed base text -> available e allowed retbase rettext ->
+ 0<=pc -> ScalarBytes.decode (skipn (Z.to_nat pc) text)=Some(5%nat,CallRelative disp) ->
+ 0<=retpc -> ScalarBytes.decode (skipn (Z.to_nat retpc) rettext)=Some(1%nat,Ret) ->
+ word64(base+(pc+5)+disp) -> word64(base+(pc+5)) ->
+ contract e allowed a (base+(pc+5)+disp) (retbase+retpc) depth code f ->
+ contract e allowed a (base+pc) (base+(pc+5)) (8+depth) code (wrapped base text retbase rettext f).
+Proof.
+ intros Stack D Site End Pos Call RetPos Ret Dest Return Body p PC Acc Space.
+ eapply (invoke_effect _ _ _ _ _ _ _ _ _ _ _ (fun _=>True) (projects code) (projects code) _
+   ltac:(intros s t H;exact H) Stack D Site End Pos Call RetPos Ret Dest Return
+   ltac:(intros child _;apply Body) p I PC Acc Space).
 Qed.
