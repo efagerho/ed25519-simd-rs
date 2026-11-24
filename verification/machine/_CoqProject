@@ -79,6 +79,7 @@ execution/VectorSpills.v
 execution/LinkedRun.v
 execution/LocatedReturn.v
 execution/MaskTransfer.v
+execution/PredicateBlock.v
 execution/ProjectionWords.v
 execution/ScalarWords.v
 execution/ScalarByteMemory.v
