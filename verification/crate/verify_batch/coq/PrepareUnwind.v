@@ -36,13 +36,15 @@ Local Ltac unwind image route sp zero :=
 Lemma common_returns slide s c top : 112<=top -> top+8<2^64 ->
  regs s 4%nat=top-104 -> regs s 0%nat mod 2^32=0 ->
  exists last,run 9 (ScalarBytes.fetch (slide+common) CommonBytes.symbol_bytes) (at_pc 65 s c)=Some(last,[]) /\
- returned top s last.
-Proof. intros L H SP Zero. unwind common_bytes common_reject SP Zero. Qed.
+ returned top s last /\ regs (cpu_state last) 13%nat=read_word (mem s) (top-24) /\
+ regs (cpu_state last) 14%nat=read_word (mem s) (top-32).
+Proof. intros L H SP Zero. unwind common_bytes common_reject SP Zero;f_equal;ring. Qed.
 
 Lemma strict_returns slide s c top : 8<=top -> top+8<2^64 ->
  regs s 4%nat=top-8 -> regs s 0%nat mod 2^32=0 ->
  exists last,run 4 (ScalarBytes.fetch (slide+strict) StrictBytes.symbol_bytes) (at_pc 9 s c)=Some(last,[]) /\
- returned top s last.
+ returned top s last /\ regs (cpu_state last) 13%nat=regs s 13%nat /\
+ regs (cpu_state last) 14%nat=regs s 14%nat.
 Proof. intros L H SP Zero. unwind strict_bytes strict_reject SP Zero. Qed.
 
 From Machine Require Import execution.LinkedRun memory.FlatMemory memory.MemoryGeometry.
@@ -55,28 +57,30 @@ Definition unwind pol bias p :=
  bind (segment (bias+PrepareNative.common) CommonBytes.symbol_bytes 9 p) (leave_strict pol bias).
 Definition prepared_again entry e p q := ip q=word(entry+offset Prepared) /\
  regs(machine q) 4%nat=Rows.frame e /\ regs(machine q) 0%nat=regs(machine p) 0%nat /\
- mem(machine q)=mem(machine p) /\ log q=log p.
+ mem(machine q)=mem(machine p) /\ log q=log p /\ Prologue.output_registers e (machine q).
 
 Theorem rejected pol bias entry e p :
  Return.placement e -> loaded pol bias (mem e) (writable e) ->
  BatchScalar.post pol bias entry e p -> regs(machine p) 0%nat mod 2^32=0 ->
  exists q,unwind pol bias p=Some q /\ prepared_again entry e p q.
 Proof.
- intros Place Image [IP [SP [Acc [Root Shim]]]] Zero.
+ intros Place Image [IP [SP [Acc [[Root Shim] [Count Out]]]]] Zero.
  destruct (stack_ok _ Place) as [[Low High] _].
  set (top:=common_top pol e) in *.
  assert (Limits:112<=top /\ top+8<2^64) by
    (unfold top,common_top,Rows.frame,sp in *;destruct pol;lia).
  destruct(common_returns bias (machine p) (carry p) top (proj1 Limits) (proj2 Limits) SP Zero)
-   as [last [Run [Ret [Stack [Eax Flat]]]]].
+   as [last [Run [[Ret [Stack [Eax Flat]]] [C O]]]].
  destruct (mapped_now _ _ _ Image _ _ _ Acc (in_common _)) as [Map Sep].
  destruct (at_segment _ _ _ _ _ _ 65 _ _ Acc IP Map Sep Run (Forall_nil _)) as [Next Paid].
  set (q:=LinkedRun.finish (bias+PrepareNative.common) p (last,[])) in *.
  assert (PC:ip q=word (read_word (mem(machine p)) top)).
  { unfold q;cbn [LinkedRun.finish ip];unfold absolute;rewrite Ret;reflexivity. }
  assert (Log:log q=log p) by (unfold q;cbn [LinkedRun.finish log];apply app_nil_r).
+ assert (Outputs:Prologue.output_registers e (machine q)) by
+   (split;[exact (eq_trans C Count)|exact (eq_trans O Out)]).
  unfold unwind;rewrite Next;cbn [bind]. fold q. destruct pol.
- - exists q;split;[reflexivity|]. unfold prepared_again;split;[|split;[|exact (conj Eax (conj Flat Log))]].
+ - exists q;split;[reflexivity|]. unfold prepared_again;split;[|split;[|exact (conj Eax (conj Flat (conj Log Outputs)))]].
    + unfold top,common_top in PC;rewrite Z.sub_0_r,Root,ScalarRefinement.word_idempotent in PC;exact PC.
    + change (regs(cpu_state last) 4%nat=Rows.frame e);rewrite Stack;unfold top,common_top;ring.
  - assert (Strict:ip q=bias+PrepareNative.strict+9).
@@ -87,11 +91,11 @@ Proof.
    destruct(strict_returns bias (machine q) (carry q) outer ltac:(unfold outer,Rows.frame,sp in *;lia)
      ltac:(unfold outer,Rows.frame,sp in *;lia)
      ltac:(change (regs(cpu_state last) 4%nat=outer-8);rewrite Stack;unfold outer,top,common_top;ring)
-     ltac:(change (regs(cpu_state last) 0%nat mod 2^32=0);now rewrite Eax)) as [endst [End [Back [Top [AX M]]]]].
+     ltac:(change (regs(cpu_state last) 0%nat mod 2^32=0);now rewrite Eax)) as [endst [End [[Back [Top [AX M]]] [N D]]]].
    destruct(mapped_now _ _ _ Image _ _ _ Paid in_strict) as [Mapped Apart].
    destruct(at_segment _ _ _ _ _ _ 9 _ _ Paid Strict Mapped Apart End (Forall_nil _)) as [After _].
    exists (LinkedRun.finish (bias+PrepareNative.strict) q (endst,[]));split;[exact After|].
    unfold prepared_again;cbn [LinkedRun.finish ip machine log];unfold absolute;rewrite Back.
    change (mem(machine q)=mem(machine p)) in Flat;unfold outer;rewrite Flat,Root,ScalarRefinement.word_idempotent.
-   repeat split;[rewrite Top;unfold outer;ring|rewrite AX;exact Eax|now rewrite M|now rewrite app_nil_r,Log].
+   repeat split;[rewrite Top;unfold outer;ring|rewrite AX;exact Eax|now rewrite M|now rewrite app_nil_r,Log|rewrite N;exact (proj1 Outputs)|rewrite D;exact (proj2 Outputs)].
 Qed.

@@ -80,7 +80,7 @@ Qed.
 
 Definition arguments e p top :=
  regs (machine p) 4%nat=top /\ regs (machine p) 7%nat=Return.scratch e /\
- regs (machine p) 6%nat=Rows.frame e+512.
+ regs (machine p) 6%nat=Rows.frame e+512 /\ Prologue.output_registers e (machine p).
 
 Definition caller_word entry e m :=
  read_word m (Rows.frame e-8)=word(entry+offset Prepared).
@@ -107,17 +107,17 @@ Lemma reach_common pol bias entry e p : Return.placement e -> loaded pol bias (m
 Proof.
  intros P Image Acc At Args Root. destruct pol.
  - exists p;split;[reflexivity|split;[exact Acc|split;[exact At|]]]. split;[unfold common_top;replace (Rows.frame e-8-0) with (Rows.frame e-8) by ring;exact Args|exact (conj Root I)].
- - destruct Args as [SP [DI SI]].
+ - destruct Args as [SP [DI [SI [N Out]]]].
    assert (Fit:words_fit (Rows.frame e-8)) by (destruct (stack_ok _ P) as [[L U] _];unfold words_fit,Rows.frame,sp in *;lia).
    destruct (strict_dispatch bias (machine p) (carry p) (Rows.frame e-8) SP Fit
-       (mapped_word _ _ _ Image _ _ (in_common _) ltac:(vm_compute;reflexivity))) as [t [ws [R [PC [Stack [D [S [Ret Bounds]]]]]]]].
+       (mapped_word _ _ _ Image _ _ (in_common _) ltac:(vm_compute;reflexivity))) as [t [ws [R [PC [Stack [D [S [Ret [Bounds [Count Dst]]]]]]]]]].
    destruct(mapped_now _ _ _ Image _ _ _ Acc in_strict) as [Map Sep].
    assert (Safe:confined (writable e) ws).
    { eapply Forall_impl;[|exact Bounds];intros w W x X;left;specialize(W x X);unfold stack_range,Rows.frame,span,sp in *;lia. }
    pose proof(at_segment _ _ _ _ _ _ 0 _ _ Acc ltac:(rewrite Z.add_0_r;exact At) Map Sep R Safe) as [Next A].
    exists (LinkedRun.finish (bias+strict) p (t,ws));split;[exact Next|split;[exact A|]].
    cbn [LinkedRun.finish ip machine];unfold absolute;rewrite PC;split;[ring|].
-   split;[exact (conj Stack (conj (eq_trans D DI) (eq_trans S SI)))|].
+   split;[exact (conj Stack (conj (eq_trans D DI) (conj (eq_trans S SI) (conj (eq_trans Count N) (eq_trans Dst Out)))))|].
    split;[|exact Ret]. unfold caller_word in *;rewrite <-Root.
    pose proof (steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ R)) as M.
    cbn [at_pc cpu_state] in M;rewrite M;apply preserved_read with (outside:=fun x=>~stack_range (Rows.frame e-8) 16 x).
@@ -125,15 +125,19 @@ Proof.
    + intros k K;change (0<=k<8) in K;unfold stack_range;lia.
 Qed.
 
+Definition saved_outputs pol e m :=
+ let top:=common_top pol e in
+ read_word m (top-24)=regs e 6%nat /\ read_word m (top-32)=Return.output e.
+
 Definition post pol bias entry e p :=
  ip p=bias+common+65 /\ regs (machine p) 4%nat=common_top pol e-104 /\
- accounted e (writable e) p /\ return_slots pol bias entry e (mem(machine p)).
+ accounted e (writable e) p /\ return_slots pol bias entry e (mem(machine p)) /\ saved_outputs pol e (mem(machine p)).
 Lemma through_scalar pol bias entry e p ks : Return.placement e -> loaded pol bias (mem e) (writable e) ->
  accounted e (writable e) p -> ip p=bias+common -> arguments e p (common_top pol e) ->
  return_slots pol bias entry e (mem(machine p)) ->
  exists q, bind (to_scalar bias p) (scalar_call bias ks)=Some q /\ post pol bias entry e q.
 Proof.
- intros Place Image Acc At [SP [DI SI]] Slots.
+ intros Place Image Acc At [SP [DI [SI [Count Out]]]] Slots.
  set (top:=common_top pol e) in *.
  destruct (stack_ok _ Place) as [[Lo Hi] _]. assert (Pos:words_fit top).
  { unfold top,common_top,words_fit,Rows.frame,sp in *;destruct pol;lia. }
@@ -141,7 +145,7 @@ Proof.
  assert (Apart:disjoint (top-40) 40 (regs (machine p) 6%nat+64) 64).
  { rewrite SI;unfold disjoint,top,common_top;destruct pol;lia. }
  destruct (common_dispatch bias _ (carry p) top SP Pos
-     (mapped_word _ _ _ Image _ _ (in_scalar _) ltac:(vm_compute;reflexivity)) Table Apart) as [t [ws [R [[PC [Stack [Src [Dst Ret]]]] [W Fields]]]]].
+     (mapped_word _ _ _ Image _ _ (in_scalar _) ltac:(vm_compute;reflexivity)) Table Apart) as [t [ws [R [[PC [Stack [Src [Dst Ret]]]] [W [Spilled Fields]]]]]].
  destruct(mapped_now _ _ _ Image _ _ _ Acc (in_common _)) as [Map Sep].
  assert (Safe:confined (writable e) ws).
  { eapply Forall_impl;[|exact W];intros w K x X;specialize(K x X);left.
@@ -173,13 +177,22 @@ Proof.
  split.
  - apply append_accounted;[exact A| |exact Memory]. eapply Forall_impl;[|exact Inside].
    intros w K x X;specialize (K x X);right;left;unfold SignatureScalar.Audit.output in K;rewrite Dest in K;unfold span;lia.
- - eapply slots_preserved;[|exact Slots]. intros x X;cbn [machine].
+ - split.
+   + eapply slots_preserved;[|exact Slots]. intros x X;cbn [machine].
    rewrite Memory,(WriteTrace.frame _ _ Inside).
-   + change (mem (cpu_state t) x=mem (machine p) x).
+     * change (mem (cpu_state t) x=mem (machine p) x).
      rewrite (steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ R));apply (WriteTrace.frame _ _ W).
      unfold stack_range;fold top in X;lia.
-   + unfold SignatureScalar.Audit.output;rewrite Dest;destruct (scratch_stack _ Place);
+     * unfold SignatureScalar.Audit.output;rewrite Dest;destruct (scratch_stack _ Place);
      unfold common_top,Rows.frame,sp in *;destruct pol;lia.
+   + unfold saved_outputs;fold top;destruct Spilled as [C O].
+     rewrite Count,(word_fits _ (proj1(initial_cpu _ Place) 6%nat)) in C.
+     rewrite Out in O;rewrite (word_fits (Return.output e) (proj1(initial_cpu _ Place) 2%nat)) in O.
+     split;[rewrite <-C|rewrite <-O].
+     all: apply preserved_read with (outside:=fun x=>~SignatureScalar.Audit.output (machine v) x).
+     all: try (intros x X;cbn [machine];rewrite Memory;apply (WriteTrace.frame _ _ Inside),X).
+     all: intros k K;change (0<=k<8) in K;unfold SignatureScalar.Audit.output;rewrite Dest;
+       destruct(scratch_stack _ Place);unfold top,common_top,Rows.frame,sp in *;destruct pol;lia.
 Qed.
 
 Theorem from_entry pol bias pc text e c ks :
@@ -192,7 +205,7 @@ Proof.
  destruct(Prefix n ltac:(lia)) as [u [pre [R Safe]]];rewrite Run in R;injection R as <- <-.
  set (p:=LinkedRun.finish (bias+pc) (LinkedRun.initial (bias+pc) e c) (last,writes)).
  assert (Acc:accounted e (writable e) p) by (split;[exact Safe|intro x;unfold p;cbn [LinkedRun.finish log machine LinkedRun.initial];now rewrite Replay]).
- destruct ABI as [Dest [SP [Ret [SI [Meta DI]]]]].
+ destruct ABI as [Dest [SP [Ret [SI [Meta [DI Output]]]]]].
  assert (Entry:ip p=bias+first_symbol pol).
  { unfold p;cbn [LinkedRun.finish ip];unfold absolute;rewrite Dest.
    replace (bias+pc+(first_symbol pol-pc)) with (bias+first_symbol pol) by ring.
@@ -200,8 +213,32 @@ Proof.
     [exact (mapped_word _ _ _ Loaded _ _ (in_common _) ltac:(vm_compute;reflexivity))|
      exact (mapped_word _ _ _ Loaded _ _ in_strict ltac:(vm_compute;reflexivity))]).
    rewrite (word_fits _ Fit);ring. }
- destruct(reach_common pol bias (bias+pc) e p Place Loaded Acc Entry (conj SP (conj DI SI)) Ret) as [q [Q [Acct [IP [Args Slots]]]]].
+ destruct(reach_common pol bias (bias+pc) e p Place Loaded Acc Entry (conj SP (conj DI (conj SI Output))) Ret) as [q [Q [Acct [IP [Args Slots]]]]].
  destruct(through_scalar pol bias (bias+pc) e q ks Place Loaded Acct IP Args Slots) as [f [S Post]].
  exists f;split;[|exact Post].
  unfold observe,StageEntry.observe;rewrite Budget,Run;cbn [bind];fold p;rewrite Q;exact S.
+Qed.
+
+(* Store replay depends only on the execution. Separation is needed for the
+   bounds on those stores and for progress at the expected continuation. *)
+Lemma observed_memory pol bias entry text e c masks p :
+ observe pol bias entry text e c masks=Some p -> replays e p.
+Proof.
+ unfold observe,StageEntry.observe. destruct (StageEntry.budget entry text e c) as [n|];[|discriminate].
+ destruct (run n _ _) as [[stage ws]|] eqn:Prefix;[|discriminate];cbn [bind].
+ set (start:=LinkedRun.finish entry (LinkedRun.initial entry e c) (stage,ws)).
+ assert (P:replays e start).
+ { intros x;unfold start;cbn [LinkedRun.finish LinkedRun.initial machine log].
+   now rewrite (run_memory _ _ _ _ _ _ Prefix). }
+ destruct (via_strict pol bias start) as [a|] eqn:Shim;[|discriminate];cbn [bind].
+ assert (A:replays e a) by (destruct pol;[injection Shim as <-;exact P|eapply segment_memory;[exact P|exact Shim]]).
+ destruct (to_scalar bias a) as [b|] eqn:Common;[|discriminate];cbn [bind].
+ pose proof (segment_memory _ _ _ _ _ _ A Common) as B.
+ unfold scalar_call;destruct (_=?_);[|discriminate]. destruct(list_eq_dec _ _ _);[|discriminate].
+ pose proof (SignatureScalar.Audit.write_footprint _ _ _ _ SignatureScalar.Object.assembled_signature_scalar_correct
+      bias (machine b) masks) as [_ Memory].
+ fold scalar_code in Memory;fold scalar_size scalar in Memory.
+ destruct(SignatureScalar.Program.run _ _ _ _ _ _) as [back out] eqn:Call.
+ intro F;injection F as <-;intro x;cbn [machine log];rewrite replay_app;rewrite Memory.
+ apply replay_equal,B.
 Qed.

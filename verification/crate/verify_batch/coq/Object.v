@@ -96,10 +96,10 @@ Proof.
      rewrite Trace in Native;injection Native as <-;exact (conj (Sound _ _ R) Safe).
 Qed.
 
-Lemma verified pol pc text : matches pc (destination pol) text -> empty_image text -> Prologue.bound text -> StageEntry.bound text -> TailWrites.bound text -> StageWrites.bound text (destination pol Prepare-pc) -> RejectCall.bound pc text ->
+Lemma verified pol pc text : matches pc (destination pol) text -> empty_image text -> Prologue.bound text -> StageEntry.bound text -> TailWrites.bound text -> StageWrites.bound text (destination pol Prepare-pc) -> RejectCall.bound pc text -> RejectDispatch.bound pc text ->
  batch_contract pol pc text.
 Proof.
- intros Image Bytes Setup Select Pad Transfer Rejection.
+ intros Image Bytes Setup Select Pad Transfer Rejection ScatterCode.
  assert (Empty:forall bias e,admissible pol bias pc text e -> count e=0%nat ->
    empty_mapped (bias+pc) text e).
  { intros bias e Input Z;apply mapped_return;[exact (entry_text _ _ _ _ _ Input)|].
@@ -139,8 +139,16 @@ Proof.
  - exact Live.
  - intros bias e c masks Input N.
    destruct (scalar_from_entry _ _ _ _ _ c masks Input N (Live _ _ Input N)) as [stop [Run Post]].
-   exists stop;split;[exact Run|split;[exact Post|]]. apply PrepareUnwind.rejected;
-     [exact (proj1 (batch_inputs _ _ _ _ _ Input N))|exact (callee_image _ _ _ _ _ Input N)|exact Post].
+   exists stop;split;[exact Run|split;[exact Post|]]. intro Zero.
+   destruct (batch_inputs _ _ _ _ _ Input N) as [Place [_ [[_ Apart] _]]].
+   pose proof (callee_image _ _ _ _ _ Input N) as Loaded.
+   destruct (PrepareUnwind.rejected _ _ _ _ _ Place Loaded Post Zero) as [caller [Unwind End]].
+   exists caller;split;[exact Unwind|split;[exact End|]].
+   destruct End as [At [SP [AX [Memory [Log Args]]]]];destruct Post as [_ [_ [[Safe Replay] _]]].
+   eapply RejectDispatch.resume;[exact ScatterCode|exact Place|exact Loaded|exact (entry_range _ _ _ _ _ Input)|
+      exact (proj1 (proj2 (proj2 (proj2 Rejection))))|exact (entry_text _ _ _ _ _ Input)|exact Apart| |
+      exact At|exact SP|exact Args|now rewrite AX].
+   split;[rewrite Log;exact Safe|intros x;rewrite Memory,Log;apply Replay].
  - intros bias e Input Z. destruct (empty_return e) as [ip final] eqn:E. split.
    + apply (proj2 (grouped _ _ _ Image _ _ Input)),empty_path;[exact Image|now rewrite Z|exact E].
    + exact (Empty _ _ Input Z).
@@ -148,8 +156,8 @@ Qed.
 
 Theorem assembled_zip215_verify_batch_correct :
  batch_contract Zip215 ZipBytes.address ZipBytes.symbol_bytes.
-Proof. apply verified;[vm_compute;split;reflexivity|vm_compute;repeat split;reflexivity|repeat constructor|repeat constructor|repeat constructor|vm_compute;repeat split;reflexivity|vm_compute;repeat split;discriminate || reflexivity]. Qed.
+Proof. apply verified;[vm_compute;split;reflexivity|vm_compute;repeat split;reflexivity|repeat constructor|repeat constructor|repeat constructor|vm_compute;repeat split;reflexivity|vm_compute;repeat split;discriminate || reflexivity|repeat constructor;vm_compute;discriminate || reflexivity]. Qed.
 
 Theorem assembled_dalek_verify_batch_correct :
  batch_contract Dalek DalekBytes.address DalekBytes.symbol_bytes.
-Proof. apply verified;[vm_compute;split;reflexivity|vm_compute;repeat split;reflexivity|repeat constructor|repeat constructor|repeat constructor|vm_compute;repeat split;reflexivity|vm_compute;repeat split;discriminate || reflexivity]. Qed.
+Proof. apply verified;[vm_compute;split;reflexivity|vm_compute;repeat split;reflexivity|repeat constructor|repeat constructor|repeat constructor|vm_compute;repeat split;reflexivity|vm_compute;repeat split;discriminate || reflexivity|repeat constructor;vm_compute;discriminate || reflexivity]. Qed.

@@ -14,7 +14,7 @@ Definition listing : list (Z*nat*ScalarBytes.instruction) :=
   (630,4%nat,LeaG 3 (Address 4 None 0));(634,3%nat,Zero32 12);(637,2%nat,Zero32 1);
   (679,5%nat,ScalarBytes.Jump (offset Stage-684))].
 Definition bound text := Forall (fun '(a,n,i)=>Prologue.at_offset text a n i) listing.
-Definition reached e st := loc st=Running (offset Stage) /\ stack_and_scratch e (cpu_state st).
+Definition reached e st := loc st=Running (offset Stage) /\ caller_registers e (cpu_state st).
 
 Local Ltac ins_at a :=
  match goal with D:Prologue.at_offset ?text a ?n ?op |- _=>
@@ -22,7 +22,7 @@ Local Ltac ins_at a :=
   [rewrite (EntryWrites.fetch_at _ text a _ _ n op ltac:(lia) D);cbn [ScalarBytes.step];reflexivity| |]
  end.
 Lemma after_tail ip text e s c : bound text -> TailWrites.bound text -> placement e ->
- stack_and_scratch e s -> Prologue.segment ip text e 88 (offset Tail) s c (reached e).
+ caller_registers e s -> Prologue.segment ip text e 88 (offset Tail) s c (reached e).
 Proof.
  intros B Pad P SP;unfold bound,listing in B.
  do 12 (let D:=fresh "ins" in apply Forall_cons_iff in B as [D B];cbv beta iota in D).
@@ -34,7 +34,7 @@ Proof.
  - Local Ltac keep_rsp SP :=
      lazymatch goal with |-Prologue.segment _ _ ?e _ _ ?s _ _=>
        let u:=fresh "mid" in set (u:=s);let R:=fresh "rsp" in
-       assert (R:stack_and_scratch e u) by exact SP;clearbody u;clear SP;rename R into SP
+       assert (R:caller_registers e u) by exact SP;clearbody u;clear SP;rename R into SP
      end.
    keep_rsp SP.
    ins_at 618;[constructor|keep_rsp SP]. ins_at 621;[constructor|keep_rsp SP].
@@ -42,7 +42,7 @@ Proof.
    lazymatch goal with |-Prologue.segment _ _ _ _ _ ?s _ _=>set (u:=s) end.
    assert (BX:regs u 3%nat=Rows.frame e).
    { change (word(regs mid2 4%nat+0+0)=Rows.frame e);rewrite (proj1 SP),!Z.add_0_r;exact Frame. }
-   assert (Stack:stack_and_scratch e u) by exact SP. clearbody u.
+   assert (Stack:caller_registers e u) by exact SP. clearbody u.
    ins_at 634;[constructor|]. ins_at 637;[constructor|].
    lazymatch goal with |-Prologue.segment _ _ _ _ _ ?s ?carry _=>
      let V:=fresh in assert (V:TailWrites.pointers e 0 s) by (split;[exact BX|split;[reflexivity|exact Stack]]);
@@ -58,7 +58,7 @@ Proof.
 Qed.
 
 Lemma choose ip text e s c : bound text -> TailWrites.bound text -> placement e ->
- stack_and_scratch e s -> Prologue.segment ip text e (if word (regs s 12%nat) <? 8 then 90 else 4) (offset Choose) s c (fun st=>reached e st /\
+ caller_registers e s -> Prologue.segment ip text e (if word (regs s 12%nat) <? 8 then 90 else 4) (offset Choose) s c (fun st=>reached e st /\
     (8<=word(regs s 12%nat) -> regs (cpu_state st) 3%nat=regs s 3%nat)).
 Proof.
  intros B Pad P SP. pose proof B as Ops;unfold bound,listing in Ops.
