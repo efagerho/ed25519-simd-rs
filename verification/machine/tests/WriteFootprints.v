@@ -33,3 +33,14 @@ Proof.
    { apply masked_footprint. exists 7%nat;repeat split;try reflexivity;lia. }
    destruct H as [w [W X]]. unfold confined in C;rewrite Forall_forall in C. specialize (C w W 56 X);change (0<=56<56) in C;lia.
 Qed.
+
+From Machine Require execution.ScalarBytes.
+Local Definition ymm_store (aligned:bool) base :=
+ let code:= [0xc5;if aligned then 0xfd else 0xfe;0x7f;0x04;0x0b] in
+ let s:=CPU (fun r=>if Nat.eqb r 3 then base else 0) (fun _ _=>0) None (fun _=>0) in
+ ScalarBytes.fetch 0 code (ScalarBytes.State (ScalarBytes.Running 0) s None).
+Example aligned_ymm_store :
+ ymm_store true 31=None /\
+ (exists s w,ymm_store true 32=Some(s,[w]) /\ address w=32 /\ size w=32%nat) /\
+ (exists s w,ymm_store false 31=Some(s,[w]) /\ address w=31 /\ size w=32%nat).
+Proof. split;[reflexivity|split];do 2 eexists;repeat split;reflexivity. Qed.
