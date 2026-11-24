@@ -84,6 +84,8 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    the digit destination. The proof checks the scalar symbol against the live
    byte image, appends its digit stores, and reads the continuation from the
    stack. Replaying the combined log recovers every byte at that return.
+   The decoder receives the opmask bits produced by those scalar instructions,
+   including bits in registers the scalar call preserved.
    If any scalar is canonical, both entries execute the two 32-byte stores
    for each of eight lanes and call the paired decoder. Its 512 input bytes
    match the original public keys and R encodings, including padded lanes.
