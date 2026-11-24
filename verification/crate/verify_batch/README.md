@@ -143,6 +143,11 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    from the stack. The five stores at offsets 1084 through 1112 write the
    resulting X candidate to point scratch. The theorem identifies all forty
    stored limbs and preserves the validity byte across the call.
+   The alternate-root multiply loads the five limbs of the square root of
+   minus one from the linked ELF. The decoder then selects a candidate per
+   lane, computes its parity and conditionally negates it using the original
+   sign bit. The native trace reaches the first X store at offset 1299.
+   [Signed root](coq/SignedRoot.v)
    [Field setup and inputs](coq/PowerInputs.v) · [Exponentiation call](coq/DecoderPower.v) · [Return and write log](coq/PowerWrites.v) · [Root comparison input](coq/RootTest.v) · [Validity byte](coq/Selection.v) · [Root candidate](coq/RootCandidate.v)
    If the signature-scalar call returns zero, the decoded branches, pops and returns take both
    policies back to the wrapper's preparation continuation with RSP restored,
