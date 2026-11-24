@@ -3,6 +3,7 @@ import argparse
 import json
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 
 from audit import ENTRIES, FLAGS, table_inputs
@@ -99,8 +100,11 @@ def check(elf, audit, work):
         f.write(b"\x00")
     table_inputs(damaged, dest)
     shutil.copyfile(audit / NS / "Audit.v", contract)
-    for module in ("IdentityTable", "LoadedImage", "RejectCall", "ScalarInputs", "BatchScalar", "BatchDecode", "DecoderSave", "DecoderProduct", "KeySquare", "SetupTail", "NativeScale", "PairedSetup", "DecoderPower", "NativeWords", "SetupValues", "PowerInputs", "PowerWrites", "DecoderResume", "DecoderFinish", "FinishSquare", "FinishProduct", "RootTest", "RootMasks", "RootAccept", "RootDecision", "Selection", "PrepareUnwind", "RejectDispatch", "RejectFinish", "RejectExecution", "Tables", "Audit"):
-        compile_module(work, FLAGS, NS, module)
+    # Rebuild the local transitive dependencies of the public specification.
+    # The imported component certificates come from the unchanged ELF audit.
+    sources = sorted(str(path.relative_to(work)) for path in dest.glob("*.v"))
+    subprocess.run(["coq_makefile", *FLAGS, *sources, "-o", "Makefile"], cwd=work, check=True)
+    subprocess.run(["make", "-s", f"{NS}/Audit.vo"], cwd=work, check=True)
     (dest / "DamagedTable.v").write_text(
         "From Ed25519Simd.VerifyBatch Require Import Audit Tables.\n"
         "Goal forall mode pc text, ~ batch_contract mode pc text.\n"
