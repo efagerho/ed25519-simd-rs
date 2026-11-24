@@ -95,7 +95,7 @@ Definition input_view e p := well_formed(machine p) /\
  ScalarInputs.matrix e (machine p) /\ StageEntry.metadata e (mem(machine p)) /\ StageEntry.saved_caller e (machine p).
 Definition arguments e p top :=
  regs (machine p) 4%nat=top /\ regs (machine p) 7%nat=Return.scratch e /\
- regs (machine p) 6%nat=Rows.frame e+512 /\ Prologue.output_registers e (machine p) /\
+ regs (machine p) 6%nat=Rows.frame e+512 /\ regs(machine p) 1%nat=Rows.frame e+768 /\ Prologue.output_registers e (machine p) /\
  regs(machine p) 12%nat=Prologue.rows_left (regs e 6%nat) /\ input_view e p.
 
 Definition caller_word entry e m :=
@@ -123,7 +123,7 @@ Lemma reach_common pol bias entry e p : Return.placement e -> loaded pol bias (m
 Proof.
  intros P Image Acc At Args Root. destruct pol.
  - exists p;split;[reflexivity|split;[exact Acc|split;[exact At|]]]. split;[unfold common_top;replace (Rows.frame e-8-0) with (Rows.frame e-8) by ring;exact Args|exact (conj Root I)].
- - destruct Args as [SP [DI [SI [[N Out] [Left [Words [Matrix [Indices [Spills BP]]]]]]]]].
+ - destruct Args as [SP [DI [SI [Meta [[N Out] [Left [Words [Matrix [Indices [Spills BP]]]]]]]]]].
    assert (Fit:words_fit (Rows.frame e-8)) by (destruct (stack_ok _ P) as [[L U] _];unfold words_fit,Rows.frame,sp in *;lia).
    destruct (strict_dispatch bias (machine p) (carry p) (Rows.frame e-8) SP Fit
        (mapped_word _ _ _ Image _ _ (in_common _) ltac:(vm_compute;reflexivity))) as [t [ws [R [PC [Stack [D [S [Ret [Bounds [Count [Dst R12]]]]]]]]]]].
@@ -139,6 +139,7 @@ Proof.
    { intros x X;rewrite M;apply (WriteTrace.frame _ _ Bounds);unfold stack_range;lia. }
    split.
    + split;[exact Stack|split;[exact (eq_trans D DI)|split;[exact (eq_trans S SI)|]]].
+     split;[exact (eq_trans (PreservedRegister.run_keeps_at 1 _ StrictBytes.symbol_bytes ltac:(vm_compute;reflexivity) 3 0 _ _ _ _ ltac:(vm_compute;reflexivity) R) Meta)|].
      split;[exact (conj (eq_trans Count N) (eq_trans Dst Out))|split;[exact (eq_trans R12 Left)|]].
      split;[exact (segment_wf _ _ _ _ _ Words Next)|].
      split;[intros j sig J;rewrite <- (Matrix j sig J);apply PrepareChunk.Staging.read_block;intros k K;apply Frame;destruct sig;lia|].
@@ -162,7 +163,7 @@ Lemma through_scalar pol bias entry e p ks : Return.placement e -> loaded pol bi
  return_slots pol bias entry e (mem(machine p)) ->
  exists q, bind (to_scalar bias p) (scalar_call bias ks)=Some q /\ post pol bias entry e q.
 Proof.
- intros Place Image Acc At [SP [DI [SI [[Count Out] [Left [Words [Matrix [Indices [Spills BP]]]]]]]]] Slots.
+ intros Place Image Acc At [SP [DI [SI [Meta [[Count Out] [Left [Words [Matrix [Indices [Spills BP]]]]]]]]]] Slots.
  set (top:=common_top pol e) in *.
  destruct (stack_ok _ Place) as [[Lo Hi] _]. assert (Pos:words_fit top).
  { unfold top,common_top,words_fit,Rows.frame,sp in *;destruct pol;lia. }
@@ -170,7 +171,7 @@ Proof.
  assert (Apart:disjoint (top-40) 40 (regs (machine p) 6%nat+64) 64).
  { rewrite SI;unfold disjoint,top,common_top;destruct pol;lia. }
  destruct (common_dispatch bias _ (carry p) top SP Pos
-     (mapped_word _ _ _ Image _ _ (in_scalar _) ltac:(vm_compute;reflexivity)) Table Apart) as [t [ws [R [[PC [Stack [Src [Dst [Ret [BX R15]]]]]] [W [Spilled Fields]]]]]].
+     (mapped_word _ _ _ Image _ _ (in_scalar _) ltac:(vm_compute;reflexivity)) Table Apart) as [t [ws [R [[PC [Stack [Src [Dst [Ret [BX [R15 Selected]]]]]]] [W [Spilled Fields]]]]]].
  destruct(mapped_now _ _ _ Image _ _ _ Acc (in_common _)) as [Map Sep].
  assert (Safe:confined (writable e) ws).
  { eapply Forall_impl;[|exact W];intros w K x X;specialize(K x X);left.
@@ -247,7 +248,9 @@ Proof.
        assert (Keep:regs out 3%nat=regs (machine v) 3%nat /\ regs out 15%nat=regs(machine v) 15%nat).
        { change (regs (snd (resume_ip,out)) 3%nat=regs(machine v) 3%nat /\ regs (snd(resume_ip,out)) 15%nat=regs(machine v) 15%nat).
          rewrite <- Call;split;reflexivity. }
-       exact (conj (eq_trans (proj1 Keep) (eq_trans BX DI)) (eq_trans (proj2 Keep) (eq_trans R15 SI))).
+       assert (Sel:regs out 13%nat=regs(machine v) 13%nat) by
+         (change (regs(snd(resume_ip,out)) 13%nat=regs(machine v) 13%nat);rewrite <-Call;reflexivity).
+       exact (conj (eq_trans (proj1 Keep) (eq_trans BX DI)) (conj (eq_trans (proj2 Keep) (eq_trans R15 SI)) (eq_trans Sel (eq_trans Selected Meta)))).
 Qed.
 
 Theorem from_entry pol bias pc text e c ks :
@@ -274,7 +277,7 @@ Proof.
    apply PrepareChunk.Staging.read_block;intros k K. destruct sig.
    - exact (Matrix j 1%nat k J ltac:(lia) K).
    - exact (Matrix j 0%nat k J ltac:(lia) K). }
- destruct(reach_common pol bias (bias+pc) e p Place Loaded Acc Entry (conj SP (conj DI (conj SI (conj (proj1 Output) (conj (proj2 Output) View))))) Ret) as [q [Q [Acct [IP [Args Slots]]]]].
+ destruct(reach_common pol bias (bias+pc) e p Place Loaded Acc Entry (conj SP (conj DI (conj SI (conj Meta (conj (proj1 Output) (conj (proj2 Output) View)))))) Ret) as [q [Q [Acct [IP [Args Slots]]]]].
  destruct(through_scalar pol bias (bias+pc) e q ks Place Loaded Acct IP Args Slots) as [f [S Post]].
  exists f;split;[|exact Post].
  unfold observe,scalar_entry,StageEntry.observe;rewrite Budget,Run;cbn [bind];fold p;rewrite Q;cbn [bind];exact S.
