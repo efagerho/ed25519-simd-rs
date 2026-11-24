@@ -13,8 +13,8 @@ of its instruction-level entry prefix. The zero-length return executes
 through `ret`. A batch of up to eight signatures whose S values are all at least L also
 executes through the outer `ret`. For other nonempty batches, the returned
 log reaches the next chunk if the first scalar check rejects every lane. If
-that check accepts any lane, the log reaches the decoder's first field-product
-return. The final verdict in both cases comes from the grouped execution on
+that check accepts any lane, the log reaches the return from the decoder’s
+first field setup. The final verdict in both cases comes from the grouped execution on
 the original inputs. Every such return has
 status 1, resumes at the caller's return address with RSP advanced by eight,
 restores the SysV callee-saved integer registers and leaves byte-valued memory.
@@ -110,7 +110,13 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    the following subtraction. [First multiplication](coq/KeySquare.v) ·
    [Native field kernels](coq/DecoderProduct.v) ·
    [Decoder transpose](coq/DecoderWords.v) · [Decoder frame](coq/DecoderFrame.v) · [Decoder entry](coq/BatchDecode.v) · [Encoding copies](coq/PrepareCopies.v)
-   If EAX is zero there, the decoded branches, pops and returns take both
+   The trace continues through the scaling instructions, the carry helper,
+   the second multiplication and the stores of U, V and UV. Setup returns
+   to decoder offset 73 using its live stack word. Its original Y digits and
+   sign mask survive. The instruction-level claim on this tail covers its
+   control flow and write addresses. Its U, V and UV equations currently come
+   from the component’s arithmetic projection. [Setup return](coq/SetupTail.v)
+   If the signature-scalar call returns zero, the decoded branches, pops and returns take both
    policies back to the wrapper's preparation continuation with RSP restored,
    the same EAX and no additional stores. The wrapper passes its original
    output pointer and count to scatter. The proof follows the nested return
