@@ -5,7 +5,7 @@ From Machine Require Import isa.Instructions execution.WordBounds execution.Word
 From Curve25519 Require Import Field Radix51.
 From Ed25519Simd.Decode Require Kernels Power.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode KeySquare NativeScale.
-From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderProduct DecoderKernel DecoderFinish FinishSquare NativeWords.
+From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderProduct DecoderKernel DecoderFinish FinishSquare RowProduct.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition pointer_code:list line:=[(940,7%nat,LeaG 8 (Address 7 None 960))].
@@ -43,35 +43,21 @@ Proof.
    rewrite G,Dst,Z.add_0_r,word_fits by (unfold fits64,word64,a in *;lia);reflexivity. }
  destruct(mapped_now _ _ _ I _ _ _ Acc (decode_in pol)) as [Map Sep].
  destruct(at_segment _ _ _ o text 1 940 _ _ Acc PC Map Sep Lea (Forall_nil _)) as [Next Paid].
- set (mid:=LinkedRun.finish o sq (State (Running 947) v (LinkedRun.carry sq),[])) in *;set (s:=push v (o+952)).
- set (args:=DecoderProduct.arguments s).
- assert (R8:regs s 8%nat=a) by reflexivity.
- assert (Need:DecoderProduct.readable args s) by (split;[now rewrite R8|split;[now rewrite R8|reflexivity]]).
- destruct(DecoderProduct.call_at pol bias e 947 args P I ltac:(lia) ltac:(lia) (proj2 bytes) mid Need eq_refl Paid
-   ltac:(change (sp e-16384+24<=regs z 4%nat<=sp e);rewrite SP;lia)) as [q [Call [End Done Reg Keep Value]]].
- assert (WF:well_formed(machine q)) by (eapply (proj1(NativeWords.kernels bias));[|exact Call];eapply segment_wf;[exact W|exact Next]).
- assert (Args:forall j i,(j<8)%nat -> (i<5)%nat ->
-  args j i=Power.apply_kernel DecoderProduct.kernel Kernels.Square (FinishSquare.operand sig pol e (machine p) j)
-      (FinishSquare.operand sig pol e (machine p) j) i /\ args j (5+i)%nat=row (machine p) a j i).
- { intros j i J N;unfold args,DecoderProduct.arguments;
-   rewrite (proj2(Nat.leb_gt 5 i) ltac:(lia)),(proj2(Nat.leb_le 5 (5+i)) ltac:(lia)),
-     (proj2(Nat.ltb_lt (5+i) 10) ltac:(lia));cbn [andb];split;[apply Squares;assumption|].
-   replace (5+i-5)%nat with i by lia;unfold DecoderProduct.rhs_at,row;rewrite R8.
-   apply preserved_read with (outside:=fun x=>a<=x<a+320).
-   - intros x X;change (store_word (mem z) (word(regs z 4%nat-8)) (o+952) x=mem(machine p) x).
-     rewrite SP,word_fits by (unfold word64;lia);unfold store_word;rewrite write_outside by (specialize(Dis x X);lia).
-     apply K;specialize(Dis x X);lia.
-   - intros k B;change (0<=k<8) in B;lia. }
- assert (Consts:forall j i,(i<4)%nat -> args j (28+i)%nat=DecoderFrame.constant i).
- { intros j i N;unfold args,DecoderProduct.arguments;rewrite (proj2(Nat.ltb_ge (28+i) 10) ltac:(lia)),andb_false_r;apply High,N. }
+ set (mid:=LinkedRun.finish o sq (State (Running 947) v (LinkedRun.carry sq),[])) in *;assert (WM:well_formed(machine mid)) by exact (segment_wf _ _ _ _ _ W Next).
+ assert (CM:RowProduct.constants(machine mid)) by (intros i j N;apply High,N).
+ destruct(RowProduct.called pol bias e 947 mid P I ltac:(lia) ltac:(lia) (proj2 bytes) eq_refl Paid WM SP CM Al Fit
+   ltac:(intros x X;specialize(Dis x X);lia)) as [q [Call Result]].
+ destruct Result as [End Done WF Reg Keep Consts Value].
  exists q;split;[unfold finish,then_run,pointer;fold o;rewrite Square;cbn [bind];rewrite Next;exact Call|].
  split;[exact End|split;[exact Done|split;[exact WF|split]]].
  - intros r N;rewrite Reg;change (put (regs z) 8 a r=regs(machine p) r);unfold put;rewrite (proj2(Nat.eqb_neq 8 r) ltac:(lia));apply G.
  - split.
-   + intros x X;transitivity (mem z x);[apply Keep;change (~(regs z 4%nat-24<=x<regs z 4%nat));now rewrite SP|apply K;lia].
-   + split.
-     * intros i j N;rewrite Value;destruct((proj2 DecoderProduct.multiplication) no_read no_read (args j) (args j) ltac:(reflexivity)) as [_ Survive];
-       rewrite Survive by lia;apply Consts,N.
-     * intros j i J N;rewrite (Value j i);unfold candidate.
-       exact (DecoderProduct.lane_product (args j) _ _ (fun k B=>Args j k J B) (Consts j) i N).
+   + intros x X;transitivity (mem z x);[exact (Keep x X)|apply K;lia].
+   + split;[exact Consts|].
+     intros j i J N;rewrite (Value j i J N);unfold candidate;apply RowProduct.ext.
+     * intros n B;exact (Squares j n J B).
+     * intros n B;change (row z a j n=row (machine p) a j n);unfold row.
+       apply preserved_read with (outside:=fun x=>a<=x<a+320).
+       -- intros x X;apply K;specialize(Dis x X);lia.
+       -- intros k Bound;change (0<=k<8) in Bound;lia.
 Qed.
