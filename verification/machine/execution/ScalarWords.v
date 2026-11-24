@@ -72,7 +72,7 @@ Proof.
  all: try (injection S as <- <-;cbn [cpu_state]).
  all: try solve [exact W | apply set_wf;[exact W|apply read_word_bound,W] | apply low8_words,W |
      apply set_wf;[exact W|apply mod64_word] | apply set_wf;[exact W|apply mod32_word] |
-     apply set_wf;[exact W|unfold word64;lia] | apply wf_copy,W | apply pop_words,W | apply push_wf,W].
+     apply set_wf;[exact W|unfold word64;lia] | apply set_wf;[exact W|pose proof (Z.mod_pos_bound (regs s src) 256 ltac:(lia));unfold word64;lia] | apply wf_copy,W | apply pop_words,W | apply push_wf,W].
  all: try solve [apply commit_words;[exact W|intros;apply word_byte_bound]|
    apply commit_words;[exact W|intros;apply Z.mod_pos_bound;lia]].
  all: try solve [apply set_vector_words;[exact W|intros;apply W]|
