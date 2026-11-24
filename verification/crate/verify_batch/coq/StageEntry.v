@@ -1,4 +1,4 @@
-From Coq Require Import List ZArith Lia.
+From Coq Require Import Bool List ZArith Lia.
 From Machine Require Import isa.Instructions execution.ScalarBytes execution.LinkedCalls execution.WordSemantics
  execution.WordBounds memory.WriteTrace memory.MemoryGeometry memory.FlatMemory memory.ByteMemory.
 From Machine Require execution.MappedFetch execution.ScalarWords execution.InstructionRoute.
@@ -135,8 +135,11 @@ Definition physical ip (text:list Z) delta e := forall carry,exists n,(n=61%nat 
  MappedFetch.prefix_result n (MappedFetch.fetch ip (length text)) (State (Running 0) e carry)
  (writable e) (handoff ip text delta e carry n).
 
+Definition preserves_bp text:=(Z.of_nat(length text)<?2^32) &&
+ PreservedRegister.checks_at 5 text 0 61 && PreservedRegister.checks_at 5 text 0 147.
+
 Theorem from_entry ip text delta e : Prologue.bound text -> bound text -> TailWrites.bound text ->
- StageWrites.bound text delta -> PreservedRegister.checks 5 text=true -> placement e -> (0<count e)%nat ->
+ StageWrites.bound text delta -> preserves_bp text=true -> placement e -> (0<count e)%nat ->
  fits64 (regs e 7%nat) (40*Z.of_nat(count e)) ->
  (forall x, regs e 7%nat<=x<regs e 7%nat+40*Z.of_nat(count e) -> ~writable e x) -> MappedFetch.mapped (mem e) ip text ->
  (forall x,ip<=x<ip+Z.of_nat(length text) -> ~Return.writable e x) -> physical ip text delta e.
@@ -220,7 +223,11 @@ Proof.
    { split.
      - intros x X;assert (H:Rows.frame e+960<=x) by (unfold Rows.frame,sp in *;lia).
        rewrite (proj2 Kept _ H),(High _ H);exact (CallerSpills.from_entry ip text e carry _ _ Intro P N F x X).
-     - exact (PreservedRegister.run_keeps _ _ _ _ _ _ _ RBP (MappedFetch.run_append _ _ _ _ _ First _ _ _ Body)). }
+     - unfold preserves_bp in RBP;apply Bool.andb_true_iff in RBP as [FirstCheck ShortBudget];
+       apply Bool.andb_true_iff in FirstCheck as [Size FullBudget];apply Z.ltb_lt in Size.
+       assert (K:PreservedRegister.checks_at 5 text 0 n=true) by (unfold n;destruct short;[exact ShortBudget|exact FullBudget]).
+       exact (PreservedRegister.run_keeps_at 5 ip text Size n 0 e carry child ((front++pad)++stores) K
+                 (MappedFetch.run_append _ _ _ _ _ First _ _ _ Body)). }
    exists (State (Running (offset Stage)) t cf),(front++pad);split;[|exact Matrix].
    replace (n-42)%nat with (15+(if short then 90 else 4))%nat by (unfold n;destruct short;reflexivity).
    eapply MappedFetch.run_lift;[exact First|apply Forall_app;split;[exact W|exact Safe]|exact Image|exact Apart].

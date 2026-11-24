@@ -240,7 +240,7 @@ Proof.
            split;[intros x X;rewrite FrameBytes by (unfold Rows.frame,sp in *;lia);apply Spills,X|].
            assert (BPout:regs out 5%nat=regs(machine v) 5%nat) by
              (change (regs(snd(resume_ip,out)) 5%nat=regs(machine v) 5%nat);rewrite <-Call;reflexivity).
-           exact (eq_trans BPout (eq_trans (PreservedRegister.run_keeps 5 _ CommonBytes.symbol_bytes _ _ _ _ ltac:(vm_compute;reflexivity) R) BP)). }
+           exact (eq_trans BPout (eq_trans (PreservedRegister.run_keeps_at 5 _ CommonBytes.symbol_bytes ltac:(vm_compute;reflexivity) 17 0 _ _ _ _ ltac:(vm_compute;reflexivity) R) BP)). }
        split;[exact (proj1 Data)|]. split.
        { intros j sig J;rewrite <- (Matrix j sig J);apply PrepareChunk.Staging.read_block;
          intros k K;apply FrameBytes;destruct sig;unfold Rows.frame,sp in *;lia. }
