@@ -17,6 +17,7 @@ Inductive instruction :=
 | SaveG (r:nat) | CopyG (dst src:nat) | LeaG (dst:nat) (a:addr)
 | Sub64 (r:nat) (k:Z) | Add32 (r:nat) (k:Z) | Compare32 (r:nat) (k:Z)
 | MoveBelow (dst src:nat) | Store64 (r:nat) (a:addr)
+| Copy32 (dst src:nat) | StoreAlignedY (r:nat) (a:addr)
 | LoadY (r:nat) (a:addr) | StoreY (r:nat) (a:addr)
 | VectorMove (op:VectorMoves.operation) | Add64 (r:nat) (k:Z) | CallRelative (disp:Z)
 | StoreImmediate (a:addr) (k:Z) | Jump (disp:Z)
@@ -29,6 +30,17 @@ Definition decode (bs:list Z) : option (nat*instruction) := match bs with
  | 0x41::0x5d::_=>Some (2%nat,RestoreG 13)
  | 0x41::0x5e::_=>Some (2%nat,RestoreG 14)
  | 0x41::0x5f::_=>Some (2%nat,RestoreG 15)
+ | 0x41::0x89::0xc6::_=>Some (3%nat,Copy32 14 0)
+ | 0x49::0x8b::0x3f::_=>Some (3%nat,Load64 7 (Address 15 None 0))
+ | 0x49::0x8b::0x77::d::_=>Some (4%nat,Load64 6 (Address 15 None (signed_value 128 d)))
+ | 0xc5::0xfe::0x6f::0x07::_=>Some (4%nat,LoadY 0 (Address 7 None 0))
+ | 0xc5::0xfe::0x6f::0x0e::_=>Some (4%nat,LoadY 1 (Address 6 None 0))
+ | 0xc5::0xfd::0x7f::0x04::0x0b::_=>Some (5%nat,StoreAlignedY 0 (Address 3 (Some (1%nat,1)) 0))
+ | 0xc5::0xfd::0x7f::0x8c::0x0b::a::b::c::d::_=>
+   Some (9%nat,StoreAlignedY 1 (Address 3 (Some (1%nat,1)) (displacement32 [a;b;c;d])))
+ | 0x49::0x83::0xc7::d::_=>Some (4%nat,Add64 15 (signed_value 128 d))
+ | 0x48::0x8d::0x33::_=>Some (3%nat,LeaG 6 (Address 3 None 0))
+ | 0xba::a::b::c::d::_=>Some (5%nat,Imm32 2 (little32 [a;b;c;d]))
  | 0x48::0x83::0xec::d::_=>Some (4%nat,Sub64 4 (signed_value 128 d))
  | 0x48::0x83::0xc4::d::_=>Some (4%nat,Add64 4 (signed_value 128 d))
  | 0x48::0x81::0xc4::a::b::c::d::_=>Some (7%nat,Add64 4 (displacement32 [a;b;c;d]))
@@ -154,6 +166,7 @@ Definition step origin off n op s carry : option (state*list store) :=
    go (CPU (regs s) (fun j=>Instructions.put (vectors s j) d (lane j)) (flag s) (mem s)) carry
  | SaveG r=>Some (State (Running next) (snd (caller_step origin off (Save r) s)) carry,
                     caller_stores origin off (Save r) s)
+ | Copy32 d r=>go (set s d (regs s r mod 2^32)) carry
  | CopyG d r=>go (set s d (regs s r)) carry
  | LeaG d a=>go (set s d (effective s a)) carry
  | Sub64 r k=>let a:=word (regs s r) in let b:=word k in let v:=word (a-b) in
@@ -168,6 +181,12 @@ Definition step origin off n op s carry : option (state*list store) :=
  | LoadY r a=>let base:=effective s a in
    let lanes:=fun j=>if (j<?4)%nat then read_word (mem s) (base+8*Z.of_nat j) else 0 in
    go (CPU (regs s) (fun j=>Instructions.put (vectors s j) r (lanes j)) (flag s) (mem s)) carry
+ | StoreAlignedY r a=>
+   let dst:=effective s a in
+   if dst mod 32=?0 then
+     let w:=Store (word (origin+off)) dst 32 (vector_byte (fun j=>vectors s j r)) in
+     Some (State (Running next) (with_words s (regs s) (commit (mem s) w)) carry,[w])
+   else None
  | StoreY r a=>let w:=Store (word (origin+off)) (effective s a) 32 (vector_byte (fun j=>vectors s j r)) in
    Some (State (Running next) (with_words s (regs s) (commit (mem s) w)) carry,[w])
  | VectorMove (VectorMoves.Input i)=>go (IndexedLoads.execute [i] s) carry
@@ -203,6 +222,7 @@ Lemma step_memory o off n op s c t ws : step o off n op s c=Some(t,ws) ->
 Proof.
  destruct op;cbn [step];try solve [intro E;injection E as <- <-;reflexivity].
  - destruct c as [[]|];intro E;try discriminate;injection E as <- <-;reflexivity.
+ - destruct (_=?0);intro E;try discriminate;injection E as <- <-;reflexivity.
  - destruct op;intro E;injection E as <- <-;reflexivity.
  - destruct (eval_condition _ _ _) as [[]|];intro E;try discriminate;injection E as <- <-;reflexivity.
 Qed.
