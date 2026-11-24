@@ -60,3 +60,5 @@ memory/WriteTrace.v
 execution/StoreInstructions.v
 tests/WriteFootprints.v
 execution/LocatedEvents.v
+abi/TracedCalls.v
+tests/CallFootprints.v
