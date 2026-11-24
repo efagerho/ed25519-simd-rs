@@ -11,8 +11,11 @@ initial contents of the output array and any batch length, including zero.
 For an admissible call the master theorem provides a return and the store log
 of its instruction-level entry prefix. The zero-length return executes
 through `ret`. A batch of up to eight signatures whose S values are all at least L also
-executes through the outer `ret`. Other nonempty batches use the scalar-checker prefix
-and the grouped verdict on the original inputs. Every such return has
+executes through the outer `ret`. For other nonempty batches, the returned
+log reaches the next chunk if the first scalar check rejects every lane. If
+that check accepts any lane, the log reaches the decoder's first field-product
+return. The final verdict in both cases comes from the grouped execution on
+the original inputs. Every such return has
 status 1, resumes at the caller's return address with RSP advanced by eight,
 restores the SysV callee-saved integer registers and leaves byte-valued memory.
 Each output byte is 0 or 1. The byte at a descriptor's original output index
@@ -64,8 +67,7 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    [Transpose and padding](coq/Routing.v) · [Hash handoff](coq/Hash.v) · [Scoring](coq/Score.v)
 4. **The memory claim.** For a zero count the theorem fetches from the caller's
    byte memory, executes through `ret` and proves that every prefix writes
-   nothing. For a nonempty batch the write log reaches the instruction after
-   the first nested signature-scalar call. Every recorded write is inside
+   nothing. Every nonempty batch trace runs through the first nested signature-scalar call. Every recorded write is inside
    the caller’s allowed regions.
    This includes all eight 40-byte copies on the tail path, the four transposed
    vector stores, eight output-index stores and the call's return-address push.
