@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool Lia.
-From Machine Require Import execution.LinkedCalls memory.MemoryGeometry memory.FlatMemory memory.ByteMemory.
+From Machine Require Import isa.Move execution.LinkedCalls execution.WordSemantics execution.StoreInstructions memory.WriteTrace memory.MemoryGeometry memory.FlatMemory memory.ByteMemory.
 From Ed25519Simd.SignatureScalar Require Audit ObjectBytes OrderBytes Program.
 From Ed25519Simd.PrepareChunk Require Import Caller.
 Import ListNotations. Local Open Scope Z_scope.
@@ -12,19 +12,61 @@ Definition lane_ptr p sig j := source p sig (8*Z.of_nat j).
 Definition s_ptr p j := lane_ptr p true j+scalar_offset.
 Definition workspace p := stack p-frame.
 Definition scalar_memory p := write_bytes (original p) (workspace p) allocation (vector_byte (s_ptr p)).
-(* Only the registers and memory observed by the scalar contract matter.
-   The return slot and the order literal must be mapped at this call boundary. *)
-Definition scalar_entry p (prior:cpu) := with_words prior
- (fun r=>match r with 4%nat=>workspace p-8 | 6%nat=>workspace p
+(* The common entry stores the pointer vector at +43 and calls the scalar
+   checker at +60. Both offsets are checked against the linked bytes. *)
+Section ScalarCall.
+Variable common_pc : Z.
+Definition pointer_store_offset := 43%nat.
+Definition scalar_call_offset := 60%nat.
+Definition pointer_store_at := common_pc+Z.of_nat pointer_store_offset.
+Definition scalar_site := common_pc+Z.of_nat scalar_call_offset.
+Definition scalar_op := Invoke ObjectBytes.address.
+Definition scalar_next slide := slide+next_pc scalar_site scalar_op.
+Definition before_scalar p (prior:cpu) := with_words prior
+ (fun r=>match r with 4%nat | 6%nat=>workspace p
  | 7%nat=>scratch p+digits_offset | _=>regs prior r end) (scalar_memory p).
+Definition scalar_entry p prior slide := let s:=before_scalar p prior in
+ with_words s (Instructions.put (regs s) 4 (workspace p-8))
+   (store_word (scalar_memory p) (workspace p-8) (scalar_next slide)).
 Definition scalar_run p prior incoming slide := snd (Program.run ObjectBytes.address
- (Z.of_nat(length ObjectBytes.symbol_bytes)) OrderBytes.address slide (scalar_entry p prior) incoming).
-Definition scalar_inputs p prior slide := let e:=scalar_entry p prior in
+ (Z.of_nat(length ObjectBytes.symbol_bytes)) OrderBytes.address slide (scalar_entry p prior slide) incoming).
+Definition scalar_inputs p prior slide := let e:=scalar_entry p prior slide in
  Audit.placement e (slide+ObjectBytes.address) (Z.of_nat(length ObjectBytes.symbol_bytes))
                   (slide+OrderBytes.address) /\
  well_formed e /\ Audit.mapped e (slide+OrderBytes.address) OrderBytes.symbol_bytes /\
  forall j,(j<8)%nat -> fits64 (lane_ptr p true j) 64 /\
- disjoint (workspace p) allocation (s_ptr p j) 32.
+ disjoint (workspace p-8) (allocation+8) (s_ptr p j) 32.
+
+Definition linked_scalar_call (text:list Z) :=
+ firstn 7 (skipn pointer_store_offset text)=Move.encode_store 0 4 0 /\
+ firstn 5 (skipn scalar_call_offset text)=encoding scalar_site scalar_op /\
+ encodable scalar_site scalar_op=true.
+Lemma scalar_dispatched p prior slide : encodable scalar_site scalar_op=true -> WordBounds.word64 (workspace p-8) ->
+ caller_step slide scalar_site scalar_op (before_scalar p prior)=
+   (word (slide+ObjectBytes.address),scalar_entry p prior slide).
+Proof.
+ intros Bound Fit;pose proof (call_destination_correct _ _ Bound) as D.
+ unfold caller_step,scalar_op,apply_stack,stack_step,push_words;cbn [target_ip result_regs result_mem].
+ change (regs (before_scalar p prior) 4%nat) with (workspace p);rewrite (word_fits _ Fit).
+ change ((word (slide+call_destination scalar_site ObjectBytes.address),scalar_entry p prior slide)=(word (slide+ObjectBytes.address),scalar_entry p prior slide));
+ now rewrite D.
+Qed.
+Lemma scalar_return_word p prior slide :
+ read_word (mem (scalar_entry p prior slide)) (regs (scalar_entry p prior slide) 4%nat)=word (scalar_next slide).
+Proof.
+ apply read_word_encoded;intros k K;change
+   (store_word (scalar_memory p) (workspace p-8) (scalar_next slide) (workspace p-8+k)=word_byte (scalar_next slide) k).
+ unfold store_word;rewrite write_at by lia;reflexivity.
+Qed.
+Definition scalar_prefix p prior slide :=
+ vector (word (slide+pointer_store_at)) (workspace p) (s_ptr p)::
+ caller_stores slide scalar_site scalar_op (before_scalar p prior).
+Lemma scalar_prefix_memory p prior slide : WordBounds.word64 (workspace p-8) ->
+ mem (scalar_entry p prior slide)=WriteTrace.replay (original p) (scalar_prefix p prior slide).
+Proof.
+ intro Fit;unfold scalar_prefix,caller_stores;change (regs (before_scalar p prior) 4%nat) with (workspace p).
+ now rewrite (word_fits _ Fit).
+Qed.
 
 Lemma read_block n (a b:bytes) x y :
  (forall k,0<=k<Z.of_nat n -> a(x+k)=b(y+k)) -> read_le n a x=read_le n b y.
@@ -37,16 +79,21 @@ Proof.
 Qed.
 
 Lemma scalar_source p prior slide j : scalar_inputs p prior slide -> (j<8)%nat ->
- Audit.scalar (scalar_entry p prior) j=read_le 32 (original p) (s_ptr p j).
+ Audit.scalar (scalar_entry p prior slide) j=read_le 32 (original p) (s_ptr p j).
 Proof.
  intros [_ [_ [_ Layout]]] J;destruct (Layout j J) as [Fit D].
- assert (Ptr:Audit.ptr (scalar_entry p prior) j=s_ptr p j).
- { unfold Audit.ptr;change (read_word (scalar_memory p) (workspace p+8*Z.of_nat j)=s_ptr p j).
-   apply write_read_vector;[exact J|unfold s_ptr,scalar_offset,WordBounds.word64,fits64 in *;lia]. }
+ assert (Ptr:Audit.ptr (scalar_entry p prior slide) j=s_ptr p j).
+ { unfold Audit.ptr;change (read_word (store_word (scalar_memory p) (workspace p-8) (scalar_next slide))
+     (workspace p+8*Z.of_nat j)=s_ptr p j).
+   transitivity (read_word (scalar_memory p) (workspace p+8*Z.of_nat j)).
+   - apply read_block;intros k K;unfold store_word;apply write_outside;lia.
+   - apply write_read_vector;[exact J|unfold s_ptr,scalar_offset,WordBounds.word64,fits64 in *;lia]. }
  unfold Audit.scalar;rewrite Ptr;apply read_block;intros k K.
- change (scalar_memory p (s_ptr p j+k)=original p (s_ptr p j+k));apply write_outside.
- unfold disjoint in D;cbn [Z.of_nat Pos.of_succ_nat Pos.succ] in K;lia.
+ change (store_word (scalar_memory p) (workspace p-8) (scalar_next slide) (s_ptr p j+k)=original p (s_ptr p j+k)).
+ unfold store_word,scalar_memory;unfold disjoint,allocation in *;rewrite !write_outside by lia;reflexivity.
 Qed.
+
+End ScalarCall.
 
 (* Follow the actual copying loop. Each entry names the destination byte
    offset, source pointer-row byte offset and choice of signature or key. *)

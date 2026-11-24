@@ -29,7 +29,7 @@ Proof.
  intros P M. assert (S:byte_memory(mem(scalar_out c))).
  { pose proof (scalar_placement _ P) as [Pl [W [Literal _]]].
    destruct (SignatureScalar.Audit.returns_correct _ _ _ _ SignatureScalar.Object.assembled_signature_scalar_correct
-     (slide c) (PrepareChunk.Staging.scalar_entry (p c) (entry c)) (masks c) Pl W Literal) as [_ Run].
+     (slide c) (PrepareChunk.Staging.scalar_entry PrepareChunk.Audit.common_pc (p c) (entry c) (slide c)) (masks c) Pl W Literal) as [_ Run].
    unfold scalar_out,PrepareChunk.Staging.scalar_run. destruct(SignatureScalar.Program.run _ _ _ _ _ _) as [ip s].
    exact (proj1(proj2(proj2(proj2(proj2 Run))))). }
  apply write_bytes_well_formed;[|intros;apply M]. apply write_bytes_well_formed;[|intros;apply S].

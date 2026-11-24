@@ -71,7 +71,9 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    [Tail loop](coq/TailWrites.v)
 5. **Nested writes.** The caller bounds cover SHA state and digest stores,
    signature digits, round staging, the key-table output and both policy
-   scorers' modeled stack writes. Each candidate's linked call pushes its
+   scorers' modeled stack writes. Chunk preparation writes its eight scalar
+   pointers, pushes the linked continuation, and receives the signature-scalar
+   result in that same memory. Each candidate's linked call pushes its
    return address. The digest wrapper executes its nested scalar reducer and
    returns to the instruction following that call. Replaying these stores
    yields the same reducer output memory used by the ladder's digit handoff. The shared scatter bounds check covers

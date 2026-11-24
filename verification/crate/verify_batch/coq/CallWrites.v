@@ -3,7 +3,7 @@ From Machine Require Import abi.TracedCalls execution.LinkedCalls execution.Scal
  execution.WordBounds memory.WriteTrace memory.ByteMemory.
 From Machine Require execution.MappedFetch.
 From Ed25519Simd.SignatureScalar Require Audit Object ObjectBytes OrderBytes Program.
-From Ed25519Simd.PrepareChunk Require Staging Caller.
+From Ed25519Simd.PrepareChunk Require Staging Caller Audit Object.
 From Ed25519Simd.Sha512Challenge Require Audit Object ObjectBytes LiteralBytes Frame
  Control Execution Writes.
 From Ed25519Simd.Zip215 Require Audit Object ScatterBytes ScatterTrace.
@@ -43,13 +43,6 @@ Proof.
  pose proof (Z.mod_pos_bound (regs (entry c) 4%nat-1000-8-8) 64 ltac:(lia));lia.
 Qed.
 
-Lemma digit_borrow c : includes (nested_writable (entry c))
- (SignatureScalar.Audit.output (Staging.scalar_entry (p c) (entry c))).
-Proof.
- intros x X;right;left. change (scratch (entry c)+512<=x<scratch (entry c)+512+512) in X.
- unfold span;lia.
-Qed.
-
 Lemma prepare_borrow c a n : List.In (a,n)
  ((Staging.scratch (p c),25344)::(Staging.selected (p c),80)::(Staging.stack (p c)-4096,4120)::nil) ->
  includes (nested_writable (entry c)) (span a n).
@@ -78,9 +71,11 @@ Definition hash_events c :=
  (Execution.group_constants (mem s) bias (Control.keys plan))
  (fun _=>Execution.initial_at (mem s) (bias+ro)).
 Definition digit_events c :=
- let pc:=SignatureScalar.ObjectBytes.address in let ro:=OrderBytes.address in
+ let site:=SignatureScalar.ObjectBytes.address in let ro:=OrderBytes.address in
  let n:=Z.of_nat(length SignatureScalar.ObjectBytes.symbol_bytes) in
- SignatureScalar.Audit.digit_writes pc n ro (slide c) (Staging.scalar_entry (p c) (entry c)) (masks c).
+ Staging.scalar_prefix PrepareChunk.Audit.common_pc (p c) (entry c) (slide c) ++
+ SignatureScalar.Audit.digit_writes site n ro (slide c)
+   (Staging.scalar_entry PrepareChunk.Audit.common_pc (p c) (entry c) (slide c)) (masks c).
 
 Record footprint : Prop := {
  prepare_regions : forall c a n, In (a,n)
@@ -91,8 +86,8 @@ Record footprint : Prop := {
  hash_stores : forall c, Hash.abi c ->
    confined (nested_writable (entry c)) (hash_events c) /\ forall result, Hash.runs c=Some result ->
    forall x, Execution.after result x=replay (mem (hash_entry c)) (hash_events c) x;
- scalar_stores : forall c, confined (nested_writable (entry c)) (digit_events c) /\
-   forall x, mem (scalar_out c) x=replay (Staging.scalar_memory (p c)) (digit_events c) x;
+ scalar_stores : forall c, Prepare.placement c -> confined (nested_writable (entry c)) (digit_events c) /\
+   forall x, mem (scalar_out c) x=replay (Staging.original (p c)) (digit_events c) x;
  scatter_stores : forall e s pc carry ws last, Return.placement e ->
    regs s 6%nat=output e -> regs s 2%nat=Z.of_nat (count e) ->
    MappedFetch.mapped (mem s) pc ScatterBytes.symbol_bytes ->
@@ -107,10 +102,18 @@ Proof.
  - intros c [P _]. destruct (Sha512Challenge.Audit.write_footprint _ _ _ _
      Sha512Challenge.Object.assembled_sha512_challenge_correct (slide c) (hash_entry c) P) as [Safe Replay].
    split;[eapply lend;[apply hash_borrow|exact Safe]|exact Replay].
- - intro c. destruct (SignatureScalar.Audit.write_footprint _ _ _ _
-     SignatureScalar.Object.assembled_signature_scalar_correct (slide c)
-       (Staging.scalar_entry (p c) (entry c)) (masks c)) as [Safe Replay].
-   split;[eapply lend;[apply digit_borrow|exact Safe]|exact Replay].
+ - intros c Place.
+   pose proof (PrepareChunk.Audit.scalar_returns PrepareChunk.Object.assembled_prepare_chunk_correct
+     (p c) (entry c) (masks c) (slide c) (Prepare.scalar_placement _ Place)) as H.
+   unfold PrepareChunk.Audit.scalar_handoff in H;unfold scalar_out,Staging.scalar_run.
+   destruct (SignatureScalar.Program.run _ _ _ _ _ _) as [ip out];cbn [snd].
+   destruct H as [_ [_ [_ [Replay Safe]]]]. split;[|exact Replay].
+   eapply lend;[|exact Safe]. intros x [Stack|Digits].
+   + left;unfold Staging.workspace,Caller.frame,Caller.allocation,Caller.saves,p,preparation,Rows.frame,sp,span in *.
+     cbn [Staging.stack length Z.of_nat Pos.of_succ_nat Pos.succ] in Stack.
+     destruct (Lane.strict (mode c));lia.
+   + right;left;change (Return.scratch (entry c)+512<=x<Return.scratch (entry c)+512+512) in Digits.
+     unfold span;lia.
  - intros e s pc carry ws last P D N Image Apart Run.
    assert (Size:word64 (Z.of_nat (count e))).
    { unfold count;pose proof (proj1 (initial_cpu _ P) 6%nat) as W.

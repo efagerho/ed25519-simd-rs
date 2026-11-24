@@ -26,15 +26,15 @@ Definition scalar_result p out :=
  let s:=signature_scalar p j in let ds:=SignatureScalar.Audit.digits out (scratch p+digits_offset) j in
  (bit (regs out 0%nat) j=true <-> s<L) /\
  if s<?L then Forall (fun d=> -8<=d<8) ds /\ number 16 ds=s else ds=repeat 0 64.
-Lemma scalar_call p prior incoming slide : scalar_inputs p prior slide ->
- scalar_result p (scalar_run p prior incoming slide).
+Lemma scalar_call common_pc p prior incoming slide : scalar_inputs common_pc p prior slide ->
+ scalar_result p (scalar_run common_pc p prior incoming slide).
 Proof.
  intros H;pose proof H as Args;destruct H as [Place [W [M Rest]]].
  pose proof(SignatureScalar.Audit.returns_correct _ _ _ _
-   SignatureScalar.Object.assembled_signature_scalar_correct slide (scalar_entry p prior) incoming Place W M) as [_ C].
+   SignatureScalar.Object.assembled_signature_scalar_correct slide (scalar_entry common_pc p prior slide) incoming Place W M) as [_ C].
  unfold scalar_run;destruct (SignatureScalar.Program.run _ _ _ _ _ _) as [ip out];cbn [snd].
  destruct C as [_ [_ [_ [_ [_ [Range C]]]]]];split;[exact Range|].
- intros j J;specialize(C j J);unfold signature_scalar;rewrite <-(scalar_source p prior slide j);[exact C|exact Args|exact J].
+ intros j J;specialize(C j J);unfold signature_scalar;rewrite <-(scalar_source common_pc p prior slide j);[exact C|exact Args|exact J].
 Qed.
 
 Definition index (sig:bool) j := if sig then (8+j)%nat else j.
