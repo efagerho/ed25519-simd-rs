@@ -52,9 +52,8 @@ Qed.
 Lemma mask_op op p bank q k : well_formed(machine p) -> MaskTransfer.tick op p bank=Some(q,k) -> well_formed(machine q).
 Proof.
  intro W;unfold MaskTransfer.tick;destruct(MaskTransfer.valid _);[|discriminate].
- destruct(list_eq_dec _ _ _);[|discriminate];destruct op;intro R;injection R as <- <-;[exact W|].
- apply set_wf;[exact W|]. unfold MaskTransfer.mask16;pose proof(mask_word_bits 16 (fun j=>Z.b2z(bank k0 j))
-    ltac:(intros j J;cbv beta;destruct (bank k0 j);[right|left];reflexivity)) as [Bounds _];unfold word64;lia.
+ destruct(list_eq_dec _ _ _);[|discriminate];destruct op as [index src|dst index];intro R;injection R as <- <-;[exact W|].
+ apply set_wf;[exact W|];pose proof(proj1(MaskTransfer.kmov_value (bank index)));unfold word64;lia.
 Qed.
 Lemma unpack_words bias p bank q k : well_formed(machine p) -> unpack bias p bank=Some(q,k) -> well_formed(machine q).
 Proof.
