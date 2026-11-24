@@ -10,8 +10,7 @@ initial contents of the output array and any batch length, including zero.
 
 For an admissible call the master theorem provides a return and the store log
 of its instruction-level entry prefix. The zero-length return executes
-through `ret`. For a nonempty batch, the log ends at the first descriptor
-transpose. The grouped verdict uses the original inputs. Every such return has
+through `ret`. For a nonempty batch, the log ends at entry to the first linked chunk-preparation call. The grouped verdict uses the original inputs. Every such return has
 status 1, resumes at the caller's return address with RSP advanced by eight,
 restores the SysV callee-saved integer registers and leaves byte-valued memory.
 Each output byte is 0 or 1. The byte at a descriptor's original output index
@@ -64,11 +63,14 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
 4. **The memory claim.** For a zero count the theorem fetches from the caller's
    byte memory, executes through `ret` and proves that every prefix writes
    nothing. For a nonempty batch it proves that every instruction up to the
-   first descriptor transpose writes inside the caller's allowed regions.
-   This includes all eight 40-byte copies on the tail path. The checker
+   first preparation call writes inside the caller's allowed regions.
+   This includes all eight 40-byte copies on the tail path, the four transposed
+   vector stores, eight output-index stores and the call's return-address push.
+   The child enters with the linked target PC, its return word at RSP and the
+   pointer matrix and output metadata addresses in RSI and RCX. The checker
    fetches each instruction from the memory produced by the preceding one.
    [Empty return](coq/EntryWrites.v) · [Nonempty entry](coq/StageEntry.v) ·
-   [Tail loop](coq/TailWrites.v)
+   [Tail loop](coq/TailWrites.v) · [Preparation handoff](coq/StageWrites.v)
 5. **Nested writes.** The caller bounds cover SHA state and digest stores,
    signature digits, round staging, the key-table output and both policy
    scorers' modeled stack writes. Chunk preparation writes its eight scalar

@@ -27,10 +27,10 @@ Proof. vm_compute;reflexivity. Qed.
 
 (* The bad store also occurs for every nonempty caller satisfying the real
    stack/scratch/output placement, independent of the return word or R8. *)
-Theorem rejects_placed_call ip e :
+Theorem rejects_placed_call ip delta e :
  placement e -> (0<Scatter.count e)%nat -> MappedFetch.mapped (mem e) ip symbol_bytes ->
  (forall x,ip<=x<ip+Z.of_nat(length symbol_bytes) -> ~writable e x) ->
- ~StageEntry.physical ip symbol_bytes e.
+ ~StageEntry.physical ip symbol_bytes delta e.
 Proof.
  intros P Live Map Apart Physical.
  destruct (Prologue.before_spills ip symbol_bytes e None ltac:(repeat constructor) P Live)
@@ -52,7 +52,7 @@ Proof.
    rewrite (MappedFetch.snapshot_mapped _ _ _ Mapped).
    rewrite (fetch_at ip symbol_bytes 40 _ _ 8 (Store64 8 addr) ltac:(lia) ltac:(reflexivity));reflexivity. }
  pose proof (MappedFetch.run_append _ 13 _ _ _ First 1 _ _ Store) as Bad.
- destruct (Physical None) as [n [N [t [ws [_ [_ [_ Prefix]]]]]]].
+ destruct (Physical None) as [n [N [_ [t [ws [_ [_ [_ Prefix]]]]]]]].
  destruct (Prefix 14%nat ltac:(lia)) as [mid [pre [Steps Bounds]]].
  replace (13+1)%nat with 14%nat in Bad by reflexivity;rewrite Bad in Steps;injection Steps as <- <-.
  apply Forall_app in Bounds as [_ Bounds];inversion Bounds as [|? ? Allowed];subst.
@@ -71,6 +71,6 @@ Corollary rejects_master_on_live_call bias e :
  (0<Scatter.count e)%nat -> ~batch_contract Policy.Zip215 ZipBytes.address symbol_bytes.
 Proof.
  intros Input Live Master;destruct (batch_inputs _ _ _ _ _ Input Live) as [P [_ [[_ Apart] _]]].
- apply (rejects_placed_call _ _ P Live (entry_text _ _ _ _ _ Input) Apart).
- exact (machine_staging_entry _ _ _ Master _ _ Input Live).
+ apply (rejects_placed_call _ _ _ P Live (entry_text _ _ _ _ _ Input) Apart).
+ exact (machine_prepare_entry _ _ _ Master _ _ Input Live).
 Qed.

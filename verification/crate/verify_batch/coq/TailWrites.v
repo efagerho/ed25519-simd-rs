@@ -16,7 +16,7 @@ Definition listing : list (Z*nat*ScalarBytes.instruction) :=
   (32,6%nat,Compare32 1 320);(38,2%nat,Branch ScalarBytes.Unequal (-40))].
 Definition bound text := Forall (fun '(a,n,i)=>
  ScalarBytes.decode (skipn (Z.to_nat (offset Pad+a)) text)=Some(n,i)) listing.
-Definition pointers e j s := regs s 3%nat=Rows.frame e /\ regs s 1%nat=40*Z.of_nat j.
+Definition pointers e j s := regs s 3%nat=Rows.frame e /\ regs s 1%nat=40*Z.of_nat j /\ regs s 4%nat=Rows.frame e.
 Definition end_of j := if Nat.eqb (S j) 8 then offset TailDone else offset Pad.
 Definition state_after e j st := loc st=Running (end_of j) /\ pointers e (S j) (cpu_state st).
 Definition target e j := sp e-1000+40*Z.of_nat j.
@@ -24,7 +24,7 @@ Definition target e j := sp e-1000+40*Z.of_nat j.
 Lemma address_ok e j s k : placement e -> (j<8)%nat -> pointers e j s -> 0<=k<=32 ->
  effective s (Address 3 (Some (1%nat,1)) k)=target e j+k.
 Proof.
- intros P J [B C] K. cbn [effective];rewrite B,C;unfold Rows.frame,target,sp;rewrite Z.mul_1_r.
+ intros P J [B [C SP]] K. cbn [effective];rewrite B,C;unfold Rows.frame,target,sp;rewrite Z.mul_1_r.
  apply word_fits;destruct(stack_ok _ P) as [[Lo Hi] _];unfold sp,word64 in *;lia.
 Qed.
 Lemma row_write e j pc addr n v : (j<8)%nat ->
@@ -61,30 +61,30 @@ Proof.
  all: lazymatch goal with |-Prologue.segment _ _ _ _ _ ?s _ _=>
    let u:=fresh "advanced" in set (u:=s);let W:=fresh "updated" in
    assert (W:pointers e (S j) u) by
-     (destruct V as [B C];split;[exact B|unfold u;cbn [set set_regs regs with_zf put Nat.eqb];
+     (destruct V as [B [C SP]];split;[exact B|split;[|exact SP];unfold u;cbn [set set_regs regs with_zf put Nat.eqb];
        rewrite C;change (40 mod 2^32) with 40;rewrite (Z.mod_small (40*Z.of_nat j) (2^32)) by lia;rewrite Z.mod_small by lia;lia]);
    clearbody u;clear V;rename W into V
  end.
  all: one 32;[constructor|].
- all: destruct V as [B C];cbn [regs flag with_zf];rewrite C.
+ all: destruct V as [B [C SP]];cbn [regs flag with_zf];rewrite C.
  all: rewrite !Z.mod_small by lia.
  all: eapply Prologue.more;
  [rewrite (EntryWrites.fetch_at ip text (offset Pad+38) _ _ _ _ ltac:(change (0<=677);lia) ins8);
   cbn [ScalarBytes.step eval_condition flag with_zf option_map];reflexivity|constructor|].
- all: apply Prologue.finish;unfold state_after,end_of;cbn [loc cpu_state];split;[|split;assumption].
+ all: apply Prologue.finish;unfold state_after,end_of;cbn [loc cpu_state];split;[|repeat split;assumption].
  all: destruct (Nat.eqb_spec (S j) 8) as [E|N].
  all: first [rewrite (proj2 (Z.eqb_eq (40*Z.of_nat (S j)) 320) ltac:(lia));reflexivity|
       rewrite (proj2 (Z.eqb_neq (40*Z.of_nat (S j)) 320) ltac:(lia));reflexivity].
 Qed.
 
-Definition reached t := loc t=Running (offset TailDone).
+Definition reached e t := loc t=Running (offset TailDone) /\ regs (cpu_state t) 4%nat=Rows.frame e.
 Lemma remaining ip text e : bound text -> placement e -> forall fuel j s carry,
  (fuel+j=8)%nat -> pointers e j s ->
  Prologue.segment ip text e (10*fuel)
-   (if Nat.eqb j 8 then offset TailDone else offset Pad) s carry reached.
+   (if Nat.eqb j 8 then offset TailDone else offset Pad) s carry (reached e).
 Proof.
  intros Code Place fuel;induction fuel as [|fuel IH];intros j s carry Count Ptr.
- - assert (j=8%nat) by lia;subst;apply Prologue.finish;reflexivity.
+ - assert (j=8%nat) by lia;subst;apply Prologue.finish;split;[reflexivity|exact (proj2 (proj2 Ptr))].
  - assert (J:(j<8)%nat) by lia;rewrite (proj2 (Nat.eqb_neq j 8) ltac:(lia)).
    destruct(iteration ip text e j s carry Code Place J Ptr) as [st [ws [R [Safe [End Next]]]]].
    destruct st as [l t c];cbn [loc cpu_state] in End,Next;subst l.
