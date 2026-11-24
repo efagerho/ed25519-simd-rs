@@ -4,6 +4,7 @@ From Machine Require Import isa.Instructions execution.LinkedCalls execution.Wor
  memory.ByteMemory memory.FlatMemory memory.WriteTrace memory.MemoryGeometry.
 From Ed25519Simd.Zip215 Require ScatterBytes ScatterTrace ScatterReturn.
 From Ed25519Simd.VerifyBatch Require Import Policy Image Rows Return LoadedImage Prologue BatchScalar PrepareUnwind.
+From Ed25519Simd.VerifyBatch Require RejectOutputs.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition scatter := Zip215.ScatterBytes.address.
@@ -21,7 +22,8 @@ Lemma dispatch bias pc text s c top : bound pc text -> regs s 0%nat mod 2^32=0 -
  loc last=Running (scatter-pc) /\ regs(cpu_state last) 4%nat=top-8 /\
  regs(cpu_state last) 6%nat=regs s 14%nat /\ regs(cpu_state last) 2%nat=regs s 13%nat /\
  read_word (mem(cpu_state last)) (top-8)=word(bias+pc+574) /\
- regs(cpu_state last) 12%nat=regs s 12%nat /\ confined (pending top) ws.
+ regs(cpu_state last) 12%nat=regs s 12%nat /\ confined (pending top) ws /\
+ regs(cpu_state last) 7%nat=top+856 /\ regs(cpu_state last) 0%nat=0.
 Proof.
  intros Bound Zero SP Lo Hi Dest;do 2 eexists;split.
  - apply (checked _ _ _ Bound);cbn [path follow loc cpu_state cf step option_map eval_condition with_zf flag];
@@ -33,7 +35,7 @@ Proof.
        rewrite ?(word_fits _ Dest);ring|].
    split;[reflexivity|]. split;[reflexivity|]. split;[reflexivity|]. split.
    + apply read_word_encoded;intros k K;unfold store_word;rewrite write_at by lia;reflexivity.
-   + split;[reflexivity|]. apply Forall_cons;[|apply Forall_cons;[|apply Forall_nil]].
+   + split;[reflexivity|]. split;[|split;[f_equal;ring|reflexivity]]. apply Forall_cons;[|apply Forall_cons;[|apply Forall_nil]].
      * intros x X;right;change (top+0+856<=x<top+0+856+8) in X;lia.
      * intros x X;left;change (top-8<=x<top-8+8) in X;lia.
 Qed.
@@ -75,9 +77,10 @@ Theorem resume pol bias pc text e p :
  accounted e (writable e) p -> ip p=word(bias+pc+offset Prepared) ->
  regs(machine p) 4%nat=Rows.frame e -> Prologue.output_registers e (machine p) ->
  regs(machine p) 12%nat=Prologue.rows_left (regs e 6%nat) -> regs(machine p) 0%nat mod 2^32=0 ->
- exists q,scatter_stores bias pc text p=Some q /\ continued bias pc e q.
+ (0<Scatter.count e)%nat -> Scatter.indices e -> StageEntry.metadata e (mem(machine p)) ->
+ exists q,scatter_stores bias pc text p=Some q /\ continued bias pc e q /\ RejectOutputs.outputs e (machine q).
 Proof.
- intros Code Place Image Range Length Bytes Apart Prev IP SP [Count Out] Left Zero.
+ intros Code Place Image Range Length Bytes Apart Prev IP SP [Count Out] Left Zero Live Indices Meta.
  change 574 with (offset Continue) in *.
  assert (R:word64(bias+pc+574) /\ word64(bias+pc+385)) by
    (change (574<Z.of_nat(length text)) in Length;unfold fits64,word64 in *;lia).
@@ -85,7 +88,7 @@ Proof.
  destruct (dispatch bias pc text (machine p) (carry p) (Rows.frame e) Code Zero SP
   ltac:(unfold Rows.frame,sp in *;lia) ltac:(unfold Rows.frame,sp in *;lia)
   (mapped_word _ _ _ Image _ _ (LoadedImage.scatter _) ltac:(vm_compute;reflexivity)))
-   as [s [w [Step [Target [Stack [D [N [Back [CarryLeft Safe]]]]]]]]].
+   as [s [w [Step [Target [Stack [D [N [Back [CarryLeft [Safe [MetaPtr Cleared]]]]]]]]]]].
  assert (W:confined (writable e) w) by (eapply Forall_impl;[|exact Safe];intros z K x X;left;
      specialize(K x X);unfold pending,Rows.frame,sp,span in *;lia).
  change (ip p=word(bias+pc+385)) in IP;rewrite (word_fits _ (proj2 R)) in IP.
@@ -120,10 +123,22 @@ Proof.
    apply (MappedFetch.same_prefixes (bias+scatter) S.code (State (Running 0) (machine s0) (carry s0)) _ Map Const All) in Run.
    apply (counter_after (bias+scatter) (output e) len (State (Running 0) (machine s0) (carry s0)) ws t Run L (out_ok _ Place)).
    split;[exact RegD|split;[exact RegN|exists S.Count;split;[reflexivity|exact I]]]. }
- exists (LinkedRun.finish (bias+scatter) s0 (t,ws));split.
- - unfold scatter_stores;rewrite Dispatch;cbn [bind];fold s0;unfold returning.
-   pose proof (until_exact _ _ _ _ _ _ _ _ Bound Steps Ret) as ToRet;fold scatter in ToRet;rewrite At,Z.sub_diag,ToRet;reflexivity.
- - unfold continued;cbn [LinkedRun.finish ip machine];unfold absolute;rewrite Ret.
+ set (q:=LinkedRun.finish (bias+scatter) s0 (t,ws)).
+ assert (Returned:returning (bias+scatter) (length Zip215.ScatterBytes.symbol_bytes) 88 s0=Some q).
+ { unfold returning;pose proof (until_exact _ _ _ _ _ _ _ _ Bound Steps Ret) as ToRet;
+   fold scatter in ToRet;rewrite At,Z.sub_diag,ToRet;reflexivity. }
+ exists q;split.
+ - unfold scatter_stores;rewrite Dispatch;exact Returned.
+ - split.
+   2:{ apply (RejectOutputs.published (bias+scatter) e s0 q Place Live Indices At MetaPtr RegD RegN Cleared).
+       - eapply IndexStores.metadata_preserved;[|exact Meta].
+         intros x X;change (mem (cpu_state s) x=mem(machine p) x).
+         rewrite (steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ Step));apply (WriteTrace.frame _ _ Safe);
+           unfold pending;lia.
+       - exact Map.
+       - exact Const.
+       - exact Returned. }
+   unfold q,continued;cbn [LinkedRun.finish ip machine];unfold absolute;rewrite Ret.
    split;[rewrite Dest,ScalarRefinement.word_idempotent,(word_fits _ (proj1 R));reflexivity|].
    split;[rewrite NextSP;replace (Rows.frame e-8+8) with (Rows.frame e) by ring;
        apply word_fits;unfold Rows.frame,sp,word64 in *;lia|].

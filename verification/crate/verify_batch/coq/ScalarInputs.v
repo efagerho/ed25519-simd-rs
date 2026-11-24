@@ -92,3 +92,20 @@ Proof.
  apply (proj2 (proj1 Bits)) in Valid.
  rewrite Zero,Z.bits_0 in Valid;discriminate.
 Qed.
+
+(* The caller can select the early-return case directly from its input bytes,
+   before constructing any CPU inside the assembly. *)
+Definition noncanonical_chunk e := forall j,(j<Nat.min (Scatter.count e) 8)%nat ->
+ L<=original_scalar e j.
+Lemma zero_iff e s : (0<Scatter.count e)%nat -> recoded e s ->
+ regs s 0%nat mod 2^32=0 <-> noncanonical_chunk e.
+Proof.
+ intros Live [Mask Bits];rewrite Z.mod_small by lia;split.
+ - intros Zero j J;specialize(Bits j ltac:(lia));rewrite TailCopy.own_row in Bits by lia.
+   destruct Bits as [[_ Valid] _];destruct (Z_lt_ge_dec (original_scalar e j) L);[|lia].
+   apply Valid in l;rewrite Zero,Z.bits_0 in l;discriminate.
+ - intro Bad;destruct (Z.eq_dec (regs s 0%nat) 0);[assumption|].
+   destruct (proj1 (PrepareChunk.Dispatch.flag_nonzero _ Mask) n) as [j [J Bit]].
+   change (Z.testbit (regs s 0%nat) (Z.of_nat j)=true) in Bit;apply (proj1 (proj1(Bits j J))) in Bit.
+   specialize (Bad (TailCopy.row_index e j) ltac:(unfold TailCopy.row_index;lia));lia.
+Qed.

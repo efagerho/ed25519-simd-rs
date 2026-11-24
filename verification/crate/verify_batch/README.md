@@ -94,9 +94,12 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    status and remaining-count tests then either enter the next chunk or
    execute the five pops and outermost return. For that return the caller
    PC, RSP and every final memory byte are derived from the same execution.
-   With one to eight descriptors, a zero scalar mask always reaches the
-   outermost return. The proof tracks R12 through tail padding, the nested
-   push/pop pairs and scatter to rule out another chunk.
+   With one to eight descriptors whose original S values all exceed or
+   equal L, the assembly returns 1 and writes zero to every original output
+   index. The verdict, return PC, RSP and final memory come from the same
+   store log. The proof also covers an arbitrary permutation of the output
+   indices and the actual active count of a short chunk.
+   [Single-chunk corollary](coq/Audit.v) · [Index staging](coq/IndexStores.v) · [Scatter values](coq/ScatterZeros.v)
    [Scalar input and digit correspondence](coq/ScalarInputs.v) · [Rejection result](coq/RejectExecution.v) · [Wrapper exit](coq/RejectFinish.v) · [Rejection scatter](coq/RejectDispatch.v) · [Rejection returns](coq/PrepareUnwind.v) · [Nested scalar call](coq/BatchScalar.v) · [Preparation prologues](coq/PrepareNative.v) ·
    [Empty return](coq/EntryWrites.v) · [Nonempty entry](coq/StageEntry.v) ·
    [Tail copies](coq/TailCopy.v) · [Tail write bounds](coq/TailWrites.v) · [Preparation handoff](coq/StageWrites.v)

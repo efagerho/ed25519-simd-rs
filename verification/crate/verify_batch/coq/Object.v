@@ -151,7 +151,7 @@ Proof.
      unfold ScalarInputs.encoding_ptr;destruct sig;[|exact Key]. destruct Sig as [[Low High] Away].
      split;[unfold fits64;split;[exact Low|lia]|intros x X;apply Away;lia]. }
    intro Zero;split;[exact (ScalarInputs.zero_rejects pol e _ (proj1 Data) Zero)|].
-   destruct (batch_inputs _ _ _ _ _ Input N) as [Place [_ [[_ Apart] _]]].
+   destruct (batch_inputs _ _ _ _ _ Input N) as [Place [_ [[_ Apart] [_ [Indices _]]]]].
    pose proof (callee_image _ _ _ _ _ Input N) as Loaded.
    destruct (PrepareUnwind.rejected _ _ _ _ _ Place Loaded Post Zero) as [caller [Unwind End]].
    destruct End as [At [SP [AX [Memory [Log [Args Left]]]]]];destruct Post as [_ [_ [[Safe Replay] _]]].
@@ -159,10 +159,10 @@ Proof.
      (split;[rewrite Log;exact Safe|intros x;rewrite Memory,Log;apply Replay]).
    pose proof (entry_text _ _ _ _ _ Input) as Mapped.
    destruct (RejectDispatch.resume pol bias pc text e caller ScatterCode Place Loaded (entry_range _ _ _ _ _ Input)
-     (proj1 (proj2 (proj2 (proj2 Rejection)))) Mapped Apart Paid At SP Args Left ltac:(now rewrite AX))
-     as [cont [Dispatched Continued]].
+     (proj1 (proj2 (proj2 (proj2 Rejection)))) Mapped Apart Paid At SP Args Left ltac:(now rewrite AX) N Indices
+     ltac:(rewrite Memory;exact (proj2(proj2 Data)))) as [cont [Dispatched [Continued Outputs]]].
    destruct (RejectFinish.next _ _ _ _ _ ExitCode Place Mapped Apart Continued) as [last [Finished Exit]].
-   exists (RejectExecution.classify cont last);split;[|exact (RejectExecution.classified _ _ _ _ Place (proj2 (proj2 (proj2 Continued))) Exit)].
+   exists (RejectExecution.classify cont last);split;[|exact (RejectExecution.classified _ _ _ _ Place (proj2 (proj2 (proj2 Continued))) Exit Outputs)].
    unfold RejectExecution.scalar_rejection,RejectExecution.finish_chunk;rewrite Run;cbn [LinkedRun.bind].
    rewrite Zero,Z.eqb_refl,Unwind;cbn [LinkedRun.bind];rewrite Dispatched;cbn [LinkedRun.bind];now rewrite Finished.
  - intros bias e Input Z. destruct (empty_return e) as [ip final] eqn:E. split.
