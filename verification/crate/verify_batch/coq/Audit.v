@@ -44,6 +44,19 @@ Record admissible pol bias pc (text:list Z) e := {
  callee_image : (0<count e)%nat -> LoadedImage.loaded pol bias (mem e) (Return.writable e)
 }.
 
+(* SHA's aligned read-only segment fixes the load bias modulo 64 for every
+   linked symbol. Reuse that loader fact at aligned RIP-relative operands. *)
+Lemma decoder_aligned pol bias pc text e : admissible pol bias pc text e -> (0<count e)%nat ->
+ (bias+DecoderFrame.origin) mod 64=0.
+Proof.
+ intros A N;destruct(batch_inputs _ _ _ _ _ A N) as [_ [_ [_ [_ [_ Entries]]]]].
+ destruct (Entries 0%nat (count e) zero_loc N eq_refl zero_words) as [_ [_ [[Hash _] _]]].
+ destruct(Sha512Challenge.Frame.image_fits _ _ _ _ Hash) as [_ [_ Al]].
+ change ((bias+Sha512Challenge.LiteralBytes.address) mod 64=0) in Al.
+ rewrite Z.add_mod in Al by lia;change (Sha512Challenge.LiteralBytes.address mod 64) with 0 in Al.
+ rewrite Z.add_0_r,Z.mod_mod in Al by lia;rewrite Z.add_mod,Al by lia;reflexivity.
+Qed.
+
 (* Grouped execution. Each nonempty trace supplies the actual callee results
    for its live buffers. Other private bytes may take any byte value. *)
 Inductive execution pol bias pc text : Z -> cpu -> Z -> cpu -> Prop :=
@@ -76,7 +89,8 @@ Definition first_chunk pol bias pc text e carry masks :=
                 (regs (LinkedRun.machine stop) 0%nat mod 2^32<>0 ->
                  exists decoder, BatchDecode.observe pol bias pc text e carry masks=Some decoder /\
                                  BatchDecode.entry pol bias e decoder /\
-                                 exists setup,BatchDecode.inner bias decoder=Some setup /\ BatchDecode.setup pol bias e setup) /\
+                                 exists setup,BatchDecode.inner bias decoder=Some setup /\ BatchDecode.setup pol bias e setup /\
+                                 exists words,BatchDecode.transpose bias setup=Some words /\ BatchDecode.transposed bias e words) /\
                 (regs (LinkedRun.machine stop) 0%nat mod 2^32=0 ->
                  (forall j,(j<8)%nat -> (j<count e)%nat -> ~signature_accepts pol (read_input (mem e) (regs e 7%nat) j)) /\
                  exists r, RejectExecution.scalar_rejection pol bias pc text e carry masks=Some r /\

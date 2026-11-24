@@ -89,7 +89,11 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    on the same memory. The decoder pushes its five saved registers, aligns RSP,
    allocates 640 bytes, and calls its first field setup. The proof checks the two
    live return words, the four broadcast field constants in every vector lane,
-   and confinement of the stack stores. [Decoder frame](coq/DecoderFrame.v) · [Decoder entry](coq/BatchDecode.v) · [Encoding copies](coq/PrepareCopies.v)
+   and confinement of the stack stores. The next sixteen instructions load and
+   transpose the public keys. For each lane and each of the four qwords, the
+   resulting ZMM register contains the word at the original descriptor’s key
+   pointer. The aligned permutation tables are read from the live image.
+   [Decoder transpose](coq/DecoderWords.v) · [Decoder frame](coq/DecoderFrame.v) · [Decoder entry](coq/BatchDecode.v) · [Encoding copies](coq/PrepareCopies.v)
    If EAX is zero there, the decoded branches, pops and returns take both
    policies back to the wrapper's preparation continuation with RSP restored,
    the same EAX and no additional stores. The wrapper passes its original
