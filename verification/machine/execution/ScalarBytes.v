@@ -27,10 +27,16 @@ Inductive instruction :=
 | AlignedRow (i:VectorMoves.aligned_row).
 
 Definition little32 bs := read_le 4 (fun i=>nth (Z.to_nat i) bs 0) 0.
+(* REX-prefixed opcode 89 /r with a register destination. REX.R extends the source
+   and REX.B extends the destination. The W bit selects the operand size. *)
+Definition reg_move rex m : option (nat*instruction) :=
+ if (0x40<=?rex)&&(rex<?0x50)&&(0xc0<=?m)&&(m<?256) then
+ let dst:=Z.to_nat (m mod 8+8*(rex mod 2)) in
+ let src:=Z.to_nat ((m/8) mod 8+8*((rex/4) mod 2)) in
+ Some(3%nat,if 0x48<=?rex then CopyG dst src else Copy32 dst src)
+ else None.
 Definition decode (bs:list Z) : option (nat*instruction) := match bs with
  | 0x55::_=>Some(1%nat,SaveG 5)
- | 0x48::0x89::0xe5::_=>Some(3%nat,CopyG 5 4)
- | 0x41::0x89::0xd4::_=>Some(3%nat,Copy32 12 2)
  | 0x48::0x83::0xe4::k::_=>Some(4%nat,AndImmediate 4 (signed_value 128 k))
  | 0x62::0x62::0xfd::0x48::0x59::m::a::b::c::d::_=>
    if (0<=?m)&&(m<?64)&&(m mod 8=?5) then
@@ -40,10 +46,8 @@ Definition decode (bs:list Z) : option (nat*instruction) := match bs with
  | 0x41::0x5d::_=>Some (2%nat,RestoreG 13)
  | 0x41::0x5e::_=>Some (2%nat,RestoreG 14)
  | 0x41::0x5f::_=>Some (2%nat,RestoreG 15)
- | 0x41::0x89::0xc5::_=>Some (3%nat,Copy32 13 0)
  | 0x41::0x83::0xfc::d::_=>Some (4%nat,Compare32 12 (signed_value 128 d))
  | 0x48::0x81::0xc6::a::b::c::d::_=>Some (7%nat,Add64 6 (displacement32 [a;b;c;d]))
- | 0x41::0x89::0xc6::_=>Some (3%nat,Copy32 14 0)
  | 0x49::0x8b::0x3f::_=>Some (3%nat,Load64 7 (Address 15 None 0))
  | 0x49::0x8b::0x77::d::_=>Some (4%nat,Load64 6 (Address 15 None (signed_value 128 d)))
  | 0xc5::0xfe::0x6f::0x07::_=>Some (4%nat,LoadY 0 (Address 7 None 0))
@@ -57,18 +61,10 @@ Definition decode (bs:list Z) : option (nat*instruction) := match bs with
  | 0x48::0x83::0xec::d::_=>Some (4%nat,Sub64 4 (signed_value 128 d))
  | 0x48::0x83::0xc4::d::_=>Some (4%nat,Add64 4 (signed_value 128 d))
  | 0x48::0x81::0xc4::a::b::c::d::_=>Some (7%nat,Add64 4 (displacement32 [a;b;c;d]))
- | 0x49::0x89::0xd4::_=>Some (3%nat,CopyG 12 2)
- | 0x49::0x89::0xcd::_=>Some (3%nat,CopyG 13 1)
- | 0x49::0x89::0xf7::_=>Some (3%nat,CopyG 15 6)
- | 0x48::0x89::0xcb::_=>Some (3%nat,CopyG 3 1)
- | 0x48::0x89::0xe6::_=>Some (3%nat,CopyG 6 4)
- | 0x48::0x89::0xe7::_=>Some (3%nat,CopyG 7 4)
  | 0x48::0x8d::0x93::a::b::c::d::_=>Some (7%nat,LeaG 2 (Address 3 None (displacement32 [a;b;c;d])))
  | 0x48::0x8d::0xb3::a::b::c::d::_=>Some (7%nat,LeaG 6 (Address 3 None (displacement32 [a;b;c;d])))
  | 0x48::0x8d::0xbb::a::b::c::d::_=>Some (7%nat,LeaG 7 (Address 3 None (displacement32 [a;b;c;d])))
  | 0x48::0x8d::0xbc::0x24::a::b::c::d::_=>Some (8%nat,LeaG 7 (Address 4 None (displacement32 [a;b;c;d])))
- | 0x4c::0x89::0xf6::_=>Some (3%nat,CopyG 6 14)
- | 0x4c::0x89::0xea::_=>Some (3%nat,CopyG 2 13)
  | 0x4d::0x85::0xe4::_=>Some (3%nat,Test 12)
  | 0x0f::0x85::a::b::c::d::_=>Some (6%nat,Branch Unequal (displacement32 [a;b;c;d]))
  | 0x85::0xc0::_=>Some (2%nat,Test32 0)
@@ -82,11 +78,6 @@ Definition decode (bs:list Z) : option (nat*instruction) := match bs with
  | 0x41::0x56::_=>Some (2%nat,SaveG 14)
  | 0x41::0x57::_=>Some (2%nat,SaveG 15)
  | 0x48::0x81::0xec::a::b::c::d::_=>Some (7%nat,Sub64 4 (displacement32 [a;b;c;d]))
- | 0x48::0x89::0xfb::_=>Some (3%nat,CopyG 3 7)
- | 0x49::0x89::0xf4::_=>Some (3%nat,CopyG 12 6)
- | 0x49::0x89::0xf5::_=>Some (3%nat,CopyG 13 6)
- | 0x49::0x89::0xd6::_=>Some (3%nat,CopyG 14 2)
- | 0x49::0x89::0xcf::_=>Some (3%nat,CopyG 15 1)
  | 0x4c::0x89::0x84::0x24::a::b::c::d::_=>Some (8%nat,Store64 8 (Address 4 None (displacement32 [a;b;c;d])))
  | 0x4c::0x89::0x8c::0x24::a::b::c::d::_=>Some (8%nat,Store64 9 (Address 4 None (displacement32 [a;b;c;d])))
  | 0x49::0x83::0xfc::d::_=>Some (4%nat,CompareImm 12 (word (signed_value 128 d)))
@@ -95,12 +86,12 @@ Definition decode (bs:list Z) : option (nat*instruction) := match bs with
    Some (12%nat,StoreImmediate (Address 4 None (displacement32 [a;b;c;d])) (displacement32 [u;v;w;x]))
  | 0x49::0x83::0xec::d::_=>Some (4%nat,Sub64 12 (signed_value 128 d))
  | 0x4c::0x89::0xa4::0x24::a::b::c::d::_=>Some (8%nat,Store64 12 (Address 4 None (displacement32 [a;b;c;d])))
- | 0x48::0x89::0xde::_=>Some (3%nat,CopyG 6 3)
  | 0x4b::0x8d::0x04::0xa4::_=>Some (4%nat,LeaG 0 (Address 12 (Some (12%nat,4)) 0))
  | 0x48::0x8d::0x7c::0xc3::d::_=>Some (5%nat,LeaG 7 (Address 3 (Some (0%nat,8)) (signed_value 128 d)))
  | 0x48::0x8d::0x1c::0x24::_=>Some (4%nat,LeaG 3 (Address 4 None 0))
  | 0x45::0x31::0xe4::_=>Some (3%nat,Zero32 12)
  | 0x31::0xc9::_=>Some (2%nat,Zero32 1)
+ | 0xeb::d::_=>Some (2%nat,Jump (signed_value 128 d))
  | 0xe9::a::b::c::d::_=>Some (5%nat,Jump (displacement32 [a;b;c;d]))
  | 0xc5::0xfe::0x6f::0x06::_=>Some (4%nat,LoadY 0 (Address 6 None 0))
  | 0x48::0x8b::0x46::d::_=>Some (4%nat,Load64 0 (Address 6 None (signed_value 128 d)))
@@ -136,13 +127,13 @@ Definition decode (bs:list Z) : option (nat*instruction) := match bs with
  | 0x48::0x8b::0x83::a::b::c::d::_=>Some (7%nat,Load64 0 (Address 3 None (displacement32 [a;b;c;d])))
  | 0x48::0x89::0x84::0x24::a::b::c::d::_=>Some (8%nat,Store64 0 (Address 4 None (displacement32 [a;b;c;d])))
  | 0x48::0x81::0xc3::a::b::c::d::_=>Some (7%nat,Add64 3 (displacement32 [a;b;c;d]))
- | 0x4c::0x89::0xff::_=>Some (3%nat,CopyG 7 15)
  | 0x48::0x8d::0xb4::0x24::a::b::c::d::_=>Some (8%nat,LeaG 6 (Address 4 None (displacement32 [a;b;c;d])))
  | 0x48::0x8b::0x94::0x24::a::b::c::d::_=>Some (8%nat,Load64 2 (Address 4 None (displacement32 [a;b;c;d])))
  | 0x48::0x8d::0x8c::0x24::a::b::c::d::_=>Some (8%nat,LeaG 1 (Address 4 None (displacement32 [a;b;c;d])))
  | 0x4c::0x8d::0x87::a::b::c::d::_=>Some (7%nat,LeaG 8 (Address 7 None (displacement32 [a;b;c;d])))
  | 0xe8::a::b::c::d::_=>Some (5%nat,CallRelative (displacement32 [a;b;c;d]))
  | 0xc3::_ => Some (1%nat,Ret)
+ | rex::0x89::m::_=>reg_move rex m
  | _=>match VectorMoves.decode bs with Some(n,i)=>Some(n,VectorMove i)
       | None=>match QwordRegister.decode bs with Some(n,i)=>Some(n,QwordOp i)
               | None=>option_map (fun '(n,i)=>(n,AlignedRow i)) (VectorMoves.decode_row bs) end end end.
