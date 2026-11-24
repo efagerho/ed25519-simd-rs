@@ -10,7 +10,7 @@ Record chunk := Chunk { entry:cpu; first:nat; live:nat; mode:policy; slide:Z;
   masks:nat->nat->bool; temp:nat->data }.
 Definition p c := preparation (entry c) (first c) (live c) (strict (mode c)).
 Definition input_at c := original_row (entry c) (first c) (live c).
-Definition scalar_out c := Staging.scalar_run (p c) (entry c) (masks c) (slide c).
+Definition scalar_out c := Staging.scalar_run PrepareChunk.Audit.common_pc (p c) (entry c) (masks c) (slide c).
 Definition filter_state c := Composition.filter_entry (p c) (temp c) (entry c).
 Definition dispatch c := Dispatch.dispatch (strict(mode c)) (filter_state c)
   (regs (scalar_out c) 0%nat) (Composition.decoded (p c)).
@@ -23,7 +23,7 @@ Record placement c : Prop := {
   entry_memory : byte_memory (mem (entry c));
   row_separation : rows_apart (entry c) (first c) (live c);
   prepare_placement : Ed25519Simd.PrepareChunk.Audit.placement (p c);
-  scalar_placement : Staging.scalar_inputs (p c) (entry c) (slide c);
+  scalar_placement : Staging.scalar_inputs PrepareChunk.Audit.common_pc (p c) (entry c) (slide c);
   initial_words : forall t,data_words(temp c t)
 }.
 

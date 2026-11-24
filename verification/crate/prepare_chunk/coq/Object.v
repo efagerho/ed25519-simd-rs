@@ -1,6 +1,7 @@
 From Coq Require Import ZArith List Lia.
-From Machine Require Import execution.LinkedCalls memory.ByteMemory memory.FlatMemory.
+From Machine Require Import execution.LinkedCalls execution.WordSemantics execution.StoreInstructions memory.WriteTrace memory.ByteMemory memory.FlatMemory.
 From Ed25519Simd.Decode Require Object.
+From Ed25519Simd.SignatureScalar Require Object.
 From Ed25519Simd.KeyTable Require Object.
 From Ed25519Simd.DalekPostHash Require Audit Object.
 From Ed25519Simd.PrepareChunk Require Import Caller Staging Dispatch Composition Audit.
@@ -12,11 +13,11 @@ Local Lemma byte_one b : Z.b2z b=1 <-> b=true.
 Proof. destruct b;intuition discriminate. Qed.
 
 Lemma prepares mode p prior incoming slide ts :
- layout p -> byte_memory(original p) -> scalar_inputs p prior slide ->
+ layout p -> byte_memory(original p) -> scalar_inputs common_pc p prior slide ->
  (forall t,WordBounds.data_words(ts t)) -> chunk_result mode p prior incoming slide ts.
 Proof.
- intros Layout Bytes Args Scratch;pose proof(scalar_call p prior incoming slide Args) as Scalar.
- unfold chunk_result;set (out:=scalar_run p prior incoming slide) in *;set (s:=regs out 0%nat).
+ intros Layout Bytes Args Scratch;pose proof(scalar_call common_pc p prior incoming slide Args) as Scalar.
+ unfold chunk_result;set (out:=scalar_run common_pc p prior incoming slide) in *;set (s:=regs out 0%nat).
  set (cpu:=filter_entry p ts prior).
  pose proof(initializes_tables p ts Bytes Scratch) as Init.
  pose proof(built_tables p ts prior Layout Bytes Init) as Tables.
@@ -46,6 +47,35 @@ Proof.
        destruct(bit _ _);[unfold table_offset,table_stride,tables_offset;ring|reflexivity].
 Qed.
 
+Lemma scalar_binding : linked_scalar_call common_pc CommonBytes.symbol_bytes.
+Proof. vm_compute;repeat split;reflexivity. Qed.
+
+Lemma checked_scalar_call p prior incoming slide : scalar_inputs common_pc p prior slide ->
+ scalar_handoff p prior incoming slide.
+Proof.
+ intros [Place [W [Literal _]]].
+ set (child:=scalar_entry common_pc p prior slide) in *.
+ assert (Fit:WordBounds.word64 (workspace p-8)) by exact (proj1 W 4%nat).
+ pose proof (SignatureScalar.Audit.returns_correct _ _ _ _ SignatureScalar.Object.assembled_signature_scalar_correct
+   slide child incoming Place W Literal) as [_ Result].
+ pose proof (SignatureScalar.Audit.write_footprint _ _ _ _ SignatureScalar.Object.assembled_signature_scalar_correct
+   slide child incoming) as [Bounds Memory].
+ unfold scalar_handoff;fold child.
+ destruct (SignatureScalar.Program.run _ _ _ _ child incoming) as [ip out] eqn:R.
+ cbn [snd] in Memory. destruct Result as [IP [SP _]].
+ split;[exact (scalar_dispatched _ _ _ _ (proj2 (proj2 scalar_binding)) Fit)|].
+ split;[rewrite IP;apply scalar_return_word|].
+ split;[change (regs out 4%nat=workspace p-8+8) in SP;lia|].
+ split.
+ - intro x;rewrite Memory,WriteTrace.replay_app,<- (scalar_prefix_memory _ _ _ _ Fit);reflexivity.
+ - apply Forall_app;split.
+   + unfold scalar_prefix,caller_stores;change (regs (before_scalar p prior) 4%nat) with (workspace p).
+     rewrite (word_fits _ Fit).
+     constructor;[intros x X;left;change (workspace p<=x<workspace p+64) in X;lia|].
+     constructor;[intros x X;left;change (workspace p-8<=x<workspace p-8+8) in X;lia|constructor].
+   + eapply Forall_impl;[|exact Bounds]. intros w B x X;right;apply B,X.
+Qed.
+
 Local Transparent decoded.
 Theorem assembled_prepare_chunk_correct : prepare_chunk_contract.
 Proof.
@@ -54,6 +84,8 @@ Proof.
  - vm_compute;reflexivity.
  - vm_compute;repeat split;reflexivity.
  - exact Decode.Object.assembled_decode_correct.
+ - exact scalar_binding.
+ - apply checked_scalar_call.
  - intros p pad Pad.
    assert (Call:Decode.Caller.caller_result (HelperBytes.address-pc DecodePair)
      (DecoderBytes.pow_pc-pc DecodePair) true pad).

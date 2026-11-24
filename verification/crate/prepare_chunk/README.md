@@ -35,8 +35,11 @@ exposes only its return status. [Output predicates](coq/Composition.v) ·
    [Callee composition](coq/Composition.v) · [Filter](../dalek_post_hash/coq/Keys.v)
 3. Check the boundary between the block model and hardware. The theorem
    binds complete wrapper bytes and interprets the wrapper's copies, calls,
-   metadata stores and control flow as grouped operations. The scalar callee
-   runs on a concrete byte-memory state. The decoder and table builder use
+   metadata stores and control flow as grouped operations. For the signature-scalar
+   call, check the pointer-vector store at offset 43 and the call at offset 60.
+   The proof replays the 64-byte pointer store, the eight-byte return-address
+   push and the digit stores on one byte memory. The scalar checker returns to
+   offset 65 with the call-site RSP restored. The decoder and table builder use
    their existing coordinate and table-write projections. The correspondence
    of these groups to x86 effects, including preservation of saved registers
    and disjoint scratch fields across calls, requires review. A single

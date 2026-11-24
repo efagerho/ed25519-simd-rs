@@ -59,6 +59,16 @@ def check(elf, audit, work):
     compile_module(work, FLAGS, ns, "Object", reject=True, diagnostic="while it is expected to have type")
     print("Public preparation theorem rejected the inverted eligibility specification", flush=True)
 
+    # Leave the linked call and the scalar program intact. Require RET to
+    # land one byte inside the following TEST instruction.
+    expected = "ip=word (scalar_next common_pc slide)"
+    if original.count(expected) != 1:
+        raise ValueError("missing scalar return specification")
+    source.write_text(original.replace(expected, "ip=word (scalar_next common_pc slide+1)"))
+    compile_module(work, FLAGS, ns, "Audit")
+    compile_module(work, FLAGS, ns, "Object", reject=True)
+    print("Public preparation theorem rejected an off-by-one scalar return", flush=True)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)

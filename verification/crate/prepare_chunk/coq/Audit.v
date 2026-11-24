@@ -1,5 +1,5 @@
 From Coq Require Import ZArith List Bool.
-From Machine Require Import execution.LinkedCalls memory.ByteMemory memory.FlatMemory memory.MemoryGeometry.
+From Machine Require Import execution.LinkedCalls execution.WordSemantics memory.WriteTrace memory.ByteMemory memory.FlatMemory memory.MemoryGeometry.
 From Ed25519Simd.Decode Require Audit Image Program Kernels Chunks Caller DecoderBytes HelperBytes.
 From Ed25519Simd.Pow2 Require ObjectBytes.
 From Ed25519Simd.KeyTable Require Audit ObjectBytes CachedBytes.
@@ -42,8 +42,9 @@ Definition metadata mode p cpu s :=
  write_bytes r (selected p+flags_offset) 8
    (fun i=>Z.b2z(final_flag mode cpu s (decoded p) (Z.to_nat i))).
 
+Definition common_pc := CommonBytes.address.
 Definition chunk_result mode p prior incoming slide table_scratch :=
- let out:=scalar_run p prior incoming slide in
+ let out:=scalar_run common_pc p prior incoming slide in
  let s:=regs out 0%nat in let cpu:=filter_entry p table_scratch prior in
  let result:=dispatch mode cpu s (decoded p) in
  (snd result=true <-> exists j,(j<8)%nat /\ accepts mode p j) /\
@@ -78,6 +79,19 @@ Definition exits := forall zero,
  next strict Screen zero=Some ReturnStrict /\
  next common Finish zero=None /\ next strict ReturnStrict zero=None.
 
+Definition scalar_handoff p prior incoming slide :=
+ let entry:=scalar_entry common_pc p prior slide in
+ let n:=Z.of_nat(length SignatureScalar.ObjectBytes.symbol_bytes) in
+ let site:=SignatureScalar.ObjectBytes.address in
+ let ro:=SignatureScalar.OrderBytes.address in
+ let '(ip,out):=SignatureScalar.Program.run site n ro slide entry incoming in
+ let ws:=scalar_prefix common_pc p prior slide++SignatureScalar.Audit.digit_writes site n ro slide entry incoming in
+ caller_step slide (scalar_site common_pc) scalar_op (before_scalar p prior)=(word (slide+site),entry) /\
+ ip=word (scalar_next common_pc slide) /\ regs out 4%nat=workspace p /\
+ (forall x,mem out x=WriteTrace.replay (original p) ws x) /\
+ WriteTrace.confined (fun x=>workspace p-8<=x<workspace p+64 \/
+                            scratch p+digits_offset<=x<scratch p+digits_offset+512) ws.
+
 Record prepare_chunk_contract : Prop := {
  common_image : image pc Common common=raw Common;
  strict_image : image pc Strict strict=raw Strict;
@@ -86,6 +100,8 @@ Record prepare_chunk_contract : Prop := {
    forallb (fun j=>(0<=?table_offset j)&&(table_offset j<?2^16)) (seq 0 8)=true;
  decoder : Decode.Audit.decode_contract (pc DecodePair) (raw DecodePair)
    HelperBytes.address HelperBytes.symbol_bytes DecoderBytes.pow_pc Pow2.ObjectBytes.symbol_bytes;
+ scalar_site_binding : linked_scalar_call common_pc CommonBytes.symbol_bytes;
+ scalar_returns : forall p prior incoming slide,scalar_inputs common_pc p prior slide -> scalar_handoff p prior incoming slide;
  paired_call : decoder_handoff;
  branch_targets : exits;
  decoder_kernels : Decode.Image.kernel_image Decode.Program.code (pc DecodePair) (raw DecodePair)
@@ -96,7 +112,7 @@ Record prepare_chunk_contract : Prop := {
    DalekPostHash.Queue.exact_image Decode.Program.code /\
    Kernels.carry Decode.Program.code=DalekPostHash.Keys.carry_code;
  preparation : forall mode p prior incoming slide table_scratch,
-   placement p -> byte_memory(original p) -> scalar_inputs p prior slide ->
+   placement p -> byte_memory(original p) -> scalar_inputs common_pc p prior slide ->
    (forall t,WordBounds.data_words(table_scratch t)) ->
    chunk_result mode p prior incoming slide table_scratch
 }.
