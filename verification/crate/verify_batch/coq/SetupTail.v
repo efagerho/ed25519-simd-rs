@@ -1,0 +1,191 @@
+From Coq Require Import List ZArith Lia.
+From Machine Require Import execution.WordSemantics execution.WordBounds execution.LinkedCalls execution.LinkedRun
+ execution.ScalarBytes execution.MappedFetch execution.InstructionRoute execution.AlignedRows
+ execution.VectorProcedure memory.MemoryGeometry memory.ByteMemory memory.FlatMemory memory.WriteTrace.
+From Machine Require execution.VectorWindow.
+From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode DecoderSave KeySquare.
+From Ed25519Simd.VerifyBatch Require DecoderKernel DecoderProduct DecoderFrame.
+Import ListNotations. Local Open Scope Z_scope.
+
+Definition step_at bias n:=segment (base bias) text n.
+Definition carry_call bias:=wrapped (base bias) text (base bias) text (DecoderProduct.native bias DecoderKernel.Carry).
+Definition finish_setup bias:=then_run (step_at bias 43) (then_run (carry_call bias)
+ (then_run (step_at bias 5) (then_run (step_at bias 5) (then_run (step_at bias 1)
+ (then_run (DecoderProduct.multiply_call bias) (then_run (step_at bias 5) (step_at bias 1))))))).
+
+Definition retained pol e x:=link_slot pol e<=x<link_slot pol e+8 \/ address e<=x<address e+320.
+Record stage pol bias e off p : Prop := {
+ position:ip p=base bias+off; paid:accounted e (writable e) p;
+ dest:regs(machine p) 7%nat=scratch e+1024; stack:regs(machine p) 4%nat=link_slot pol e;
+ link:read_word (mem(machine p)) (link_slot pol e)=word(base bias+73);
+ encoding:raw e (machine p)
+}.
+Definition finished pol bias e p := ip p=base bias+73 /\ accounted e (writable e) p /\
+ regs(machine p) 4%nat=link_slot pol e+8 /\ regs(machine p) 7%nat=scratch e+1024 /\ raw e (machine p).
+
+Section Proof.
+Variables (pol:policy) (bias:Z) (e:cpu).
+Hypothesis P:placement e.
+Hypothesis Loaded:loaded pol bias (mem e) (writable e).
+Local Notation o:=(base bias).
+Local Notation st:=(link_slot pol e).
+Local Notation buffer:=(scratch e+1024).
+Local Notation state:=(stage pol bias e).
+
+Lemma paper off p : squared pol bias e p -> off=509 -> state off p.
+Proof. intros [At [A [[DI [SP [Link _]]] [Raw _]]]] ->;now constructor. Qed.
+Lemma transfer from to p q : state from p -> ip q=o+to -> accounted e (writable e) q ->
+ (forall r,r=0%nat \/ r=4%nat \/ r=7%nat -> regs(machine q) r=regs(machine p) r) ->
+ preserved (retained pol e) (mem(machine p)) (mem(machine q)) -> state to q.
+Proof.
+ intros [At A DI SP Link Raw] End Done G M;constructor;try assumption.
+ - rewrite G by auto;exact DI.
+ - rewrite G by auto;exact SP.
+ - rewrite <-Link;apply preserved_read with (outside:=retained pol e);[exact M|intros k K;left;lia].
+ - intros j J;destruct(Raw j J) as [B [Y Sign]].
+   assert (D:forall i,(i<5)%nat -> digits e (machine q) j i=digits e (machine p) j i).
+   { intros i I;apply preserved_read with (outside:=retained pol e);[exact M|intros k K;right;change (0<=k<8) in K;lia]. }
+   split;[intros i I;rewrite D by exact I;apply B,I|split;[rewrite <-Y;apply Radix51.limbs_ext,D|rewrite G by auto;exact Sign]].
+Qed.
+
+Lemma window off last n lo hi p : VectorWindow.scan text 7 lo hi off n=Some last ->
+ (0<=lo /\ hi<=1280) -> (hi<=320 \/ 640<=lo) -> state off p ->
+ exists q,step_at bias n p=Some q /\ state last q.
+Proof.
+ intros Scan Bounds Away State;destruct State as [At A DI SP Link Raw].
+ destruct(scratch_ok _ P) as [[L H] Al].
+ assert (Aligned:buffer mod 64=0) by (replace 1024 with (16*64) by reflexivity;now rewrite Z.mod_add by lia).
+ destruct(VectorWindow.execute o text 7 lo hi buffer n off last (machine p) (carry p) Scan DI Aligned
+    ltac:(lia) ltac:(lia)) as [s [ws [R [G W]]]].
+ assert (Safe:confined (writable e) ws).
+ { apply Forall_impl with (P:=permits (VectorWindow.interval buffer lo hi));[|exact W].
+   intros w V x X;specialize(V x X);right;left;unfold VectorWindow.interval,span in *;lia. }
+ destruct(mapped_now _ _ _ Loaded _ _ _ A (decode_in pol)) as [Map Sep].
+ destruct(at_segment _ _ _ o text _ off _ _ A At Map Sep R Safe) as [Next Done].
+ eexists;split;[exact Next|eapply transfer;[constructor;eassumption|reflexivity|exact Done| |]].
+ - intros r _;exact (f_equal (fun rs=>rs r) G).
+ - pose proof(steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ R)) as Mem;change (mem s=WriteTrace.replay (mem(machine p)) ws) in Mem.
+   intros x Protect;change (mem s x=mem(machine p) x);rewrite Mem;apply (WriteTrace.frame _ _ W).
+   pose proof(depth pol e);destruct(scratch_stack _ P);unfold retained,address,VectorWindow.interval,disjoint in *;lia.
+Qed.
+
+Lemma arithmetic_call effect depth off last p f :
+ effect_contract e (writable e) (DecoderProduct.area e) (o+off) (o+last) depth effect f ->
+ 0<=depth<=24 -> state off p -> exists q,f p=Some q /\ state last q.
+Proof.
+ intros Call D State;destruct State as [At A DI SP Link Raw].
+ pose proof(KeySquare.depth pol e) as Deep.
+ destruct(Call p At A ltac:(change (sp e-16384+depth<=regs(machine p) 4%nat<=sp e);rewrite SP;lia))
+   as [q [R [End Done G Keep V]]].
+ exists q;split;[exact R|eapply (transfer off last p q);[constructor;eassumption|exact End|exact Done|intros;apply G|]].
+ intros x X;apply Keep;rewrite SP;destruct(scratch_stack _ P);unfold retained,address,disjoint in *;lia.
+Qed.
+
+Lemma carry_checked : contract e (writable e) (DecoderProduct.area e) (o+779) (o+784) 8
+ (DecoderKernel.body DecoderKernel.Carry) (carry_call bias).
+Proof.
+ apply (invoke _ _ _ o text 779 (0xa7e-784) o text 0xadd 0).
+ - apply DecoderProduct.stack,P.
+ - lia.
+ - exact (DecoderProduct.placed pol bias e Loaded DecoderKernel.Carry).
+ - exact (DecoderProduct.placed pol bias e Loaded DecoderKernel.Carry).
+ - lia.
+ - vm_compute;reflexivity.
+ - lia.
+ - vm_compute;reflexivity.
+ - replace (o+(779+5)+(0xa7e-784)) with (o+0xa7e) by ring;exact (DecoderProduct.address_fits pol bias e Loaded DecoderKernel.Carry 0xa7e ltac:(vm_compute;split;discriminate || reflexivity)).
+ - exact (DecoderProduct.address_fits pol bias e Loaded DecoderKernel.Carry 784 ltac:(vm_compute;split;discriminate || reflexivity)).
+ - replace (o+(779+5)+(0xa7e-784)) with (o+0xa7e) by ring;exact (DecoderProduct.calc pol bias e Loaded DecoderKernel.Carry).
+Qed.
+
+Lemma reload p : state 819 p -> exists q,step_at bias 5 p=Some q /\ state 853 q.
+Proof.
+ intros S;destruct S as [At A DI SP Link Raw];destruct(scratch_ok _ P) as [[L H] Al].
+ assert (Aligned:buffer mod 64=0) by (replace 1024 with (16*64) by reflexivity;now rewrite Z.mod_add by lia).
+ assert (Bytes:linked text (AlignedRows.route false 819 0 7 0 5)) by (repeat constructor;vm_compute;discriminate || reflexivity).
+ destruct(AlignedRows.loads o _ 5 819 0 7 0 buffer (machine p) (carry p) Bytes ltac:(lia) Aligned ltac:(unfold fits64;lia))
+    as [s [R [G [M _]]]].
+ destruct(mapped_now _ _ _ Loaded _ _ _ A (decode_in pol)) as [Map Sep].
+ destruct(at_segment _ _ _ o text _ 819 _ _ A At Map Sep R (Forall_nil _)) as [Next Done].
+ eexists;split;[exact Next|eapply transfer;[constructor;eassumption|reflexivity|exact Done|intros r _;exact (f_equal (fun rs=>rs r) G)|intros x _;exact (f_equal (fun m=>m x) M)]].
+Qed.
+
+Definition operand_address:list line:=[(853,7%nat,LeaG 8 (Address 7 None 640))].
+Lemma pointer p : state 853 p -> exists q,step_at bias 1 p=Some q /\ state 860 q /\ regs(machine q) 8%nat=buffer+640.
+Proof.
+ intros S;destruct S as [At A DI SP Link Raw];destruct(scratch_ok _ P) as [[L H] Al].
+ assert (B:linked text operand_address) by (repeat constructor;vm_compute;discriminate || reflexivity).
+ set (s:=set (machine p) 8 (buffer+640)).
+ assert (R:run 1 (ScalarBytes.fetch o text) (State (Running 853) (machine p) (carry p))=Some(State (Running 860) s (carry p),[])).
+ { apply (checked _ _ _ B);cbn [operand_address follow loc cf cpu_state step effective option_map];rewrite DI,Z.add_0_r,word_fits by (unfold word64;lia);reflexivity. }
+ destruct(mapped_now _ _ _ Loaded _ _ _ A (decode_in pol)) as [Map Sep].
+ destruct(at_segment _ _ _ o text _ 853 _ _ A At Map Sep R (Forall_nil _)) as [Next Done].
+ eexists;split;[exact Next|split;[|reflexivity]].
+ eapply (transfer 853 860 p);[now constructor|reflexivity|exact Done| |intros x X;reflexivity].
+ intros r [E|[E|E]];subst r;reflexivity.
+Qed.
+
+Lemma times p : state 860 p -> regs(machine p) 8%nat=buffer+640 ->
+ exists q,DecoderProduct.multiply_call bias p=Some q /\ state 865 q.
+Proof.
+ intros S Ptr;destruct S as [At A DI SP Link Raw].
+ set (s:=push (machine p) (o+865));set (args:=DecoderProduct.arguments s).
+ assert (R8:regs s 8%nat=buffer+640) by exact Ptr.
+ assert (Need:DecoderProduct.readable args s).
+ { destruct(scratch_ok _ P) as [[L H] Al];unfold DecoderProduct.readable;rewrite R8.
+   split;[replace (buffer+640) with (scratch e+26*64) by ring;now rewrite Z.mod_add by lia|
+          split;[unfold fits64;lia|reflexivity]]. }
+ pose proof(depth pol e) as Deep.
+ destruct(DecoderProduct.call_at pol bias e 860 args P Loaded ltac:(lia) ltac:(lia) ltac:(vm_compute;reflexivity)
+   p Need At A ltac:(change (sp e-16384+24<=regs(machine p) 4%nat<=sp e);rewrite SP;lia))
+   as [q [R [End Done G Keep Result]]].
+ exists q;split;[exact R|eapply (transfer 860 865 p q);[now constructor|exact End|exact Done|intros;apply G|]].
+ intros x X;apply Keep;rewrite SP;destruct(scratch_stack _ P);unfold retained,address,disjoint in *;lia.
+Qed.
+
+Lemma back p : state 900 p -> exists q,step_at bias 1 p=Some q /\ finished pol bias e q.
+Proof.
+ intros [At A DI SP Link Raw];pose proof(depth pol e) as Deep;destruct(Return.stack_ok _ P) as [[L H] _].
+ assert (Fits:word64(o+73)) by exact (DecoderProduct.address_fits pol bias e Loaded DecoderKernel.Carry 73
+    ltac:(vm_compute;split;discriminate || reflexivity)).
+ assert (Ret:ScalarBytes.decode (skipn (Z.to_nat 900) text)=Some(1%nat,Ret)) by (vm_compute;reflexivity).
+ set (s:=LinkedCalls.returning (machine p)).
+ assert (R:run 1 (ScalarBytes.fetch o text) (State (Running 900) (machine p) (carry p))=
+     Some(State (Returned (o+73)) s (carry p),[])).
+ { cbn [run ScalarBytes.fetch loc cf cpu_state];rewrite (proj2(Z.ltb_ge 900 0) ltac:(lia)),Ret.
+   change (Some(State (Returned (word(read_word (mem(machine p)) (word(regs(machine p) 4%nat))))) s (carry p),@nil store)=
+       Some(State (Returned (o+73)) s (carry p),@nil store)).
+   rewrite SP,(word_fits st ltac:(unfold word64;lia)),Link,(word_fits _ Fits),(word_fits _ Fits);reflexivity. }
+ destruct(mapped_now _ _ _ Loaded _ _ _ A (decode_in pol)) as [Map Sep].
+ destruct(at_segment _ _ _ o text _ 900 _ _ A At Map Sep R (Forall_nil _)) as [Next Done].
+ eexists;split;[exact Next|split;[reflexivity|split;[exact Done|split]]].
+ - change (word(regs(machine p) 4%nat+8)=st+8);rewrite SP;apply word_fits;unfold word64;lia.
+ - split;[exact DI|exact Raw].
+Qed.
+
+Theorem to_caller p : squared pol bias e p -> exists q,finish_setup bias p=Some q /\ finished pol bias e q.
+Proof.
+ intro Square;pose proof(paper _ _ Square eq_refl) as Start.
+ destruct(window 509 779 43 0 320 p ltac:(vm_compute;reflexivity) ltac:(lia) ltac:(lia) Start) as [a [Scale A]].
+ destruct(arithmetic_call _ 8 779 784 a _ carry_checked ltac:(lia) A) as [b [Carry B]].
+ destruct(window 784 819 5 640 960 b ltac:(vm_compute;reflexivity) ltac:(lia) ltac:(lia) B) as [c [Save C]].
+ destruct(reload _ C) as [d [Load D]];destruct(pointer _ D) as [f [Ptr [F Arg]]].
+ destruct(times _ F Arg) as [g [Mul G]].
+ destruct(window 865 900 5 960 1280 g ltac:(vm_compute;reflexivity) ltac:(lia) ltac:(lia) G) as [h [UV H]].
+ destruct(back _ H) as [q [End Q]].
+ exists q;split;[unfold finish_setup,then_run;rewrite Scale;cbn [bind];rewrite Carry;cbn [bind];rewrite Save;cbn [bind];
+   rewrite Load;cbn [bind];rewrite Ptr;cbn [bind];rewrite Mul;cbn [bind];rewrite UV;exact End|exact Q].
+Qed.
+End Proof.
+
+Record checkpoints:=Checkpoints { after_square:cursor; in_decoder:cursor; masks:MaskTransfer.bank }.
+Definition observe bias p incoming:=bind (KeySquare.from_key bias p incoming) (fun '(sq,k)=>
+ option_map (fun q=>Checkpoints sq q k) (finish_setup bias sq)).
+Definition post pol bias e r:=squared pol bias e (after_square r) /\ finished pol bias e (in_decoder r).
+Theorem from_decoder pol bias e p incoming : placement e -> loaded pol bias (mem e) (writable e) ->
+ (bias+DecoderFrame.origin) mod 64=0 -> entry pol bias e p -> exists r,observe bias p incoming=Some r /\ post pol bias e r.
+Proof.
+ intros P M Al E;destruct(KeySquare.from_decoder _ _ _ _ incoming P M Al E) as [sq [k [Trace Value]]].
+ destruct(to_caller _ _ _ P M _ Value) as [q [Run Back]].
+ exists (Checkpoints sq q k);split;[unfold observe;rewrite Trace;cbn [bind];now rewrite Run|exact (conj Value Back)].
+Qed.
