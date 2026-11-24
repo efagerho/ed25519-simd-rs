@@ -52,6 +52,9 @@ def check(elf, audit, work):
             (work / path.name).symlink_to(path)
     dest = work / NS
     shutil.copytree(audit / NS, dest)
+    shutil.copyfile(Path(__file__).with_name("tests") / "RejectedBatch.v", dest / "RejectedBatch.v")
+    compile_module(work, FLAGS, NS, "RejectedBatch")
+    print("Both policy entries returned a confined rejection on the padded single-row control", flush=True)
     for description, label, old, new in (*CASES, redirected(elf)):
         damaged = work / "mutated.elf"
         mutate(elf, damaged, ENTRIES[label], old, new)
