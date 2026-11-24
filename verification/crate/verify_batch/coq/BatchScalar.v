@@ -23,11 +23,23 @@ Definition scalar_call bias ks p :=
    Some(Cursor back t (carry p) (log p++writes))
  else None else None.
 
-Definition observe pol bias entry text e c ks :=
+Definition scalar_entry pol bias entry text e c :=
  bind (StageEntry.observe entry text e c) (fun r=>
  let p:=LinkedRun.finish entry (LinkedRun.initial entry e c) r in
- bind (via_strict pol bias p) (fun common_entry=>
- bind (to_scalar bias common_entry) (scalar_call bias ks))).
+ bind (via_strict pol bias p) (to_scalar bias)).
+Definition observe pol bias entry text e c ks :=
+ bind (scalar_entry pol bias entry text e c) (scalar_call bias ks).
+
+(* The scalar model indexes its mask bits by lane, then register. The
+   decoder takes the architectural opmask register first. Its initial bank
+   is the one produced by the scalar compare and recoding instructions. *)
+Definition outgoing_masks bias s incoming k j :=
+ MaskedWords.mask (SignatureScalar.Program.lanes OrderBytes.address bias s incoming j) k.
+Definition masks_after pol bias entry text e c incoming :=
+ option_map (fun b=>outgoing_masks bias (machine b) incoming) (scalar_entry pol bias entry text e c).
+Lemma has_masks pol bias entry text e c incoming p : observe pol bias entry text e c incoming=Some p ->
+ exists bank,masks_after pol bias entry text e c incoming=Some bank.
+Proof. unfold observe,masks_after;destruct(scalar_entry _ _ _ _ _ _);[intro;eexists;reflexivity|discriminate]. Qed.
 
 Definition common_top pol e := Rows.frame e-8-(match pol with Zip215=>0 | Dalek=>16 end).
 
@@ -265,7 +277,7 @@ Proof.
  destruct(reach_common pol bias (bias+pc) e p Place Loaded Acc Entry (conj SP (conj DI (conj SI (conj (proj1 Output) (conj (proj2 Output) View))))) Ret) as [q [Q [Acct [IP [Args Slots]]]]].
  destruct(through_scalar pol bias (bias+pc) e q ks Place Loaded Acct IP Args Slots) as [f [S Post]].
  exists f;split;[|exact Post].
- unfold observe,StageEntry.observe;rewrite Budget,Run;cbn [bind];fold p;rewrite Q;exact S.
+ unfold observe,scalar_entry,StageEntry.observe;rewrite Budget,Run;cbn [bind];fold p;rewrite Q;cbn [bind];exact S.
 Qed.
 
 (* Store replay depends only on the execution. Separation is needed for the
@@ -273,7 +285,7 @@ Qed.
 Lemma observed_memory pol bias entry text e c masks p :
  observe pol bias entry text e c masks=Some p -> replays e p.
 Proof.
- unfold observe,StageEntry.observe. destruct (StageEntry.budget entry text e c) as [n|];[|discriminate].
+ unfold observe,scalar_entry,StageEntry.observe. destruct (StageEntry.budget entry text e c) as [n|];[|discriminate].
  destruct (run n _ _) as [[stage ws]|] eqn:Prefix;[|discriminate];cbn [bind].
  set (start:=LinkedRun.finish entry (LinkedRun.initial entry e c) (stage,ws)).
  assert (P:replays e start).

@@ -89,7 +89,8 @@ Definition first_chunk pol bias pc text e carry masks :=
                 (regs (LinkedRun.machine stop) 0%nat mod 2^32<>0 ->
                  exists decoder, BatchDecode.observe pol bias pc text e carry masks=Some decoder /\
                                  BatchDecode.entry pol bias e decoder /\
-                                 forall incoming,exists r,PairedSetup.observe_pair bias decoder incoming=Some r /\
+                                 exists bank r,BatchScalar.masks_after pol bias (bias+pc) text e carry masks=Some bank /\
+                                   PairedSetup.observe_pair bias decoder bank=Some r /\
                                    PairedSetup.paired pol bias e r) /\
                 (regs (LinkedRun.machine stop) 0%nat mod 2^32=0 ->
                  (forall j,(j<8)%nat -> (j<count e)%nat -> ~signature_accepts pol (read_input (mem e) (regs e 7%nat) j)) /\
@@ -103,7 +104,8 @@ Definition continuing_prefix pol bias pc text e carry masks stop :=
    LinkedRun.bind (RejectExecution.scalar_rejection pol bias pc text e carry masks)
      (fun r=>match r with RejectExecution.NextChunk p=>Some p | _=>None end)
  else LinkedRun.bind (BatchDecode.observe pol bias pc text e carry masks)
-     (fun d=>option_map (fun r=>SetupTail.in_decoder (PairedSetup.signature_r r)) (PairedSetup.observe_pair bias d masks)).
+     (fun d=>LinkedRun.bind (BatchScalar.masks_after pol bias (bias+pc) text e carry masks) (fun bank=>
+       option_map (fun r=>SetupTail.in_decoder (PairedSetup.signature_r r)) (PairedSetup.observe_pair bias d bank))).
 
 (* A single rejected chunk reaches the outer RET on the same store log. *)
 Inductive observation pol bias pc text e carry masks : list WriteTrace.store -> Z -> cpu -> Prop :=
