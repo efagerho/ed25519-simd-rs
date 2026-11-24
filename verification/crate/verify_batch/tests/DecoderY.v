@@ -20,7 +20,7 @@ Definition initial:=CPU (fun r=>if Nat.eqb r 7 then scratch+1024 else scratch) s
 Definition trial:=let p:=Cursor (DecoderBytes.address+355) initial None nil in
  match unpack 0 p (fun _ _=>true) with None=>false | Some (y,_)=>match preserve 0 y with
  | None=>false | Some q=>let s:=machine q in (ip q=?DecoderBytes.address+497) && (regs s 0%nat=?254) &&
- (Nat.eqb (length(log q)) 5) && forallb (fun j=>Radix51.limbs (digits initial s j)=? key j mod 2^255) (seq 0 8)
+ (Nat.eqb (length(log q)) 5) && forallb (fun j=>Radix51.limbs (digits false initial s j)=? key j mod 2^255) (seq 0 8)
  end end.
 Example signs_and_noncanonical_y : trial=true.
 Proof. lazy;reflexivity. Qed.
