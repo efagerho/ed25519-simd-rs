@@ -129,21 +129,24 @@ From Ed25519Simd.VerifyBatch Require DecoderWords.
 Definition transpose bias := segment (bias+DecoderFrame.origin) DecoderFrame.code 16.
 Definition key_words e s := forall j w,(j<8)%nat -> (w<4)%nat ->
  vectors s j (DecoderWords.result_reg w)=read_word (mem e) (encoding_ptr e j false+8*Z.of_nat w).
-Definition transposed bias e p := ip p=bias+DecoderFrame.origin+355 /\ accounted e (writable e) p /\ key_words e (machine p).
+Definition transposed bias e p := ip p=bias+DecoderFrame.origin+355 /\ accounted e (writable e) p /\ key_words e (machine p) /\
+ (forall j,vectors(machine p) j 29%nat=2^51-1).
 
 Theorem from_setup pol bias e p : placement e -> loaded pol bias (mem e) (writable e) ->
  (bias+DecoderFrame.origin) mod 64=0 -> setup pol bias e p ->
  exists q,transpose bias p=Some q /\ transposed bias e q /\
  (log q=log p /\ mem(machine q)=mem(machine p) /\ regs(machine q)=regs(machine p)).
 Proof.
- intros Place Image Al [PC [Acc [_ [_ [_ [_ [SI [_ [_ [_ [Data _]]]]]]]]]]].
+ intros Place Image Al [PC [Acc [_ [_ [_ [_ [SI [_ [_ [_ [Data Constants]]]]]]]]]]].
  set (o:=bias+DecoderFrame.origin) in *.
  destruct(mapped_now _ _ _ Image _ _ _ Acc (decode_in pol)) as [Map Apart].
  destruct(DecoderWords.mapped_indices _ o Al (proj1(symbols _ _ _ _ Image _ _ (decode_in pol))) Map) as [Aligned L].
- destruct (DecoderWords.read_words o (machine p) (carry p) Aligned L) as [v [Run [Same [Regs Words]]]].
+ destruct (DecoderWords.read_words o (machine p) (carry p) Aligned L) as [v [Run [Same [Regs [C29 Words]]]]].
  destruct(at_segment _ _ _ o DecoderFrame.code _ 244 _ _ Acc PC Map Apart Run (Forall_nil _)) as [Next Paid].
  eexists;split;[exact Next|split].
  - split;[reflexivity|split;[exact Paid|]].
+   split.
+   2:{ intros j;cbn [LinkedRun.finish machine cpu_state];rewrite C29;exact (Constants 1%nat j ltac:(lia)). }
    intros j w J W;cbn [LinkedRun.finish machine cpu_state];rewrite Words by assumption.
    rewrite (DecoderWords.contiguous _ _ _ _ SI) by (try assumption;destruct(scratch_ok _ Place) as [[Lo Hi] _];unfold fits64;lia).
    apply PrepareChunk.Staging.read_block;intros k K.
@@ -151,4 +154,47 @@ Proof.
      (PrepareCopies.dest (scratch e) j false+(8*Z.of_nat w+k)) by (unfold PrepareCopies.dest;ring).
    rewrite Data by (try exact J;change (0<=k<8) in K;lia);f_equal;ring.
  - cbn [LinkedRun.finish log machine cpu_state];rewrite app_nil_r;auto.
+Qed.
+
+From Curve25519 Require Radix51.
+From Ed25519Simd.Decode Require Unpack.
+From Ed25519Simd.VerifyBatch Require DecoderUnpack.
+Definition unpack bias p ks := match DecoderUnpack.take_signs p ks with
+ | Some (q,updated)=>option_map (fun r=>(r,updated)) (segment (bias+DecoderFrame.origin) DecoderFrame.code 15 q)
+ | None=>None end.
+Definition original_key e j := little_endian (key_bytes (read_input (mem e) (regs e 7%nat) (TailCopy.row_index e j))).
+Definition unpacked bias e p := ip p=bias+DecoderFrame.origin+462 /\ accounted e (writable e) p /\
+ 0<=regs(machine p) 0%nat<256 /\ forall j,(j<8)%nat -> let y:=vectors(machine p) j in
+ Radix51.split_field y /\ Radix51.limbs y=original_key e j mod 2^255 /\
+ Z.testbit (regs(machine p) 0%nat) (Z.of_nat j)=Z.testbit (original_key e j) 255.
+
+Theorem from_words pol bias e p ks : placement e -> loaded pol bias (mem e) (writable e) ->
+ transposed bias e p -> exists q updated,unpack bias p ks=Some(q,updated) /\ unpacked bias e q /\
+ log q=log p /\ mem(machine q)=mem(machine p).
+Proof.
+ intros Place Image [PC [Acc [Keys Mask]]];set (o:=bias+DecoderFrame.origin) in *.
+ destruct(mapped_now _ _ _ Image _ _ _ Acc (decode_in pol)) as [Map Apart].
+ destruct(DecoderUnpack.signs o p ks PC (proj1(symbols _ _ _ _ Image _ _ (decode_in pol))) Map)
+   as [sg [updated [Signs [At [Log [Mem [Vec [_ [_ [Range Bits]]]]]]]]]].
+ assert (A:accounted e (writable e) sg) by (split;[rewrite Log;apply Acc|intros x;rewrite Mem,Log;apply Acc]).
+ set (src:=fun j=>encoding_ptr e j false).
+ assert (View:forall j w,(j<8)%nat -> (w<4)%nat -> vectors(machine sg) j (DecoderWords.result_reg w)=Unpack.qword (mem e) (src j) w 0%nat).
+ { intros j w J W;rewrite Vec,(Keys _ _ J W);unfold Unpack.qword;rewrite Unpack.transpose_ok by lia;reflexivity. }
+ destruct(DecoderUnpack.limbs o (machine sg) (carry sg) (mem e) src
+   ltac:(intros j J;rewrite Vec,Mask;reflexivity) View) as [v [Run [Regs [Flat Values]]]].
+ destruct(at_segment _ _ _ o DecoderFrame.code _ 365 _ _ A At ltac:(rewrite Mem;exact Map) Apart Run (Forall_nil _)) as [Next Paid].
+ eexists;exists updated;split;[unfold unpack;rewrite Signs;fold o;rewrite Next;reflexivity|split].
+ - split;[reflexivity|split;[exact Paid|]];cbn [LinkedRun.finish machine cpu_state];rewrite Regs;split;[exact Range|].
+   intros j J. pose proof (Ed25519Simd.Decode.Unpack.unpack_correct (mem e) (src j) 0%nat (proj2(proj2(initial_cpu _ Place))) ltac:(lia)) as [Bound [Y Sign]].
+   assert (Encoding:Unpack.encoded (mem e) (src j) 0%nat=original_key e j).
+   { unfold original_key;cbn [read_input key_bytes];rewrite Digest.read_octets by exact (proj2(proj2(initial_cpu _ Place)));unfold Unpack.encoded,src,encoding_ptr;cbn [read_input key_bytes];now rewrite Z.add_0_r. }
+   rewrite Encoding in Y,Sign;split.
+   + intros i I;rewrite Values by assumption;apply Bound,I.
+   + split;[rewrite <-Y;apply Radix51.limbs_ext;intros i I;apply Values;assumption|].
+     rewrite Bits by exact J;rewrite <-Sign;unfold Unpack.sign.
+     change (Z.testbit (vectors(machine p) j (DecoderWords.result_reg 3)) 63=
+             Z.testbit (Unpack.qword (mem e) (src j) 3%nat 0%nat) 63).
+     rewrite <- (View _ 3%nat J ltac:(lia)),Vec;reflexivity.
+ - change (List.app (log sg) nil=log p /\ mem v=mem(machine p)).
+   split;[exact (eq_trans (app_nil_r _) Log)|exact (eq_trans Flat Mem)].
 Qed.

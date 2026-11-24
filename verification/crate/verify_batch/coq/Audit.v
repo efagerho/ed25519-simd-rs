@@ -90,7 +90,9 @@ Definition first_chunk pol bias pc text e carry masks :=
                  exists decoder, BatchDecode.observe pol bias pc text e carry masks=Some decoder /\
                                  BatchDecode.entry pol bias e decoder /\
                                  exists setup,BatchDecode.inner bias decoder=Some setup /\ BatchDecode.setup pol bias e setup /\
-                                 exists words,BatchDecode.transpose bias setup=Some words /\ BatchDecode.transposed bias e words) /\
+                                 exists words,BatchDecode.transpose bias setup=Some words /\ BatchDecode.transposed bias e words /\
+                                 forall incoming,exists limbs updated,BatchDecode.unpack bias words incoming=Some(limbs,updated) /\
+                                   BatchDecode.unpacked bias e limbs) /\
                 (regs (LinkedRun.machine stop) 0%nat mod 2^32=0 ->
                  (forall j,(j<8)%nat -> (j<count e)%nat -> ~signature_accepts pol (read_input (mem e) (regs e 7%nat) j)) /\
                  exists r, RejectExecution.scalar_rejection pol bias pc text e carry masks=Some r /\

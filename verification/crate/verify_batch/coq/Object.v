@@ -155,7 +155,8 @@ Proof.
          destruct(BatchDecode.from_decoder _ _ _ _ P ImageNow Entry) as [s [Inner SetupState]].
          destruct(BatchDecode.from_setup _ _ _ _ P ImageNow (decoder_aligned _ _ _ _ _ Input N) SetupState)
            as [v [Next [Words _]]].
-         exists d;split;[exact Trace|split;[exact Entry|exists s;split;[exact Inner|split;[exact SetupState|exists v;auto]]]]. }
+         exists d;split;[exact Trace|split;[exact Entry|exists s;split;[exact Inner|split;[exact SetupState|exists v;split;[exact Next|split;[exact Words|]]]]]].
+         intros incoming;destruct (BatchDecode.from_words _ _ _ _ incoming P ImageNow Words) as [y [k [Actual [Value _]]]];exists y,k;auto. }
      intros j sig J;destruct (Inputs _ (TailCopy.live_row e j N)) as [Key [Sig Msg]].
      unfold ScalarInputs.encoding_ptr;destruct sig;[|exact Key]. destruct Sig as [[Low High] Away].
      split;[unfold fits64;split;[exact Low|lia]|intros x X;apply Away;lia]. }
