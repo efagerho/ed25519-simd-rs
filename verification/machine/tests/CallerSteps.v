@@ -70,3 +70,28 @@ Example rip_broadcast_requires_rip :
  ScalarBytes.broadcast_reg 0xf2 0x6d=None /\
  ScalarBytes.broadcast_reg 0xd2 0x2d=None.
 Proof. repeat split;reflexivity. Qed.
+
+From Machine Require execution.MaskedResult.
+Module M:=MaskedResult.
+Example predicated_encodings :
+ M.encode 0 (M.Invert 4 4)=[0xc5;0xf8;0x44;0xe4] /\
+ M.encode 0 (M.Exclusive 3 3 4)=[0xc5;0xe4;0x47;0xdc] /\
+ M.encode 0 (M.FromGpr 4 9)=[0xc4;0xc1;0x78;0x92;0xe1] /\
+ M.encode 0 (M.TestBroadcast 3 20 1710)=[0x62;0xf2;0xdd;0x50;0x27;0x1d;0xa4;6;0;0] /\
+ M.encode 0 (M.LoadRow 0 4 7 960)=[0x62;0xf1;0xfd;0x4c;0x6f;0x47;0x0f] /\
+ M.encode 0 (M.Subtract 0 3 20 0)=[0x62;0xf1;0xdd;0x43;0xfb;0xc0].
+Proof. repeat split;reflexivity. Qed.
+
+Example masked_load_alternating :
+ let s:=CPU (fun _=>0) (fun _ _=>99) None (fun a=>if a mod 8=?0 then a/8 else 0) in
+ let ks:=fun (_ j:nat)=>Nat.odd j in
+ match M.step 0 s ks (M.LoadRow 0 4 7 0) with
+ | Some(t,_)=>vectors t 0%nat 0%nat=99 /\ vectors t 1%nat 0%nat=1 /\ vectors t 2%nat 0%nat=99
+ | _=>False end.
+Proof. repeat split;reflexivity. Qed.
+
+Example predicate_word_width :
+ match M.step 0 entry (fun _ _=>false) (M.Invert 4 4) with
+ | Some(_,mask)=>mask 4%nat 15%nat=true /\ mask 4%nat 16%nat=false
+ | _=>False end.
+Proof. split;reflexivity. Qed.
