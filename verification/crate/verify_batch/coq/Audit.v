@@ -113,8 +113,9 @@ Record batch_contract pol pc text : Prop := {
  machine_scalar_return : forall bias e carry masks, admissible pol bias pc text e -> (0<count e)%nat ->
    exists stop, BatchScalar.observe pol bias (bias+pc) text e carry masks=Some stop /\
                 BatchScalar.post pol bias (bias+pc) e stop /\
-                ((8<=count e)%nat -> ScalarInputs.recoded e (LinkedRun.machine stop)) /\
+                ScalarInputs.recoded e (LinkedRun.machine stop) /\
                 (regs (LinkedRun.machine stop) 0%nat mod 2^32=0 ->
+                 (forall j,(j<8)%nat -> (j<count e)%nat -> ~signature_accepts pol (read_input (mem e) (regs e 7%nat) j)) /\
                  exists r, RejectExecution.scalar_rejection pol bias pc text e carry masks=Some r /\
                            RejectExecution.post (bias+pc) e r);
  machine_empty : forall bias e, admissible pol bias pc text e -> count e=0%nat ->

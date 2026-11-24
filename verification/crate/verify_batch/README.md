@@ -70,10 +70,11 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    vector stores, eight output-index stores and the call's return-address push.
    The child enters with the linked target PC, its return word at RSP and the
    pointer matrix and output metadata addresses in RSI and RCX. All 256 matrix
-   bytes match the corresponding fields at the start of the transpose. When
-   the first chunk is full, they also match the original descriptor bytes in
-   Rust's argument array. On that full chunk the scalar return mask tests each
-   original S against L. Valid lanes have 64 signed digits in −8 through 7
+   bytes match the corresponding fields at the start of the transpose. Each matrix byte also matches its source in
+   Rust's original descriptor array. For a short first chunk, the copy loop
+   repeats all 40 bytes of the last live descriptor in each padding lane.
+   The scalar return mask tests the corresponding original S against L in
+   every lane. Valid lanes have 64 signed digits in −8 through 7
    reconstructing S, and invalid lanes have 64 zero digits. The ZIP-215 path enters common preparation directly.
    The Dalek path first pushes RBX and calls common preparation. Both prepare
    the eight scalar pointers in the actual stack and pass scratch + 512 as
@@ -93,7 +94,7 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    push/pop pairs and scatter to rule out another chunk.
    [Scalar input and digit correspondence](coq/ScalarInputs.v) · [Rejection result](coq/RejectExecution.v) · [Wrapper exit](coq/RejectFinish.v) · [Rejection scatter](coq/RejectDispatch.v) · [Rejection returns](coq/PrepareUnwind.v) · [Nested scalar call](coq/BatchScalar.v) · [Preparation prologues](coq/PrepareNative.v) ·
    [Empty return](coq/EntryWrites.v) · [Nonempty entry](coq/StageEntry.v) ·
-   [Tail loop](coq/TailWrites.v) · [Preparation handoff](coq/StageWrites.v)
+   [Tail copies](coq/TailCopy.v) · [Tail write bounds](coq/TailWrites.v) · [Preparation handoff](coq/StageWrites.v)
 5. **Nested writes.** The caller bounds cover SHA state and digest stores,
    signature digits, round staging, the key-table output and both policy
    scorers' modeled stack writes. Chunk preparation writes its eight scalar

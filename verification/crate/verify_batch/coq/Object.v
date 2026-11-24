@@ -139,11 +139,12 @@ Proof.
  - exact Live.
  - intros bias e c masks Input N.
    destruct (scalar_from_entry _ _ _ _ _ c masks Input N (Live _ _ Input N)) as [stop [Run Post]].
-   exists stop;split;[exact Run|split;[exact Post|]]. split.
-   { intro Full;destruct Post as [_ [_ [_ [_ [_ Recoded]]]]]. apply Recoded;[exact Full|].
+   exists stop;split;[exact Run|split;[exact Post|]].
+   assert (Digits:ScalarInputs.recoded e (LinkedRun.machine stop)).
+   {destruct Post as [_ [_ [_ [_ [_ Recoded]]]]]. apply Recoded;[exact N|].
      destruct (batch_inputs _ _ _ _ _ Input N) as [_ [[_ Inputs] _]].
      intros j J;exact (proj1 (proj2 (Inputs j J))). }
-   intro Zero.
+   split;[exact Digits|]. intro Zero;split;[exact (ScalarInputs.zero_rejects pol e _ Digits Zero)|].
    destruct (batch_inputs _ _ _ _ _ Input N) as [Place [_ [[_ Apart] _]]].
    pose proof (callee_image _ _ _ _ _ Input N) as Loaded.
    destruct (PrepareUnwind.rejected _ _ _ _ _ Place Loaded Post Zero) as [caller [Unwind End]].
