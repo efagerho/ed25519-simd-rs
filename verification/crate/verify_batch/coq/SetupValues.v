@@ -6,7 +6,7 @@ From Curve25519 Require Import Field Radix51.
 From Ed25519Simd.Decode Require Import Limbs Scale.
 From Ed25519Simd.Decode Require Power Decode Kernels.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode DecoderSave KeySquare SetupTail NativeScale.
-From Ed25519Simd.VerifyBatch Require DecoderProduct DecoderKernel DecoderFrame NativeWords.
+From Ed25519Simd.VerifyBatch Require DecoderProduct DecoderKernel DecoderFrame NativeWords FieldStores.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition carry_code:list Instructions.instruction:=
@@ -36,20 +36,11 @@ Lemma spill off delta p q :
  AlignedRows.saved (machine p) (machine q) (a+delta) 0 5 /\
  preserved (fun x=>~(a+delta<=x<a+delta+320)) (mem(machine p)) (mem(machine q)).
 Proof.
- intros Route D Dal S W Next;destruct(scratch_ok _ P) as [[L H] Al].
- assert (A:a mod 64=0) by (apply point_aligned,Al).
- destruct(AlignedRows.stores o _ 5 off 0 7 delta (a+delta) (machine p) (LinkedRun.carry p) Route
-   ltac:(rewrite (dest _ _ _ _ _ _ S);reflexivity) ltac:(rewrite Z.add_mod,A,Dal by lia;reflexivity)
-   ltac:(unfold fits64,point,point_offset;destruct signature;change (Z.of_nat 5) with 5;lia)
-   ltac:(intros i j I J;apply W,J)) as [t [ws [R [_ [_ [_ [Safe Rows]]]]]]].
- assert (Bound:confined (writable e) ws).
- { apply Forall_impl with (P:=permits (range (a+delta) 5));[|exact Safe].
-   intros w V x X;specialize(V x X);right;left;unfold span,range,point,point_offset in *;destruct signature;change (Z.of_nat 5) with 5 in V;lia. }
- pose proof(SetupTail.paid _ _ _ _ _ _ S) as Acc;destruct(mapped_now _ _ _ Image _ _ _ Acc (decode_in pol)) as [Map Sep].
- destruct(at_segment _ _ _ o text 5 off _ _ Acc (position _ _ _ _ _ _ S) Map Sep R Bound) as [At _].
- unfold step_at in Next;rewrite At in Next;injection Next as <-;split;[exact Rows|].
- pose proof(steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ R)) as Mem;change (mem t=WriteTrace.replay (mem(machine p)) ws) in Mem.
- intros x X;change (mem t x=mem(machine p) x);rewrite Mem;apply (WriteTrace.frame _ _ Safe),X.
+ intros Route D Dal S W Next.
+ destruct(FieldStores.execute signature pol bias e off delta p P Image Route D Dal
+   (position _ _ _ _ _ _ S) (paid _ _ _ _ _ _ S) W (dest _ _ _ _ _ _ S)) as [out [Exec Proof]].
+ unfold step_at in Next;rewrite Exec in Next;injection Next as <-.
+ exact (conj (FieldStores.stored _ _ _ _ _ _ _ Proof) (FieldStores.outside _ _ _ _ _ _ _ Proof)).
 Qed.
 
 Lemma keep_row s t ptr protect :
