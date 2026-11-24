@@ -102,8 +102,10 @@ Proof.
  - apply K;[exact R|exact Regs].
 Qed.
 
+Definition output_registers e s := regs s 13%nat=regs e 6%nat /\ regs s 14%nat=output e.
+Definition context_registers e s := regs s 15%nat=scratch e /\ output_registers e s.
 Definition bindings e s := regs s 3%nat=regs e 7%nat /\ regs s 12%nat=regs e 6%nat /\
- regs s 15%nat=regs e 1%nat.
+ context_registers e s.
 Definition prepared e t := loc t=Running (offset Choose) /\ regs (cpu_state t) 4%nat=Rows.frame e /\ bindings e (cpu_state t).
 
 Lemma before_spills ip text e carry :
@@ -132,7 +134,7 @@ Proof.
    end.
  do 5 forward push_next. forward allocate_next. do 5 forward move_next.
  apply finish;split;[reflexivity|]. split;[unfold Rows.frame;fold (sp e);cbn [cpu_state];lia|].
- unfold bindings;cbn [cpu_state];repeat split;
+ unfold bindings,context_registers,output_registers,scratch,output;cbn [cpu_state];repeat split;
  match goal with G:registers ?s ?rs |-regs ?s ?r=_=> exact (G r ltac:(discriminate)) end.
 Qed.
 
@@ -148,7 +150,7 @@ Proof.
    assert (G:registers s (regs s)) by (intros r _;reflexivity).
    do 2 (eapply spill_next;[lia|eassumption|exact P|eassumption|unfold frame_word;lia|eassumption|intros ? ? ? ?]).
    apply finish;split;[reflexivity|];split;[cbn [cpu_state];unfold Rows.frame;fold (sp e);lia|].
-   unfold bindings in *;destruct B as [BX [N15 T]];cbn [cpu_state];repeat split;
+   unfold bindings,context_registers,output_registers in *;destruct B as [BX [N [Scratch [Count Out]]]];cbn [cpu_state];repeat split;
    match goal with G:registers ?u (regs s) |-regs ?u ?r=_ => rewrite (G r ltac:(discriminate));assumption end. }
  destruct End as [last [tail [Remainder [Conf Done]]]].
  exists last,(head++tail);split;[exact (MappedFetch.run_append _ 13 _ _ _ Run 2 _ _ Remainder)|].
