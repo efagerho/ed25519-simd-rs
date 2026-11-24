@@ -61,7 +61,8 @@ Definition entry pol bias e p:=let st:=link_slot pol e in
  Z.testbit (regs(machine p) 14%nat) (Z.of_nat j)=Z.testbit (original_encoding true e j) 255.
 
 Theorem from_setup pol bias e p : Return.placement e -> loaded pol bias (mem e) (writable e) ->
- finished true pol bias e p -> exists q,enter bias p=Some q /\ entry pol bias e q.
+ finished true pol bias e p -> exists q,enter bias p=Some q /\ entry pol bias e q /\
+ preserved (fun x=>~span (link_slot pol e) 8 x) (mem(machine p)) (mem(machine q)).
 Proof.
  intros P I [At [Acc [SP [DI [Raw [Env C]]]]]];destruct Env as [BX BP SI N Back Data Key].
  set (s:=machine p) in *;set (st:=link_slot pol e) in *;set (o:=base bias) in *.
@@ -88,7 +89,10 @@ Proof.
  { change (read_word (store_word (mem s) (word(regs s 4%nat-8)) (return_pc bias)) st=return_pc bias).
    rewrite Top;apply read_word_exact;[exact (DecoderProduct.address_fits pol bias e I DecoderKernel.Carry 126 ltac:(vm_compute;split;discriminate || reflexivity))|
     intros k K;unfold store_word;rewrite write_at by lia;reflexivity]. }
- eexists;split;[exact Next|unfold entry;cbn [LinkedRun.finish machine ip absolute loc cpu_state];fold st o].
+ eexists;split;[exact Next|split].
+ 2:{ intros x X;change (store_word (mem s) (word(regs s 4%nat-8)) (return_pc bias) x=mem s x).
+     rewrite Top;apply write_outside,X. }
+ unfold entry;cbn [LinkedRun.finish machine ip absolute loc cpu_state];fold st o.
  split;[ring|split;[exact Paid|]].
  assert (G:regs child=put (regs args) 4 st) by
    (unfold child,args;cbn [push push_words set set_regs with_words regs put Nat.eqb];now rewrite Top).
@@ -108,7 +112,7 @@ Theorem from_decoder pol bias e p bank : Return.placement e -> loaded pol bias (
  (bias+DecoderFrame.origin) mod 64=0 -> BatchDecode.entry pol bias e p -> exists r,observe bias p bank=Some r /\ post pol bias e r.
 Proof.
  intros P I Al Start;destruct(PairedSetup.from_decoder _ _ _ _ bank P I Al Start) as [r [Setup Points]].
- destruct(from_setup _ _ _ _ P I (proj2(proj2 Points))) as [q [Call Args]].
+ destruct(from_setup _ _ _ _ P I (proj2(proj2 Points))) as [q [Call [Args _]]].
  exists (Trace r q);split;[unfold observe;rewrite Setup;cbn [bind];now rewrite Call|
  exact (conj Points (conj Args (placement_ok _ _ _ P I)))].
 Qed.

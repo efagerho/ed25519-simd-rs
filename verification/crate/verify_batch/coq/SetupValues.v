@@ -73,7 +73,7 @@ Proof.
 Qed.
 
 Theorem returned_fields p q : squared signature pol bias e p -> well_formed(machine p) ->
- finish_setup bias p=Some q -> fields p q /\ preserved (other_scratch signature e) (mem(machine p)) (mem(machine q)).
+ finish_setup bias p=Some q -> fields p q /\ preserved (setup_untouched signature pol e) (mem(machine p)) (mem(machine q)).
 Proof.
  intros S W End;destruct(trace_tail _ _ _ _ P Image _ S) as [final [Tail [_ Path]]].
  rewrite End in Tail;injection Tail as <-.
@@ -91,8 +91,7 @@ Proof.
  pose proof(stack _ _ _ _ _ _ A) as ASP;pose proof(stack _ _ _ _ _ _ F) as FSP.
  rewrite ASP in CMem;rewrite FSP in MMem.
  split.
- 2:{ intros x [Scratch Outside];unfold span in Scratch,Outside.
-     pose proof(depth pol e) as Depth;destruct(scratch_stack _ P) as [Apart|Apart];unfold disjoint in *;
+ 2:{ intros x [Stack Outside];change (~(link_slot pol e-24<=x<link_slot pol e)) in Stack;unfold span in Outside;
      rewrite RM,KeepUV,MMem,PM,LM,KeepU,CMem,ScaleMem by lia;reflexivity. }
  assert (InA:forall x,a<=x<a+320 -> ~(link_slot pol e-8<=x<link_slot pol e)).
  { intros x X;apply (off_stack 0 8 x);lia. }
@@ -141,7 +140,7 @@ Qed.
 
 Theorem setup_fields p bank r : (bias+DecoderFrame.origin) mod 64=0 -> setup signature pol bias e p ->
  well_formed(machine p) -> input_setup bias p bank=Some r ->
- fields (after_square r) (in_decoder r) /\ preserved (other_scratch signature e) (mem(machine p)) (mem(machine(in_decoder r))).
+ fields (after_square r) (in_decoder r) /\ preserved (setup_untouched signature pol e) (mem(machine p)) (mem(machine(in_decoder r))).
 Proof.
  intros Al S W;destruct(KeySquare.from_setup signature pol bias e p bank P Image Al S) as [sq [k [Run [Value Keep]]]].
  unfold input_setup;rewrite Run;cbn [bind];destruct(finish_setup bias sq) as [q|] eqn:T;[|discriminate].

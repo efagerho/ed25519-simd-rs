@@ -14,7 +14,8 @@ Proof. repeat constructor;vm_compute;discriminate || reflexivity. Qed.
 Definition next_input bias:=segment (base bias) text 6.
 
 Lemma switch pol bias e p : placement e -> loaded pol bias (mem e) (writable e) ->
- finished false pol bias e p -> exists q,next_input bias p=Some q /\ setup true pol bias e q.
+ finished false pol bias e p -> exists q,next_input bias p=Some q /\ setup true pol bias e q /\
+ preserved (fun x=>~span (link_slot pol e) 8 x) (mem(machine p)) (mem(machine q)).
 Proof.
  intros P Image [PC [A [SP [DI [Raw [Env C]]]]]].
  destruct Env as [BX BP SI N Back Data Signs].
@@ -54,7 +55,9 @@ Proof.
    rewrite Memory,word_fits by exact Fits;apply read_word_exact;[exact Fits|intros k K;unfold store_word;rewrite write_at by lia;reflexivity]. }
  assert (Keep:preserved (caller_bytes pol e) (mem s) (mem child)).
  { intros x X;rewrite Memory;apply write_outside;unfold caller_bytes in X;destruct(scratch_stack _ P);unfold disjoint in *;lia. }
- eexists;split;[exact Next|]. unfold setup;cbn [LinkedRun.finish machine ip loc cpu_state absolute];fold slot o.
+ eexists;split;[exact Next|split].
+ 2:{ intros x X;change (mem child x=mem s x);rewrite Memory;apply write_outside,X. }
+ unfold setup;cbn [LinkedRun.finish machine ip loc cpu_state absolute];fold slot o.
  split;[reflexivity|split;[exact Paid|]]. rewrite Regs;cbn [put Nat.eqb].
  split;[reflexivity|split;[lia|split;[exact BX|split;[reflexivity|split;[reflexivity|split;[exact N|split;[exact Ret|]]]]]]].
  split;[rewrite <-Back;apply preserved_read with (outside:=caller_bytes pol e);[exact Keep|intros k K;right;lia]|].
@@ -71,7 +74,7 @@ Theorem from_decoder pol bias e p bank : placement e -> loaded pol bias (mem e) 
  (bias+DecoderFrame.origin) mod 64=0 -> entry pol bias e p -> exists r,observe_pair bias p bank=Some r /\ paired pol bias e r.
 Proof.
  intros P I Al Entry;destruct(SetupTail.from_decoder _ _ _ _ bank P I Al Entry) as [a [A Done]].
- destruct(switch _ _ _ _ P I (proj2 Done)) as [next [N Start]].
+ destruct(switch _ _ _ _ P I (proj2 Done)) as [next [N [Start _]]].
  destruct(SetupTail.from_setup true _ _ _ _ (masks a) P I Al Start) as [b [B Result]].
  exists (Chunks a b);split;[unfold observe_pair;rewrite A;cbn [bind];rewrite N;cbn [bind];now rewrite B|exact (conj Done Result)].
 Qed.

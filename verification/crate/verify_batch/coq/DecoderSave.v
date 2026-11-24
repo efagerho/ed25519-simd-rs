@@ -7,8 +7,9 @@ From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScala
 From Ed25519Simd.VerifyBatch Require DecoderFrame.
 Local Open Scope Z_scope.
 
-Definition other_scratch signature e x :=
- span (scratch e) 25344 x /\ ~span (point e signature) 1280 x.
+Definition setup_untouched signature pol e x :=
+ let slot:=DecoderFrame.top (common_top pol e-112)-8 in
+ ~(slot-24<=x<slot) /\ ~span (point e signature) 1280 x.
 Definition address signature e := point e signature+320.
 Definition preserve bias := segment (bias+DecoderFrame.origin) DecoderFrame.code 5.
 Definition digits signature e s j i := read_word (mem s) (address signature e+64*Z.of_nat i+8*Z.of_nat j).
@@ -63,7 +64,7 @@ Theorem from_setup signature pol bias e p incoming : placement e -> loaded pol b
  exists q updated,save_input bias p incoming=Some(q,updated) /\ saved signature bias e q /\
  frame signature pol bias e (machine q) /\
  (forall j i,(j<8)%nat -> (i<5)%nat -> digits signature e (machine q) j i=vectors(machine q) j i) /\
- preserved (other_scratch signature e) (mem(machine p)) (mem(machine q)).
+ preserved (setup_untouched signature pol e) (mem(machine p)) (mem(machine q)).
 Proof.
  intros P M Al Setup.
  destruct(BatchDecode.from_setup signature _ _ _ _ P M Al Setup) as [v [Next [Words [_ [WordsMem G]]]]].
