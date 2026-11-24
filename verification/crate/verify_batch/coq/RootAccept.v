@@ -75,3 +75,15 @@ Proof.
      intros j J;split;[change (Z.testbit value (Z.of_nat j)=bits sig e (machine p) j);unfold value;rewrite (proj2(MaskTransfer.kmov_value _) j ltac:(lia)),Bit,(proj2(Nat.ltb_lt j 8) J);reflexivity|].
      rewrite (proj2(Valid j)),(proj2(Q j));unfold RootMasks.passed;now rewrite (proj2(Nat.ltb_lt j 8) J).
 Qed.
+
+From Ed25519Simd.VerifyBatch Require NativeWords.
+Lemma words bias p bank q out : well_formed(machine p) ->
+ execute bias p bank=Some(q,out) -> well_formed(machine q).
+Proof.
+ intro W;unfold execute,load.
+ destruct(RootMasks.execute true bias p bank) as [[s ks]|] eqn:A;[|discriminate];cbn [bind].
+ destruct(segment _ _ _ s) as [u|] eqn:B;[|discriminate];cbn [bind].
+ destruct(RootMasks.execute false bias u ks) as [[t ms]|] eqn:C;[|discriminate];cbn [bind].
+ intro D;eapply NativeWords.mask_op;[|exact D];eapply RootMasks.words;[|exact C].
+ eapply segment_wf;[|exact B];eapply RootMasks.words;eassumption.
+Qed.
