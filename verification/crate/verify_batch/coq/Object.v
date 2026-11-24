@@ -64,7 +64,7 @@ Qed.
 Lemma scalar_from_entry pol pc text bias e c masks : admissible pol bias pc text e -> (0<count e)%nat ->
  StageEntry.physical (bias+pc) text (destination pol Prepare-pc) e ->
  exists stop, BatchScalar.observe pol bias (bias+pc) text e c masks=Some stop /\
-              BatchScalar.post pol bias e stop.
+              BatchScalar.post pol bias (bias+pc) e stop.
 Proof.
  intros Input N Entry. apply BatchScalar.from_entry.
  - exact (proj1 (batch_inputs _ _ _ _ _ Input N)).
@@ -92,7 +92,7 @@ Proof.
      destruct (proj2 (Empty carry) _ _ Run) as [-> Same].
      inversion Same as [|s t u own rest Impossible];[|discriminate].
      subst;split;[apply Sound,empty_path;[exact Image|now rewrite Z|exact E]|constructor].
-   + destruct (scalar_from_entry _ _ _ _ _ carry masks Caller N (Batch N)) as [mid [Trace [_ [_ [Safe _]]]]].
+   + destruct (scalar_from_entry _ _ _ _ _ carry masks Caller N (Batch N)) as [mid [Trace [_ [_ [[Safe _] _]]]]].
      rewrite Trace in Native;injection Native as <-;exact (conj (Sound _ _ R) Safe).
 Qed.
 
@@ -137,7 +137,10 @@ Proof.
          [exact Rejection|exact Place|exact (entry_range _ _ _ _ _ Input)|
           exact (entry_text _ _ _ _ _ Input)|exact Apart|exact (callee_image _ _ _ _ _ Input N)].
  - exact Live.
- - intros bias e c masks Input N;eapply scalar_from_entry;[exact Input|exact N|exact (Live _ _ Input N)].
+ - intros bias e c masks Input N.
+   destruct (scalar_from_entry _ _ _ _ _ c masks Input N (Live _ _ Input N)) as [stop [Run Post]].
+   exists stop;split;[exact Run|split;[exact Post|]]. apply PrepareUnwind.rejected;
+     [exact (proj1 (batch_inputs _ _ _ _ _ Input N))|exact (callee_image _ _ _ _ _ Input N)|exact Post].
  - intros bias e Input Z. destruct (empty_return e) as [ip final] eqn:E. split.
    + apply (proj2 (grouped _ _ _ Image _ _ Input)),empty_path;[exact Image|now rewrite Z|exact E].
    + exact (Empty _ _ Input Z).
