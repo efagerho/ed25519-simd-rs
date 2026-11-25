@@ -76,6 +76,7 @@ execution/VectorProcedure.v
 execution/AlignedRows.v
 execution/RipBroadcasts.v
 execution/PermutationBlock.v
+execution/VectorOutputs.v
 execution/VectorWindow.v
 execution/VectorSpills.v
 execution/LinkedRun.v
