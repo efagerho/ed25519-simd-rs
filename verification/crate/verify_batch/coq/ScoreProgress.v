@@ -1,14 +1,15 @@
 From Coq Require Import ZArith.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage.
-From Ed25519Simd.VerifyBatch Require LadderProduct LadderStage StrictRStart.
+From Ed25519Simd.VerifyBatch Require LadderProduct LadderStage StrictRCanonical.
 
 (* The two scorers diverge after their common frame allocation. ZIP calls
    the candidate immediately. Dalek starts by screening its decoded R. *)
 Definition observed pol bias score stop : Prop := match pol with
  | Zip215=>exists q mid ladder,CandidateDigest.enter Zip215 bias score=Some q /\ ReducedDigest.observed bias q mid /\
                       LadderEntry.enter Zip215 bias mid=Some ladder /\ LadderStage.observed bias ladder stop
- | Dalek=>exists ks k,StrictRStart.execute bias score ks=Some(stop,k) end.
+ | Dalek=>exists ks k p,StrictRStart.execute bias score ks=Some(p,k) /\
+                        StrictRCanonical.execute bias p k=Some stop end.
 
 Lemma zip pc bias e h r child score :
  placement e -> loaded Zip215 bias (mem e) (writable e) -> ProductRun.geometry (HashLayout.chunk Zip215 e bias) -> ScoreStart.reached Zip215 bias pc e h r child score ->
@@ -26,6 +27,24 @@ Proof.
    rewrite L in RunL;injection RunL as <-;exists t,ladder;auto.
 Qed.
 
+Lemma dalek bias pc e h r child score :
+ placement e -> loaded Dalek bias (mem e) (writable e) -> HashLayout.active Dalek e ->
+ ScoreStart.reached Dalek bias pc e h r child score ->
+ (exists stop,observed Dalek bias score stop) /\
+ (forall stop,observed Dalek bias score stop -> exists p,StrictRCanonical.result bias e p stop).
+Proof.
+ intros P I Live Ready;split.
+ - set (ks:=fun _ _:nat=>false).
+   destruct(StrictRStart.checked _ _ _ _ _ _ _ ks P I Live Ready) as [p [k [Start E]]].
+   destruct(StrictRCanonical.checked _ _ _ _ _ _ _ _ k P I Ready E) as [t [Run Post]].
+   exists t,ks,k,p;auto.
+ - intros stop [ks [k [p [Start Run]]]].
+   destruct(StrictRStart.checked _ _ _ _ _ _ _ ks P I Live Ready) as [v [k' [S E]]].
+   rewrite Start in S;injection S as <- <-.
+   destruct(StrictRCanonical.checked _ _ _ _ _ _ _ _ k P I Ready E) as [t [Next Post]].
+   rewrite Run in Next;injection Next as <-;now exists p.
+Qed.
+
 Theorem checked pol bias pc e h r child score :
  placement e -> loaded pol bias (mem e) (writable e) -> ProductRun.geometry (HashLayout.chunk pol e bias) -> HashLayout.active pol e -> ScoreStart.reached pol bias pc e h r child score ->
  (exists stop,observed pol bias score stop) /\
@@ -34,9 +53,6 @@ Proof.
  intros P I Geo Live Ready;destruct pol.
  - destruct(zip _ _ _ _ _ _ _ P I Geo Ready) as [Exists Sound];split;[exact Exists|].
    intros stop O;destruct(Sound _ O) as [mid [ladder [E Stage]]];exact (proj1(proj2(LadderStage.checked _ _ _ _ _ I Geo E) _ Stage)).
- - split.
-   + set (ks:=fun _ _:nat=>false);destruct(StrictRStart.checked _ _ _ _ _ _ _ ks P I Live Ready) as [t [k [Run _]]].
-     exists t,ks,k;exact Run.
-   + intros stop [ks [k Run]];destruct(StrictRStart.checked _ _ _ _ _ _ _ ks P I Live Ready) as [t [out [Next Post]]].
-     rewrite Run in Next;injection Next as <- <-;exact (StrictRStart.writes _ _ _ _ Post).
+ - destruct(dalek _ _ _ _ _ _ _ P I Live Ready) as [Exists Sound];split;[exact Exists|].
+   intros stop O;destruct(Sound _ O) as [p R];exact (StrictRCanonical.writes _ _ _ _ R).
 Qed.

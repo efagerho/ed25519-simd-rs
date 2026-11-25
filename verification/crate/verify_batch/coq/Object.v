@@ -251,19 +251,22 @@ Proof.
        (callee_image _ _ _ _ _ Caller N) (ladder_geometry _ _ _ _ _ Caller N) (proj1(Dispatch _ N Next)) Q) _ Progress)).
 Qed.
 
-Lemma zip_ladder bias pc text e c masks stop : admissible Zip215 bias pc text e -> (0<count e)%nat ->
- StrictDispatch.bound pc text -> ScoreSetup.bound Zip215 pc text -> first_chunk Zip215 bias pc text e c masks ->
- scoring Zip215 bias pc text e c masks stop -> staged_product Zip215 bias e stop.
+Lemma scorer_verdict_checked pol bias pc text e c masks stop : admissible pol bias pc text e -> (0<count e)%nat ->
+ StrictDispatch.bound pc text -> ScoreSetup.bound pol pc text -> first_chunk pol bias pc text e c masks ->
+ scoring pol bias pc text e c masks stop -> scorer_result pol bias e stop.
 Proof.
  intros A N Hash Scorer Native [q [r [s [cf [child [score [Run [C [W [Call [Start Progress]]]]]]]]]]].
- destruct(batch_inputs _ _ _ _ _ A N) as [P [_ [_ [Maps [_ Entries]]]]];pose proof(callee_image _ _ _ _ _ A N) as I.
+ destruct(batch_inputs _ _ _ _ _ A N) as [P [_ [_ [Maps _]]]];pose proof(callee_image _ _ _ _ _ A N) as I.
  destruct(dispatch_correct _ _ _ _ _ _ _ A Hash N Native) as [b [At B]];rewrite Run in At;injection At as <-.
  destruct(score_handoff _ _ _ _ _ _ _ _ cf A N Scorer B C W) as [v [V E]];rewrite Call in V;injection V as <-.
  destruct(ScoreStart.from_entry _ _ _ _ _ _ _ P I E) as [v [V Ready]];rewrite Start in V;injection V as <-.
- pose proof(ladder_geometry _ _ _ _ _ A N) as G.
- destruct(proj2(ScoreProgress.zip _ _ _ _ _ _ _ P I G Ready) _ Progress) as [mid [ladder [L Stage]]].
- exists ladder;split;[exact Stage|split;[exact (proj2(proj2(proj2(LadderStage.checked _ _ _ _ _ I G L) _ Stage)))|]].
- eapply LadderProduct.checked;[exact I|exact Maps|exact (Tables.loaded _ _ static_tables_correct Maps)|exact G|exact L].
+ destruct pol.
+ - pose proof(ladder_geometry _ _ _ _ _ A N) as G.
+   destruct(proj2(ScoreProgress.zip _ _ _ _ _ _ _ P I G Ready) _ Progress) as [mid [ladder [L Stage]]].
+   exists ladder;split;[exact Stage|split;[exact (proj2(proj2(proj2(LadderStage.checked _ _ _ _ _ I G L) _ Stage)))|]].
+   eapply LadderProduct.checked;[exact I|exact Maps|exact (Tables.loaded _ _ static_tables_correct Maps)|exact G|exact L].
+ - destruct(proj2(ScoreProgress.dalek _ _ _ _ _ _ _ P I (proj1 B) Ready) _ Progress) as [p Cmp].
+   split;[exact (StrictRCanonical.lane _ _ _ _ Cmp)|exact (StrictRCanonical.address _ _ _ _ Cmp)].
 Qed.
 
 Lemma verified pol pc text : matches pc (destination pol) text -> empty_image text -> Prologue.bound text -> StageEntry.bound text -> TailWrites.bound text -> StageWrites.bound text (destination pol Prepare-pc) -> RejectCall.bound pc text -> RejectDispatch.bound pc text -> RejectFinish.bound text -> StageEntry.preserves_bp text=true -> HashEntry.bound pc text -> ScoreSetup.bound pol pc text ->
@@ -355,7 +358,7 @@ Proof.
           exact (entry_text _ _ _ _ _ Input)|exact Apart|exact (callee_image _ _ _ _ _ Input N)].
  - exact Live.
  - exact Native.
- - intros -> bias e c masks stop A N Run;eapply zip_ladder;[exact A|exact N|exact CallerCode|exact Scorer|apply Native|exact Run];assumption.
+ - intros bias e c masks stop A N Run;eapply scorer_verdict_checked;[exact A|exact N|exact CallerCode|exact Scorer|apply Native|exact Run];assumption.
  - intros bias e Input Z. destruct (empty_return e) as [ip final] eqn:E. split.
    + apply (proj2 (grouped _ _ _ Image _ _ Input)),empty_path;[exact Image|now rewrite Z|exact E].
    + exact (Empty _ _ Input Z).

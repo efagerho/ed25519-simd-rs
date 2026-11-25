@@ -104,6 +104,13 @@ Definition first_chunk pol bias pc text e carry masks :=
 Definition staged_product pol bias e stop := exists ladder,LadderStage.observed bias ladder stop /\
  LadderStage.selected ladder stop /\ LadderProduct.meaning pol bias e ladder.
 
+Definition scorer_result pol bias e stop:=match pol with
+ | Zip215=>staged_product Zip215 bias e stop
+ | Dalek=>(forall j,(j<8)%nat -> Z.testbit (regs(LinkedRun.machine stop) 12%nat) (Z.of_nat j)=true <->
+                       StrictRCanonical.eligible e j) /\
+          LinkedRun.ip stop=bias+ScoreSetup.callee Dalek+(if regs(LinkedRun.machine stop) 12%nat=?0 then 554 else 162)
+ end.
+
 Definition scoring pol bias pc text e c masks stop := exists q r s cf child score,
    FirstDispatch.run pol bias pc text e c masks=Some(FirstDispatch.HashReturned q r) /\
    HashResume.compatible r s /\ well_formed s /\ ScoreCall.execute bias pc text q r s cf=Some child /\
@@ -160,9 +167,9 @@ Record batch_contract pol pc text : Prop := {
    StageEntry.physical (bias+pc) text (destination pol Prepare-pc) e;
  machine_scalar_return : forall bias e carry masks, admissible pol bias pc text e -> (0<count e)%nat ->
    first_chunk pol bias pc text e carry masks;
- zip_ladder_product : pol=Zip215 -> forall bias e c masks stop,
+ scorer_verdict : forall bias e c masks stop,
    admissible pol bias pc text e -> (0<count e)%nat -> scoring pol bias pc text e c masks stop ->
-   staged_product pol bias e stop;
+   scorer_result pol bias e stop;
  machine_empty : forall bias e, admissible pol bias pc text e -> count e=0%nat ->
    let '(ip,final):=empty_return e in
    returned pol e ip final /\ empty_mapped (bias+pc) text e
