@@ -78,8 +78,10 @@ Definition rejected_inputs pol e:=forall j,(j<8)%nat -> (j<count e)%nat ->
 Definition at_boundary pol entry e b:=match b with
  | FirstDispatch.Completed q=>RejectExecution.post entry e (RejectExecution.BatchReturned q) /\ rejected_inputs pol e
  | FirstDispatch.MoreChunks q=>RejectExecution.post entry e (RejectExecution.NextChunk q)
- | FirstDispatch.TablesReturned q=>LinkedRun.accounted e (writable e) q /\
-   exists j,(j<8)%nat /\ EligibleLanes.candidate e j end.
+ | FirstDispatch.PreparedLanes q=>LinkedRun.accounted e (writable e) q /\
+   (exists j,(j<8)%nat /\ EligibleLanes.candidate e j) /\
+   forall j,(j<8)%nat -> let v:=mem(LinkedRun.machine q)(PrepareOutputs.dest e+64+Z.of_nat j) in
+     (v=0 \/ v=1) /\ (v=1 <-> EligibleLanes.candidate e j) end.
 Lemma after_reject pol entry e r : rejected_inputs pol e -> RejectExecution.post entry e r ->
  at_boundary pol entry e (FirstDispatch.after_reject r).
 Proof. destruct r;cbn;auto. Qed.
@@ -97,8 +99,11 @@ Proof.
    destruct(Z.eqb_spec (regs(LinkedRun.machine(EligibleLanes.stopped t)) 14%nat) 0) as [Zero|Yes].
    + destruct(Reject Zero) as [r [End Post]];rewrite End;exists(FirstDispatch.after_reject r);split;[reflexivity|].
      apply after_reject;[exact (EligibleLanes.zero_rejects _ _ _ _ _ (proj2 Check) Zero)|exact Post].
-   + destruct(TableUnwind.from_eligible _ _ _ _ _ (TableMask.masks t) Place Loaded Al (proj2 Check) Yes) as [q [bank1 [Call Done]]];rewrite Call.
-     eexists;split;[reflexivity|exact (conj (TableUnwind.writes _ _ _ _ _ Done) (proj1(EligibleLanes.live_branch _ _ _ _ _ (proj2 Check)) Yes))].
+   + destruct(PrepareOutputs.from_eligible _ _ _ _ _ (TableMask.masks t) Place Loaded Al (proj2 Check) Yes) as [q [bank1 [a [Call Done]]]];rewrite Call.
+     eexists;split;[reflexivity|split;[exact (PrepareOutputs.writes _ _ _ _ _ _ Done)|]].
+     split;[exact (proj1(EligibleLanes.live_branch _ _ _ _ _ (proj2 Check)) Yes)|].
+     intros j J;cbn [fst];cbv zeta;rewrite (PrepareOutputs.eligibility _ _ _ _ _ _ Done j J).
+     rewrite <-(EligibleLanes.bit _ _ _ _ _ (proj2 Check) j J);destruct (Z.testbit _ _);cbn;intuition discriminate.
 Qed.
 
 Lemma rejected_verdict pol bias pc text e q : admissible pol bias pc text e -> (0<count e)%nat ->
@@ -125,7 +130,7 @@ Proof.
  - exists q;split;[exact Run|split;[exact (rejected_verdict _ _ _ _ _ _ A N Done)|]].
    destruct Done as [[Paid [[_ Zeros] _]] _];split;[exact Paid|intros i I;apply Zeros;lia].
  - destruct Done as [_ [_ [_ [More _]]]];lia.
- - destruct Done as [_ [j [J Candidate]]];exfalso;exact (Bad j J Candidate).
+ - destruct Done as [_ [[j [J Candidate]] _]];exfalso;exact (Bad j J Candidate).
 Qed.
 
 Lemma observed_correct pol pc text bias e carry masks :

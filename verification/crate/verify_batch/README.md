@@ -20,7 +20,12 @@ permutation indices, negation biases and opmask. It follows the eight-key branch
 and all seven cached additions through their returns. For each multiple the 48
 packing stores write the 320 expected qwords to its 16 signed rows. The builder
 restores the six saved registers and its caller’s stack pointer, then returns
-to chunk preparation through the return address read from memory. The proof reads back
+to chunk preparation through the return address read from memory. Preparation reads
+eight 16-bit offsets from the linked image and stores the selected table pointers.
+A second store writes exactly eight bytes. The proof reads each one back as 0 or 1
+and identifies which original input made it 1. [Pointer selection and flags](coq/PrepareOutputs.v)
+
+The proof reads back
 all 20 words per identity entry and relates the four cached coordinates
 (Y−X, Y+X, 2dT, 2Z) to the limbs of the decoded point supplied by the caller.
 A lane is eligible here exactly when S is canonical and both encoded Y
