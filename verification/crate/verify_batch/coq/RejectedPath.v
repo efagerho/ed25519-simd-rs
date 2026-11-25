@@ -1,0 +1,31 @@
+From Coq Require Import List ZArith Lia.
+From Machine Require Import execution.WordSemantics execution.LinkedCalls execution.LinkedRun execution.MappedFetch
+ memory.ByteMemory memory.MemoryGeometry memory.FlatMemory.
+From Ed25519Simd.VerifyBatch Require Import Policy Image Return LoadedImage BatchScalar PrepareUnwind RejectExecution.
+From Ed25519Simd.VerifyBatch Require RejectDispatch RejectFinish EligibilityFrame.
+Local Open Scope Z_scope.
+
+Definition execute decoded pol bias pc text p:=bind (unwind_at decoded pol bias p) (finish_chunk bias pc text).
+
+Theorem checked decoded pol bias pc text e p :
+ RejectDispatch.bound pc text -> RejectFinish.bound text -> placement e -> loaded pol bias (mem e) (writable e) ->
+ fits64 (bias+pc) (Z.of_nat(length text)) -> offset Continue<Z.of_nat(length text) ->
+ mapped (mem e) (bias+pc) text -> (forall x,bias+pc<=x<bias+pc+Z.of_nat(length text)->~writable e x) ->
+ (0<Scatter.count e)%nat -> Scatter.indices e -> EligibilityFrame.context pol bias (bias+pc) e p ->
+ accounted e (writable e) p -> byte_memory(mem(machine p)) -> regs(machine p) 4%nat=common_top pol e-104 ->
+ ip p=bias+PrepareNative.common+unwind_offset decoded -> return_value decoded (machine p) mod 2^32=0 ->
+ exists r,execute decoded pol bias pc text p=Some r /\ RejectExecution.post (bias+pc) e r.
+Proof.
+ intros ScatterCode ExitCode P I Range Len Map Apart N Idx [Links Outputs Meta [Slots BP]] Acc Bytes SP Start Zero.
+ destruct(rejected_at decoded pol bias (bias+pc) e p P I Start SP Acc Links Outputs Zero) as [q [Unwind Again]].
+ destruct Again as [At [Stack [AX [Memory [Log [Args [Left Kept]]]]]]].
+ assert (Paid:accounted e (writable e) q) by
+   (split;[rewrite Log;apply Acc|intros x;rewrite Memory,Log;apply Acc]).
+ destruct(RejectDispatch.resume pol bias pc text e q ScatterCode P I Range Len Map Apart Paid At Stack Args Left
+    ltac:(now rewrite AX) N Idx ltac:(now rewrite Memory)
+    ltac:(split;[now rewrite Memory|now rewrite Kept]) ltac:(now rewrite Memory))
+   as [cont [Dispatch [Continued [Stored [Saved Octets]]]]].
+ destruct(RejectFinish.next _ _ _ _ _ ExitCode P Map Apart Continued Saved) as [last [Exit Result]].
+ exists(classify cont last);split;[unfold execute,finish_chunk;rewrite Unwind;cbn [bind];rewrite Dispatch;cbn [bind];now rewrite Exit|].
+ apply classified with (p:=cont) (q:=last);[exact P|exact (proj2(proj2(proj2 Continued)))|exact Result|exact Stored|exact Octets].
+Qed.
