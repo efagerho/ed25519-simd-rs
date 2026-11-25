@@ -16,7 +16,9 @@ eligible lane into the key-table builder. On that path the log includes its
 six register saves, the 48 stores that initialize the eight identity entries,
 the nested arithmetic calls for the first multiple, and the 15 stores staging
 the affine operand. The proof checks the eight-key transpose and the loaded
-permutation indices, negation biases and opmask. It reads back
+permutation indices, negation biases and opmask. It follows the eight-key branch
+and checks that all 48 packing stores for the first multiple stay inside its
+16 signed rows of 160 bytes each. It reads back
 all 20 words per identity entry and relates the four cached coordinates
 (Y−X, Y+X, 2dT, 2Z) to the limbs of the decoded point supplied by the caller.
 A lane is eligible here exactly when S is canonical and both encoded Y
