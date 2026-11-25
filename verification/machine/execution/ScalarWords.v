@@ -86,6 +86,7 @@ Proof.
  - destruct op;injection S as <- <-;cbn [cpu_state].
    + apply indexed_words,W.
    + apply commit_words;[exact W|intros;apply word_byte_bound].
+   + apply commit_words;[exact W|intros;apply word_byte_bound].
  - destruct W as [G [V M]];split;[exact G|split;[|exact M]];intros j r J;cbn [vectors].
    match goal with |- context[if ?b then _ else _]=>destruct b end;[unfold word64;lia|apply V,J].
 Qed.
