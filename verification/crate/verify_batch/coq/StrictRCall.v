@@ -35,6 +35,13 @@ Record result e bias p q:Prop:=Result {
 Lemma mask e bias p q : result e bias p q -> regs(machine q) 12%nat=regs(machine p) 12%nat.
 Proof. intro R;apply (saved _ _ _ _ R);simpl;tauto. Qed.
 
+Lemma zero_raw o s c : exists u,run 4 (ScalarBytes.fetch o text) (State(Running 554) s c)=
+     Some(State(Running 565) u (Some false),[]) /\
+     ((forall g,In g sysv_saved -> regs u g=regs s g) /\ regs u 0%nat=0 /\ regs u 7%nat=regs s 13%nat /\
+      regs u 6%nat=regs s 14%nat /\ regs u 2%nat=regs s 15%nat /\ regs u 5%nat=regs s 5%nat /\ mem u=mem s).
+Proof. eexists;split;[apply (InstructionRoute.checked _ _ _ (proj2 image));reflexivity|];
+ repeat split;try reflexivity;intros g [<-|[<-|[<-|[<-|[<-|[<-|[]]]]]]];reflexivity. Qed.
+
 Theorem checked bias parent e child start p : placement e -> loaded Dalek bias (mem e) (writable e) ->
  StrictRFrame.inputs bias parent e child p -> StrictRCanonical.result bias e start p ->
  exists q,execute bias p=Some q /\ result e bias p q.
@@ -44,11 +51,7 @@ Proof.
  destruct(mapped_now _ _ _ I _ _ _ Prev (ScoreSetup.image Dalek)) as [Map Sep].
  pose proof(StrictRCanonical.address _ _ _ _ R) as At;fold o in At.
  unfold execute;destruct(regs(machine p) 12%nat=?0) eqn:Zero.
- - assert (Run:exists u,run 4 (ScalarBytes.fetch o text) (State(Running 554) s (carry p))=
-     Some(State(Running 565) u (Some false),[]) /\
-     ((forall g,In g sysv_saved -> regs u g=regs s g) /\ regs u 0%nat=0 /\ regs u 7%nat=regs s 13%nat /\
-      regs u 6%nat=regs s 14%nat /\ regs u 2%nat=regs s 15%nat /\ regs u 5%nat=regs s 5%nat /\ mem u=mem s)).
-   { eexists;split;[apply (InstructionRoute.checked _ _ _ (proj2 image));reflexivity|];repeat split;try reflexivity;intros g [<-|[<-|[<-|[<-|[<-|[<-|[]]]]]]];reflexivity. }
+ - pose proof(zero_raw o s (carry p)) as Run.
    destruct Run as [u [Run [K [Z [DI [SI [DX [FP Mem]]]]]]]].
    destruct(at_segment _ _ p o text 4 554 _ _ Prev At Map Sep Run (Forall_nil _)) as [End Paid].
    eexists;split;[exact End|constructor];[exact Paid|exact(segment_wf _ _ _ _ _ (StrictRCanonical.words _ _ _ _ R) End)|exact K|].
