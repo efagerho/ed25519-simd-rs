@@ -75,14 +75,15 @@ Qed.
 Definition rejected_inputs pol e:=forall j,(j<8)%nat -> (j<count e)%nat ->
  ~signature_accepts pol (read_input (mem e) (regs e 7%nat) j).
 
+Definition active_chunk e:=exists j,(j<8)%nat /\ EligibleLanes.candidate e j.
 Definition at_boundary pol bias entry e b:=match b with
- | FirstDispatch.Completed q=>RejectExecution.post entry e (RejectExecution.BatchReturned q) /\ rejected_inputs pol e
- | FirstDispatch.MoreChunks q=>RejectExecution.post entry e (RejectExecution.NextChunk q)
+ | FirstDispatch.Completed q=>RejectExecution.post entry e (RejectExecution.BatchReturned q) /\ rejected_inputs pol e /\ ~active_chunk e
+ | FirstDispatch.MoreChunks q=>RejectExecution.post entry e (RejectExecution.NextChunk q) /\ ~active_chunk e
  | FirstDispatch.FilterCall q=>LinkedRun.accounted e (writable e) q /\
-   (exists j,(j<8)%nat /\ EligibleLanes.candidate e j) /\ ReadyDispatch.reached pol bias e q
- | FirstDispatch.HashReturned q r=>pol=Zip215 /\ (exists j,(j<8)%nat /\ EligibleLanes.candidate e j) /\
+   active_chunk e /\ pol=Dalek /\ ReadyDispatch.reached pol bias e q
+ | FirstDispatch.HashReturned q r=>pol=Zip215 /\ active_chunk e /\
     NativeHash.returned bias entry e q r end.
-Lemma after_reject pol bias entry e r : rejected_inputs pol e -> RejectExecution.post entry e r ->
+Lemma after_reject pol bias entry e r : rejected_inputs pol e -> ~active_chunk e -> RejectExecution.post entry e r ->
  at_boundary pol bias entry e (FirstDispatch.after_reject r).
 Proof. destruct r;cbn;auto. Qed.
 
@@ -92,15 +93,17 @@ Lemma dispatch_correct pol bias pc text e c ks : admissible pol bias pc text e -
 Proof.
  intros Input Hash N.
  destruct(batch_inputs _ _ _ _ _ Input N) as [Place [_ [[_ Sep] _]]];pose proof(callee_image _ _ _ _ _ Input N) as Loaded.
- pose proof(decoder_aligned _ _ _ _ _ Input N) as Al;intros [s [Scalar [_ [_ [Checked Rejected]]]]];destruct(Z.eqb_spec (regs(LinkedRun.machine s) 0%nat mod 2^32) 0) as [Z|Live].
+ pose proof(decoder_aligned _ _ _ _ _ Input N) as Al;intros [s [Scalar [_ [Digits [Checked Rejected]]]]];destruct(Z.eqb_spec (regs(LinkedRun.machine s) 0%nat mod 2^32) 0) as [Z|Live].
  - destruct(Rejected Z) as [Invalid [r [End Post]]];exists(FirstDispatch.after_reject r);split;
-   [eapply FirstDispatch.scalar_path;[exact Scalar|exact Z|exact End]|now apply after_reject].
+   [eapply FirstDispatch.scalar_path;[exact Scalar|exact Z|exact End]|apply after_reject;[exact Invalid| |exact Post]].
+   intros [j [J [Canon _]]];destruct Digits as [Bound Bits];specialize(Bits j J).
+   apply (proj2(proj1 Bits)) in Canon;rewrite Z.mod_small in Z by lia;rewrite Z,Z.bits_0 in Canon;discriminate.
  - destruct(Checked Live) as [d [Run [Decoder [bank [t [Bank [Trace [Check [Frame Reject]]]]]]]]].
    unfold FirstDispatch.run,BatchDecode.observe in *;rewrite Scalar in Run|-*;cbn [LinkedRun.bind] in Run|-*;
    rewrite (proj2(Z.eqb_neq _ _) Live) in Run|-*;rewrite Run;cbn [LinkedRun.bind];rewrite Bank;cbn [LinkedRun.bind];rewrite Trace;cbn [LinkedRun.bind].
    destruct(Z.eqb_spec (regs(LinkedRun.machine(EligibleLanes.stopped t)) 14%nat) 0) as [Zero|Yes].
    + destruct(Reject Zero) as [r [End Post]];rewrite End;exists(FirstDispatch.after_reject r);split;[reflexivity|].
-     apply after_reject;[exact (EligibleLanes.zero_rejects _ _ _ _ _ (proj2 Check) Zero)|exact Post].
+     apply after_reject;[exact (EligibleLanes.zero_rejects _ _ _ _ _ (proj2 Check) Zero)|intro Active;apply (proj2(EligibleLanes.live_branch _ _ _ _ _ (proj2 Check)) Active),Zero|exact Post].
    + assert (Enc:PreparedInputs.encodings e (LinkedRun.machine(EligibleLanes.stopped t))).
      { eapply PreparedInputs.keep_encodings;[exact (PreparedInputs.through_decoder _ _ _ _ _ Place Check)|].
        destruct Decoder as [_ [_ [_ [_ [_ [_ [_ Data]]]]]]];exact Data. }
@@ -115,13 +118,13 @@ Proof.
        destruct(NativeHash.checked _ _ _ _ _ Place Loaded N (Entries 0%nat (count e) zero_loc N eq_refl zero_words) Borrow Active Done Child)
           as [r [HashRun HashPost]].
        eexists;split;[cbn [LinkedRun.bind fst FirstDispatch.continue];now rewrite HashRun|exact (conj eq_refl (conj Active HashPost))].
-     * eexists;split;[reflexivity|exact (conj (ReadyDispatch.writes _ _ _ _ Reached) (conj Active Reached))].
+     * eexists;split;[reflexivity|exact (conj (ReadyDispatch.writes _ _ _ _ Reached) (conj Active (conj eq_refl Reached)))].
 Qed.
 
 Lemma rejected_verdict pol bias pc text e q : admissible pol bias pc text e -> (0<count e)%nat ->
  at_boundary pol bias (bias+pc) e (FirstDispatch.Completed q) -> returned pol e (LinkedRun.ip q) (LinkedRun.machine q).
 Proof.
- intros Caller Live [Done Invalid];destruct Done as [Paid [[Status Outputs] [Bytes [Size [PC [SP Saved]]]]]].
+ intros Caller Live [Done [Invalid _]];destruct Done as [Paid [[Status Outputs] [Bytes [Size [PC [SP Saved]]]]]].
  destruct(batch_inputs _ _ _ _ _ Caller Live) as [_ [_ [_ [_ [Idx _]]]]].
  unfold returned;repeat apply conj;try assumption.
  - intros x Outside;rewrite (proj2 Paid);apply (WriteTrace.frame _ _ (proj1 Paid)),Outside.
@@ -141,9 +144,23 @@ Proof.
     as [[q|q|q|q r] [Run Done]].
  - exists q;split;[exact Run|split;[exact (rejected_verdict _ _ _ _ _ _ A N Done)|]].
    destruct Done as [[Paid [[_ Zeros] _]] _];split;[exact Paid|intros i I;apply Zeros;lia].
- - destruct Done as [_ [_ [_ [More _]]]];lia.
+ - destruct Done as [[_ [_ [_ [More _]]]] _];lia.
  - destruct Done as [_ [[j [J Candidate]] _]];exfalso;exact (Bad j J Candidate).
  - destruct Done as [_ [[j [J Candidate]] _]];exfalso;exact (Bad j J Candidate).
+Qed.
+
+Corollary eligible_zip_hash_returns pc text : batch_contract Zip215 pc text ->
+ forall bias e c masks,admissible Zip215 bias pc text e -> (0<count e)%nat -> active_chunk e ->
+ exists q r,FirstDispatch.run Zip215 bias pc text e c masks=Some(FirstDispatch.HashReturned q r) /\
+   NativeHash.returned bias (bias+pc) e q r.
+Proof.
+ intros Main bias e c masks A N Live.
+ destruct(dispatch_correct _ _ _ _ _ _ _ A (hash_caller _ _ _ Main) N (machine_scalar_return _ _ _ Main _ _ c masks A N))
+   as [[q|q|q|q r] [Run T]].
+ - destruct T as [_ [_ None]];contradiction.
+ - destruct T as [_ None];contradiction.
+ - destruct T as [_ [_ [Impossible _]]];discriminate.
+ - exists q,r;exact (conj Run (proj2(proj2 T))).
 Qed.
 
 Lemma observed_correct pol pc text bias e carry masks :
@@ -174,7 +191,7 @@ Proof.
    + pose proof(Dispatch _ N Run) as T;split;[exact (rejected_verdict _ _ _ _ _ _ Caller N T)|exact (proj1(proj1(proj1 T)))].
    + split;[exact (Sound _ _ R)|];pose proof(Dispatch _ N Next) as T.
      destruct b as [q|q|q|q r];cbn [FirstDispatch.pending_history] in History;try discriminate;injection History as <-.
-     * exact (proj1(proj1 T)).
+     * exact (proj1(proj1(proj1 T))).
      * exact (proj1(proj1 T)).
      * exact (NativeHash.writes _ _ _ _ _ (proj2(proj2 T))).
 Qed.
