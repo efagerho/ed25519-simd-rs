@@ -4,7 +4,7 @@ From Machine Require Import isa.Instructions execution.WordSemantics execution.W
 From Machine Require execution.ScalarRefinement.
 From Ed25519Simd.PrepareChunk Require StrictBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Image Return LoadedImage BatchScalar.
-From Ed25519Simd.VerifyBatch Require FilterReturned.
+From Ed25519Simd.VerifyBatch Require FilterReturned FilterMeaning.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition path:list line:=[(25,2%nat,Zero32 0);(27,5%nat,CompareMemImm (Address 3 None 64) 0);
@@ -45,7 +45,8 @@ Record result (outer:Z) e p q:Prop:=Result {
  remaining:regs(machine q) 12%nat=Prologue.rows_left (regs e 6%nat);
  metadata:StageEntry.metadata e (mem(machine q)); saved:StageEntry.saved_caller e (machine q);
  filtered:forall j,(j<8)%nat -> let v:=mem(machine q)(FilterFlags.flag_ptr e+Z.of_nat j) in
- (v=0 \/ v=1) /\ (v=1 <-> EligibleLanes.candidate e j /\ FilterScreen.weak e (machine p) j=false)
+ (v=0 \/ v=1) /\ (v=1 <-> EligibleLanes.candidate e j /\ FilterScreen.weak e (machine p) j=false);
+ strong_lane:forall j,(j<8)%nat -> (EligibleLanes.candidate e j /\ FilterScreen.weak e (machine p) j=false <-> FilterMeaning.eligible e j)
 }.
 
 Theorem checked bias outer e prep p a : placement e -> loaded Dalek bias (mem e) (writable e) ->
@@ -97,6 +98,7 @@ Proof.
      unfold StrictFilterCall.slot,FilterFlags.flag_ptr,common_top,PrepareOutputs.dest;lia. }
    rewrite Initial;destruct(PreparedReturn.flags _ _ _ _ _ Done j J) as [Bit Can];fold (FilterFlags.flag_ptr e) in Bit,Can.
    destruct(FilterScreen.weak e (machine p) j);intuition discriminate.
+ - intros j J;exact (FilterMeaning.enabled _ _ _ _ _ _ P Done Entry J).
 Qed.
 
 Definition observe bias p ks:=bind (FilterReturned.execute bias p ks) (fun '(a,k)=>option_map (fun q=>(q,k)) (execute bias a)).
