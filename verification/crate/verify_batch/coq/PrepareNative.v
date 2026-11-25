@@ -70,6 +70,18 @@ Proof.
        simplify_cpu;rewrite ?SP in X;repeat rewrite word_fits in X by (unfold words_fit,word64 in *;lia);lia.
 Qed.
 
+Lemma strict_saved slide s c top t ws : regs s 4%nat=top -> words_fit top ->
+ MappedFetch.run 3 (ScalarBytes.fetch (slide+strict) StrictBytes.symbol_bytes) (at_pc 0 s c)=Some(t,ws) ->
+ read_word (mem(cpu_state t)) (top-8)=word(regs s 3%nat).
+Proof.
+ intros SP Fit Run;pose proof(InstructionRoute.checked (slide+strict) StrictBytes.symbol_bytes strict_path strict_linked (at_pc 0 s c)) as Route.
+ cbn [strict_path follow at_pc cpu_state loc cf step option_map app] in Route.
+ specialize(Route _ _ eq_refl);change (length strict_path) with 3%nat in Route.
+ rewrite Run in Route;injection Route as -> _;simplify_cpu;rewrite SP;normalize.
+ apply read_word_encoded;intros k K;unfold store_word;rewrite write_outside by (change (~top-8-8<=top-8+k<top-8-8+8);lia).
+ apply write_at,K.
+Qed.
+
 Definition common_post slide top s t :=
  loc t=Running (scalar-common) /\ regs (cpu_state t) 4%nat=top-112 /\
  regs (cpu_state t) 6%nat=top-104 /\ regs (cpu_state t) 7%nat=word(regs s 7%nat+512) /\

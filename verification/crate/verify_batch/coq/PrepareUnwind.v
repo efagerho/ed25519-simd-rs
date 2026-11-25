@@ -39,7 +39,8 @@ Lemma common_returns slide s c top : 112<=top -> top+8<2^64 ->
  exists last,run 9 (ScalarBytes.fetch (slide+common) CommonBytes.symbol_bytes) (at_pc 65 s c)=Some(last,[]) /\
  returned top s last /\ regs (cpu_state last) 13%nat=read_word (mem s) (top-24) /\
  regs (cpu_state last) 14%nat=read_word (mem s) (top-32) /\
- regs (cpu_state last) 12%nat=read_word (mem s) (top-16).
+ regs (cpu_state last) 12%nat=read_word (mem s) (top-16) /\
+ regs(cpu_state last) 15%nat=read_word(mem s)(top-40) /\ regs(cpu_state last) 3%nat=read_word(mem s)(top-8).
 Proof. intros L H SP Zero. unwind common_bytes common_reject SP Zero;f_equal;ring. Qed.
 
 Lemma decoded_returns slide s c top : 112<=top -> top+8<2^64 ->
@@ -48,7 +49,8 @@ Lemma decoded_returns slide s c top : 112<=top -> top+8<2^64 ->
  loc last=Returned(word(read_word (mem s) top)) /\ regs(cpu_state last) 4%nat=top+8 /\
  regs(cpu_state last) 0%nat=0 /\ mem(cpu_state last)=mem s /\
  regs(cpu_state last) 13%nat=read_word (mem s) (top-24) /\ regs(cpu_state last) 14%nat=read_word (mem s) (top-32) /\
- regs(cpu_state last) 12%nat=read_word (mem s) (top-16).
+ regs(cpu_state last) 12%nat=read_word (mem s) (top-16) /\
+ regs(cpu_state last) 15%nat=read_word(mem s)(top-40) /\ regs(cpu_state last) 3%nat=read_word(mem s)(top-8).
 Proof.
  intros L H SP;assert (Code:linked CommonBytes.symbol_bytes decoded_reject) by
     (repeat constructor;vm_compute;discriminate || reflexivity).
@@ -65,7 +67,7 @@ Lemma strict_returns slide s c top : 8<=top -> top+8<2^64 ->
  regs s 4%nat=top-8 -> regs s 0%nat mod 2^32=0 ->
  exists last,run 4 (ScalarBytes.fetch (slide+strict) StrictBytes.symbol_bytes) (at_pc 9 s c)=Some(last,[]) /\
  returned top s last /\ regs (cpu_state last) 13%nat=regs s 13%nat /\
- regs (cpu_state last) 14%nat=regs s 14%nat /\ regs(cpu_state last) 12%nat=regs s 12%nat.
+ regs (cpu_state last) 14%nat=regs s 14%nat /\ regs(cpu_state last) 12%nat=regs s 12%nat /\ regs(cpu_state last) 3%nat=read_word(mem s)(top-8).
 Proof. intros L H SP Zero. unwind strict_bytes strict_reject SP Zero. Qed.
 
 From Machine Require Import execution.LinkedRun execution.PreservedRegister memory.FlatMemory memory.MemoryGeometry.
@@ -83,7 +85,8 @@ Definition unwind:=unwind_at false.
 Definition prepared_result entry e p q v := ip q=word(entry+offset Prepared) /\
  regs(machine q) 4%nat=Rows.frame e /\ regs(machine q) 0%nat=v /\
  mem(machine q)=mem(machine p) /\ log q=log p /\ Prologue.output_registers e (machine q) /\
- regs(machine q) 12%nat=Prologue.rows_left (regs e 6%nat) /\ regs(machine q) 5%nat=regs(machine p) 5%nat.
+ regs(machine q) 12%nat=Prologue.rows_left (regs e 6%nat) /\ regs(machine q) 5%nat=regs(machine p) 5%nat /\
+ regs(machine q) 15%nat=Return.scratch e /\ StageEntry.next_descriptor e (regs(machine q) 3%nat).
 
 Definition prepared_again entry e p q:=prepared_result entry e p q (regs(machine p) 0%nat).
 
@@ -94,7 +97,7 @@ Theorem rejected_at decoded pol bias entry e p :
  return_value decoded (machine p) mod 2^32=0 ->
  exists q,unwind_at decoded pol bias p=Some q /\ prepared_result entry e p q (return_value decoded (machine p)).
 Proof.
- intros Place Image IP SP Acc [Root Shim] [Count [Out [Left _]]] Zero.
+ intros Place Image IP SP Acc [Root Shim] [Count [Out [Left [Scratch [_ Future]]]]] Zero.
  destruct (stack_ok _ Place) as [[Low High] _].
  set (top:=common_top pol e) in *.
  assert (Limits:112<=top /\ top+8<2^64) by
@@ -104,12 +107,13 @@ Proof.
    loc last=Returned(word(read_word (mem(machine p)) top)) /\ regs(cpu_state last) 4%nat=top+8 /\
    regs(cpu_state last) 0%nat=return_value decoded (machine p) /\ mem(cpu_state last)=mem(machine p) /\
    regs(cpu_state last) 13%nat=read_word (mem(machine p)) (top-24) /\
-   regs(cpu_state last) 14%nat=read_word (mem(machine p)) (top-32) /\ regs(cpu_state last) 12%nat=read_word (mem(machine p)) (top-16)).
+   regs(cpu_state last) 14%nat=read_word (mem(machine p)) (top-32) /\ regs(cpu_state last) 12%nat=read_word (mem(machine p)) (top-16) /\
+   regs(cpu_state last) 15%nat=read_word(mem(machine p))(top-40) /\ regs(cpu_state last) 3%nat=read_word(mem(machine p))(top-8)).
  { destruct decoded.
    - exact (decoded_returns _ _ _ _ (proj1 Limits) (proj2 Limits) SP).
    - destruct(common_returns bias (machine p) (carry p) top (proj1 Limits) (proj2 Limits) SP Zero)
        as [t [Run [[PC [Stack [AX M]]] Saved]]];exists t;exact (conj Run (conj PC (conj Stack (conj AX (conj M Saved))))). }
- destruct RunCase as [last [Run [Ret [Stack [Eax [Flat [C [O R12]]]]]]]].
+ destruct RunCase as [last [Run [Ret [Stack [Eax [Flat [C [O [R12 [R15 RBX]]]]]]]]]].
  destruct (mapped_now _ _ _ Image _ _ _ Acc (in_common _)) as [Map Sep].
  destruct (at_segment _ _ _ _ _ _ (unwind_offset decoded) _ _ Acc IP Map Sep Run (Forall_nil _)) as [Next Paid].
  set (q:=LinkedRun.finish (bias+PrepareNative.common) p (last,[])) in *.
@@ -119,25 +123,41 @@ Proof.
  assert (Outputs:Prologue.output_registers e (machine q)) by
    (split;[exact (eq_trans C Count)|exact (eq_trans O Out)]).
  pose proof(PreservedRegister.run_keeps_at 5 _ CommonBytes.symbol_bytes ltac:(vm_compute;reflexivity) (unwind_length decoded) (unwind_offset decoded) _ _ _ _ ltac:(destruct decoded;vm_compute;reflexivity) Run) as BP.
+ assert (ScratchReg:regs(machine q) 15%nat=Return.scratch e) by exact(eq_trans R15 Scratch).
  unfold unwind_at;rewrite Next;cbn [bind]. fold q. destruct pol.
- - exists q;split;[reflexivity|]. unfold prepared_result;split;[|split;[|exact (conj Eax (conj Flat (conj Log (conj Outputs (conj (eq_trans R12 Left) BP)))))]].
+ - exists q;split;[reflexivity|]. unfold prepared_result;split;[|split].
+
    + unfold top,common_top in PC;rewrite Z.sub_0_r,Root,ScalarRefinement.word_idempotent in PC;exact PC.
    + change (regs(cpu_state last) 4%nat=Rows.frame e);rewrite Stack;unfold top,common_top;ring.
+   + split;[exact Eax|split;[exact Flat|split;[exact Log|split;[exact Outputs|split;[exact(eq_trans R12 Left)|split;[exact BP|split;[exact ScratchReg|]]]]]]].
+     change (StageEntry.next_descriptor e (regs(cpu_state last) 3%nat));rewrite RBX;apply Future;reflexivity.
  - assert (Strict:ip q=bias+PrepareNative.strict+9).
-   { unfold top in PC;rewrite PC,Shim,ScalarRefinement.word_idempotent;apply word_fits.
+   { unfold top in PC;rewrite PC,(proj1 Shim),ScalarRefinement.word_idempotent;apply word_fits.
      destruct(proj1(symbols _ _ _ _ Image _ _ in_strict)) as [L U].
      change (Z.of_nat(length StrictBytes.symbol_bytes)) with 37 in U;unfold word64;lia. }
    set (outer:=Rows.frame e-8).
    destruct(strict_returns bias (machine q) (carry q) outer ltac:(unfold outer,Rows.frame,sp in *;lia)
      ltac:(unfold outer,Rows.frame,sp in *;lia)
      ltac:(change (regs(cpu_state last) 4%nat=outer-8);rewrite Stack;unfold outer,top,common_top;ring)
-     ltac:(change (regs(cpu_state last) 0%nat mod 2^32=0);now rewrite Eax)) as [endst [End [[Back [Top [AX M]]] [N [D L12]]]]].
+     ltac:(change (regs(cpu_state last) 0%nat mod 2^32=0);now rewrite Eax)) as [endst [End [[Back [Top [AX M]]] [N [D [L12 BX]]]]]].
    destruct(mapped_now _ _ _ Image _ _ _ Paid in_strict) as [Mapped Apart].
    destruct(at_segment _ _ _ _ _ _ 9 _ _ Paid Strict Mapped Apart End (Forall_nil _)) as [After _].
    exists (LinkedRun.finish (bias+PrepareNative.strict) q (endst,[]));split;[exact After|].
    unfold prepared_result;cbn [LinkedRun.finish ip machine log];unfold absolute;rewrite Back.
    change (mem(machine q)=mem(machine p)) in Flat;unfold outer;rewrite Flat,Root,ScalarRefinement.word_idempotent.
-   repeat split;[rewrite Top;unfold outer;ring|rewrite AX;exact Eax|now rewrite M|now rewrite app_nil_r,Log|rewrite N;exact (proj1 Outputs)|rewrite D;exact (proj2 Outputs)|rewrite L12;exact (eq_trans R12 Left)|exact (eq_trans (PreservedRegister.run_keeps 5 _ StrictBytes.symbol_bytes _ _ _ _ ltac:(vm_compute;reflexivity) End) BP)].
+   assert (R15keep:regs(cpu_state endst) 15%nat=regs(machine q) 15%nat) by
+     exact (PreservedRegister.run_keeps_at 15 _ StrictBytes.symbol_bytes ltac:(vm_compute;reflexivity) 4 9 _ _ _ _ ltac:(vm_compute;reflexivity) End).
+   repeat apply conj;try reflexivity.
+   + rewrite Top;unfold outer;ring.
+   + rewrite AX;exact Eax.
+   + now rewrite M.
+   + now rewrite app_nil_r,Log.
+   + rewrite N;exact(proj1 Outputs).
+   + rewrite D;exact(proj2 Outputs).
+   + rewrite L12;exact(eq_trans R12 Left).
+   + exact (eq_trans (PreservedRegister.run_keeps 5 _ StrictBytes.symbol_bytes _ _ _ _ ltac:(vm_compute;reflexivity) End) BP).
+   + exact(eq_trans R15keep ScratchReg).
+   + rewrite BX,Flat;unfold outer;replace (Rows.frame e-8-8) with (Rows.frame e-16) by ring;exact(proj2 Shim).
 Qed.
 
 
