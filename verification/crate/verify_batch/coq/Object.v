@@ -107,7 +107,7 @@ Proof.
    + assert (Enc:PreparedInputs.encodings e (LinkedRun.machine(EligibleLanes.stopped t))).
      { eapply PreparedInputs.keep_encodings;[exact (PreparedInputs.through_decoder _ _ _ _ _ Place Check)|].
        destruct Decoder as [_ [_ [_ [_ [_ [_ [_ Data]]]]]]];exact Data. }
-     destruct(PreparedReturn.from_eligible _ _ _ _ _ _ (TableMask.masks t) Place Loaded Al (proj2 Check) Frame Enc Yes) as [q [bank1 [Call Done]]].
+     destruct(PreparedReturn.from_eligible _ _ _ _ _ _ (TableMask.masks t) Place Loaded Al (proj2 Check) Frame (PreparedTables.input _ _ _ _ _ Place Check) Enc Yes) as [q [bank1 [Call Done]]].
      destruct(ReadyDispatch.checked pol bias pc text e q bank1 (proj1 Hash) Place Loaded (entry_range _ _ _ _ _ Input) (entry_text _ _ _ _ _ Input) Sep Done)
         as [v [kv [RunCall [Reached Child]]]];unfold ReadyDispatch.observe;rewrite Call;cbn [LinkedRun.bind];rewrite RunCall.
      assert (Active:=proj1(EligibleLanes.live_branch _ _ _ _ _ (proj2 Check)) Yes).
