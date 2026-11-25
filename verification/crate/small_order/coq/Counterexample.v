@@ -27,8 +27,9 @@ Proof. right; right; right; vm_compute; reflexivity. Qed.
 Example mutant_violates_contract :
   ~ small_order_contract EntryBytes.address EntryBytes.symbol_bytes HelperBytes.address HelperBytes.symbol_bytes.
 Proof.
-  intros [_ _ _ Run].
-  destruct (Run O point (fun _ _=>0) ltac:(lia) limbs_bounded) as [mask [Exec [_ Bits]]].
+  intro C.
+  destruct (run_correct _ _ _ _ C O point (fun _ _=>0) ltac:(lia) limbs_bounded)
+    as [mask [Exec [_ Bits]]].
   pose proof (proj2 (proj1 (Bits O ltac:(lia))) root) as SetBit.
   assert (Miss : match result (run_at EntryBytes.address HelperBytes.address O)
                         (inputs point) (fun _ _=>0) with
