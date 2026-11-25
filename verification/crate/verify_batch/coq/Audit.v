@@ -92,6 +92,7 @@ Definition first_chunk pol bias pc text e carry masks :=
                                  exists bank r,BatchScalar.masks_after pol bias (bias+pc) text e carry masks=Some bank /\
                                    EligibleLanes.observe pol bias e decoder bank=Some r /\
                                    EligibleLanes.checked_trace pol bias e decoder r /\
+                                   EligibilityFrame.context pol bias (bias+pc) e (EligibleLanes.stopped r) /\
                                    (regs(LinkedRun.machine(EligibleLanes.stopped r)) 14%nat=0 ->
                                     exists final,RejectedPath.execute true pol bias pc text (EligibleLanes.stopped r)=Some final /\
                                                  RejectExecution.post (bias+pc) e final)) /\
