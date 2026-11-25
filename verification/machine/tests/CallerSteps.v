@@ -340,3 +340,12 @@ Example immediate64_broadcast_to_extended_register :
    flag v=Some true /\ ScalarBytes.cf t=Some false /\ ScalarBytes.loc t=ScalarBytes.Running 16
  | _=>False end.
 Proof. repeat split;reflexivity. Qed.
+
+Example clear_projective_argument :
+ let s:=CPU (fun _=>2^64-1) (fun _ _=>0) (Some false) (fun _=>0) in
+ ScalarBytes.decode [0x31;0xd1]=None /\
+ match MappedFetch.run 1 (ScalarBytes.fetch 0 [0x31;0xd2]) (ScalarBytes.State(ScalarBytes.Running 0) s (Some true)) with
+ | Some(t,[])=>regs(ScalarBytes.cpu_state t) 2%nat=0 /\ regs(ScalarBytes.cpu_state t) 1%nat=2^64-1 /\
+    flag(ScalarBytes.cpu_state t)=Some true /\ ScalarBytes.cf t=Some false
+ | _=>False end.
+Proof. repeat split;reflexivity. Qed.
