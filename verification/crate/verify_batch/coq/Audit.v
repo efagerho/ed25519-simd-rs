@@ -6,7 +6,7 @@ From Ed25519Simd.Sha512Challenge Require Audit ObjectBytes LiteralBytes.
 From Ed25519Simd.Zip215 Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.DalekPostHash Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Arguments Image Control Tables Scatter Loop Return LoadedImage EntryWrites CallWrites NestedRegions StageEntry RejectCall BatchScalar PrepareUnwind RejectDispatch RejectFinish RejectExecution.
-From Ed25519Simd.VerifyBatch Require BatchDecode EligibleLanes EligibilityFrame FirstDispatch RejectedPath ScoreCall.
+From Ed25519Simd.VerifyBatch Require BatchDecode EligibleLanes EligibilityFrame FirstDispatch RejectedPath ScoreStart.
 Local Open Scope Z_scope.
 
 Definition destination pol t := match t with
@@ -114,12 +114,12 @@ Inductive observation pol bias pc text e carry masks : list WriteTrace.store -> 
    FirstDispatch.run pol bias pc text e carry masks=Some(FirstDispatch.MoreChunks q) ->
    execution pol bias pc text (bias+pc) e ip final ->
    observation pol bias pc text e carry masks (LinkedRun.log q) ip final
- | observe_scoring q r s c child ip final : (0<count e)%nat ->
+ | observe_scoring q r s c child score ip final : (0<count e)%nat ->
    FirstDispatch.run pol bias pc text e carry masks=Some(FirstDispatch.HashReturned q r) ->
    HashResume.compatible r s -> well_formed s ->
-   ScoreCall.execute bias pc text q r s c=Some child ->
+   ScoreCall.execute bias pc text q r s c=Some child -> ScoreStart.from_call pol bias child=Some score ->
    execution pol bias pc text (bias+pc) e ip final ->
-   observation pol bias pc text e carry masks (LinkedRun.log child) ip final.
+   observation pol bias pc text e carry masks (LinkedRun.log score) ip final.
 
 Definition immutable_after pol bias pc text e ip final :=
  (0<count e)%nat -> execution pol bias pc text (bias+pc) e ip final ->
