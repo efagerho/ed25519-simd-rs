@@ -76,6 +76,7 @@ Record stage_contract bs : Prop := {
   write_footprint : forall pc s, placement pc (Z.of_nat(length bs)) s ->
     WriteTrace.confined (destination s) (writes pc s) /\ forall x,
     mem (snd (run pc s)) x=WriteTrace.replay (mem s) (writes pc s) x;
+  returned_words : forall pc s,well_formed s -> well_formed(snd(run pc s));
   stage_correct : forall pc s, placement pc (Z.of_nat (length bs)) s ->
     well_formed s ->
     let entry := IndexedLoads.execute prefix s in
