@@ -11,7 +11,7 @@ Definition literal:=Sha512Challenge.LiteralBytes.address.
 Definition execute bias q:=Sha512Challenge.Execution.run HashEntry.callee
  (snapshot (mem(machine q)) (ip q) (length code)) bias literal (machine q).
 Definition history bias q:=log q++CallWrites.hash_events_at bias (machine q).
-Definition row e j:=read_input (mem e) (regs e 7%nat) (TailCopy.row_index e j).
+Definition row:=HashLayout.row.
 Definition field e j:=descriptor (mem e) (regs e 7%nat) (TailCopy.row_index e j).
 Definition messages_immutable e:=forall j k,(j<8)%nat -> 0<=k<field e j 24 -> ~writable e (field e j 16+k).
 
@@ -41,28 +41,28 @@ Proof.
  destruct(HashEntry.writes _ _ _ _ _ Q) as [W M];rewrite M;apply (WriteTrace.frame _ _ W),(Borrow j k J K).
 Qed.
 
-Record returned bias origin e q r:Prop:=Returned {
+Record returned pol bias origin e q r:Prop:=Returned {
  back:Sha512Challenge.Execution.return_ip r=origin+458;
  stack:Sha512Challenge.Execution.return_sp r=Rows.frame e;
  saved:forall g,In g sysv_saved -> Sha512Challenge.Execution.saved_register r g=Some(regs(machine q) g);
  writes:confined (writable e) (history bias q);
  bytes:byte_memory (Sha512Challenge.Execution.after r);
  replayed:forall x,Sha512Challenge.Execution.after r x=replay (mem e) (history bias q) x;
- digest:forall j,(j<8)%nat -> EligibleLanes.candidate e j ->
+ digest:forall j,(j<8)%nat -> HashLayout.eligible pol e j ->
    Scalar.ScalarSpec.lane_input (buffer_words (Sha512Challenge.Execution.after r) (Rows.frame e)) j=
    little_endian (SHA512.Spec.sha512 (r_bytes(row e j)++key_bytes(row e j)++message(row e j)))
 }.
 
-Theorem checked bias pc e p q : placement e -> loaded Zip215 bias (mem e) (writable e) ->
- (0<Scatter.count e)%nat -> Loop.spatial (HashLayout.chunk e bias) -> messages_immutable e ->
- (exists j,(j<8)%nat /\ EligibleLanes.candidate e j) -> PreparedReturn.result Zip215 bias (bias+pc) e p ->
- HashEntry.entry bias pc e p q -> exists r,execute bias q=Some r /\ returned bias (bias+pc) e q r.
+Theorem checked pol bias pc e p q : placement e -> loaded pol bias (mem e) (writable e) ->
+ (0<Scatter.count e)%nat -> Loop.spatial (HashLayout.chunk pol e bias) -> messages_immutable e ->
+ HashLayout.active pol e -> HashLayout.flags pol e (machine p) -> PreparedInputs.encodings e (machine p) ->
+ HashEntry.entry bias pc e p q -> exists r,execute bias q=Some r /\ returned pol bias (bias+pc) e q r.
 Proof.
- intros P I N Space Borrow Live Prep Q;set (s:=machine q).
- pose proof(HashLayout.placement _ _ _ _ _ N Space Live Prep Q) as Layout.
+ intros P I N Space Borrow Live Flags Enc Q;set (s:=machine q).
+ pose proof(HashLayout.placement _ _ _ _ _ _ N Space Live Flags Q) as Layout.
  pose proof(HashEntry.writes _ _ _ _ _ Q) as Prefix;pose proof(HashEntry.words _ _ _ _ _ Q) as W.
- destruct(mapped_now _ _ _ I _ _ _ Prefix (HashEntry.in_image Zip215)) as [Text _].
- assert (L:In (literal,Sha512Challenge.LiteralBytes.symbol_bytes) (children Zip215)) by (apply in_or_app;left;do 4 right;left;reflexivity).
+ destruct(mapped_now _ _ _ I _ _ _ Prefix (HashEntry.in_image pol)) as [Text _].
+ assert (L:In (literal,Sha512Challenge.LiteralBytes.symbol_bytes) (children pol)) by (apply in_or_app;left;do 4 right;left;reflexivity).
  destruct(mapped_now _ _ _ I _ _ _ Prefix L) as [Data _].
  destruct(Sha512Challenge.Audit.returns_correct _ _ _ _ Sha512Challenge.Object.assembled_sha512_challenge_correct bias s Layout W Data)
  as [r [Run [PC [SP [G [B [_ Digests]]]]]]].
@@ -80,7 +80,7 @@ Proof.
  - exact B.
  - intro x;unfold history;rewrite replay_app,(Replay r Run x);apply replay_equal,(proj2 Prefix).
  - intros j J On;pose proof(Digest.sha_to_scalar s _ j J Digests) as Scalar.
-   pose proof(challenge_bytes _ _ _ _ _ P Borrow (PreparedReturn.encodings _ _ _ _ _ Prep) Q j J) as Input.
-   destruct(PreparedReturn.flags _ _ _ _ _ Prep j J) as [_ Flag];unfold HashLengths.enabled in Input;rewrite (proj2 Flag On) in Input.
+   pose proof(challenge_bytes _ _ _ _ _ P Borrow Enc Q j J) as Input.
+   rewrite (proj2(Flags j J) On) in Input.
    unfold s in Scalar;rewrite Input,Dst in Scalar;exact Scalar.
 Qed.
