@@ -34,7 +34,9 @@ Proof.
  - rewrite ZeroAX;change (0 mod 2^32=?0) with true.
    destruct(RejectExecution.finish_checked Dalek bias pc text e q Scatter Exit P I Fit Len Map Apart N Idx (StrictReturn.writes _ _ _ _ Q)
      (StrictReturn.pc _ _ _ _ Q) (StrictReturn.stack _ _ _ _ Q) (StrictReturn.outputs _ _ _ _ Q) (StrictReturn.remaining _ _ _ _ Q)
-     ltac:(now rewrite ZeroAX) (StrictReturn.metadata _ _ _ _ Q) (StrictReturn.saved _ _ _ _ Q) (proj2(proj2(StrictReturn.words _ _ _ _ Q))))
+     ltac:(now rewrite ZeroAX) (StrictReturn.metadata _ _ _ _ Q) (StrictReturn.saved _ _ _ _ Q) (StrictReturn.words _ _ _ _ Q)
+     ltac:(constructor;[exact(conj (StrictReturn.scratch_reg _ _ _ _ Q) (StrictReturn.outputs _ _ _ _ Q))|
+         exact(StrictReturn.next_descriptor _ _ _ _ Q)|exact(WrapperInputs.tables _ _ (StrictReturn.inputs _ _ _ _ Q))]))
      as [r [Run R]].
    exists (Zero r);split;[now rewrite Run|constructor;[exact Q|split;[intro H;apply Live in H;lia|exact R]]].
  - rewrite One;change (1 mod 2^32=?0) with false.

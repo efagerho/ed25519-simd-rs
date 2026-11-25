@@ -18,7 +18,7 @@ Record entry bias parent e p q mask:Prop:=Entry {
  sp:regs(machine q) 4%nat=ScoreFrame.top e;
  args:arguments e mask (machine q); ret:read_word(mem(machine q))(ScoreFrame.top e)=bias+parent+539;
  left:regs(machine q) 12%nat=Prologue.rows_left(regs e 6%nat); metadata:StageEntry.metadata e (mem(machine q));
- saved:StageEntry.saved_caller e (machine q);
+ saved:StageEntry.saved_caller e (machine q); restart:ChunkContext.bindings e (machine q);
  memory:mem(machine q)=mem(machine p); history:log q=log p
 }.
 Theorem checked pol bias parent e caller p mask : placement e -> loaded pol bias (mem e) (writable e) ->
@@ -48,6 +48,10 @@ Proof.
  - rewrite G by (simpl;tauto);exact (ScoreSaved.counter _ _ _ _ _ F).
  - rewrite M;exact (ScoreSaved.metadata _ _ _ _ _ F).
  - split;[rewrite M;exact (ScoreSaved.spills _ _ _ _ _ F)|rewrite G by (simpl;tauto);exact (ScoreSaved.outer_bp _ _ _ _ _ F)].
+ - constructor.
+   + unfold Prologue.context_registers,Prologue.output_registers;rewrite (G 15%nat),(G 13%nat),(G 14%nat) by (simpl;tauto);exact(ScoreSaved.globals _ _ _ _ _ F).
+   + rewrite G by (simpl;tauto);exact(ScoreSaved.descriptor _ _ _ _ _ F).
+   + rewrite M;exact(ScoreSaved.tables _ _ _ _ _ F).
  - exact M.
  - apply app_nil_r.
 Qed.

@@ -10,8 +10,9 @@ initial contents of the output array and any batch length, including zero.
 
 For both policies, a batch of zero to eight descriptors has one instruction-level
 store log through its return to Rust. Replaying that log on entry memory recovers
-every final byte. For a longer batch the native log reaches the loop back edge
-after publishing the first eight verdicts. When preparation builds the public-key
+every final byte. For a longer batch the native log publishes the first eight
+verdicts, follows the back edge, stages the next descriptors and enters the
+second preparation call. When preparation builds the public-key
 tables, the log includes its six register saves, the 48 stores that initialize the eight identity entries,
 the nested arithmetic calls for all eight multiples, and the 15 stores staging
 the affine operand. The proof checks the eight-key transpose and the loaded
@@ -273,9 +274,11 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    [Rejection call and return](coq/RejectedPath.v) · [Native dispatch](coq/FirstDispatch.v) · [Key-table initialization](coq/TableStart.v) · [Native cached coordinates](coq/TableValues.v) · [Table staging and transpose](coq/TablePackedInputs.v) · [Signed row contents](coq/TableSignedWords.v) · [Eight-multiple loop](coq/TableRounds.v) · [Builder return](coq/TableUnwind.v) · [Caller regions](coq/CallWrites.v) · [Nested regions](coq/NestedRegions.v) ·
    [Scorer alignment](coq/Score.v) · [Mapped image](coq/LoadedImage.v)
 6. **The remaining boundary.** Batches with more than eight descriptors reach the next
-   chunk on the native trace. The final verdict and final memory for those batches still
-   use grouped execution. Both policies follow the first chunk through the
-   scorer, scatter and wrapper branch with its actual nested store log.
+   preparation call on the native trace. The restored descriptor pointer selects
+   row eight, R12 supplies the remaining count, and R13 retains the full output
+   capacity. A short second chunk repeats its final live descriptor in the spare
+   lanes. The final verdict and final memory for these batches still use grouped
+   execution. [Loop handoff](coq/ChunkRestart.v) · [Staged bytes and indices](coq/ChunkStaging.v)
    The current theorem
    preserves every final byte outside the output, 25,344-byte scratch and
    16 KiB below entry RSP. [Call composition](coq/Loop.v) · [Frame model](coq/Return.v) ·

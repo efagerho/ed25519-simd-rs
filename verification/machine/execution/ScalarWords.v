@@ -99,3 +99,11 @@ Proof.
  intros W;unfold segment;destruct(run _ _ _) as [[s ws]|] eqn:Steps;[|discriminate].
  intro F;injection F as <-;exact (mapped_run_wf _ _ _ (State (Running (ip p-origin)) (machine p) (carry p)) _ _ W Steps).
 Qed.
+
+Lemma returning_wf origin size fuel p q : well_formed(machine p) -> returning origin size fuel p=Some q ->
+ well_formed(machine q).
+Proof.
+ intros W;unfold returning;destruct(until_return _ _ _) as [[s ws]|] eqn:R;[|discriminate].
+ intro Out;injection Out as <-;destruct(returned_run _ _ _ _ _ _ R) as [n [back [_ [Run _]]]].
+ exact(mapped_run_wf _ _ _ (State(Running(ip p-origin)) (machine p) (carry p)) s ws W Run).
+Qed.

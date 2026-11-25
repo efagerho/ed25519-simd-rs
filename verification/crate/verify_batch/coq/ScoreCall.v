@@ -3,7 +3,8 @@ From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.
  memory.FlatMemory memory.ByteMemory memory.WriteTrace memory.MemoryGeometry.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar.
 From Ed25519Simd.VerifyBatch Require ScoreInputs ScoreSetup.
-Import ListNotations. Local Open Scope Z_scope.
+Import ListNotations. From Ed25519Simd.VerifyBatch Require ChunkContext.
+Local Open Scope Z_scope.
 
 Definition execute bias pc text q r s c:=ScoreSetup.execute (bias+pc) text (HashResume.resume bias q r s c).
 Record entered pol bias pc e q r child:Prop:=Entered {
@@ -21,6 +22,7 @@ Record entered pol bias pc e q r child:Prop:=Entered {
    little_endian (SHA512.Spec.sha512 (r_bytes(HashLayout.row e j)++key_bytes(HashLayout.row e j)++message(HashLayout.row e j)));
  wrapper:StageEntry.metadata e (mem(machine child)) /\ StageEntry.saved_caller e (machine child) /\
    regs(machine child) 12%nat=Prologue.rows_left (regs e 6%nat);
+ restart:ChunkContext.bindings e (machine child);
  frame:preserved (fun x=>~ScoreSetup.slots (Rows.frame e) x) (Sha512Challenge.Execution.after r) (mem(machine child));
  store_log:log child=NativeHash.history bias q++ScoreSetup.events (bias+pc) (Rows.frame e) (scratch e) (Sha512Challenge.Execution.after r)
 }.
@@ -51,7 +53,7 @@ Proof.
  - exact (ScoreSetup.writes _ _ _ _ _ _ Entry).
  - exact LastW.
  - unfold m in Args;rewrite (proj1 C) in Args;exact Args.
- - exact (conj Back (conj (eq_trans Base (ScoreInputs.base _ _ _ Data)) (conj Digits Digest))).
+ - exact (conj Back (conj (eq_trans Base (proj2(ScoreInputs.tables _ _ _ Data))) (conj Digits Digest))).
  - intros j J;cbv zeta;fold t;rewrite <-(read_word_byte _ (t+856) (Z.of_nat j) (proj2(proj2 LastW)) ltac:(lia)),Flags.
    rewrite read_word_byte by (apply W || lia);exact (ScoreInputs.flags _ _ _ Data j J).
  - eapply ScoreBuffers.keep;[|exact (ScoreInputs.buffers _ _ _ Data)];intros x X;apply Kept.
@@ -68,6 +70,10 @@ Proof.
      * intros x X;rewrite Kept;[exact (Spills x X)|unfold ScoreSetup.slots,span,t,Rows.frame,sp in *;lia].
      * rewrite (ScoreSetup.saved _ _ _ _ _ _ Entry) by (simpl;tauto);exact BP.
      * rewrite (ScoreSetup.saved _ _ _ _ _ _ Entry) by (simpl;tauto);exact (ScoreInputs.remaining _ _ _ Data).
+ - apply (ChunkContext.preserve e s (machine child)).
+   + constructor;[exact(ScoreInputs.gprs _ _ _ Data)|exact(ScoreInputs.next_descriptor _ _ _ Data)|exact(ScoreInputs.tables _ _ _ Data)].
+   + exact(ScoreSetup.saved _ _ _ _ _ _ Entry).
+   + intros x X;apply Kept;unfold ScoreSetup.slots,span,t in *;lia.
  - rewrite <-(proj1 C);exact Kept.
  - rewrite <-(proj1 C);exact (ScoreSetup.store_log _ _ _ _ _ _ Entry).
 Qed.

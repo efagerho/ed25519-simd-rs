@@ -81,7 +81,7 @@ Lemma written mask flags o meta out len active j idx s c : args mask meta out le
  (j<active<=8)%nat -> fits64 meta 80 -> flags j=mem s (meta+Z.of_nat j) -> fits64 out len -> 0<=idx<len ->
  exists t cf ws,run 7 (fetch_at o) (State (Running 28) s c)=Some(State (Running (next active (S j))) t cf,ws) /\
  args mask meta out len active (S j) t /\ mem t=write_bytes (mem s) (out+idx) 1 (fun _=>verdict flags mask j) /\
- confined (fun x=>out<=x<out+len) ws.
+ confined (fun x=>x=out+idx) ws.
 Proof.
  intros [Ptr [Dst [Len [AX [I Count]]]]] Index J [ML MH] Flag [O U] X.
  set (loaded:=low_byte s 10 (mem s (effective s (Address 7 (Some (8%nat,1)) 0)))).
@@ -116,11 +116,13 @@ Qed.
 Definition flags_at m meta n (flags:nat->Z):=forall j,(j<n)%nat -> m(meta+Z.of_nat j)=flags j.
 Definition compatible (idx:nat->Z) n (value:nat->Z):=forall i j,(i<n)%nat -> (j<n)%nat -> idx i=idx j -> value i=value j.
 Definition published m out (idx:nat->Z) n (value:nat->Z):=forall j,(j<n)%nat -> m(out+idx j)=value j.
+Definition targets out (idx:nat->Z) first n x:=exists j,(first<=j<first+n)%nat /\ x=out+idx j.
+
 Lemma loop mask flags o meta out len active idx : (0<active<=8)%nat -> fits64 meta 80 -> word64 len -> fits64 out len ->
  disjoint meta 80 out len -> (forall j,(j<active)%nat -> 0<=idx j<len) ->
  compatible idx active (verdict flags mask) -> forall fuel j s c,(j+fuel=active)%nat -> args mask meta out len active j s -> indices (mem s) meta active idx -> flags_at (mem s) meta active flags ->
  published (mem s) out idx j (verdict flags mask) -> exists t cf ws,run (10*fuel) (fetch_at o) (State (Running (next active j)) s c)=
- Some(State (Running 49) t cf,ws) /\ published (mem t) out idx active (verdict flags mask) /\ confined (fun x=>out<=x<out+len) ws.
+ Some(State (Running 49) t cf,ws) /\ published (mem t) out idx active (verdict flags mask) /\ confined (targets out idx j fuel) ws.
 Proof.
  intros Active Meta Len Out Sep Bounds Compat fuel;induction fuel as [|f IH];intros j s c Left Args Ind Flags Prev.
  - replace j with active in * by lia;unfold next;rewrite Nat.ltb_irrefl;do 3 eexists;split;[reflexivity|split;[exact Prev|constructor]].
@@ -140,7 +142,10 @@ Proof.
      - rewrite (Compat i j ltac:(lia) J Eq),Eq;replace (out+idx j) with ((out+idx j)+0) at 2 by ring;apply write_at;lia.
      - rewrite write_outside by lia;apply Prev;destruct(Nat.eq_dec i j);subst;lia. }
    destruct(IH (S j) v cv ltac:(lia) V I F Z) as [t [end_cf [tail [Rest [All W]]]]].
-   exists t,end_cf,(w++tail);split;[|split;[exact All|apply Forall_app;auto]].
+   exists t,end_cf,(w++tail);split;[|split;[exact All|]].
+   2:{ apply Forall_app;split.
+       - eapply Forall_impl;[|exact Safe];intros a A x X;exists j;split;[lia|exact (A x X)].
+       - eapply Forall_impl;[|exact W];intros a A x X;destruct(A x X) as [i [Range E]];exists i;split;[lia|exact E]. }
    unfold next at 1;rewrite (proj2(Nat.ltb_lt _ _) J);replace (10*S f)%nat with (10+10*f)%nat by lia.
    exact (run_append _ 10 _ _ _ (run_append _ 3 _ _ _ Check 7 _ _ Write) _ _ _ Rest).
 Qed.
@@ -148,14 +153,14 @@ Lemma finish o s c : exists t back,run 2 (fetch_at o) (State (Running 49) s c)=S
  loc t=Returned back /\ regs(cpu_state t) 0%nat=1 /\ mem(cpu_state t)=mem s.
 Proof. do 2 eexists;split;[apply (checked _ _ _ (proj2(proj2(proj2 bytes_bound))));reflexivity|repeat split;reflexivity]. Qed.
 
-Theorem returns mask flags o s c meta out len active idx : (0<active<=8)%nat -> fits64 meta 80 ->
+Theorem returns_exact mask flags o s c meta out len active idx : (0<active<=8)%nat -> fits64 meta 80 ->
  word64 len -> fits64 out len -> disjoint meta 80 out len -> (forall j,(j<active)%nat -> 0<=idx j<len) ->
  regs s 7%nat=meta -> regs s 6%nat=out -> regs s 2%nat=len -> regs s 0%nat=mask ->
  read_word (mem s) (meta+72)=Z.of_nat active -> indices (mem s) meta active idx -> flags_at (mem s) meta active flags ->
  compatible idx active (verdict flags mask) ->
  exists t ws back,run (6+10*active+2) (fetch_at o) (State (Running 0) s c)=Some(t,ws) /\
  loc t=Returned back /\ regs(cpu_state t) 0%nat=1 /\ published (mem(cpu_state t)) out idx active (verdict flags mask) /\
- confined (fun x=>out<=x<out+len) ws.
+ confined (targets out idx 0 active) ws.
 Proof.
  intros N Meta Len Out Sep Bounds DI SI DX AX Count Ind Flags Compat.
  destruct(start mask o s c meta out len active N Meta DI SI DX AX Count) as [u [Head [Args Flat]]].
@@ -166,6 +171,22 @@ Proof.
  exists t,w,back;split.
  - pose proof (run_append _ _ _ _ _ (run_append _ _ _ _ _ Head _ _ _ Body) _ _ _ End) as R;now rewrite app_nil_r in R.
  - split;[exact PC|split;[exact Status|rewrite M;auto]].
+Qed.
+
+Theorem returns mask flags o s c meta out len active idx : (0<active<=8)%nat -> fits64 meta 80 ->
+ word64 len -> fits64 out len -> disjoint meta 80 out len -> (forall j,(j<active)%nat -> 0<=idx j<len) ->
+ regs s 7%nat=meta -> regs s 6%nat=out -> regs s 2%nat=len -> regs s 0%nat=mask ->
+ read_word (mem s) (meta+72)=Z.of_nat active -> indices (mem s) meta active idx -> flags_at (mem s) meta active flags ->
+ compatible idx active (verdict flags mask) ->
+ exists t ws back,run (6+10*active+2) (fetch_at o) (State (Running 0) s c)=Some(t,ws) /\
+ loc t=Returned back /\ regs(cpu_state t) 0%nat=1 /\ published (mem(cpu_state t)) out idx active (verdict flags mask) /\
+ confined (fun x=>out<=x<out+len) ws.
+Proof.
+ intros N Fit Len Out Sep Bounds DI SI DX AX Count Ind Flags Compat.
+ destruct(returns_exact mask flags o s c meta out len active idx N Fit Len Out Sep Bounds DI SI DX AX Count Ind Flags Compat)
+    as [t [ws [back [Run [PC [OK [Values W]]]]]]].
+ exists t,ws,back;split;[exact Run|split;[exact PC|split;[exact OK|split;[exact Values|]]]].
+ eapply Forall_impl;[|exact W];intros a A x X;destruct(A x X) as [i [I ->]];specialize(Bounds i ltac:(lia));lia.
 Qed.
 
 Lemma remaining_shift mask j:0<=mask<256 -> remaining mask j=Z.shiftr mask (Z.of_nat j) /\ 0<=remaining mask j<256.
