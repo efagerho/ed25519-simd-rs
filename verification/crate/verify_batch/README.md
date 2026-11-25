@@ -30,7 +30,11 @@ return address. The log then includes SHA-512's internal stores and return.
 Replaying it from the original Rust call gives every byte of memory at that
 return. For each eligible lane the 64 digest bytes in the caller's stack are
 SHA-512 of the original R, public key and message, in that order. The Dalek wrapper passes the selected table pointers and the eight
-eligibility bytes to its key filter. [Pointer selection and flags](coq/PrepareOutputs.v) · [Preparation return](coq/PreparedReturn.v) · [SHA call](coq/HashEntry.v) · [SHA result and stores](coq/NativeHash.v) · [Dalek filter call](coq/StrictFilterCall.v)
+eligibility bytes to its key filter. Its log covers the filter through its
+return, including each carry-helper call and the conditional write to those
+bytes. Dalek first compares the two cached Y±X coordinates in the selected +8
+row. If any lane ties, it compares twice Y−X with 2Z and clears exactly the
+lanes where both comparisons agree. [Pointer selection and flags](coq/PrepareOutputs.v) · [Preparation return](coq/PreparedReturn.v) · [SHA call](coq/HashEntry.v) · [SHA result and stores](coq/NativeHash.v) · [Dalek filter execution and return](coq/FilterReturned.v)
 
 The proof reads back
 all 20 words per identity entry and relates the four cached coordinates
