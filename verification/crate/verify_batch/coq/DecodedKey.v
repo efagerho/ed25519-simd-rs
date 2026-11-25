@@ -7,6 +7,9 @@ From Ed25519Simd.VerifyBatch Require RootOperands KeyReturn.
 Local Open Scope Z_scope.
 Local Opaque DecoderProduct.kernel Power.apply_kernel.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem checked pol bias e t : placement e -> KeyReturn.post pol bias e t ->
  geometry false e (buffer false e (machine(KeyReturn.returned t))).
 Proof.
@@ -45,3 +48,4 @@ Proof.
  split;[exact X|split;[intros i I;rewrite Y by exact I;apply BY,I|split;[etransitivity;[apply Radix51.limbs_ext,Y|exact YV]|]]].
  intros G Dec;rewrite Value,VX;apply decoded_value;[unfold m;rewrite (proj2(Selection.accepts_key _ _ _ _ Pick j J));exact TestBit|exact Dec].
 Qed.
+End Iteration.

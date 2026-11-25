@@ -11,6 +11,9 @@ Definition route:list line:=[(190,4%nat,Compare32 12 2);(194,2%nat,Branch Unequa
  (214,3%nat,Copy32 9 14);(217,5%nat,CallRelative (901-222))].
 Lemma code:linked text route. Proof. repeat constructor;vm_compute;discriminate || reflexivity. Qed.
 Definition enter bias:=segment (base bias) text 7.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem checked pol bias e t : placement e -> loaded pol bias (mem e) (writable e) -> KeyReturn.post pol bias e t ->
  let p:=KeyReturn.returned t in exists q,enter bias p=Some q /\ DecoderFinish.entry true pol bias e q /\
  regs(machine q) 13%nat=regs(machine p) 0%nat /\ preserved (fun x=>~span (link_slot pol e) 8 x) (mem(machine p)) (mem(machine q)).
@@ -61,3 +64,4 @@ Proof.
    + change (regs child 13%nat=regs s 0%nat);rewrite Reg;cbn [put Nat.eqb];apply Z.mod_small;pose proof(KeyReturn.valid_byte _ _ _ _ K) as B;change (0<=regs s 0%nat<256) in B;lia.
    + intros x X;change (mem child x=mem s x);rewrite Mem;apply write_outside,X.
 Qed.
+End Iteration.

@@ -5,6 +5,9 @@ From Ed25519Simd.VerifyBatch Require RootOperands SignatureDecision PairReturn.
 Local Open Scope Z_scope.
 Local Opaque DecoderProduct.kernel Power.apply_kernel.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem checked pol bias e t : placement e -> PairReturn.post pol bias e t ->
  geometry true e (buffer true e (machine(PairReturn.returned t))).
 Proof.
@@ -35,3 +38,4 @@ Proof.
  split;[exact X|split;[intros i I;rewrite Y by exact I;apply BY,I|split;[etransitivity;[apply Radix51.limbs_ext,Y|exact YV]|]]].
  intros G Dec;rewrite Value,V;apply decoded_value;[rewrite (proj2(FinishTrace.mask_bit _ _ _ _ _ _ Done j J));exact Bit|exact Dec].
 Qed.
+End Iteration.

@@ -20,6 +20,9 @@ Record result bias e p v k:Prop:=Result {
  branch:match v with FilterBranch.Done q=>ip q=bias+FilterLoad.site+543 /\ mask16(k 1%nat)=0
   | FilterBranch.CompareZ q=>ip q=bias+FilterLoad.site+313 /\ regs(machine q) 1%nat=mask16(k 1%nat) end
 }.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem checked bias e prep p ks : placement e -> loaded Dalek bias (mem e) (writable e) ->
  StrictFilterCall.entry bias e prep p -> FilterRows.rows e (machine p) ->
  exists v k,execute bias p ks=Some(v,k) /\ result bias e p v k.
@@ -51,3 +54,4 @@ Proof.
    apply FilterRows.first;assumption.
  - destruct v;destruct Branch as [Test [PC Reg]];cbn [FilterBranch.stopped] in PC,Reg;split;try assumption;rewrite Reg;reflexivity.
 Qed.
+End Iteration.

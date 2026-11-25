@@ -15,6 +15,9 @@ Definition square bias:=then_run (set_rhs bias) (DecoderProduct.multiply_call bi
 Definition lea_line:list line:=[(497,7%nat,LeaG 8 (Address 7 None 320))].
 Lemma image : linked text lea_line /\ ScalarBytes.decode (skipn 504 text)=Some(5%nat,CallRelative(0xa57-509)).
 Proof. repeat split;repeat constructor;vm_compute;discriminate || reflexivity. Qed.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition raw signature e s := forall j,(j<8)%nat -> let y:=digits signature e s j in
  radix_digits y /\ limbs y=original_encoding signature e j mod 2^255 /\
  Z.testbit (regs s 0%nat) (Z.of_nat j)=Z.testbit (original_encoding signature e j) 255.
@@ -108,3 +111,4 @@ Proof.
  destruct(from_saved signature _ _ _ _ P M Saved Frame Data) as [t [Run [Value More]]].
  exists t,k;split;[unfold square_input;rewrite Setup;cbn [bind];now rewrite Run|split;[exact Value|intros x X;now rewrite More,Keep by exact X]].
 Qed.
+End Iteration.

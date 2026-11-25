@@ -5,6 +5,9 @@ From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage.
 From Ed25519Simd.VerifyBatch Require ScorePoint.
 Local Open Scope Z_scope.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record result bias pc e caller q:Prop:=Result {
  pc_after:ip q=ScoreProduct.continuation Dalek bias; words:well_formed(machine q); writes:accounted e (writable e) q;
  sp_after:regs(machine q) 4%nat=ScoreFrame.buffer e; r_ptr:regs(machine q) 3%nat=BatchDecode.point e true;
@@ -44,3 +47,4 @@ Proof.
    rewrite (StrictCandidateInputs.parent _ _ _ Args) by (right;lia);apply (ScoreCall.lanes _ _ _ _ _ _ _ C),J.
  - exact (ScorePoint.returned _ _ _ _ _ _ _ P Entry Prod Ret Mem).
 Qed.
+End Iteration.

@@ -5,6 +5,9 @@ From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScala
 From Ed25519Simd.VerifyBatch Require StrictOrderReturn.
 Local Open Scope Z_scope.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition eligible e j:=StrictRCanonical.eligible e j /\
  exists R,Policy.decodes (BatchDecode.original_encoding true e j) R /\ multiple 8 R<>identity.
 
@@ -50,3 +53,4 @@ Proof.
  exists q;split;[exact Run|constructor];[rewrite Mask;exact Dest|exact Paid|exact W|exact M|exact Log|exact K|exact Byte|exact Bits|].
  exact (StrictRCanonical.nonempty _ _ Byte Bits).
 Qed.
+End Iteration.

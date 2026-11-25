@@ -7,11 +7,14 @@ Local Open Scope Z_scope.
 
 Definition execute decoded pol bias pc text p:=bind (unwind_at decoded pol bias p) (finish_chunk bias pc text).
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem checked decoded pol bias pc text e p :
  RejectDispatch.bound pc text -> RejectFinish.bound text -> placement e -> loaded pol bias (mem e) (writable e) ->
  fits64 (bias+pc) (Z.of_nat(length text)) -> offset Continue<Z.of_nat(length text) ->
  mapped (mem e) (bias+pc) text -> (forall x,bias+pc<=x<bias+pc+Z.of_nat(length text)->~writable e x) ->
- (0<Scatter.count e)%nat -> Scatter.indices e -> EligibilityFrame.context pol bias (bias+pc) e p ->
+ (0<BatchWindow.remaining e)%nat -> Scatter.indices e -> EligibilityFrame.context pol bias (bias+pc) e p ->
  accounted e (writable e) p -> well_formed(machine p) -> regs(machine p) 4%nat=common_top pol e-104 ->
  ip p=bias+PrepareNative.common+unwind_offset decoded -> return_value decoded (machine p) mod 2^32=0 ->
  exists r,execute decoded pol bias pc text p=Some r /\ RejectExecution.post (bias+pc) e r.
@@ -30,3 +33,4 @@ Proof.
    as [r [Finish Post]].
  exists r;split;[unfold execute;now rewrite Unwind|exact Post].
 Qed.
+End Iteration.

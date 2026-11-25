@@ -58,6 +58,9 @@ Definition post sig pol bias e p q:=let slot:=link_slot pol e in
  forall j i,(j<8)%nat -> (i<5)%nat -> let x:=operand sig pol e (machine p) j in
  vectors(machine q) j i=Power.apply_kernel DecoderProduct.kernel Square x x i.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem from_entry sig pol bias e p : placement e -> loaded pol bias (mem e) (writable e) ->
  DecoderFinish.entry sig pol bias e p -> exists q,evaluate bias p=Some q /\ post sig pol bias e p q.
 Proof.
@@ -91,3 +94,4 @@ Proof.
        rewrite Survive by lia;apply High,K.
      * intros j i J K;rewrite Project;apply lane;[intros k N;apply Rows,N|apply High|exact K].
 Qed.
+End Iteration.

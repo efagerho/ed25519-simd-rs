@@ -28,6 +28,9 @@ Proof.
  intro H;rewrite Z.add_mod in H by lia;unfold TableFrame.base;rewrite Z.add_mod by lia.
  change (DecoderFrame.origin mod 64) with 0 in H;change (TableEntry.origin mod 64) with 0;exact H.
 Qed.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem checked pol bias e before p ks : placement e -> loaded pol bias (mem e) (writable e) ->
  (bias+DecoderFrame.origin) mod 64=0 -> EligibleLanes.post pol bias e before p -> regs(machine p) 14%nat<>0 ->
  exists q bank,execute bias p ks=Some(q,bank) /\ ready pol bias e p q bank.
@@ -50,3 +53,4 @@ Proof.
  - rewrite (TablePackLiterals.memory_after _ _ _ _ _ L);apply (TablePackedInputs.point_after _ _ _ _ _ A).
  - rewrite (TablePackLiterals.memory_after _ _ _ _ _ L);apply (TablePackedInputs.rows _ _ _ _ _ A).
 Qed.
+End Iteration.

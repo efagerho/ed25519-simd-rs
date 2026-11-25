@@ -12,6 +12,9 @@ Definition execute bias p ks:=bind (StrictRY.execute bias p) (fun y=>
  (fun '(r,k)=>option_map (fun t=>(t,k)) (StrictRClear.execute bias r)))).
 Lemma kmov:MaskTransfer.encoding (ToEax 2)=firstn 4 (skipn 147 text).
 Proof. vm_compute;reflexivity. Qed.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition eligible e j:=HashLayout.eligible Dalek e j /\ BatchDecode.original_encoding true e j mod 2^255<Field.prime.
 Record result bias e p t:Prop:=Result {
  address:ip t=bias+pc+(if regs(machine t) 12%nat=?0 then 554 else 162);
@@ -88,3 +91,4 @@ Proof.
  - exact Bits.
  - exact (nonempty _ _ Byte Bits).
 Qed.
+End Iteration.

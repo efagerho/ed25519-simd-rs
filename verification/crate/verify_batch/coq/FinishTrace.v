@@ -30,6 +30,9 @@ Record post sig pol bias e p t : Prop:=Post {
  frame:preserved (ExtendedPoint.protected sig pol e) (mem(machine p)) (mem(machine(returned t)))
 }.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem checked sig pol bias e p bank : placement e -> loaded pol bias (mem e) (writable e) ->
  DecoderFinish.entry sig pol bias e p -> exists t,execute bias p bank=Some t /\ post sig pol bias e p t.
 Proof.
@@ -90,3 +93,4 @@ Proof.
      rewrite (M0 z),Keep;[reflexivity|exact Apart|split;[exact Apart|unfold a,span in *;lia]].
    + intros z Protected;rewrite (ReturnedPoint.untouched _ _ _ _ _ _ Out z Protected);apply M0;unfold ExtendedPoint.protected in Protected;fold a st in Protected;lia.
 Qed.
+End Iteration.

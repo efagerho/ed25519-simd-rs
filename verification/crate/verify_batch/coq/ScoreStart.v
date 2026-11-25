@@ -76,6 +76,9 @@ Proof.
 Qed.
 
 Definition from_call pol bias p:=bind (ScoreFrame.enter pol bias p) (execute pol bias).
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record reached pol bias pc0 e h r p q:Prop:=Reached {
  caller:ScoreCall.entered pol bias pc0 e h r p;
  prologue:exists f,ScoreFrame.enter pol bias p=Some f /\ ScoreFrame.ready pol bias e p f /\
@@ -90,3 +93,4 @@ Proof.
 Qed.
 Lemma accounted pol bias pc0 e h r p q : reached pol bias pc0 e h r p q -> LinkedRun.accounted e (writable e) q.
 Proof. intros [_ [f [_ [_ [_ S]]]]];exact (writes _ _ _ _ _ S). Qed.
+End Iteration.

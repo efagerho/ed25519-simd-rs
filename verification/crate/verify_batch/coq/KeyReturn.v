@@ -8,6 +8,9 @@ Local Open Scope Z_scope.
 Record trace:=Trace { signed:SignedRoot.trace; returned:cursor }.
 Definition observe pol bias e p bank:=bind (SignedRoot.observe pol bias e p bank) (fun r=>
  option_map (Trace r) (ReturnedPoint.execute bias (SignedRoot.at_store r))).
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record post pol bias e t:Prop:=Post {
  signed_result:SignedRoot.post pol bias e (signed t);
  native_return:ReturnedPoint.result false pol bias e (SignedRoot.at_store(signed t)) (returned t);
@@ -44,3 +47,4 @@ Proof.
  - intros x X;rewrite (ReturnedPoint.untouched _ _ _ _ _ _ Out x X);apply (SignedRoot.before_x _ _ _ _ S).
    unfold SignedRoot.protected,ExtendedPoint.protected in *;lia.
 Qed.
+End Iteration.

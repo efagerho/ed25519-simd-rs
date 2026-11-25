@@ -13,6 +13,9 @@ Definition setup_untouched signature pol e x :=
 Definition address signature e := point e signature+320.
 Definition preserve bias := segment (bias+DecoderFrame.origin) DecoderFrame.code 5.
 Definition digits signature e s j i := read_word (mem s) (address signature e+64*Z.of_nat i+8*Z.of_nat j).
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition saved signature bias e p := ip p=bias+DecoderFrame.origin+497 /\ accounted e (writable e) p /\
  0<=regs(machine p) 0%nat<256 /\ forall j,(j<8)%nat ->
  radix_digits (digits signature e (machine p) j) /\ limbs (digits signature e (machine p) j)=original_encoding signature e j mod 2^255 /\
@@ -90,3 +93,4 @@ Proof.
    intros x [_ X];rewrite Keep,UnpackMem,WordsMem;[reflexivity|].
    unfold range,address,span in *;change (Z.of_nat 5) with 5;lia.
 Qed.
+End Iteration.

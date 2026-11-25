@@ -12,6 +12,9 @@ Definition product pol bias candidate stop := exists q mid ladder,
 Definition observed pol bias score stop : Prop := match pol with
  | Zip215=>product Zip215 bias score stop | Dalek=>StrictScreen.observed bias score stop end.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition context pol bias e candidate staged:=exists digest mid ladder,
  CandidateDigest.entry pol bias e candidate digest /\ ReducedDigest.returned pol bias e digest mid /\
  LadderEntry.entry pol bias e mid ladder /\ LadderStage.observed bias ladder staged.
@@ -50,3 +53,4 @@ Proof.
  - destruct(StrictScreen.checked _ _ _ _ _ _ _ P I Live Ready) as [Exists Sound];split;[exact Exists|].
    intros stop O;exact (StrictScreen.writes _ _ _ (Sound _ O)).
 Qed.
+End Iteration.

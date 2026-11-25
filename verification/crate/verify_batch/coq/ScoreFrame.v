@@ -19,6 +19,9 @@ Record ready pol bias e p q:Prop:=Ready {
  saved:mem(machine q)=replay (mem(machine p)) (FramePointer.stores (bias+ScoreSetup.callee pol) (top e) (regs(machine p)));
  log_after:log q=log p++FramePointer.stores (bias+ScoreSetup.callee pol) (top e) (regs(machine p))
 }.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem checked pol bias pc0 e h r p : placement e -> loaded pol bias (mem e) (writable e) -> ScoreCall.entered pol bias pc0 e h r p ->
  exists q,enter pol bias p=Some q /\ ready pol bias e p q.
 Proof.
@@ -43,3 +46,4 @@ Proof.
  - exact (steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ Run)).
  - reflexivity.
 Qed.
+End Iteration.

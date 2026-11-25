@@ -8,6 +8,9 @@ From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage.
 From Ed25519Simd.VerifyBatch Require ScorePoint.
 Local Open Scope Z_scope.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition live e s:=forall j,(j<8)%nat ->
  Z.testbit (regs s 12%nat) (Z.of_nat j)=true <-> RootDecision.decodes true e j.
 Definition flags e s:=forall j,(j<8)%nat -> let byte:=mem s (Rows.frame e+856+Z.of_nat j) in
@@ -57,3 +60,4 @@ Proof.
      unfold ScoreFrame.buffer,FramePointer.bottom,ScoreFrame.top in *;lia.
  - exact (ScorePoint.returned _ _ _ _ _ _ _ P Entry Prod Ret Mem).
 Qed.
+End Iteration.

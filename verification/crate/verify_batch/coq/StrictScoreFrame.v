@@ -6,6 +6,9 @@ From Ed25519Simd.VerifyBatch Require ScoreTail StrictCandidateInputs.
 Local Open Scope Z_scope.
 
 Definition outputs e s:=regs s 13%nat=Rows.frame e+856 /\ regs s 14%nat=output e /\ regs s 15%nat=regs e 6%nat.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record context bias parent e caller p:Prop:=Context {
  frame:ScoreSaved.frame bias parent e caller (machine p);
  arguments:outputs e (machine p);
@@ -51,3 +54,4 @@ Proof.
  - intro PC;pose proof(StrictOrderClear.pc _ _ _ _ C) as At;destruct (_=?0) in At;lia.
  - intro;exact Inputs.
 Qed.
+End Iteration.

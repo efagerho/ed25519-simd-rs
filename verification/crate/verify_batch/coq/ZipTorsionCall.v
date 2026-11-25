@@ -16,6 +16,9 @@ Lemma child_image:In (target,Decode.HelperBytes.symbol_bytes) (children Zip215).
 Proof. apply in_or_app;left;do 7 right;left;reflexivity. Qed.
 Definition execute bias:=segment (bias+pc) text 3.
 Definition slot e x:=ScoreFrame.buffer e-8<=x<ScoreFrame.buffer e.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record called bias parent e caller q:Prop:=Called {
  address:ip q=bias+target; words:well_formed(machine q); writes:accounted e (writable e) q;
  stack:regs(machine q) 4%nat=ScoreFrame.buffer e-8; point:regs(machine q) 7%nat=ScoreFrame.buffer e;
@@ -68,3 +71,4 @@ Proof.
    intros x X;apply Preserve;destruct(scratch_stack _ P);unfold FlatMemory.disjoint,slot,span,
      BatchDecode.point,BatchDecode.point_offset,ScoreFrame.buffer,FramePointer.bottom,ScoreFrame.top,Rows.frame,sp in *;lia.
 Qed.
+End Iteration.

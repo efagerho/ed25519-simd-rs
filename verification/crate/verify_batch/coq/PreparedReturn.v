@@ -27,6 +27,9 @@ Proof.
  intros i r Eq;destruct i as [|[|[|[|[|i]]]]];try (injection Eq as <-;f_equal;ring);destruct i;discriminate.
 Qed.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record result pol bias entry e q:Prop:=Result {
  pc:ip q=destination pol bias entry; stack:regs(machine q) 4%nat=common_top pol e+8;
  success:regs(machine q) 0%nat=1; writes:accounted e (writable e) q; words:well_formed(machine q);
@@ -38,11 +41,11 @@ Record result pol bias entry e q:Prop:=Result {
    let ptr:=read_word (mem(machine q)) (PrepareOutputs.dest e+8*Z.of_nat j) in
    (RootDecision.decodes false e j -> ptr=Return.scratch e+PrepareChunk.Caller.table_offset j) /\
    (~RootDecision.decodes false e j -> ptr=regs e 8%nat);
- output_regs:Prologue.output_registers e (machine q); remaining:regs(machine q) 12%nat=Prologue.rows_left (regs e 6%nat);
+ output_regs:Prologue.output_registers e (machine q); remaining:regs(machine q) 12%nat=BatchWindow.next_count e;
  flags:forall j,(j<8)%nat -> let v:=mem(machine q)(PrepareOutputs.dest e+64+Z.of_nat j) in
    (v=0 \/ v=1) /\ (v=1 <-> EligibleLanes.candidate e j);
  decoded_r:forall j,(j<8)%nat -> (Z.testbit (mem(machine q)(Rows.frame e+840)) (Z.of_nat j)=true <-> RootDecision.decodes true e j);
- next_descriptor:pol=Zip215 -> StageEntry.next_descriptor e (regs(machine q) 3%nat);
+ next_descriptor:pol=Zip215 -> BatchWindow.next_descriptor e (regs(machine q) 3%nat);
  key_tables:PreparedTables.table e (machine q)
 }.
 
@@ -82,12 +85,12 @@ Proof.
    pose proof(EligibleLanes.key_bits _ _ _ _ _ E j J) as K;destruct(Z.testbit _ _);intuition discriminate.
  - destruct Outputs as [Count [Out [Left _]]];split;cbn [LinkedRun.finish machine];
      [rewrite (G 2%nat 13%nat eq_refl),<-Count|rewrite (G 3%nat 14%nat eq_refl),<-Out];f_equal;ring.
- - destruct Outputs as [_ [_ [Left _]]];change (regs(cpu_state last) 12%nat=Prologue.rows_left (regs e 6%nat));rewrite (G 1%nat 12%nat eq_refl),<-Left;f_equal;ring.
+ - destruct Outputs as [_ [_ [Left _]]];change (regs(cpu_state last) 12%nat=BatchWindow.next_count e);rewrite (G 1%nat 12%nat eq_refl),<-Left;f_equal;ring.
  - intros j J;cbn [LinkedRun.finish machine];cbv zeta;rewrite M,(PrepareOutputs.eligibility _ _ _ _ _ _ A j J),<-(EligibleLanes.bit _ _ _ _ _ E j J).
    destruct (Z.testbit _ _);cbn;intuition discriminate.
  - intros j J;cbn [LinkedRun.finish machine];rewrite M,(PreparedFrame.sig_byte _ _ _ _ _ _ P A);exact (EligibleLanes.sig_bits _ _ _ _ _ E j J).
  - intros Eq Long;destruct Outputs as [_ [_ [_ [_ [_ Future]]]]].
-   change (regs(cpu_state last) 3%nat=word(regs e 7%nat+320));rewrite (G 0%nat 3%nat eq_refl);replace (top-8*(1+Z.of_nat 0)) with (top-8) by ring;exact(Future Eq Long).
+   change (regs(cpu_state last) 3%nat=word(regs e 7%nat+(40*Z.of_nat BatchWindow.first+320)));rewrite (G 0%nat 3%nat eq_refl);replace (top-8*(1+Z.of_nat 0)) with (top-8) by ring;exact(Future Eq Long).
  - apply (PreparedTables.meaning _ _ _ Points).
    apply (TableContents.preserve _ _ (machine p));[|exact (TableUnwind.contents _ _ _ _ _ (PrepareOutputs.parent _ _ _ _ _ _ A))].
    intros x X;cbn [LinkedRun.finish machine];rewrite M;apply (PrepareOutputs.surrounding _ _ _ _ _ _ A).
@@ -103,3 +106,4 @@ Proof.
  intros P I Al E C Points Enc Live;destruct(PrepareOutputs.from_eligible _ _ _ _ _ ks P I Al E Live) as [a [ak [r [Run A]]]].
  destruct(checked _ _ _ _ _ _ _ _ P I E C Points Enc A) as [q [End [Q _]]];exists q,ak;split;[unfold observe;rewrite Run;cbn [bind];now rewrite End|exact Q].
 Qed.
+End Iteration.

@@ -20,6 +20,9 @@ Proof.
  - left;split;[reflexivity|apply H].
  - right;split;[|reflexivity];intros P [Y _];apply (H (Affine.x P));unfold y;rewrite <-Y;apply on_edwards.
 Qed.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition key e j:=decoded (BatchDecode.original_encoding false e j).
 
 Lemma static_now pol bias e t addr len : loaded pol bias (mem e) (writable e) -> accounted e (writable e) t ->
@@ -61,3 +64,4 @@ Proof.
      split;[intros i K;rewrite Read by exact K;apply Id,K|].
      erewrite Candidate.row_ext;[exact (proj2 Id)|exact Read].
 Qed.
+End Iteration.

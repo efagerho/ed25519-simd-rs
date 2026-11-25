@@ -16,6 +16,9 @@ Definition inputs e t := forall sig,
  fields sig e (after_square (half t sig)) (in_decoder (half t sig)) /\
  preserved (point_bytes e sig) (mem(machine(in_decoder(half t sig)))) (mem(machine(exponent_entry t))).
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem from_decoder pol bias e p bank t :
  placement e -> loaded pol bias (mem e) (writable e) -> (bias+DecoderFrame.origin) mod 64=0 ->
  BatchDecode.entry pol bias e p -> well_formed(machine p) -> DecoderPower.observe bias p bank=Some t -> inputs e t.
@@ -80,3 +83,4 @@ Proof.
    { eapply ctrans;[exact Ueq|apply ctimes;[apply crefl|apply cminus;[exact YY|apply crefl]]]. }
    apply ctimes;[exact Num|eapply ctrans;[exact Veq|apply cminus;assumption]].
 Qed.
+End Iteration.

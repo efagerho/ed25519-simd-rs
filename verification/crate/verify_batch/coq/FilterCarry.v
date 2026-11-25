@@ -23,6 +23,9 @@ Record result phase bias e p q:Prop:=Result {
  kept:forall j r,(15<=r)%nat -> vectors(machine q) j r=vectors(machine p) j r
 }.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem checked phase bias e p : placement e -> loaded Dalek bias (mem e) (writable e) ->
  ip p=bias+FilterLoad.site+offset phase -> accounted e (writable e) p -> well_formed(machine p) ->
  regs(machine p) 4%nat=StrictFilterCall.slot e-8 -> constants(machine p) ->
@@ -53,3 +56,4 @@ Proof.
    assert (Check:forallb (fun i=>(fst i<?15)%nat) (DecoderKernel.body DecoderKernel.Carry)=true) by (vm_compute;reflexivity).
    apply forallb_forall with (x:=op) in Check;[|exact InCode];apply Nat.ltb_lt in Check;apply Bool.negb_true_iff,Nat.eqb_neq;lia.
 Qed.
+End Iteration.

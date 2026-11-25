@@ -11,11 +11,14 @@ Proof. intros [<- Fits];constructor;[split;[lia|reflexivity]|constructor]. Qed.
 Definition execute origin text p:=bind (segment origin text 1 p) (fun cont=>
  option_map (RejectExecution.classify cont) (RejectFinish.leave origin text cont)).
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem checked_with (values:FlatMemory.bytes->Prop) bias pc dst text e p :
  matches pc dst text -> RejectFinish.bound text -> placement e ->
  mapped (mem e) (bias+pc) text -> (forall x,bias+pc<=x<bias+pc+Z.of_nat(length text) -> ~writable e x) ->
  ip p=bias+pc+539 -> regs(machine p) 4%nat=Rows.frame e -> accounted e (writable e) p ->
- regs(machine p) 12%nat=Prologue.rows_left (regs e 6%nat) -> StageEntry.saved_caller e (machine p) -> ChunkContext.bindings e (machine p) ->
+ regs(machine p) 12%nat=BatchWindow.next_count e -> StageEntry.saved_caller e (machine p) -> ChunkContext.bindings e (machine p) ->
  (regs(machine p) 0%nat=1 /\ values(mem(machine p))) -> well_formed(machine p) ->
  exists r,execute (bias+pc) text p=Some r /\ RejectExecution.post_with values (bias+pc) e r.
 Proof.
@@ -36,7 +39,8 @@ Theorem checked bias pc dst text e p :
  matches pc dst text -> RejectFinish.bound text -> placement e ->
  mapped (mem e) (bias+pc) text -> (forall x,bias+pc<=x<bias+pc+Z.of_nat(length text) -> ~writable e x) ->
  ip p=bias+pc+539 -> regs(machine p) 4%nat=Rows.frame e -> accounted e (writable e) p ->
- regs(machine p) 12%nat=Prologue.rows_left (regs e 6%nat) -> StageEntry.saved_caller e (machine p) -> ChunkContext.bindings e (machine p) ->
+ regs(machine p) 12%nat=BatchWindow.next_count e -> StageEntry.saved_caller e (machine p) -> ChunkContext.bindings e (machine p) ->
  RejectOutputs.outputs e (machine p) -> well_formed(machine p) ->
  exists r,execute (bias+pc) text p=Some r /\ RejectExecution.post (bias+pc) e r.
 Proof. exact (checked_with (RejectExecution.zero_results e) bias pc dst text e p). Qed.
+End Iteration.

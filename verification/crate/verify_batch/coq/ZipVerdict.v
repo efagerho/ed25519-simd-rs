@@ -13,6 +13,9 @@ Definition intersect bias:=segment (bias+pc) text 4.
 Definition execute bias p:=bind (intersect bias p) (ScoreTail.execute Zip215 bias).
 Definition verdict e s j:=
  (mem s (Rows.frame e+856+Z.of_nat j)=1 /\ Z.testbit (regs s 0%nat) (Z.of_nat j)=true).
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record result bias parent e q:Prop:=Result {
  entry:exists t mask,ScoreTail.entry bias parent e t q mask;
  lane:forall j,(j<8)%nat -> (verdict e (machine q) j <-> signature_accepts Zip215 (HashLayout.row e j));
@@ -52,3 +55,4 @@ Proof.
  - intros j J;cbv zeta;rewrite Mem;exact (proj1(ZipTorsion.flags _ _ _ _ _ Before j J)).
  - rewrite AX;unfold m;rewrite Z.mod_small by lia;exact Lim.
 Qed.
+End Iteration.

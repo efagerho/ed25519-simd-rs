@@ -11,8 +11,11 @@ Definition literal:=Sha512Challenge.LiteralBytes.address.
 Definition execute bias q:=Sha512Challenge.Execution.run HashEntry.callee
  (snapshot (mem(machine q)) (ip q) (length code)) bias literal (machine q).
 Definition history bias q:=log q++CallWrites.hash_events_at bias (machine q).
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition row:=HashLayout.row.
-Definition field e j:=descriptor (mem e) (regs e 7%nat) (TailCopy.row_index e j).
+Definition field e j:=descriptor (mem e) (regs e 7%nat) (BatchWindow.row e j).
 Definition messages_immutable e:=forall j k,(j<8)%nat -> 0<=k<field e j 24 -> ~writable e (field e j 16+k).
 
 Lemma challenge_bytes bias pc e p q : placement e -> messages_immutable e -> PreparedInputs.encodings e (machine p) ->
@@ -35,7 +38,7 @@ Proof.
     r_bytes(row e j)++key_bytes(row e j)++(if HashLengths.enabled e (machine p) j then message(row e j) else [])).
  rewrite (Bytes true),(Bytes false);f_equal;f_equal;unfold HashLengths.length;destruct(HashLengths.enabled e (machine p) j);[|reflexivity].
  apply Hash.octets_ext;intros k K.
- pose proof(read_word_bound (mem e) (regs e 7%nat+40*Z.of_nat(TailCopy.row_index e j)+24) (proj2(proj2(initial_cpu _ P)))) as Word.
+ pose proof(read_word_bound (mem e) (regs e 7%nat+40*Z.of_nat(BatchWindow.row e j)+24) (proj2(proj2(initial_cpu _ P)))) as Word.
  change (WordBounds.word64 (field e j 24)) in Word;change (0<=k<Z.of_nat(Z.to_nat(field e j 24))) in K;
  unfold WordBounds.word64 in Word;rewrite Z2Nat.id in K by lia.
  destruct(HashEntry.writes _ _ _ _ _ Q) as [W M];rewrite M;apply (WriteTrace.frame _ _ W),(Borrow j k J K).
@@ -55,7 +58,7 @@ Record returned pol bias origin e q r:Prop:=Returned {
 }.
 
 Theorem checked pol bias pc e p q : placement e -> loaded pol bias (mem e) (writable e) ->
- (0<Scatter.count e)%nat -> Loop.spatial (HashLayout.chunk pol e bias) -> messages_immutable e ->
+ (0<BatchWindow.remaining e)%nat -> Loop.spatial (HashLayout.chunk pol e bias) -> messages_immutable e ->
  HashLayout.active pol e -> HashLayout.flags pol e (machine p) -> PreparedInputs.encodings e (machine p) ->
  HashEntry.entry bias pc e p q -> exists r,execute bias q=Some r /\ returned pol bias (bias+pc) e q r.
 Proof.
@@ -87,3 +90,4 @@ Proof.
    rewrite (proj2(Flags j J) On) in Input.
    unfold s in Scalar;rewrite Input,Dst in Scalar;exact Scalar.
 Qed.
+End Iteration.

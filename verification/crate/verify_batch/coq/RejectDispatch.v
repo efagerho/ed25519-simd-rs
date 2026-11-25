@@ -46,8 +46,11 @@ Qed.
 Definition scatter_stores bias pc text p :=
  bind (LinkedRun.segment (bias+pc) text 8 p)
       (returning (bias+scatter) (length Zip215.ScatterBytes.symbol_bytes) 88).
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition continued bias pc e q := ip q=bias+pc+offset Continue /\
- regs(machine q) 4%nat=Rows.frame e /\ accounted e (writable e) q /\ regs(machine q) 12%nat=Prologue.rows_left (regs e 6%nat).
+ regs(machine q) 4%nat=Rows.frame e /\ accounted e (writable e) q /\ regs(machine q) 12%nat=BatchWindow.next_count e.
 
 Theorem resume pol bias pc text e p :
  bound pc text -> placement e -> loaded pol bias (mem e) (writable e) ->
@@ -56,8 +59,8 @@ Theorem resume pol bias pc text e p :
  (forall x,bias+pc<=x<bias+pc+Z.of_nat(length text)->~writable e x) ->
  accounted e (writable e) p -> ip p=word(bias+pc+offset Prepared) ->
  regs(machine p) 4%nat=Rows.frame e -> Prologue.output_registers e (machine p) ->
- regs(machine p) 12%nat=Prologue.rows_left (regs e 6%nat) -> regs(machine p) 0%nat mod 2^32=0 ->
- (0<Scatter.count e)%nat -> Scatter.indices e -> StageEntry.metadata e (mem(machine p)) -> StageEntry.saved_caller e (machine p) -> byte_memory(mem(machine p)) ->
+ regs(machine p) 12%nat=BatchWindow.next_count e -> regs(machine p) 0%nat mod 2^32=0 ->
+ (0<BatchWindow.remaining e)%nat -> Scatter.indices e -> BatchWindow.metadata e (mem(machine p)) -> StageEntry.saved_caller e (machine p) -> byte_memory(mem(machine p)) ->
  ChunkContext.bindings e (machine p) ->
  exists q,scatter_stores bias pc text p=Some q /\ continued bias pc e q /\ RejectOutputs.outputs e (machine q) /\ StageEntry.saved_caller e (machine q) /\ byte_memory(mem(machine q)) /\ ChunkContext.bindings e (machine q).
 Proof.
@@ -114,3 +117,4 @@ Proof.
          by (unfold pending,Rows.frame,sp in *;lia);apply Spills,X.
      * rewrite (Scattered.saved _ _ _ _ End 5%nat) by (simpl;tauto);exact (eq_trans BP0 BP).
 Qed.
+End Iteration.

@@ -9,6 +9,9 @@ From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage.
 From Ed25519Simd.VerifyBatch Require FilterScreen Lane.
 Local Open Scope Z_scope.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Lemma row bias outer e prep p j P d :
  placement e -> PreparedReturn.result Dalek bias outer e prep -> StrictFilterCall.entry bias e prep p ->
  (j<8)%nat -> -8<=d<=8 -> Policy.decodes (BatchDecode.original_encoding false e j) P ->
@@ -47,7 +50,7 @@ Proof.
  rewrite strict_bit,negb_true_iff in Valid by exact J;unfold FilterScreen.weak;tauto.
 Qed.
 
-Definition eligible e j:=Lane.eligible_input Dalek (read_input (mem e) (regs e 7%nat) (TailCopy.row_index e j)).
+Definition eligible e j:=Lane.eligible_input Dalek (read_input (mem e) (regs e 7%nat) (BatchWindow.row e j)).
 Theorem enabled bias outer e prep p j : placement e -> PreparedReturn.result Dalek bias outer e prep ->
  StrictFilterCall.entry bias e prep p -> (j<8)%nat ->
  (EligibleLanes.candidate e j /\ FilterScreen.weak e (machine p) j=false <-> eligible e j).
@@ -58,3 +61,4 @@ Proof.
  - intros [S [R [A [DA Strong]]]];split;[split;[exact S|split;[exists A;exact DA|exact R]]|].
    apply (proj2(weak _ _ _ _ _ _ _ Pl Done Call J DA)),Strong;reflexivity.
 Qed.
+End Iteration.

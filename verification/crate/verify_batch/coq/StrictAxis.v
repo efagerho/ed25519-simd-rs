@@ -11,6 +11,9 @@ Local Open Scope Z_scope.
 
 Definition index (vertical:bool):nat:=if vertical then 1 else 0.
 Definition axis (vertical:bool):=if vertical then y else x.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition matches vertical e j A R:=axis vertical (ScorePoint.product e j A)=axis vertical R.
 
 Lemma memory_coord s b c j i : StrictOperands.limb s b (320*Z.of_nat c) j i=
@@ -60,3 +63,4 @@ Proof.
  replace (axis vertical (ScorePoint.product e j A)) with ((axis vertical (ScorePoint.product e j A)*z)/z)%fp by (field;exact NZ).
  rewrite <-E;field;exact NZ.
 Qed.
+End Iteration.

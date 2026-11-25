@@ -7,6 +7,9 @@ Local Open Scope Z_scope.
 
 (* Live arguments on both sides of the canonicality branch. Each saved
    register word and the scorer return address come from actual stores. *)
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record inputs bias parent e child t:Prop:=Inputs {
  stack:regs(machine t) 4%nat=ScoreFrame.buffer e; fp:regs(machine t) 5%nat=ScoreFrame.top e-8;
  point:regs(machine t) 3%nat=BatchDecode.point e true;
@@ -52,3 +55,4 @@ Proof.
    apply preserved_read with (outside:=fun x=>ScoreFrame.top e<=x);[|intros off O;change (0<=off<8) in O;unfold ScoreFrame.top;lia].
    intros x X;rewrite Saved by lia;apply (WriteTrace.frame _ _ (FramePointer.confined _ _ _));lia.
 Qed.
+End Iteration.

@@ -18,6 +18,9 @@ Definition complete r noise:=
  CPU gprs (vectors noise) (flag noise) (Sha512Challenge.Execution.after r).
 Definition resume bias q r s c:=Cursor (Sha512Challenge.Execution.return_ip r) s c (NativeHash.history bias q).
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Lemma complete_ok pol bias o e q r noise : placement e -> well_formed(machine q) -> well_formed noise ->
  NativeHash.returned pol bias o e q r -> compatible r (complete r noise) /\ well_formed(complete r noise).
 Proof.
@@ -42,3 +45,4 @@ Qed.
 Lemma saved pol bias o e q r s : NativeHash.returned pol bias o e q r -> compatible r s ->
  forall g,In g sysv_saved -> regs s g=regs(machine q) g.
 Proof. intros R [_ [_ Keep]] g I;specialize(Keep g I);rewrite (NativeHash.saved _ _ _ _ _ _ R g I) in Keep;congruence. Qed.
+End Iteration.

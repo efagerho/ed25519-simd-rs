@@ -36,6 +36,9 @@ Proof.
  intros r [<-|[<-|[<-|[<-|[<-|[<-|[]]]]]]];reflexivity.
 Qed.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record entry bias pc e p q:Prop:=Entry {
  target:ip q=bias+callee; writes:accounted e (writable e) q; words:well_formed(machine q);
  args:let s:=machine q in let t:=Rows.frame e in regs s 4%nat=t-8 /\ regs s 7%nat=t /\ regs s 6%nat=scratch e+256 /\
@@ -43,7 +46,7 @@ Record entry bias pc e p q:Prop:=Entry {
  back:read_word (mem(machine q)) (Rows.frame e-8)=bias+pc+458;
  lengths:forall j,(j<8)%nat -> Sha512Challenge.Output.message_length (machine q) j=HashLengths.length e (machine p) j;
  messages:forall j,(j<8)%nat -> read_word (mem(machine q)) (regs(machine q) 1%nat+8*Z.of_nat j)=
-    descriptor (mem e) (regs e 7%nat) (TailCopy.row_index e j) 16;
+    descriptor (mem e) (regs e 7%nat) (BatchWindow.row e j) 16;
  saved:forall r,In r sysv_saved -> regs(machine q) r=regs(machine p) r;
  other_bytes:preserved (fun x=>~span (Rows.frame e-8) 8 x /\ ~span (Rows.frame e+704) 64 x) (mem(machine p)) (mem(machine q))
 }.
@@ -87,3 +90,4 @@ Proof.
  - intros r R;cbn [LinkedRun.finish machine];rewrite (Saved r R),G;reflexivity.
  - exact Outside.
 Qed.
+End Iteration.

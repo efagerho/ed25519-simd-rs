@@ -22,6 +22,9 @@ Record result phase bias e p q k:Prop:=Result {
  high_regs:forall j r,(20<=r)%nat -> vectors(machine q) j r=vectors(machine p) j r
 }.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem checked phase bias e p ks : placement e -> loaded Dalek bias (mem e) (writable e) ->
  ip p=bias+FilterLoad.site+Z.of_nat(FilterColumns.offset phase) -> accounted e (writable e) p -> well_formed(machine p) ->
  regs(machine p) 4%nat=StrictFilterCall.slot e-8 -> FilterCarry.constants(machine p) ->
@@ -53,3 +56,4 @@ Proof.
    exact (proj2(FilterColumns.limbs _ _ _ _ _ Col i j N J) eq_refl).
  - intros j r High;rewrite (FilterCompare.high_regs _ _ _ _ _ _ Compare),(FilterCarry.kept _ _ _ _ _ Carry) by lia;apply Regs,High.
 Qed.
+End Iteration.

@@ -82,11 +82,14 @@ Definition return_value (decoded:bool) s:=if decoded then 0 else regs s 0%nat.
 Definition unwind_at decoded pol bias p :=
  bind (segment (bias+PrepareNative.common) CommonBytes.symbol_bytes (unwind_length decoded) p) (leave_strict pol bias).
 Definition unwind:=unwind_at false.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition prepared_result entry e p q v := ip q=word(entry+offset Prepared) /\
  regs(machine q) 4%nat=Rows.frame e /\ regs(machine q) 0%nat=v /\
  mem(machine q)=mem(machine p) /\ log q=log p /\ Prologue.output_registers e (machine q) /\
- regs(machine q) 12%nat=Prologue.rows_left (regs e 6%nat) /\ regs(machine q) 5%nat=regs(machine p) 5%nat /\
- regs(machine q) 15%nat=Return.scratch e /\ StageEntry.next_descriptor e (regs(machine q) 3%nat).
+ regs(machine q) 12%nat=BatchWindow.next_count e /\ regs(machine q) 5%nat=regs(machine p) 5%nat /\
+ regs(machine q) 15%nat=Return.scratch e /\ BatchWindow.next_descriptor e (regs(machine q) 3%nat).
 
 Definition prepared_again entry e p q:=prepared_result entry e p q (regs(machine p) 0%nat).
 
@@ -130,7 +133,7 @@ Proof.
    + unfold top,common_top in PC;rewrite Z.sub_0_r,Root,ScalarRefinement.word_idempotent in PC;exact PC.
    + change (regs(cpu_state last) 4%nat=Rows.frame e);rewrite Stack;unfold top,common_top;ring.
    + split;[exact Eax|split;[exact Flat|split;[exact Log|split;[exact Outputs|split;[exact(eq_trans R12 Left)|split;[exact BP|split;[exact ScratchReg|]]]]]]].
-     change (StageEntry.next_descriptor e (regs(cpu_state last) 3%nat));rewrite RBX;apply Future;reflexivity.
+     change (BatchWindow.next_descriptor e (regs(cpu_state last) 3%nat));rewrite RBX;apply Future;reflexivity.
  - assert (Strict:ip q=bias+PrepareNative.strict+9).
    { unfold top in PC;rewrite PC,(proj1 Shim),ScalarRefinement.word_idempotent;apply word_fits.
      destruct(proj1(symbols _ _ _ _ Image _ _ in_strict)) as [L U].
@@ -169,3 +172,4 @@ Proof.
  intros P Image [PC [SP [Acc [Links [G _]]]]] Zero.
  exact (rejected_at false _ _ _ _ _ P Image PC SP Acc Links G Zero).
 Qed.
+End Iteration.

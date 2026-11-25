@@ -13,6 +13,9 @@ Definition first_call:list line := [(166,2%nat,Jump 8);(176,3%nat,CopyG 7 3);(17
 Lemma first_bytes : linked text first_call.
 Proof. repeat constructor;vm_compute;discriminate || reflexivity. Qed.
 Definition enter bias:=segment (base bias) text 9.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition entry (sig:bool) pol bias e p:=
  let st:=link_slot pol e in let s:=machine p in
  ip p=base bias+901 /\ accounted e (writable e) p /\ well_formed s /\
@@ -69,3 +72,4 @@ Proof.
      destruct(DecoderFrame.offsets i I) as [L H];destruct LiteralRange;
        unfold word64,DecoderFrame.at_literal,DecoderFrame.field_offset,DecoderFrame.helper in *;lia.
 Qed.
+End Iteration.

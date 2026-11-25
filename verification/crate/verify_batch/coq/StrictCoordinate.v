@@ -10,6 +10,9 @@ Local Open Scope Z_scope.
 Local Notation pc:=(ScoreSetup.callee Dalek).
 Local Notation text:=(ScoreSetup.code Dalek).
 Definition arithmetic bias:=then_run (StrictOperands.execute bias) (StrictSeeded.execute bias).
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition claim vertical e (bit:nat->bool):=forall j A R,(j<8)%nat -> HashLayout.eligible Dalek e j ->
  decodes (little_endian(key_bytes(HashLayout.row e j))) A -> decodes (BatchDecode.original_encoding true e j) R ->
  (bit j=true <-> StrictAxis.matches vertical e j A R).
@@ -89,3 +92,4 @@ Proof.
    rewrite (proj2(kmov_value _) j ltac:(lia)),(PointCompare.equal_zero _ _ _ _ _ _ Q),(proj2(Nat.ltb_lt _ _) J).
    exact (Match j A R J On DA DR).
 Qed.
+End Iteration.

@@ -11,6 +11,9 @@ Definition execute bias:=segment (base bias) text 10.
 Record trace:=Trace { points:PairReturn.trace; returned:cursor }.
 Definition observe pol bias e p bank:=bind (PairReturn.observe pol bias e p bank) (fun r=>
  option_map (Trace r) (execute bias (PairReturn.returned r))).
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record post pol bias e p t : Prop:=Post {
  decoded:PairReturn.post pol bias e (points t);
  resumes:ip(returned t)=bias+PrepareNative.common+142;
@@ -71,3 +74,4 @@ Proof.
  - intros j J;rewrite Result,(proj1(DecoderEpilogue.bits _ _ (Z.of_nat j) A ltac:(lia)));exact (PairReturn.key_accepts _ _ _ _ T j J).
  - intros j J;rewrite Result,(proj2(DecoderEpilogue.bits _ _ (Z.of_nat j) A ltac:(lia)));exact (SignatureDecision.bits _ _ _ _ P T j J).
 Qed.
+End Iteration.

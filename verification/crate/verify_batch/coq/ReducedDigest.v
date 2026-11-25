@@ -55,6 +55,9 @@ Definition observed bias q t :=
  D.run bias pc helper n (machine q) (ip t) (machine t) /\
  exists ws,D.traced bias pc helper n (machine q) (ip t) (machine t) ws /\ log t=log q++ws.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record returned pol bias e q t:Prop:=Returned {
  back:ip t=CandidateDigest.origin pol bias+29;
  writes:accounted e (writable e) t;
@@ -114,3 +117,4 @@ Proof.
      * apply M;intro A;specialize(Loan x A);destruct(scratch_stack _ P);unfold ScoreBuffers.region,span,Rows.frame,sp in *;lia.
      * apply (CandidateDigest.parent _ _ _ _ _ Q);destruct(scratch_stack _ P);unfold ScoreBuffers.region,CandidateEntry.retained,span,Rows.frame,sp in *;lia.
 Qed.
+End Iteration.

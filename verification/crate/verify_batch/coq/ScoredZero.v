@@ -9,6 +9,9 @@ Local Notation text:=(ScoreSetup.code Dalek).
 Definition prepare bias p:=if ip p=?bias+pc+565 then Some p else segment (bias+pc) text 4 p.
 Definition execute bias p:=bind (prepare bias p) (ScoreTail.execute Dalek bias).
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem checked bias parent e caller p :
  placement e -> loaded Dalek bias (mem e) (writable e) ->
  StrictScreen.decision bias e p -> StrictScoreFrame.context bias parent e caller p ->
@@ -36,3 +39,4 @@ Proof.
  destruct(ScoreTail.checked Dalek bias parent e caller t 0 P I At A Words Frame Args) as [q [Tail Post]].
  exists q;split;[unfold execute;rewrite Prepare;exact Tail|exists t;auto].
 Qed.
+End Iteration.

@@ -14,6 +14,9 @@ Definition endpoint v:=match v with Zero r=>RejectExecution.at_end r | HashCall 
 Definition execute bias pc text q ks:=if regs(machine q) 0%nat mod 2^32=?0
  then option_map Zero (RejectExecution.finish_chunk bias pc text q)
  else option_map (fun v=>HashCall (fst v)) (HashEntry.execute bias pc text q ks).
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record reached bias pc e p q v:Prop:=Reached {
  preparation:StrictReturn.result (bias+pc) e p q;
  branch:match v with
@@ -26,7 +29,7 @@ Proof. intros [_ B];destruct v as [r|h];[exact (proj1(proj2 B))|exact (HashEntry
 Theorem checked bias pc text e p q ks : bound pc text -> placement e -> loaded Dalek bias (mem e) (writable e) ->
  fits64 (bias+pc) (Z.of_nat(length text)) -> mapped (mem e) (bias+pc) text ->
  (forall x,bias+pc<=x<bias+pc+Z.of_nat(length text)->~writable e x) ->
- (0<Scatter.count e)%nat -> Scatter.indices e ->
+ (0<BatchWindow.remaining e)%nat -> Scatter.indices e ->
  StrictReturn.result (bias+pc) e p q -> exists v,execute bias pc text q ks=Some v /\ reached bias pc e p q v.
 Proof.
  intros [Hash [Scatter [Exit Len]]] P I Fit Map Apart N Idx Q.
@@ -47,3 +50,4 @@ Proof.
     as [h [k [Run H]]].
    exists (HashCall h);split;[now rewrite Run|constructor;[exact Q|split;[apply Live,One|exact H]]].
 Qed.
+End Iteration.

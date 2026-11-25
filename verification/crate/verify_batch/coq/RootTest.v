@@ -22,6 +22,9 @@ Proof.
  split;[exact B|split;[apply L;reflexivity|]];eapply ctrans;[exact M|apply ctimes;[eapply ctrans;[exact SS|apply ctimes];exact RX|exact RV]].
 Qed.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition math sig e q:=forall j,(j<8)%nat ->
  let v:=vectors(machine q) j in let y:=original_encoding sig e j mod 2^255 in
  let uv:=PowerInputs.uv y in let power:=uv^Pow2Spec.exponent in
@@ -146,3 +149,4 @@ Qed.
 
 Lemma accounted_at_test pol bias e t : post pol bias e t -> accounted e (writable e) (at_test t).
 Proof. intro H;exact (proj1(proj2(root_product _ _ _ _ H))). Qed.
+End Iteration.

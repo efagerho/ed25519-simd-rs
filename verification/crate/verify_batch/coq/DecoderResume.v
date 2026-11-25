@@ -7,6 +7,9 @@ Import ListNotations. Local Open Scope Z_scope.
 
 (* Resume the decoder at its own continuation with its still-live registers
    and the memory left by the block interpreter. *)
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition ready pol bias e q:=
  ip q=return_pc bias /\ accounted e (Return.writable e) q /\ well_formed(machine q) /\
  regs(machine q) 4%nat=link_slot pol e+8 /\ decoder_registers pol e (machine q) /\
@@ -37,3 +40,4 @@ Proof.
    split;intros j J;rewrite Kept by (cbn;tauto);[apply Key|apply Sig];exact J.
  - exact (proj1(proj2(proj2(proj2(byte_guarantee Cert))))).
 Qed.
+End Iteration.

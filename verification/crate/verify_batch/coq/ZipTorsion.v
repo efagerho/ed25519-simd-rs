@@ -16,6 +16,9 @@ Local Notation pc:=(ScoreSetup.callee Zip215).
 Definition execute bias:=N.execute (bias+target) 3.
 Definition area e x:=ScoreFrame.buffer e-1040<=x<ScoreFrame.buffer e-8.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Lemma layout bias parent e caller p:placement e -> loaded Zip215 bias (mem e) (writable e) ->
  ZipTorsionCall.called bias parent e caller p ->
  N.placement (bias+target) image 3 p /\ forall x,area e x -> writable e x.
@@ -100,3 +103,4 @@ Proof.
    + intro B;split;[exact S|exists A;split;[exact DA|exists R;split;[exact DR|exact(proj1 Law B)]]].
    + intros [_ [A' [DA' [R' [DR' Yes]]]]];rewrite (Lane.unique_key _ _ _ DA' DA),(Lane.unique_key _ _ _ DR' DR) in Yes;exact (proj2 Law Yes).
 Qed.
+End Iteration.

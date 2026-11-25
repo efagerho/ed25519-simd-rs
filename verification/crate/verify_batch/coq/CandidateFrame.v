@@ -6,6 +6,9 @@ From Ed25519Simd.VerifyBatch Require CandidateUnwind LadderProduct.
 Local Open Scope Z_scope.
 Local Notation top:=CandidateDigest.top.
 Local Notation dst:=CandidateDigest.dst.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition outside e x:=~(dst e-5040<=x<ScoreFrame.buffer e+1280).
 Section Frame.
 Variables (pol:policy) (bias:Z) (e:cpu) (candidate digest mid ladder stop:cursor).
@@ -51,3 +54,4 @@ Proof.
  apply (CandidateDigest.saved _ _ _ _ _ D);assumption.
 Qed.
 End Frame.
+End Iteration.

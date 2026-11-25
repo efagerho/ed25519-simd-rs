@@ -13,6 +13,9 @@ Proof.
  intros k K;right;change (0<=k<8) in K;lia.
 Qed.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Lemma unchanged pol bias pc e h r caller q : placement e -> ScoreStart.reached pol bias pc e h r caller q ->
  preserved (retained e) (mem(machine caller)) (mem(machine q)).
 Proof.
@@ -63,3 +66,4 @@ Proof.
     exact (ScoreStart.words _ _ _ _ _ S)|exact SP|exact DI|].
  rewrite SI,(ScoreFrame.gpr _ _ _ _ _ F) by discriminate;exact (proj1(proj2(ScoreCall.args _ _ _ _ _ _ _ Entry))).
 Qed.
+End Iteration.

@@ -34,6 +34,9 @@ Proof.
  try assumption;intros a n N;apply Sources;now rewrite Ranges.
 Qed.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition view pol bias e t:=Candidate.ladder_with (HashLayout.chunk pol e bias) (mem(machine t)).
 Lemma same_view pol bias e p t : LadderEntry.entry pol bias e p t -> same_args (view pol bias e t) (machine t).
 Proof.
@@ -49,7 +52,7 @@ Proof.
  pose proof (PreparedInputs.scalar_digits _ _ (ScoreBuffers.operands _ _ (LadderEntry.operands _ _ _ _ _ E)) j J) as S.
  assert (D:ds=SignatureScalar.Audit.digits (machine t) (scratch e+512) j).
  { unfold ds,digit_list,digits,SignatureScalar.Audit.digits;now rewrite CX. }
- cbv zeta in S;change (ScalarInputs.original_scalar e (TailCopy.row_index e j)) with s in S;rewrite <-D in S.
+ cbv zeta in S;change (ScalarInputs.original_scalar e (BatchWindow.row e j)) with s in S;rewrite <-D in S.
  destruct(Z.ltb_spec s Curve25519.Scalar.L);[tauto|rewrite S;split;[apply Forall_forall;intros v V;apply repeat_spec in V;lia|lia]].
 Qed.
 
@@ -78,3 +81,4 @@ Proof.
  intros n N;assert (Pad:F.pad_of (machine t)=F.pad_of v) by (unfold F.pad_of;rewrite G by (cbv [In];tauto);reflexivity).
  rewrite Pad;eapply stage_layout;[apply stage_args;split;eassumption|exact (Stage n N)].
 Qed.
+End Iteration.

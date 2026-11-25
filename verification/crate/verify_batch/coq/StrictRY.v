@@ -17,6 +17,9 @@ Lemma image:linked text (AlignedRows.route false 67 0 3 320 5) /\
  linked text (RipBroadcasts.route 1 102 29 literal) /\ linked text (QwordBlock.route 112 RootMasks.conjunction).
 Proof. repeat constructor;vm_compute;discriminate || reflexivity. Qed.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Lemma source bias parent e h r child score p : placement e ->
  ScoreStart.reached Dalek bias parent e h r child score -> StrictRStart.reached bias e score p ->
  regs(machine p) 3%nat=BatchDecode.point e true /\ DecodedRows.encoded_y true e (DecodedRows.buffer true e (machine p)).
@@ -82,3 +85,4 @@ Proof.
  - intros j J;destruct(Raw j J) as [Bound Number];rewrite Encoding.digits_canonical by exact Bound.
    change (limbs (y e s j)<Field.prime <-> BatchDecode.original_encoding true e j mod 2^255<Field.prime);fold (y e s j) in Number;now rewrite Number.
 Qed.
+End Iteration.

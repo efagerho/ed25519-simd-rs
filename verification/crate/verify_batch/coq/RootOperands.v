@@ -9,6 +9,9 @@ Local Open Scope Z_scope.
 
 (* The first multiply of the finish helper uses the live numerator in ZMM
    registers and the paired power result at the address in RSI. *)
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Lemma factor sig pol bias e start cmp valid j :
  DecoderFinish.entry sig pol bias e start -> RootTest.operands sig pol e start -> FinishProduct.post sig pol bias e start cmp ->
  regs(machine valid) 6%nat=regs(machine cmp) 6%nat -> mem(machine valid)=mem(machine cmp) -> (j<8)%nat ->
@@ -47,3 +50,4 @@ Proof.
  intros S T U E J;destruct(comparison_values _ _ _ _ _ _ S T U j J) as [Bound [V [M _]]];
  split;[exact (same_split _ _ E Bound)|rewrite (same_value _ _ E);auto].
 Qed.
+End Iteration.

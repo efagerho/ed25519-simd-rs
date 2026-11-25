@@ -7,10 +7,13 @@ Local Open Scope Z_scope.
 (* The eligibility store writes one byte between the prepared pointers and
    the scatter indices. Stack slots on either side still belong to the caller. *)
 Definition live_byte pol e x:=common_top pol e-104<=x<sp e+8 /\ x<>Rows.frame e+840.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record context pol bias outer e q:Prop:=Context {
  links:return_slots pol bias outer e (mem(machine q));
  outputs:saved_outputs pol e (mem(machine q));
- metadata:StageEntry.metadata e (mem(machine q));
+ metadata:BatchWindow.metadata e (mem(machine q));
  caller:StageEntry.saved_caller e (machine q);
  inputs:WrapperInputs.layout e (mem(machine q))
 }.
@@ -29,7 +32,7 @@ Qed.
 
 Theorem restore pol bias outer e scalar d t :
  placement e -> BatchScalar.post pol bias outer e scalar -> BatchDecode.handoff pol e scalar d ->
- StageEntry.metadata e (mem(machine scalar)) -> StageEntry.saved_caller e (machine scalar) -> WrapperInputs.layout e (mem(machine scalar)) ->
+ BatchWindow.metadata e (mem(machine scalar)) -> StageEntry.saved_caller e (machine scalar) -> WrapperInputs.layout e (mem(machine scalar)) ->
  EligibleLanes.checked_trace pol bias e d t -> context pol bias outer e (EligibleLanes.stopped t).
 Proof.
  intros P [_ [_ [_ [Links [Outputs _]]]]] H Meta [Slots BP] Layout C;pose proof(frame_bytes _ _ _ _ _ _ P H C) as Frame.
@@ -42,3 +45,4 @@ Proof.
    now rewrite (BatchDecode.kept_rbp _ _ _ _ H).
  - eapply WrapperInputs.preserve;[|exact Layout];intros x X;apply Frame;unfold live_byte,WrapperInputs.needed,span,common_top,Rows.frame,sp in *;destruct pol;lia.
 Qed.
+End Iteration.

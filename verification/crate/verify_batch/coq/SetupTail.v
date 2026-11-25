@@ -14,6 +14,9 @@ Definition finish_setup bias:=then_run (step_at bias 43) (then_run (carry_call b
  (then_run (DecoderProduct.multiply_call bias) (then_run (step_at bias 5) (step_at bias 1))))))).
 
 Definition retained signature pol e x:=link_slot pol e<=x<link_slot pol e+8 \/ address signature e<=x<address signature e+320 \/ caller_bytes pol e x.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record stage signature pol bias e off p : Prop := {
  position:ip p=base bias+off; paid:accounted e (writable e) p;
  dest:regs(machine p) 7%nat=point e signature; stack:regs(machine p) 4%nat=link_slot pol e;
@@ -247,3 +250,4 @@ Proof.
  intros P M Al E;destruct(BatchDecode.from_decoder _ _ _ _ P M E) as [q [Run Start]].
  unfold observe;rewrite Run;exact (from_setup false _ _ _ _ incoming P M Al Start).
 Qed.
+End Iteration.

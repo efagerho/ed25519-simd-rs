@@ -7,8 +7,11 @@ From Ed25519Simd.VerifyBatch Require Import Policy Rows Return StageEntry Scatte
 From Ed25519Simd.VerifyBatch Require ScatterZeros ChunkStaging ChunkRows.
 Local Open Scope Z_scope.
 
-Definition outputs e s := regs s 0%nat=1 /\ forall j,(j<Nat.min (count e) 8)%nat ->
- mem s (output e+Z.of_nat(position e j))=0.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
+Definition outputs e s := regs s 0%nat=1 /\ forall j,(j<Nat.min (BatchWindow.remaining e) 8)%nat ->
+ mem s (output e+Z.of_nat(position e (BatchWindow.first+j)))=0.
 
 (* This return begins after the wrapper's actual CALL. The return runner
    follows the metadata in that same CPU through every scatter iteration. *)
@@ -57,26 +60,26 @@ Proof.
  exact (run_memory _ _ _ _ _ _ M).
 Qed.
 
-Lemma published_values mask o e p q : placement e -> (0<count e)%nat -> Scatter.indices e ->
+Lemma published_values mask o e p q : placement e -> (0<BatchWindow.remaining e)%nat -> Scatter.indices e ->
  ip p=o -> regs(machine p) 7%nat=Rows.frame e+856 -> regs(machine p) 6%nat=output e ->
  regs(machine p) 2%nat=Z.of_nat(count e) -> regs(machine p) 0%nat=mask ->
- StageEntry.metadata e (mem(machine p)) ->
+ BatchWindow.metadata e (mem(machine p)) ->
  mapped (mem(machine p)) o Zip215.ScatterBytes.symbol_bytes ->
  (forall x,o<=x<o+Z.of_nat(length Zip215.ScatterBytes.symbol_bytes) -> ~(output e<=x<output e+Z.of_nat(count e))) ->
  returning o (length Zip215.ScatterBytes.symbol_bytes) 88 p=Some q -> regs(machine q) 0%nat=1 /\
- forall j,(j<Nat.min (count e) 8)%nat ->
- mem(machine q)(output e+Z.of_nat(position e j))=ScatterValues.verdict
+ forall j,(j<Nat.min (BatchWindow.remaining e) 8)%nat ->
+ mem(machine q)(output e+Z.of_nat(position e (BatchWindow.first+j)))=ScatterValues.verdict
    (fun i=>mem(machine p)(Rows.frame e+856+Z.of_nat i)) mask j.
 Proof.
  intros P N Idx PC DI SI DX AX Meta Map Sep Run.
- destruct(window_values mask o e 0 (count e) p q P N eq_refl Idx PC DI SI DX AX Meta Map Sep Run)
+ destruct(window_values mask o e BatchWindow.first (BatchWindow.remaining e) p q P N (BatchWindow.total e N) Idx PC DI SI DX AX Meta Map Sep Run)
     as [OK [Values _]]. exact (conj OK Values).
 Qed.
 
-Lemma published o e p q : placement e -> (0<count e)%nat -> Scatter.indices e ->
+Lemma published o e p q : placement e -> (0<BatchWindow.remaining e)%nat -> Scatter.indices e ->
  ip p=o -> regs(machine p) 7%nat=Rows.frame e+856 -> regs(machine p) 6%nat=output e ->
  regs(machine p) 2%nat=Z.of_nat(count e) -> regs(machine p) 0%nat=0 ->
- StageEntry.metadata e (mem(machine p)) ->
+ BatchWindow.metadata e (mem(machine p)) ->
  mapped (mem(machine p)) o Zip215.ScatterBytes.symbol_bytes ->
  (forall x,o<=x<o+Z.of_nat(length Zip215.ScatterBytes.symbol_bytes) -> ~(output e<=x<output e+Z.of_nat(count e))) ->
  returning o (length Zip215.ScatterBytes.symbol_bytes) 88 p=Some q -> outputs e (machine q).
@@ -96,3 +99,4 @@ Proof.
  intros [j [J E]];assert (Same:position e i=position e (first+j)) by lia.
  apply Unique in Same;lia.
 Qed.
+End Iteration.

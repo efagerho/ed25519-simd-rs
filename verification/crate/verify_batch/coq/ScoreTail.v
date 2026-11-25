@@ -13,11 +13,14 @@ Proof. destruct pol;repeat constructor;vm_compute;discriminate || reflexivity. Q
 Definition execute pol bias:=segment (bias+ScoreSetup.callee pol) (ScoreSetup.code pol) 8.
 Definition arguments e mask s:=regs s 0%nat=mask /\ regs s 7%nat=Rows.frame e+856 /\
  regs s 6%nat=output e /\ regs s 2%nat=regs e 6%nat.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record entry bias parent e p q mask:Prop:=Entry {
  target:ip q=bias+scatter; writes:accounted e (writable e) q; words:well_formed(machine q);
  sp:regs(machine q) 4%nat=ScoreFrame.top e;
  args:arguments e mask (machine q); ret:read_word(mem(machine q))(ScoreFrame.top e)=bias+parent+539;
- left:regs(machine q) 12%nat=Prologue.rows_left(regs e 6%nat); metadata:StageEntry.metadata e (mem(machine q));
+ left:regs(machine q) 12%nat=BatchWindow.next_count e; metadata:BatchWindow.metadata e (mem(machine q));
  saved:StageEntry.saved_caller e (machine q); restart:ChunkContext.bindings e (machine q);
  memory:mem(machine q)=mem(machine p); history:log q=log p
 }.
@@ -55,3 +58,4 @@ Proof.
  - exact M.
  - apply app_nil_r.
 Qed.
+End Iteration.

@@ -64,6 +64,9 @@ Qed.
 
 Definition signed e digit (f:nat->nat->Z) s:=forall sign j i,(j<8)%nat -> (i<20)%nat ->
  read_word (mem s) (TablePackRows.row e digit sign (Z.of_nat j)+8*Z.of_nat i)=Rows.eval f (Pack.signed_word sign i j).
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem first pol bias e before p ks : placement e -> LoadedImage.loaded pol bias (mem e) (writable e) ->
  (bias+DecoderFrame.origin) mod 64=0 -> EligibleLanes.post pol bias e before p -> regs(machine p) 14%nat<>0 ->
  exists q bank a,TablePacking.observe bias p ks=Some(q,bank) /\ TableMask.ready pol bias e p a bank /\
@@ -74,3 +77,4 @@ Proof.
  exact (contents pol bias e 1 a q bank _ P ltac:(lia) (TableMask.pointers _ _ _ _ _ _ Mask)
    (TableMask.words _ _ _ _ _ _ Mask) (TableMask.enabled _ _ _ _ _ _ Mask) (incoming _ _ _ _ _ _ Mask) Pack).
 Qed.
+End Iteration.

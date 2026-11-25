@@ -7,6 +7,9 @@ Import ListNotations. From Ed25519Simd.VerifyBatch Require ChunkContext.
 Local Open Scope Z_scope.
 
 Definition execute bias pc text q r s c:=ScoreSetup.execute (bias+pc) text (HashResume.resume bias q r s c).
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record entered pol bias pc e q r child:Prop:=Entered {
  target:ip child=bias+ScoreSetup.callee pol; writes:accounted e (writable e) child; words:well_formed(machine child);
  args:ScoreSetup.arguments (machine child) (Rows.frame e) (scratch e)
@@ -20,8 +23,8 @@ Record entered pol bias pc e q r child:Prop:=Entered {
  digest:forall j,(j<8)%nat -> HashLayout.eligible pol e j ->
    Scalar.ScalarSpec.lane_input (buffer_words (mem(machine child)) (Rows.frame e)) j=
    little_endian (SHA512.Spec.sha512 (r_bytes(HashLayout.row e j)++key_bytes(HashLayout.row e j)++message(HashLayout.row e j)));
- wrapper:StageEntry.metadata e (mem(machine child)) /\ StageEntry.saved_caller e (machine child) /\
-   regs(machine child) 12%nat=Prologue.rows_left (regs e 6%nat);
+ wrapper:BatchWindow.metadata e (mem(machine child)) /\ StageEntry.saved_caller e (machine child) /\
+   regs(machine child) 12%nat=BatchWindow.next_count e;
  restart:ChunkContext.bindings e (machine child);
  frame:preserved (fun x=>~ScoreSetup.slots (Rows.frame e) x) (Sha512Challenge.Execution.after r) (mem(machine child));
  store_log:log child=NativeHash.history bias q++ScoreSetup.events (bias+pc) (Rows.frame e) (scratch e) (Sha512Challenge.Execution.after r)
@@ -77,3 +80,4 @@ Proof.
  - rewrite <-(proj1 C);exact Kept.
  - rewrite <-(proj1 C);exact (ScoreSetup.store_log _ _ _ _ _ _ Entry).
 Qed.
+End Iteration.

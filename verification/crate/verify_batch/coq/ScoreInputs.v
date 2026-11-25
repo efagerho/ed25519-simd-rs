@@ -6,12 +6,15 @@ Local Open Scope Z_scope.
 
 (* Live across SHA. The R-validity byte is separate from the eight
    eligibility bytes, which also account for S and the policy's key check. *)
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record inputs pol e s:Prop:=Inputs {
  gprs:Prologue.context_registers e s;
- remaining:regs s 12%nat=Prologue.rows_left (regs e 6%nat);
- metadata:StageEntry.metadata e (mem s); saved:StageEntry.saved_caller e s;
+ remaining:regs s 12%nat=BatchWindow.next_count e;
+ metadata:BatchWindow.metadata e (mem s); saved:StageEntry.saved_caller e s;
  tables:CallerSpills.table_arguments e (mem s);
- next_descriptor:StageEntry.next_descriptor e (regs s 3%nat);
+ next_descriptor:BatchWindow.next_descriptor e (regs s 3%nat);
  flags:forall j,(j<8)%nat -> let b:=mem s (Rows.frame e+832+Z.of_nat j) in
    (b=0 \/ b=1) /\ (b=1 <-> HashLayout.eligible pol e j);
  buffers:ScoreBuffers.data e s;
@@ -73,3 +76,4 @@ Proof.
  intros P I R C;apply (preserve _ _ _ _ I (HashResume.saved _ _ _ _ _ _ _ R C));intros x X;rewrite (proj1 C);
  apply (NativeHash.frame _ _ _ _ _ _ R);destruct(scratch_stack _ P);unfold ScoreBuffers.region,span,Rows.frame,disjoint,sp in *;lia.
 Qed.
+End Iteration.

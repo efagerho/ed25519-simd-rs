@@ -22,6 +22,9 @@ Definition call_store bias e:=qword (word(bias+pc+165)) (ScoreFrame.buffer e-8) 
 Definition rejected e bias p q:=ip q=bias+pc+565 /\ mem(machine q)=mem(machine p) /\ log q=log p /\
  regs(machine q) 0%nat=0 /\ regs(machine q) 7%nat=Rows.frame e+856 /\
  regs(machine q) 6%nat=output e /\ regs(machine q) 2%nat=regs e 6%nat /\ regs(machine q) 5%nat=ScoreFrame.top e-8.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition called e bias p q:=ip q=bias+check /\
  regs(machine q) 4%nat=ScoreFrame.buffer e-8 /\ regs(machine q) 7%nat=BatchDecode.point e true /\
  read_word (mem(machine q)) (ScoreFrame.buffer e-8)=bias+pc+170 /\
@@ -84,3 +87,4 @@ Proof.
      destruct(scratch_stack _ P);unfold touches,call_store;cbn [qword address size];change (Z.of_nat 8) with 8;
        unfold BatchDecode.point,BatchDecode.point_offset,span,FlatMemory.disjoint,ScoreFrame.buffer,FramePointer.bottom,ScoreFrame.top,Rows.frame,sp in *;lia.
 Qed.
+End Iteration.

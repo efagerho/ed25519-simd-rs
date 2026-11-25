@@ -32,6 +32,9 @@ Record entry pol bias e p q:Prop:=Entry {
  call_log:log q=log p++[qword (word(bias+site+180)) (frame pol e) (bias+site+185)]
 }.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem checked pol bias e before p : placement e -> loaded pol bias (mem e) (writable e) ->
  EligibleLanes.post pol bias e before p -> regs(machine p) 14%nat<>0 ->
  exists q,enter bias p=Some q /\ entry pol bias e p q.
@@ -75,3 +78,4 @@ Proof.
  - exact M.
  - reflexivity.
 Qed.
+End Iteration.

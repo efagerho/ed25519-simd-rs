@@ -17,6 +17,9 @@ Lemma helper_image:In (helper,literals) (children Dalek).
 Proof. apply in_or_app;right;do 5 right;left;reflexivity. Qed.
 Definition region e x:=ScoreFrame.buffer e-32<=x<ScoreFrame.buffer e-8.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Lemma layout bias e prev p : placement e -> loaded Dalek bias (mem e) (writable e) ->
  accounted e (writable e) p -> StrictRCall.called e bias prev p ->
  S.placement bias pc text helper literals 3 p /\
@@ -84,3 +87,4 @@ Proof.
  - intros j R J Original;rewrite AX;apply (proj2(Bits j J) R);rewrite Point.
    exact (proj1(proj1(proj2(proj2 Geo) j R J Original))).
 Qed.
+End Iteration.

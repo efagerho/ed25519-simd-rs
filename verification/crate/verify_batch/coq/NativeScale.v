@@ -66,6 +66,9 @@ Proof.
 Qed.
 
 Definition row s ptr j i:=read_word (mem s) (ptr+64*Z.of_nat i+8*Z.of_nat j).
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem at_scale signature pol bias e p : placement e -> loaded pol bias (mem e) (writable e) ->
  squared signature pol bias e p -> well_formed(machine p) ->
  exists q,step_at bias 43 p=Some q /\ (forall j i,(j<8)%nat -> (i<5)%nat ->
@@ -104,3 +107,4 @@ Proof.
  destruct(projection (vectors s j) old ltac:(intros k K;apply C,K) i I) as [U Diff].
  split;[rewrite <-U;apply Rows,I|rewrite <-Diff;apply Regs].
 Qed.
+End Iteration.

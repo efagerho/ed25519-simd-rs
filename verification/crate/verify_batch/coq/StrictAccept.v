@@ -17,6 +17,9 @@ Proof.
  - rewrite Z.add_0_r,Z.mod_small;unfold prime in *;lia.
 Qed.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem screened e j : signature_accepts Dalek (HashLayout.row e j) -> StrictOrderClear.eligible e j.
 Proof.
  intro A;pose proof(Lane.accepted_eligible _ _ A) as On.
@@ -25,3 +28,4 @@ Proof.
  split;[split;[exact On|rewrite Eq;apply canonical_compression]|].
  rewrite Eq;eexists;split;[apply Lane.decodes_compression|exact Strong].
 Qed.
+End Iteration.

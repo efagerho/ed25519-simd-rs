@@ -7,15 +7,18 @@ From Ed25519Simd.VerifyBatch Require ScoreStart.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition area e x:=ScoreFrame.top e-48<=x.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record frame bias parent e caller (s:cpu):Prop:=Frame {
  fp:regs s 5%nat=ScoreFrame.top e-8;
  slots:FrameRestore.saved (mem s) (ScoreFrame.top e) (regs(machine caller));
  link:read_word (mem s) (ScoreFrame.top e)=bias+parent+539;
- metadata:StageEntry.metadata e (mem s); spills:CallerSpills.saved e (mem s);
+ metadata:BatchWindow.metadata e (mem s); spills:CallerSpills.saved e (mem s);
  outer_bp:regs(machine caller) 5%nat=regs e 5%nat;
- counter:regs(machine caller) 12%nat=Prologue.rows_left (regs e 6%nat);
+ counter:regs(machine caller) 12%nat=BatchWindow.next_count e;
  globals:Prologue.context_registers e (machine caller);
- descriptor:StageEntry.next_descriptor e (regs(machine caller) 3%nat);
+ descriptor:BatchWindow.next_descriptor e (regs(machine caller) 3%nat);
  tables:CallerSpills.table_arguments e (mem s)
 }.
 
@@ -61,3 +64,4 @@ Proof.
  - exact(descriptor _ _ _ _ _ F).
  - eapply CallerSpills.keep_tables;[|exact(tables _ _ _ _ _ F)];intros x X;apply M;unfold area,ScoreFrame.top;lia.
 Qed.
+End Iteration.

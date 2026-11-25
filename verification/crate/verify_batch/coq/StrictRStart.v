@@ -30,6 +30,9 @@ Proof.
  rewrite Z.land_diag,Z.add_0_r,(word_fits _ (proj1 W 1%nat)),read_word_byte by (exact (proj2(proj2 W)) || lia);reflexivity.
 Qed.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record inputs e s:Prop:=Inputs {
  ptr:regs s 1%nat=Rows.frame e+856;
  rows:forall j,(j<8)%nat -> let b:=mem s (Rows.frame e+856+Z.of_nat j) in
@@ -114,3 +117,4 @@ Proof.
  - intros g A0 A12;change (put (put (regs(machine a)) 0 m) 12 mask g=regs(machine score) g).
    unfold put;rewrite G;destruct(Nat.eqb_spec 12 g), (Nat.eqb_spec 0 g);congruence.
 Qed.
+End Iteration.

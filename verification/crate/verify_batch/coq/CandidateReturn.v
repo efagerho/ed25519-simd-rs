@@ -6,6 +6,9 @@ From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScala
 From Ed25519Simd.VerifyBatch Require CandidateFrame LadderProduct.
 Local Open Scope Z_scope.
 Definition execute:=CandidateUnwind.execute.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record result e candidate q:Prop:=Result {
  back:ip q=read_word (mem(machine candidate)) (CandidateDigest.top e);
  stack:regs(machine q) 4%nat=ScoreFrame.buffer e;
@@ -41,3 +44,4 @@ Proof.
  - exact (segment_wf _ _ _ _ _ (LadderProduct.words _ _ _ _ _ Q) Run).
  - eapply StoreHistory.account;[exact Paid|exact (StoreHistory.lend (fun _=>False) _ _ _ (fun x H=>False_rect _ H) Hist)].
 Qed.
+End Iteration.

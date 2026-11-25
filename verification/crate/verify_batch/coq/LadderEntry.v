@@ -50,6 +50,9 @@ Proof.
      try assumption;reflexivity.
 Qed.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record entry pol bias e p t:Prop:=Entry {
  at_ladder:ip t=bias+child;
  writes:accounted e (writable e) t;
@@ -110,3 +113,4 @@ Proof.
      destruct Args as [_ [_ [_ [_ [_ [K _]]]]]];rewrite K,Mem;f_equal;apply write_outside;intro T;specialize(Slot _ T);lia. }
    change (machine _) with u;now rewrite Eq.
 Qed.
+End Iteration.

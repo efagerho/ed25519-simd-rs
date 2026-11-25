@@ -66,6 +66,9 @@ Proof.
        split;[exact Bound|intros G [R _];rewrite scale_one;apply Rep,R].
 Qed.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem checked pol bias e before p ks:placement e -> LoadedImage.loaded pol bias (mem e) (writable e) ->
  (bias+DecoderFrame.origin) mod 64=0 -> EligibleLanes.post pol bias e before p -> regs(machine p) 14%nat<>0 ->
  exists q bank,TableRounds.observe pol bias e p ks=Some(q,bank) /\ TableRounds.at_multiple pol bias e 8 q /\
@@ -95,3 +98,4 @@ Proof.
  split;[intros j i J N;rewrite Slot by lia;apply Center;assumption|].
  intros B d sign j D J;eapply keep_row;[intros i N;apply Slot;lia|apply Rows;assumption].
 Qed.
+End Iteration.
