@@ -45,7 +45,8 @@ Record result pol bias e p q:Prop:=Result {
  staged:forall j i,(j<8)%nat -> (i<15)%nat -> read_word (mem(machine q))
   (TableProduct.frame pol e+64*Z.of_nat i+8*Z.of_nat j)=column e (machine p) j i;
  pair:forall b key i,(key<8)%nat -> (i<8)%nat -> vectors(machine q) i (TableTranspose.reg b key)=column e (machine p) key (index b i);
- tail:forall key i,(key<8)%nat -> (i<4)%nat -> vectors(machine q) key (1+i)%nat=column e (machine p) key (16+i)%nat
+ tail:forall key i,(key<8)%nat -> (i<4)%nat -> vectors(machine q) key (1+i)%nat=column e (machine p) key (16+i)%nat;
+ parent:TableParentFrame.retained pol bias e (machine p) (machine q)
 }.
 
 Theorem checked pol bias e before p : placement e -> loaded pol bias (mem e) (writable e) ->
@@ -77,4 +78,6 @@ Proof.
  - intros key i K N;rewrite (TableTranspose.tail_rows _ _ _ C i key N K),V.
    replace (1+i)%nat with (Image.reg_for (16+i)) by (destruct i as [|[|[|[|i]]]];try lia;reflexivity).
    apply (original _ _ _ _ _ A);lia.
+ - intros x K;rewrite M,(TableStage.outside _ _ _ _ _ _ B);[exact (TableValues.parent _ _ _ _ _ A x K)|].
+   destruct K as [Area _];change (~span (TableProduct.frame pol e-1360) 2320 x) in Area;unfold TableStage.buffer,span in *;lia.
 Qed.

@@ -37,6 +37,8 @@ Local Opaque code.
 
 Definition row e digit pos key:= (if pos:bool then TableMultiple.pos e digit else TableMultiple.neg e digit)+2720*key.
 Definition area e digit x:=exists pos key,0<=key<8 /\ row e digit pos key<=x<row e digit pos key+160.
+Lemma in_table e digit x : 1<=digit<=8 -> area e digit x -> Return.span (TableEntry.tables e) 21760 x.
+Proof. intros N [pos [key [K X]]];unfold area,row,TableMultiple.pos,TableMultiple.neg,TableIdentity.first,Return.span in *;destruct pos;lia. Qed.
 Lemma ranges e digit pos key : placement e -> 1<=digit<=8 -> 0<=key<8 ->
  scratch e<=row e digit pos key /\ row e digit pos key+160<=scratch e+25344.
 Proof. intros P N K;unfold row,TableMultiple.pos,TableMultiple.neg,TableIdentity.first,TableEntry.tables;destruct pos;lia. Qed.

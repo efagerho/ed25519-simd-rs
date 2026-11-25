@@ -62,15 +62,31 @@ Proof.
    destruct(IH (d+1) a k P I Al ltac:(lia) ltac:(lia) (reached _ _ _ _ _ _ Q)) as [t [bank [Rest [End Path]]]].
    exists t,bank;split;[cbn [execute];rewrite Run;exact Rest|split;[replace (d+Z.of_nat(S n)) with (d+1+Z.of_nat n) by lia;exact End|econstructor;eassumption]].
 Qed.
+Lemma preserves_parent pol bias e n d p q caller :
+ 1<=d -> d+Z.of_nat n<=8 -> iterations pol bias e n d p q ->
+ TableParentFrame.retained pol bias e caller (machine p) -> TableParentFrame.retained pol bias e caller (machine q).
+Proof.
+ intros Lo Hi Steps;induction Steps as [|n d p a q Q Steps IH];intro Kept;[exact Kept|].
+ apply IH;[lia|lia|];intros x Keep;rewrite (outside _ _ _ _ _ _ Q).
+ - exact (Kept x Keep).
+ - destruct Keep as [Stack [Point Tables]];split.
+   + unfold private,TableAddLayout.stage,TableProduct.frame,TableParentFrame.top,span in *;tauto || lia.
+   + intro X;apply Tables,(TablePackRows.in_table _ (d+1) _ ltac:(lia) X).
+Qed.
 Definition observe pol bias e p ks:=bind (TablePacking.observe bias p ks) (fun '(a,bank)=>execute 7 pol bias e a bank).
 Theorem from_eligible pol bias e before p ks:placement e -> loaded pol bias (mem e) (writable e) ->
  (bias+DecoderFrame.origin) mod 64=0 -> EligibleLanes.post pol bias e before p -> regs(machine p) 14%nat<>0 ->
  exists q bank a,observe pol bias e p ks=Some(q,bank) /\ at_multiple pol bias e 8 q /\
-   TableSignedWords.signed e 1 (TablePackedInputs.column e (machine p)) (machine a) /\ iterations pol bias e 7 1 a q.
+   TableSignedWords.signed e 1 (TablePackedInputs.column e (machine p)) (machine a) /\ iterations pol bias e 7 1 a q /\
+   TableParentFrame.retained pol bias e (machine p) (machine q).
 Proof.
  intros P I Al E Live;destruct(TableSignedWords.first _ _ _ _ _ ks P I Al E Live) as [a [k [m [Run [Mask [Pack Rows]]]]]].
  assert (A:at_multiple pol bias e 1 a) by (constructor;[exact (TablePacking.address _ _ _ _ _ _ _ Pack)|exact (TablePacking.writes _ _ _ _ _ _ _ Pack)|
   exact (TablePacking.words _ _ _ _ _ _ _ Pack)|exact (TablePacking.arguments _ _ _ _ _ _ _ Pack)]).
  destruct(complete pol bias e 7 1 a k P I Al ltac:(lia) ltac:(lia) A) as [q [bank [R [At Steps]]]].
- exists q,bank,a;split;[unfold observe;rewrite Run;exact R|auto].
+ exists q,bank,a;split;[unfold observe;rewrite Run;exact R|split;[exact At|split;[exact Rows|split;[exact Steps|]]]].
+ apply (preserves_parent pol bias e 7 1 a q (machine p) ltac:(lia) ltac:(lia) Steps);intros x Keep.
+ destruct(TablePacking.trace _ _ _ _ _ _ _ Pack) as [ws [_ [_ [Safe Replay]]]];rewrite Replay,(WriteTrace.frame _ _ Safe).
+ - exact (TableMask.parent _ _ _ _ _ _ Mask x Keep).
+ - destruct Keep as [_ [_ T]];intro X;apply T,(TablePackRows.in_table _ 1 _ ltac:(lia) X).
 Qed.
