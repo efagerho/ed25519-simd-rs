@@ -92,5 +92,6 @@ execution/MaskedResult.v
 execution/ProjectionWords.v
 execution/ScalarWords.v
 abi/FramePointer.v
+abi/FrameRestore.v
 execution/ScalarByteMemory.v
 execution/PreservedRegister.v

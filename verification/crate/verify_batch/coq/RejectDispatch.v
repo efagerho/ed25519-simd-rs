@@ -4,7 +4,7 @@ From Machine Require Import isa.Instructions execution.LinkedCalls execution.Wor
  memory.ByteMemory memory.FlatMemory memory.WriteTrace memory.MemoryGeometry.
 From Ed25519Simd.Zip215 Require ScatterBytes ScatterTrace ScatterReturn.
 From Ed25519Simd.VerifyBatch Require Import Policy Image Rows Return LoadedImage Prologue BatchScalar PrepareUnwind.
-From Ed25519Simd.VerifyBatch Require RejectOutputs.
+From Ed25519Simd.VerifyBatch Require RejectOutputs Scattered.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition scatter := Zip215.ScatterBytes.address.
@@ -38,29 +38,6 @@ Proof.
    + split;[reflexivity|]. split;[|split;[f_equal;ring|split;reflexivity]]. apply Forall_cons;[|apply Forall_cons;[|apply Forall_nil]].
      * intros x X;right;change (top+0+856<=x<top+0+856+8) in X;lia.
      * intros x X;left;change (top-8<=x<top-8+8) in X;lia.
-Qed.
-
-Module S := Zip215.ScatterTrace.
-
-Local Lemma keeps_counter o l s c t ws :
- ScalarBytes.fetch o S.code (State (Running (S.offset l)) s c)=Some(t,ws) ->
- regs(cpu_state t) 12%nat=regs s 12%nat.
-Proof.
- rewrite S.fetched;destruct l;
- match goal with |-context[S.fetch_at ?lab]=>let op:=eval vm_compute in (S.fetch_at lab) in
-   change (S.fetch_at lab) with op end;cbn [step];intro Run.
- all: try match type of Run with context[option_map _ ?flag]=>destruct flag as [[]|];try discriminate end.
- all: injection Run as <- <-;reflexivity.
-Qed.
-
-Local Lemma counter_after o a n s ws t : ScalarBytes.steps o S.code s ws t ->
- word64 n -> fits64 a n -> S.invariant a n s -> regs(cpu_state t) 12%nat=regs(cpu_state s) 12%nat.
-Proof.
- induction 1 as [s|s mid last own tail F R IH];intros N Range Inv;[reflexivity|].
- destruct s as [[off|back] s c];[|discriminate]. destruct Inv as [D [L [l [PC Guard]]]].
- cbn [loc] in PC;subst off.
- destruct(S.live_step o a n l s c N Range D L Guard) as [u [log [Step [_ Next]]]].
- rewrite F in Step;injection Step as <- <-. rewrite (IH N Range Next);exact (keeps_counter _ _ _ _ _ _ F).
 Qed.
 
 Definition scatter_stores bias pc text p :=
@@ -100,62 +77,31 @@ Proof.
  assert (Len:regs e 6%nat=len).
  { unfold len,Scatter.count;rewrite Z2Nat.id by (pose proof (proj1(initial_cpu _ Place) 6%nat);unfold word64 in *;lia);
    reflexivity. }
- assert (L:word64 len) by (rewrite <-Len;apply (initial_cpu _ Place)).
  assert (Const:forall x,bias+scatter<=x<bias+scatter+Z.of_nat(length Zip215.ScatterBytes.symbol_bytes)->
      ~Zip215.ScatterTrace.output (output e) len x).
  { intros x X H;apply (Separate x X);right;right;exact H. }
  assert (RegD:regs(machine s0) 6%nat=output e) by exact (eq_trans D Out).
  assert (RegN:regs(machine s0) 2%nat=len) by exact (eq_trans N (eq_trans Count Len)).
- destruct (Zip215.ScatterReturn.mapped_termination _ _ (carry s0) _ _ eq_refl L (out_ok _ Place) RegD RegN Map Const)
-    as [k [t [ws [back [Bound [Steps [Run Ret]]]]]]].
- assert (Top:word64(Rows.frame e-8)) by (unfold Rows.frame,sp,word64 in *;lia).
- assert (Protected:forall j,0<=j<8 -> ~Zip215.ScatterTrace.output (output e) len (Rows.frame e-8+j))
-    by (intros j J H;destruct(out_stack _ Place);unfold Zip215.ScatterTrace.output,len,Rows.frame,sp in *;lia).
- destruct (Zip215.ScatterReturn.mapped_prefix _ _ _ _ _ _ _ _ _ eq_refl L (out_ok _ Place)
-   Top RegD RegN Stack Back Protected Map Const Run) as [Return [Child [M _]]].
- unfold Zip215.ScatterReturn.stack_position in Return;rewrite Ret in Return.
- destruct Return as [Dest NextSP].
- assert (All:forall xs u,ScalarBytes.steps (bias+scatter) S.code (State (Running 0) (machine s0) (carry s0)) xs u ->
-          confined (S.output (output e) len) xs).
- { intros xs u Trace. pose proof(S.scatter_confined (bias+scatter) (machine s0) (carry s0) xs u) as H.
-   unfold S.destination,S.length64 in H;rewrite RegD,RegN in H;exact (proj1 (H L (out_ok _ Place) Trace)). }
- pose proof (proj1 (MappedFetch.same_prefixes (bias+scatter) S.code (State (Running 0) (machine s0) (carry s0)) _ Map Const All ws t) Run) as Static.
- assert (Keep:regs(cpu_state t) 12%nat=regs(machine s0) 12%nat).
- { apply (counter_after (bias+scatter) (output e) len (State (Running 0) (machine s0) (carry s0)) ws t Static L (out_ok _ Place)).
-   split;[exact RegD|split;[exact RegN|exists S.Count;split;[reflexivity|exact I]]]. }
- set (q:=LinkedRun.finish (bias+scatter) s0 (t,ws)).
- assert (Returned:returning (bias+scatter) (length Zip215.ScatterBytes.symbol_bytes) 88 s0=Some q).
- { unfold returning;pose proof (until_exact _ _ _ _ _ _ _ _ Bound Steps Ret) as ToRet;
-   fold scatter in ToRet;rewrite At,Z.sub_diag,ToRet;reflexivity. }
- exists q;split.
- - unfold scatter_stores;rewrite Dispatch;exact Returned.
+ assert (B:byte_memory(mem(machine s0))).
+ { apply (ScalarByteMemory.run_bytes 8 (bias+pc) (length text) (State(Running 385)(machine p)(carry p)) s w);
+   [exact Octets|exact (run_lift _ _ _ _ _ _ _ Step W (image_after _ _ _ _ _ Prev Bytes Apart) Apart)]. }
+ destruct(Scattered.checked pol bias e s0 _ Place Image Paid At Stack Back RegD RegN B) as [q [Returned End]].
+ exists q;split;[unfold scatter_stores;rewrite Dispatch;exact Returned|split].
+ - unfold continued;rewrite (Scattered.target _ _ _ _ End),ScalarRefinement.word_idempotent,(word_fits _ (proj1 R)).
+   split;[reflexivity|split;[exact (Scattered.stack _ _ _ _ End)|split;[exact (Scattered.writes _ _ _ _ End)|]]].
+   rewrite (Scattered.saved _ _ _ _ End 12%nat) by (simpl;tauto);exact (eq_trans CarryLeft Left).
  - split.
-   2:{ split.
-       2:{ split.
-           - split.
-             + intros x X;change (mem(cpu_state t) x=Return.saved_memory e x).
-               rewrite M,(WriteTrace.frame _ _ Child) by
-                 (destruct(out_stack _ Place);unfold S.output,len in *;lia).
-               change (mem(cpu_state s) x=Return.saved_memory e x).
-               rewrite (steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ Step)),(WriteTrace.frame _ _ Safe)
-                 by (unfold pending,Rows.frame,sp in *;lia);apply Spills,X.
-             + exact (eq_trans (PreservedRegister.steps_keep 5 _ S.code _ _ _ ltac:(vm_compute;reflexivity) Static)
-                         (eq_trans BP0 BP)).
-           - apply (ScalarByteMemory.run_bytes k (bias+scatter) (length Zip215.ScatterBytes.symbol_bytes) (State (Running 0) (machine s0) (carry s0)) t ws);[|exact Steps].
-             apply (ScalarByteMemory.run_bytes 8 (bias+pc) (length text) (State (Running 385) (machine p) (carry p)) s w);[exact Octets|].
-             exact (run_lift _ _ _ _ _ _ _ Step W (image_after _ _ _ _ _ Prev Bytes Apart) Apart). }
-       apply (RejectOutputs.published (bias+scatter) e s0 q Place Live Indices At MetaPtr RegD RegN Cleared).
-       - eapply IndexStores.metadata_preserved;[|exact Meta].
-         intros x X;change (mem (cpu_state s) x=mem(machine p) x).
-         rewrite (steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ Step));apply (WriteTrace.frame _ _ Safe);
-           unfold pending;lia.
-       - exact Map.
-       - exact Const.
-       - exact Returned. }
-   unfold q,continued;cbn [LinkedRun.finish ip machine];unfold absolute;rewrite Ret.
-   split;[rewrite Dest,ScalarRefinement.word_idempotent,(word_fits _ (proj1 R));reflexivity|].
-   split;[rewrite NextSP;replace (Rows.frame e-8+8) with (Rows.frame e) by ring;
-       apply word_fits;unfold Rows.frame,sp,word64 in *;lia|].
-   split;[|exact (eq_trans Keep (eq_trans CarryLeft Left))]. apply append_accounted;[exact Paid| |intro x;rewrite M;reflexivity].
-   eapply Forall_impl;[|exact Child];intros v K x X;right;right;exact (K x X).
+   + apply (RejectOutputs.published (bias+scatter) e s0 q Place Live Indices At MetaPtr RegD RegN Cleared).
+     * eapply IndexStores.metadata_preserved;[|exact Meta];intros x X;change (mem(cpu_state s) x=mem(machine p) x).
+       rewrite (steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ Step));apply (WriteTrace.frame _ _ Safe);unfold pending;lia.
+     * exact Map.
+     * exact Const.
+     * exact Returned.
+   + split;[split|exact (Scattered.bytes _ _ _ _ End)].
+     * intros x X;rewrite (Scattered.outside _ _ _ _ End) by
+         (destruct(out_stack _ Place);unfold Scattered.region,disjoint in *;lia).
+       change (mem(cpu_state s) x=Return.saved_memory e x).
+       rewrite (steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ Step)),(WriteTrace.frame _ _ Safe)
+         by (unfold pending,Rows.frame,sp in *;lia);apply Spills,X.
+     * rewrite (Scattered.saved _ _ _ _ End 5%nat) by (simpl;tauto);exact (eq_trans BP0 BP).
 Qed.
