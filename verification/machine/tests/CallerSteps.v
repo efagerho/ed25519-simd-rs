@@ -278,3 +278,12 @@ Example scorer_registers_and_candidate_pointer_loads :
      g 6%nat=25 /\ g 2%nat=25 /\ g 1%nat=25 /\ g 9%nat=1 /\ g 12%nat=88 /\ WriteTrace.address w=80
  | _=>False end.
 Proof. repeat split;reflexivity. Qed.
+
+Example clear_ladder_mode :
+ let s:=CPU (fun _=>2^64-1) (fun _ _=>0) (Some false) (fun _=>0) in
+ match MappedFetch.run 1 (ScalarBytes.fetch 100 [0x45;0x31;0xc9])
+         (ScalarBytes.State(ScalarBytes.Running 0) s (Some true)) with
+ | Some(t,[])=>regs(ScalarBytes.cpu_state t) 9%nat=0 /\ regs(ScalarBytes.cpu_state t) 1%nat=2^64-1 /\
+   flag(ScalarBytes.cpu_state t)=Some true /\ ScalarBytes.cf t=Some false /\ ScalarBytes.loc t=ScalarBytes.Running 3
+ | _=>False end.
+Proof. repeat split;reflexivity. Qed.
