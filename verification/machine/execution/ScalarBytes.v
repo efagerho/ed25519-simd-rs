@@ -27,7 +27,7 @@ Inductive instruction :=
 | AlignedRow (i:VectorMoves.aligned_row)
 | Shl32 (r:nat) (imm:Z) | Or32 (dst src:nat) | ZeroUpper
 | Shr32 (r:nat) (imm:Z) | And32 (dst src:nat) | ExtendByte (dst src:nat) | StoreByte (r:nat) (a:addr) | Dec32 (r:nat) | Inc32 (r:nat)
-| CompareMemImm (a:addr) (imm:Z) | SetNotEqual (d:nat).
+| CompareMemImm (a:addr) (imm:Z) | SetNotEqual (d:nat) | LoadZX8 (d:nat) (a:addr).
 
 Definition little32 bs := read_le 4 (fun i=>nth (Z.to_nat i) bs 0) 0.
 (* REX-prefixed opcode 89 /r with a register destination. REX.R extends the source
@@ -169,6 +169,10 @@ Definition decode (bs:list Z) : option (nat*instruction) := match bs with
  | 0x73::d::_ => Some (2%nat,Branch AtLeast (signed_value 128 d))
  | 0x72::d::_ => Some (2%nat,Branch Below (signed_value 128 d))
  | 0x0f::0x84::a::b::c::d::_ => Some (6%nat,Branch Equal (displacement32 [a;b;c;d]))
+ | 0x48::0x8b::0x47::d::_=>Some (4%nat,Load64 0 (Address 7 None (signed_value 128 d)))
+ | 0x0f::0xb6::0x57::d::_=>Some (4%nat,LoadZX8 2 (Address 7 None (signed_value 128 d)))
+ | 0x48::0x8b::0x84::0x24::a::b::c::d::_=>Some (8%nat,Load64 0 (Address 4 None (displacement32 [a;b;c;d])))
+ | 0x48::0x89::0x47::d::_=>Some (4%nat,Store64 0 (Address 7 None (signed_value 128 d)))
  | 0x48::0x8b::0x43::d::_=>Some (4%nat,Load64 0 (Address 3 None (signed_value 128 d)))
  | 0x48::0x8b::0x83::a::b::c::d::_=>Some (7%nat,Load64 0 (Address 3 None (displacement32 [a;b;c;d])))
  | 0x48::0x89::0x84::0x24::a::b::c::d::_=>Some (8%nat,Store64 0 (Address 4 None (displacement32 [a;b;c;d])))
@@ -222,6 +226,7 @@ Definition step origin off n op s carry : option (state*list store) :=
  let cmp a b:=go (with_zf s (a=?b)) (Some (a<?b)) in
  match op with
  | Load64 r a=>go (set s r (read_word (mem s) (effective s a))) carry
+ | LoadZX8 r a=>go (set s r (mem s (effective s a) mod 256)) carry
  | Load8 r a=>go (low_byte s r (mem s (effective s a))) carry
  | Store8 i=>let '(out,ws):=byte_step (word (origin+off)) i s in
       Some (State (Running next) out carry,ws)

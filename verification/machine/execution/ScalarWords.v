@@ -71,6 +71,7 @@ Proof.
  all: try match type of S with context[option_map _ ?b]=>destruct b as [[]|];try discriminate end.
  all: try match type of S with context[if ?align then Some (_,_) else None]=>destruct align;try discriminate end.
  all: try (injection S as <- <-;cbn [cpu_state]).
+ all: try solve [apply set_wf;[exact W|pose proof (Z.mod_pos_bound (mem s (effective s a)) 256 ltac:(lia));unfold word64;lia]].
  all: try solve [exact W | apply set_wf;[exact W|apply read_word_bound,W] | apply low8_words,W |
      apply set_wf;[exact W|apply mod64_word] | apply set_wf;[exact W|apply mod32_word] |
      apply set_wf;[exact W|unfold word64;lia] | apply set_wf;[exact W|pose proof (Z.mod_pos_bound (regs s src) 256 ltac:(lia));unfold word64;lia] | apply wf_copy,W | apply pop_words,W | apply push_wf,W].
