@@ -79,7 +79,7 @@ Definition active_chunk e:=exists j,(j<8)%nat /\ EligibleLanes.candidate e j.
 Definition at_boundary pol bias entry e b:=match b with
  | FirstDispatch.Completed q=>RejectExecution.post entry e (RejectExecution.BatchReturned q) /\ rejected_inputs pol e /\ ~active_chunk e
  | FirstDispatch.MoreChunks q=>RejectExecution.post entry e (RejectExecution.NextChunk q) /\ ~active_chunk e
- | FirstDispatch.Filtered initial q=>FilterReturned.result bias e initial q /\
+ | FirstDispatch.Filtered initial q=>StrictReturn.result entry e initial q /\
    active_chunk e /\ pol=Dalek /\ ReadyDispatch.reached pol bias e initial
  | FirstDispatch.HashReturned q r=>pol=Zip215 /\ active_chunk e /\
     NativeHash.returned bias entry e q r end.
@@ -119,7 +119,7 @@ Proof.
           as [r [HashRun HashPost]].
        eexists;split;[cbn [LinkedRun.bind fst snd FirstDispatch.continue];now rewrite HashRun|exact (conj eq_refl (conj Active HashPost))].
      * destruct(batch_inputs _ _ _ _ _ Input N) as [_ [_ [_ [Tables _]]]].
-       destruct(FilterReturned.checked _ _ _ _ _ kv Place Loaded Tables Done Child) as [out [k [FilterRun Post]]].
+       destruct(StrictReturn.from_entry _ _ _ _ _ kv Place Loaded Tables Done Child) as [out [k [FilterRun Post]]].
        eexists;split;[cbn [LinkedRun.bind fst snd FirstDispatch.continue];now rewrite FilterRun|exact (conj Post (conj Active (conj eq_refl Reached)))].
 Qed.
 
@@ -194,7 +194,7 @@ Proof.
    + split;[exact (Sound _ _ R)|];pose proof(Dispatch _ N Next) as T.
      destruct b as [q|q|initial q|q r];cbn [FirstDispatch.pending_history] in History;try discriminate;injection History as <-.
      * exact (proj1(proj1(proj1 T))).
-     * exact (proj1(FilterReturned.writes _ _ _ _ (proj1 T))).
+     * exact (proj1(StrictReturn.writes _ _ _ _ (proj1 T))).
      * exact (NativeHash.writes _ _ _ _ _ (proj2(proj2 T))).
 Qed.
 
