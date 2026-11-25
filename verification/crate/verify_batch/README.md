@@ -26,8 +26,11 @@ A second store writes exactly eight bytes. The proof reads each one back as 0 or
 and identifies which original input made it 1. The common preparation routine
 restores its frame and returns 1. The ZIP-215 wrapper clears the message lengths
 of ineligible lanes, passes the original message pointers to SHA-512, and pushes its
-return address. The Dalek wrapper passes the selected table pointers and the eight
-eligibility bytes to its key filter. [Pointer selection and flags](coq/PrepareOutputs.v) · [Preparation return](coq/PreparedReturn.v) · [SHA call](coq/HashEntry.v) · [Dalek filter call](coq/StrictFilterCall.v)
+return address. The log then includes SHA-512's internal stores and return.
+Replaying it from the original Rust call gives every byte of memory at that
+return. For each eligible lane the 64 digest bytes in the caller's stack are
+SHA-512 of the original R, public key and message, in that order. The Dalek wrapper passes the selected table pointers and the eight
+eligibility bytes to its key filter. [Pointer selection and flags](coq/PrepareOutputs.v) · [Preparation return](coq/PreparedReturn.v) · [SHA call](coq/HashEntry.v) · [SHA result and stores](coq/NativeHash.v) · [Dalek filter call](coq/StrictFilterCall.v)
 
 The proof reads back
 all 20 words per identity entry and relates the four cached coordinates
