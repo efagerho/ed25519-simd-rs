@@ -143,7 +143,7 @@ Record batch_contract pol pc text : Prop := {
  image_preserved : forall bias e, admissible pol bias pc text e ->
    (forall ip final,immutable_after pol bias pc text e ip final) /\
    ((0<count e)%nat -> physical_scatter pol bias e /\ RejectCall.contract bias pc text e);
- hash_caller : HashEntry.bound pc text;
+ dispatch_code : StrictDispatch.bound pc text;
  machine_prepare_entry : forall bias e, admissible pol bias pc text e -> (0<count e)%nat ->
    StageEntry.physical (bias+pc) text (destination pol Prepare-pc) e;
  machine_scalar_return : forall bias e carry masks, admissible pol bias pc text e -> (0<count e)%nat ->
