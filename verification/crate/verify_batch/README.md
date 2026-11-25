@@ -10,7 +10,9 @@ initial contents of the output array and any batch length, including zero.
 
 For an admissible call the master theorem provides a return and the store log
 of its instruction-level entry prefix. The zero-length call executes through the
-outer `ret`, as does a single chunk with no eligible lane under the selected policy. For other nonempty
+outer `ret`, as does a single chunk with no eligible lane under the selected policy.
+Dalek also returns through that instruction when its canonical and small-order
+R checks reject every surviving lane in a single chunk. For other nonempty
 batches the same log reaches the next chunk after a rejection, or follows an
 eligible lane into the key-table builder. On that path the log includes its
 six register saves, the 48 stores that initialize the eight identity entries,
@@ -54,7 +56,12 @@ scorer’s rejection epilogue and sets EAX to zero. Otherwise it calls the linke
 small-order check with RDI pointing at the decoded R coordinates. The call
 returns to the scorer through its saved address. The scorer clears each lane
 whose decoded R satisfies `[8]R = identity`. Its surviving mask specifies the
-original eligibility, canonical Y and non-small-order R together.
+original eligibility, canonical Y and non-small-order R together. When every lane
+is cleared, the scorer restores its six saved registers from the stack and
+jumps to scatter with a zero mask. Scatter publishes a zero byte at each live
+descriptor’s output index. The same log follows its return to the batch loop
+for more rows or through the outer `ret` for the final chunk.
+[Scorer frame](coq/ScoreSaved.v) · [Scatter and batch return](coq/ScorePublish.v)
 [SHA call](coq/HashEntry.v) · [Digest and store log](coq/NativeHash.v) ·
 [SHA return interface](coq/HashResume.v) · [Scorer entry](coq/ScoreCall.v) · [Scorer execution](coq/ScoreStart.v) · [Native challenge digits](coq/ReducedDigest.v) · [Ladder call](coq/LadderEntry.v) · [Product on the original bytes](coq/LadderProduct.v) · [First staging return](coq/LadderStage.v) · [Dalek R mask](coq/StrictRStart.v) · [Canonical Y decision](coq/StrictRCanonical.v) · [Small-order call and rejection](coq/StrictRCall.v) · [Native return](coq/StrictOrderReturn.v) · [Strict lane decision](coq/StrictScreen.v)
 
