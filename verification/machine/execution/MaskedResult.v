@@ -14,7 +14,8 @@ Inductive op :=
  | AddQ (d k a b:nat) | MaskBytes (d k:nat) | AbsBytes (d a:nat)
  | WidenBytes (d base:nat) (disp:Z) | TestQ (k a b:nat) | ZeroRow (d k base:nat) (disp:Z)
  | XnorWord (d a b:nat) | GatherQ (d k index:nat) (disp:Z)
- | AndWord (d a b:nat) | LoadLowQ (d base:nat) (disp:Z) | AndNotXmm (d a b:nat).
+ | AndWord (d a b:nat) | LoadLowQ (d base:nat) (disp:Z) | AndNotXmm (d a b:nat)
+ | TestBytes (k a b:nat).
 
 (* Absolute VSIB addressing, scale one and disp32. X' and V' carry
    bits three and four of the vector index. SIB.base=5 omits the GPR. *)
@@ -62,6 +63,7 @@ Definition encode pc op:=match op with
  | WidenBytes d b disp=>widen_prefix d (Z.of_nat b)++[0x32]++
       IndexedLoad.addressing 8 (Z.of_nat d) (IndexedLoad.Addr b false disp)
  | TestQ k a b=>rr 2 1 0x27 k a b
+ | TestBytes k a b=>Packed.rr_w0 2 1 0x26 k a b
  (* EVEX.z is bit 7 of the same prefix byte as EVEX.aaa. *)
  | XnorWord d a b=>[0xc5;0x84+8*(15-Z.of_nat a);0x46;modrm 3 (Z.of_nat d) (Z.of_nat b)]
  | AndWord d a b=>[0xc5;0x84+8*(15-Z.of_nat a);0x41;modrm 3 (Z.of_nat d) (Z.of_nat b)]
@@ -81,7 +83,7 @@ Definition valid pc op:=let kr k:=(k<?8)%nat in let vr r:=(r<?32)%nat in match o
  | WidenWords d t=>vr d && signed 32 (MaskedWords.relative pc t (widen_encoding d))
  | MaskBytes d k=>vr d && kr k | AbsBytes d a=>vr d && vr a
  | WidenBytes d b disp=>vr d && (b<?16)%nat && signed 32 disp
- | TestQ k a b=>kr k && vr a && vr b
+ | TestQ k a b | TestBytes k a b=>kr k && vr a && vr b
  | LoadLowQ d b disp=>(d<?16)%nat && (b<?8)%nat && signed 32 disp
  | AndNotXmm d a b=>(d<?16)%nat && (a<?16)%nat && (b<?8)%nat
  | AndWord d a b | XnorWord d a b=>kr d && kr a && kr b
@@ -116,6 +118,9 @@ Definition step origin s (ks:MaskTransfer.bank) op : option (cpu*MaskTransfer.ba
  | AbsBytes d a=>Some(ScalarBytes.vector_dest s d (fun j=>abs_qword (vectors s j a)),ks)
  | WidenBytes d b disp=>Some(ScalarBytes.vector_dest s d (fun j=>mem s (word(regs s b+disp)+Z.of_nat j)),ks)
  | TestQ k a b=>Some(s,set_mask ks k 8 (fun j=>negb (Z.land (vectors s j a) (vectors s j b)=?0)))
+ | TestBytes k a b=>Some(s,set_mask ks k 64 (fun j=>
+     let octet r:=word_byte (vectors s (j/8)%nat r) (Z.of_nat (j mod 8)) in
+     negb (Z.land (octet a) (octet b)=?0)))
  | LoadLowQ d b disp=>Some(ScalarBytes.vector_dest s d (fun j=>if (j=?0)%nat then read_word (mem s) (word(regs s b+disp)) else 0),ks)
  | AndNotXmm d a b=>Some(ScalarBytes.vector_dest s d (fun j=>if (j<?2)%nat then
     word(Z.land (Z.lnot(vectors s j a)) (vectors s j b)) else 0),ks)
@@ -147,7 +152,7 @@ Proof.
  induction ops as [|op tail IH];intros s ks v k Exec;[injection Exec as <- <-;auto|].
  cbn [evaluate] in Exec;destruct(step origin s ks op) as [[u bank]|] eqn:S;[|discriminate].
  cbn [bind] in Exec;destruct(IH _ _ _ _ Exec) as [G [M [F W]]];rewrite G,M,F.
- destruct op as [d a|d a b|d r|d a target|d mask base off|d mask a b|d r|d target|d mask a b|d mask|d a|d reg disp|mask a b|d mask reg disp|d a b|d mask idx disp|d a b|d reg disp|d a b];cbn [step] in S;try (destruct (_=?0) eqn:A;[|discriminate]);
+ destruct op as [d a|d a b|d r|d a target|d mask base off|d mask a b|d r|d target|d mask a b|d mask|d a|d reg disp|mask a b|d mask reg disp|d a b|d mask idx disp|d a b|d reg disp|d a b|mask a b];cbn [step] in S;try (destruct (_=?0) eqn:A;[|discriminate]);
  injection S as <- <-.
  all: split;[reflexivity|split;[reflexivity|split;[reflexivity|]]];auto.
  - intro H;apply W;destruct H as [R [Vec Bytes]];split;[exact R|split;[|exact Bytes]].
