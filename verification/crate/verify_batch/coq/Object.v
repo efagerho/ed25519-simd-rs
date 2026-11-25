@@ -167,7 +167,7 @@ Proof.
    { destruct Post as [_ [_ [_ [_ [_ Contract]]]]]. apply Contract;[exact N|].
      intros j J;exact (proj1 (proj2 (Inputs j J))). }
    split;[exact (proj1 Data)|]. split.
-   { intro Nonzero;destruct (BatchDecode.from_scalar pol bias pc text e c masks stop) as [d [Trace Entry]];
+   { intro Nonzero;destruct (BatchDecode.from_scalar pol bias pc text e c masks stop) as [d [Trace [Entry CallerRegs]]];
        [exact P|exact (callee_image _ _ _ _ _ Input N)| |exact Run|exact Post|exact (proj1(proj2 Data))|exact Nonzero|].
      2:{ exists d;split;[exact Trace|split;[exact Entry|]].
          destruct(BatchScalar.has_masks _ _ _ _ _ _ _ _ Run) as [bank Bank].
