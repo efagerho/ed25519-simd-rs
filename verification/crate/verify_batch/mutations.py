@@ -16,7 +16,10 @@ NS = "VerifyBatch"
 RETURN_SLOT = ("spill a table pointer into the caller return slot", "Zip",
                "4c 89 84 24 a8 03 00 00", "4c 89 84 24 e8 03 00 00")
 TRANSPOSE = ("interchange keys and message pointers", "Zip", "62 f3 dd 48 43 c6 88", "62 f3 dd 48 43 c6 dd")
+HASH_LENGTH = ("load SHA lengths from the message-pointer row", "Zip",
+               "62 f1 fe c9 6f 44 24 0b", "62 f1 fe c9 6f 44 24 0a")
 CASES = (
+    HASH_LENGTH,
     RETURN_SLOT,
     TRANSPOSE,
     ("read past the last tail row", "Dalek", "48 0f 42 f0", "48 0f 46 f0"),
@@ -66,7 +69,8 @@ def check(elf, audit, work):
         for module in modules:
             compile_module(work, FLAGS, NS, module)
         compile_module(work, FLAGS, NS, "Object", reject=True)
-        control = {RETURN_SLOT[0]: "ReturnSlot", TRANSPOSE[0]: "Transpose"}.get(description)
+        control = {RETURN_SLOT[0]: "ReturnSlot", TRANSPOSE[0]: "Transpose",
+                   HASH_LENGTH[0]: "HashPointerLength"}.get(description)
         if control:
             filename = control + ".v"
             shutil.copyfile(Path(__file__).with_name("tests") / filename, dest / filename)
