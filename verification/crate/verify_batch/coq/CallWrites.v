@@ -64,12 +64,13 @@ Proof.
  pose proof (Z.mod_pos_bound (regs(entry c) 4%nat-1000-8-48) 64 ltac:(lia));lia.
 Qed.
 
-Definition hash_events c :=
+Definition hash_events_at bias s :=
  let pc:=Sha512Challenge.ObjectBytes.address in let ro:=LiteralBytes.address in
- let bias:=slide c in let s:=hash_entry c in let plan:=Control.expected pc ro in
+ let plan:=Control.expected pc ro in
  Writes.events (bias+pc) s (bias+Control.upper plan) (bias+Control.lower plan)
  (Execution.group_constants (mem s) bias (Control.keys plan))
  (fun _=>Execution.initial_at (mem s) (bias+ro)).
+Definition hash_events c:=hash_events_at (slide c) (hash_entry c).
 Definition digit_events c :=
  let site:=SignatureScalar.ObjectBytes.address in let ro:=OrderBytes.address in
  let n:=Z.of_nat(length SignatureScalar.ObjectBytes.symbol_bytes) in
