@@ -1,5 +1,5 @@
-(* Decode the low-register, unmasked VEX/EVEX moves and permutations used by
-   the descriptor transpose. Accept a candidate only if its existing ISA
+(* Decode unmasked VEX/EVEX moves and permutations used by
+   descriptor and point-table transposes. Accept a candidate only if its existing ISA
    encoder reproduces every consumed byte, including SIB and displacement. *)
 From Coq Require Import List ZArith Bool.
 From Machine Require Import isa.IndexedLoad isa.Move.
@@ -8,11 +8,14 @@ Import ListNotations. Local Open Scope Z_scope.
 
 Inductive operation :=
 | Input (i:IndexedLoad.instruction)
-| Output (src base:nat) (disp:Z).
+| Output (src base:nat) (disp:Z)
+| Extract (src base:nat) (disp:Z) (high:bool).
 
 Definition encoding op := match op with
  | Input i=>IndexedLoad.encode i
- | Output src base disp=>Move.encode_store src (Z.of_nat base) disp end.
+ | Output src base disp=>Move.encode_store src (Z.of_nat base) disp
+ | Extract src base disp hi=>X86.prefix 3 1 (Z.of_nat src) 0 (Z.of_nat base)++[0x3b]++
+     IndexedLoad.addressing 32 (Z.of_nat src) (Addr base false disp)++[if hi then 1 else 0] end.
 
 Definition candidate op bs :=
  let bytes:=encoding op in
@@ -34,16 +37,19 @@ Definition decode (bs:list Z) : option (nat*operation) :=
  | 0xc5::0xfe::0x6f::m::rest=>
    let '(a,_) := operands 1 m rest in
    candidate (Input (LoadY (Z.to_nat (m/8 mod 8)) a)) bs
- | 0x62::_::p1::0x48::opcode::m::rest=>
-   let dst:=Z.to_nat (m/8 mod 8) in let src:=Z.to_nat (15-p1/8 mod 16) in
-   let rm:=Z.to_nat (m mod 8) in
+ | 0x62::p0::p1::p2::opcode::m::rest=>
+   let dst:=Z.to_nat (m/8 mod 8+8*X86.invbit p0 7+16*X86.invbit p0 4) in
+   let src:=Z.to_nat (15-p1/8 mod 16+16*X86.invbit p2 3) in
+   let base:=Z.to_nat (m mod 8+8*X86.invbit p0 5) in
+   let rm:=Z.to_nat (m mod 8+8*X86.invbit p0 5+16*X86.invbit p0 6) in
    match opcode with
-   | 0x6f=>let '(a,_):=operands 64 m rest in candidate (Input (LoadZ dst a)) bs
+   | 0x6f=>let '(a,_):=operands 64 m rest in candidate (Input (LoadZ dst (Addr base false (displacement a)))) bs
    | 0x3a=>let '(a,imm):=operands 32 m rest in
-           candidate (Input (InsertY dst src a (hd 0 imm=?1))) bs
+           candidate (Input (InsertY dst src (Addr base false (displacement a)) (hd 0 imm=?1))) bs
+   | 0x3b=>let '(a,imm):=operands 32 m rest in candidate (Extract dst base (displacement a) (hd 0 imm=?1)) bs
    | 0x6c | 0x6d=>candidate (Input (UnpackWords (opcode=?0x6d) dst src rm)) bs
    | 0x43=>candidate (Input (ShuffleWords dst src rm (Z.to_nat (hd 0 rest)))) bs
-   | 0x7f=>let '(a,_):=operands 64 m rest in candidate (Output dst (base a) (displacement a)) bs
+   | 0x7f=>let '(a,_):=operands 64 m rest in candidate (Output dst base (displacement a)) bs
    | _=>None end
  | _=>None end.
 

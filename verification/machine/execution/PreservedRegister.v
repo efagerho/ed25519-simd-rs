@@ -8,7 +8,7 @@ Import ListNotations. Local Open Scope Z_scope.
    may still choose any target and all implicit RSP writes are included. *)
 Definition keeps r op := let other d:=negb (Nat.eqb d r) in match op with
  | AndImmediate d _ | Load64 d _ | Load8 d _ | Zero32 d | And8 d _ | Inc d | Imm32 d _ | CopyG d _
- | LeaG d _ | Sub64 d _ | Add32 d _ | Add64 d _ | MoveBelow d _ | Copy32 d _ | Dec32 d | Shl32 d _ | Or32 d _ | Shr32 d _ | And32 d _ | ExtendByte d _=>other d
+ | LeaG d _ | Sub64 d _ | Add32 d _ | Add64 d _ | MoveBelow d _ | Copy32 d _ | Inc32 d | Dec32 d | Shl32 d _ | Or32 d _ | Shr32 d _ | And32 d _ | ExtendByte d _=>other d
  | OneEax | ShrEax=>other 0%nat
  | SaveG _ | CallRelative _ | Ret=>other 4%nat
  | RestoreG d=>other 4%nat && other d
@@ -33,7 +33,7 @@ Proof.
      apply_stack result_regs stack_step target_ip];unfold put;rewrite K;reflexivity].
  - apply Bool.andb_true_iff in K as [SP D];apply negb_true_iff in SP,D.
    cbn [pop apply_stack stack_step result_regs set set_regs with_words regs];unfold advance_rsp,put;rewrite D,SP;reflexivity.
- - destruct op;[destruct i;cbn in K;try discriminate|];injection Run as <- <-;reflexivity.
+ - destruct op;[destruct i;cbn in K;try discriminate| |];injection Run as <- <-;reflexivity.
  - change (put (regs s) 4 (word (regs s 4%nat+8)) r=regs s r);unfold put;now rewrite K.
 Qed.
 

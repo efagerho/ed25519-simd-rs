@@ -26,7 +26,7 @@ Inductive instruction :=
 | AndImmediate (r:nat) (mask:Z) | BroadcastRip (r:nat) (disp:Z)
 | AlignedRow (i:VectorMoves.aligned_row)
 | Shl32 (r:nat) (imm:Z) | Or32 (dst src:nat) | ZeroUpper
-| Shr32 (r:nat) (imm:Z) | And32 (dst src:nat) | ExtendByte (dst src:nat) | StoreByte (r:nat) (a:addr) | Dec32 (r:nat).
+| Shr32 (r:nat) (imm:Z) | And32 (dst src:nat) | ExtendByte (dst src:nat) | StoreByte (r:nat) (a:addr) | Dec32 (r:nat) | Inc32 (r:nat).
 
 Definition little32 bs := read_le 4 (fun i=>nth (Z.to_nat i) bs 0) 0.
 (* REX-prefixed opcode 89 /r with a register destination. REX.R extends the source
@@ -61,6 +61,9 @@ Definition decode (bs:list Z) : option (nat*instruction) := match bs with
  | 0x48::0xc7::0x00::a::b::c::d::_=>Some(7%nat,StoreImmediate (Address 0 None 0) (displacement32 [a;b;c;d]))
  | 0x48::0xc7::0x40::n::a::b::c::d::_=>Some(8%nat,StoreImmediate (Address 0 None (signed_value 128 n)) (displacement32 [a;b;c;d]))
  | 0x48::0x05::a::b::c::d::_=>Some(6%nat,Add64 0 (displacement32 [a;b;c;d]))
+ | 0x41::0xff::0xc7::_=>Some(3%nat,Inc32 15)
+ | 0x41::0x83::0xff::d::_=>Some(4%nat,Compare32 15 (signed_value 128 d))
+ | 0x83::0xfb::d::_=>Some(3%nat,Compare32 3 (signed_value 128 d))
  | 0xff::0xc9::_=>Some(2%nat,Dec32 1)
  | 0x41::0xbf::a::b::c::d::_=>Some(6%nat,Imm32 15 (little32 [a;b;c;d]))
  | 0x49::0x81::0xc5::a::b::c::d::_=>Some(7%nat,Add64 13 (displacement32 [a;b;c;d]))
@@ -217,6 +220,7 @@ Definition step origin off n op s carry : option (state*list store) :=
       let v:=Z.shiftl a n mod 2^32 in
       if n=?0 then go (set s r v) carry
       else go (with_zf (set s r v) (v=?0)) (Some(Z.testbit a (32-n)))
+ | Inc32 r=>let v:=(regs s r+1) mod 2^32 in go (with_zf (set s r v) (v=?0)) carry
  | Dec32 r=>let v:=(regs s r-1) mod 2^32 in go (with_zf (set s r v) (v=?0)) carry
  | Shr32 r imm=>let n:=imm mod 32 in let a:=regs s r mod 2^32 in
       let v:=Z.shiftr a n mod 2^32 in
@@ -270,6 +274,10 @@ Definition step origin off n op s carry : option (state*list store) :=
  | VectorMove (VectorMoves.Output src base disp)=>
    let w:=vector (word (origin+off)) (word (regs s base+disp)) (fun j=>vectors s j src) in
    Some (State (Running next) (with_words s (regs s) (commit (mem s) w)) carry,[w])
+ | VectorMove (VectorMoves.Extract src base disp high)=>
+   let v:=fun j=>vectors s (if high then (4+j)%nat else j) src in
+   let w:=Store (word(origin+off)) (word(regs s base+disp)) 32 (vector_byte v) in
+   Some(State(Running next) (with_words s (regs s) (commit (mem s) w)) carry,[w])
  | AlignedRow i=>let b:=VectorMoves.gpr i in let d:=VectorMoves.offset i in
    let addr:=word(regs s b+d) in let r:=VectorMoves.zmm i in
    if addr mod 64=?0 then
