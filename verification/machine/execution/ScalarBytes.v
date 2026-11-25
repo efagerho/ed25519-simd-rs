@@ -279,6 +279,9 @@ Definition step origin off n op s carry : option (state*list store) :=
    let v:=fun j=>vectors s (if high then (4+j)%nat else j) src in
    let w:=Store (word(origin+off)) (word(regs s base+disp)) 32 (vector_byte v) in
    Some(State(Running next) (with_words s (regs s) (commit (mem s) w)) carry,[w])
+ | VectorMove (VectorMoves.LowWord src base disp)=>
+   let w:=qword (word(origin+off)) (word(regs s base+disp)) (vectors s 0%nat src) in
+   Some(State(Running next) (with_words s (regs s) (commit (mem s) w)) carry,[w])
  | AlignedRow i=>let b:=VectorMoves.gpr i in let d:=VectorMoves.offset i in
    let addr:=word(regs s b+d) in let r:=VectorMoves.zmm i in
    if addr mod 64=?0 then

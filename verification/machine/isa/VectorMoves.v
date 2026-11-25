@@ -9,13 +9,19 @@ Import ListNotations. Local Open Scope Z_scope.
 Inductive operation :=
 | Input (i:IndexedLoad.instruction)
 | Output (src base:nat) (disp:Z)
-| Extract (src base:nat) (disp:Z) (high:bool).
+| Extract (src base:nat) (disp:Z) (high:bool)
+| LowWord (src base:nat) (disp:Z).
 
 Definition encoding op := match op with
  | Input i=>IndexedLoad.encode i
  | Output src base disp=>Move.encode_store src (Z.of_nat base) disp
  | Extract src base disp hi=>X86.prefix 3 1 (Z.of_nat src) 0 (Z.of_nat base)++[0x3b]++
-     IndexedLoad.addressing 32 (Z.of_nat src) (Addr base false disp)++[if hi then 1 else 0] end.
+     IndexedLoad.addressing 32 (Z.of_nat src) (Addr base false disp)++[if hi then 1 else 0]
+ | LowWord src base disp=>
+   let r:=Z.of_nat src in let b:=Z.of_nat base in
+   (if (base<?8)%nat then [0xc5;128*X86.invbit r 3+0x79]
+    else [0xc4;128*X86.invbit r 3+0x41;0x79]) ++ [0xd6] ++
+   IndexedLoad.addressing 1 r (Addr base false disp) end.
 
 Definition candidate op bs :=
  let bytes:=encoding op in
@@ -34,6 +40,13 @@ Definition operands tuple m (tail:list Z) :=
 
 Definition decode (bs:list Z) : option (nat*operation) :=
  match bs with
+ | 0xc5::p::0xd6::m::rest=>
+   let '(a,_) := operands 1 m rest in
+   candidate (LowWord (Z.to_nat (m/8 mod 8+8*X86.invbit p 7)) (base a) (displacement a)) bs
+ | 0xc4::p::0x79::0xd6::m::rest=>
+   let '(a,_) := operands 1 m rest in
+   candidate (LowWord (Z.to_nat (m/8 mod 8+8*X86.invbit p 7))
+     (Z.to_nat (m mod 8+8*X86.invbit p 5)) (displacement a)) bs
  | 0xc5::0xfe::0x6f::m::rest=>
    let '(a,_) := operands 1 m rest in
    candidate (Input (LoadY (Z.to_nat (m/8 mod 8)) a)) bs
