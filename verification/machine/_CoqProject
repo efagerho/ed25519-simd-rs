@@ -67,6 +67,7 @@ tests/WriteFootprints.v
 execution/LocatedEvents.v
 abi/TracedCalls.v
 abi/CallHistory.v
+abi/RunCalls.v
 tests/CallFootprints.v
 execution/ScalarBytes.v
 memory/BlockWrites.v
