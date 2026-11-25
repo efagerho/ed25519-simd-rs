@@ -23,7 +23,8 @@ Record entry bias e p q:Prop:=Entry {
  flags:regs(machine q) 6%nat=PrepareOutputs.dest e+64;
  back:read_word (mem(machine q)) (slot e)=link bias;
  memory_after:mem(machine q)=commit (mem(machine p)) (event bias e);
- history:log q=log p++[event bias e]
+ history:log q=log p++[event bias e];
+ caller_registers:forall g,g<>4%nat -> g<>7%nat -> g<>6%nat -> regs(machine q) g=regs(machine p) g
 }.
 Theorem checked bias outer e p : placement e -> loaded Dalek bias (mem e) (writable e) ->
  PreparedReturn.result Dalek bias outer e p -> exists q,execute bias p=Some q /\ entry bias e p q.
@@ -63,4 +64,6 @@ Proof.
     rewrite Top;apply write_read_word,Back.
  - change (store_word (mem arg) (word(regs arg 4%nat-8)) (link bias)=commit (mem s) (event bias e));now rewrite Top.
  - reflexivity.
+ - intros g R D S;change (put (put (put (regs s) 7 d) 6 (d+64)) 4 (word(regs arg 4%nat-8)) g=regs s g).
+   unfold put;now rewrite (proj2(Nat.eqb_neq 4 g) ltac:(lia)),(proj2(Nat.eqb_neq 6 g) ltac:(lia)),(proj2(Nat.eqb_neq 7 g) ltac:(lia)).
 Qed.
