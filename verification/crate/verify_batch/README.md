@@ -13,7 +13,7 @@ of its instruction-level entry prefix. The zero-length return executes
 through `ret`. A batch of up to eight signatures whose S values are all at least L also
 executes through the outer `ret`. For other nonempty batches, the returned
 log reaches the next chunk if the first scalar check rejects every lane. If
-that check accepts any lane, the log reaches the return from paired decoding to offset 142 in chunk preparation. EAX holds the public-key validity bits in its low byte and the signature-R validity bits in the next byte. Each bit is set exactly when the corresponding encoded Y admits an Edwards X coordinate. The final signature verdict for these paths comes from grouped execution on
+that check accepts any lane, the log includes the store of the signature-R validity byte and the eligibility branch in chunk preparation. The branch reaches offset 161 when at least one lane has canonical S and both encoded Y coordinates admit an Edwards X coordinate. Otherwise it reaches the rejection block at offset 258. The final signature verdict for these paths comes from grouped execution on
 the original inputs. Every such return has
 status 1, resumes at the caller's return address with RSP advanced by eight,
 restores the SysV callee-saved integer registers and leaves byte-valued memory.
@@ -151,7 +151,7 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    validity bits in EAX. [Signed root](coq/SignedRoot.v) · [Coordinate stores](coq/ExtendedPoint.v) · [Public-key return](coq/KeyReturn.v)
    The caller saves the key byte in R13D, passes the staged R point and
    its own exponentiation result to the same code, and resumes at offset 222
-   with both validity bytes. The decoder packs them into EAX, restores RBP, RBX and R12–R14 from their five live stack slots, and executes its outer return to chunk preparation. [Paired point returns](coq/PairReturn.v) · [Signature-R criterion](coq/SignatureDecision.v) · [Decoder return](coq/DecoderReturn.v)
+   with both validity bytes. The decoder packs them into EAX, restores RBP, RBX and R12–R14 from their five live stack slots, and executes its outer return to chunk preparation. [Paired point returns](coq/PairReturn.v) · [Signature-R criterion](coq/SignatureDecision.v) · [Decoder return](coq/DecoderReturn.v) · [Eligibility branch and R-validity store](coq/EligibleLanes.v)
    [Field setup and inputs](coq/PowerInputs.v) · [Exponentiation call](coq/DecoderPower.v) · [Return and write log](coq/PowerWrites.v) · [Root comparison input](coq/RootTest.v) · [Validity byte](coq/Selection.v) · [Root candidate](coq/RootCandidate.v)
    If the signature-scalar call returns zero, the decoded branches, pops and returns take both
    policies back to the wrapper's preparation continuation with RSP restored,
