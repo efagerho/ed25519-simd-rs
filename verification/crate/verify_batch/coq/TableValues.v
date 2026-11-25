@@ -20,6 +20,9 @@ Record result pol bias e p q:Prop:=Result {
  parent:TableParentFrame.retained pol bias e (machine p) (machine q);
  point_after:preserved (span (TableEntry.point e) 1280) (mem(machine p)) (mem(machine q))
 }.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem checked pol bias e before p : placement e -> loaded pol bias (mem e) (writable e) ->
  EligibleLanes.post pol bias e before p -> regs(machine p) 14%nat<>0 ->
  exists q,execute bias p=Some q /\ result pol bias e p q.
@@ -45,3 +48,4 @@ Proof.
  - intros x X;rewrite M;[apply (TableStart.point_after _ _ _ _ _ A),X|].
    apply TableCoordinates.apart;[exact P|unfold span,TableEntry.point in *;lia].
 Qed.
+End Iteration.

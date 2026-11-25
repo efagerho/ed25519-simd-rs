@@ -13,6 +13,9 @@ Record result bias e p q:Prop:=Result {
  flags:forall j,(j<8)%nat -> let x:=FilterFlags.flag_ptr e+Z.of_nat j in
    mem(machine q) x=if FilterScreen.weak e (machine p) j then 0 else mem(machine p) x
 }.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem checked bias outer e prep p ks : placement e -> loaded Dalek bias (mem e) (writable e) -> Tables.mapped e bias ->
  PreparedReturn.result Dalek bias outer e prep -> StrictFilterCall.entry bias e prep p ->
  exists q k,execute bias p ks=Some(q,k) /\ result bias e p q.
@@ -34,3 +37,4 @@ Proof.
  - rewrite (FilterReturn.memory_after _ _ _ _ End);exact (FilterScreen.frame _ _ _ _ Screen).
  - intros j J;cbv zeta;rewrite (FilterReturn.memory_after _ _ _ _ End);exact (FilterScreen.flags _ _ _ _ Screen j J).
 Qed.
+End Iteration.

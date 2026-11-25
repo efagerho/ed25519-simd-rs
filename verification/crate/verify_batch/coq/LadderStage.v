@@ -23,6 +23,9 @@ Definition observed bias ladder stop := exists q,enter bias ladder=Some q /\ ip 
 Lemma in_image pol : In (stage,code) (children pol).
 Proof. apply in_or_app;left;do 12 right;left;reflexivity. Qed.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Lemma loan pol bias e p t x : LadderEntry.entry pol bias e p t ->
  regs(machine t) 4%nat-5032<=x<regs(machine t) 4%nat -> writable e x.
 Proof.
@@ -90,3 +93,4 @@ Proof.
  intros I G L;destruct(with_cpu _ _ _ _ _ I G L) as [Ex Sound];split;[exact Ex|].
  intros stop O;destruct(Sound _ O) as [A [At [Rows _]]];auto.
 Qed.
+End Iteration.

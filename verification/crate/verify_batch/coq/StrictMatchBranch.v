@@ -15,6 +15,9 @@ Definition intersect s:=Z.land (regs s 12%nat) (regs s 0%nat).
 Definition next m:=if m=?0 then 554 else 398.
 Definition test_y bias:=segment (bias+pc) text 2.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem tested bias parent e caller p:placement e -> loaded Dalek bias (mem e) (writable e) ->
  ip p=bias+pc+389 -> accounted e (writable e) p -> well_formed(machine p) ->
  StrictMatchState.context bias parent e caller (machine p) -> 0<=regs(machine p) 0%nat<256 ->
@@ -67,3 +70,4 @@ Proof.
  - intros j J;cbv zeta;rewrite M;exact (StrictMatchState.eligibility _ _ _ _ _ C j J).
  - unfold ScoreTail.arguments;rewrite DI,SI,DX;exact(conj A (StrictMatchState.args _ _ _ _ _ C)).
 Qed.
+End Iteration.

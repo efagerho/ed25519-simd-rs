@@ -15,6 +15,9 @@ Definition observed pol bias screen stop:=exists staged seed high product,stagin
 Definition continuation pol bias:=bias+ScoreSetup.callee pol+match pol with Zip215=>51|Dalek=>193 end.
 Definition origin pol bias score screen candidate:=match pol with
  | Zip215=>candidate=score | Dalek=>StrictCandidateCall.execute bias screen=Some candidate end.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition from_candidate pol bias e candidate stop:=exists prev ladder product,
  LadderEntry.entry pol bias e prev ladder /\ LadderProduct.meaning pol bias e ladder product /\
  CandidateReturn.result e candidate stop /\ mem(machine stop)=mem(machine product).
@@ -86,3 +89,4 @@ Proof.
  split;[exact Ex|intros stop Run;destruct(All _ Run) as [Paid [PC [cand [_ Post]]]]].
  split;[exact Paid|split;[exact PC|now exists cand]].
 Qed.
+End Iteration.

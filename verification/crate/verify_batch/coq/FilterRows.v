@@ -13,6 +13,9 @@ Definition view e s:=with_words s (put (regs s) 6 (PrepareOutputs.dest e)) (mem 
 Definition rows e s:=forall j,(j<8)%nat -> let a:=ptr e s j in
  fits64 a 2720 /\ forall x,a<=x<a+2720 -> ~slot e x.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Lemma readable bias outer e prep p : placement e -> loaded Dalek bias (mem e) (writable e) -> Tables.mapped e bias ->
  PreparedReturn.result Dalek bias outer e prep -> StrictFilterCall.entry bias e prep p -> rows e (machine p).
 Proof.
@@ -70,3 +73,4 @@ Proof.
     (DalekPostHash.Keys.column (view e s) j 0) (DalekPostHash.Keys.column (view e s) j 3) i).
  unfold FilterColumns.twice_minus_z,DalekPostHash.Keys.biased;rewrite Lo,bias_word,(cell e s) by (assumption || lia);reflexivity.
 Qed.
+End Iteration.

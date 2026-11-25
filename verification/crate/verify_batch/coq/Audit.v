@@ -202,9 +202,9 @@ Proof.
  destruct(machine_scalar_return _ _ _ Checked _ _ c masks A Live) as [s [Run [_ [Digits [_ Reject]]]]].
  pose proof(proj2 (ScalarInputs.zero_iff _ _ Live Digits) Bad) as Zero.
  destruct(Reject Zero) as [Invalid [[q|q] [End [Paid [[Status Outputs] [Bytes Exit]]]]]].
- 2:{ destruct Exit as [More _];lia. }
+ 2:{ destruct Exit as [More _];change (8<count e)%nat in More;lia. }
  exists q;split;[exact End|split].
  - exact (proj1 (proj2 (verify _ _ _ Checked _ _ c masks A) _ _ _
      (observe_rejected _ _ _ _ _ _ _ q Live (FirstDispatch.scalar_path _ _ _ _ _ _ _ _ _ Run Zero End)))).
- - split;[exact Paid|intros i I;split;[apply Outputs;lia|apply Invalid;lia]].
+ - split;[exact Paid|intros i I;split;[apply Outputs;change (i<Nat.min (count e) 8)%nat;lia|apply Invalid;lia]].
 Qed.

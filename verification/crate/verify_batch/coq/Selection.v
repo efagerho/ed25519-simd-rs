@@ -10,6 +10,9 @@ Record trace:=Trace { test:RootTest.trace; selection:cursor; masks:MaskTransfer.
 Definition incoming r:=SetupTail.masks (PairedSetup.signature_r (DecoderPower.setup_points (PowerWrites.before_power (RootTest.power r)))).
 Definition observe pol bias e p bank:=bind (RootTest.observe pol bias e p bank) (fun r=>
  option_map (fun '(q,m)=>Trace r q m) (RootAccept.execute bias (RootTest.at_test r) (incoming r))).
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record post pol bias e t : Prop:=Post {
  test_result:RootTest.post pol bias e (test t);
  at_selection:ip (selection t)=base bias+1076;
@@ -41,3 +44,4 @@ Proof.
  - intros i j N;rewrite High by lia;apply C,N.
  - intros j J;destruct(Bits j J) as [Bit Minus];rewrite Bit;split;[apply (RootDecision.bits _ _ _ _ Proof j J)|exact Minus].
 Qed.
+End Iteration.

@@ -62,6 +62,9 @@ Record result pol bias e caller p q:Prop:=Result {
  parent:TableUnwind.returned pol bias e caller p
 }.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem checked pol bias e before caller p ks : placement e -> loaded pol bias (mem e) (writable e) ->
  EligibleLanes.post pol bias e before caller -> TableUnwind.returned pol bias e caller p ->
  exists q bank,execute bias p ks=Some(q,bank) /\ result pol bias e caller p q.
@@ -109,3 +112,4 @@ Proof.
  destruct(checked _ _ _ _ _ _ ak P I E A) as [q [bank [Emit Post]]].
  exists q,bank,a;split;[unfold observe;rewrite Run;exact Emit|exact Post].
 Qed.
+End Iteration.

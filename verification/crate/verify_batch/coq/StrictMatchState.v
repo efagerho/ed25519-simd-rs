@@ -8,6 +8,9 @@ From Ed25519Simd.VerifyBatch Require StrictResume StrictMatchMath.
 Import ListNotations. Local Open Scope Z_scope.
 Local Notation pc:=(ScoreSetup.callee Dalek).
 Local Notation text:=(ScoreSetup.code Dalek).
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition flags e s:=forall j,(j<8)%nat -> let byte:=mem s (Rows.frame e+856+Z.of_nat j) in
  (byte=0 \/ byte=1) /\ (byte=1 <-> HashLayout.eligible Dalek e j).
 Record context bias parent e caller s:Prop:=Context {
@@ -73,3 +76,4 @@ Proof.
    apply (DecoderFrame.mapped_value _ bias i K Helper).
    destruct Bound;pose proof(DecoderFrame.offsets _ K);unfold DecoderFrame.field_offset,DecoderFrame.at_literal,DecoderFrame.helper,word64 in *;lia.
 Qed.
+End Iteration.

@@ -10,6 +10,9 @@ Definition remainder bias p k:=if regs(machine p) 12%nat=?0 then publish true bi
 Definition execute bias p bank:=bind (StrictMatchState.execute bias p) (fun ctx=>
  bind (StrictCoordinate.execute true bias ctx bank) (fun '(y,k)=>
  bind (StrictMatchBranch.test_y bias y) (fun q=>remainder bias q k))).
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition result bias parent e q:=exists t m,ScoreTail.entry bias parent e t q m /\ ScoredChunk.verdict Dalek e q m.
 
 Lemma published (zero:bool) bias parent e caller p : placement e -> loaded Dalek bias (mem e) (writable e) ->
@@ -50,3 +53,4 @@ Proof.
     (StrictCoordinate.mask_byte _ _ _ _ _ _ _ X)).
    apply StrictMatchBits.horizontal;[exact B|rewrite (StrictCoordinate.active _ _ _ _ _ _ _ X);exact Ymask|exact(StrictCoordinate.coordinates _ _ _ _ _ _ _ X)].
 Qed.
+End Iteration.

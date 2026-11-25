@@ -9,6 +9,7 @@ Local Open Scope Z_scope.
    output index. The first window is selected only at the outer entry. *)
 Class t := { first:nat }.
 Definition initial:t:={| first:=0 |}.
+#[global] Existing Instance initial | 100.
 Definition at_row i:t:={| first:=i |}.
 
 Section Window.
@@ -28,6 +29,11 @@ Lemma live_row e j:(0<remaining e)%nat -> (row e j<Scatter.count e)%nat.
 Proof. unfold row,ChunkRows.lane;rewrite rest;lia. Qed.
 Lemma own_row e j:(j<remaining e)%nat -> row e j=(first+j)%nat.
 Proof. unfold row,ChunkRows.lane;intros;rewrite Nat.min_l by lia;reflexivity. Qed.
+Lemma relative_range e j:(0<remaining e)%nat -> (j<8)%nat ->
+ (first<=row e j<first+active e)%nat.
+Proof. unfold row,ChunkRows.lane,active;lia. Qed.
+Lemma total e:(0<remaining e)%nat -> (first+remaining e=Scatter.count e)%nat.
+Proof. rewrite rest;lia. Qed.
 Lemma live_count e:well_formed e -> next_count e=Z.of_nat(remaining e-8).
 Proof.
  intros [W _];unfold next_count,remaining;destruct first;[|reflexivity].

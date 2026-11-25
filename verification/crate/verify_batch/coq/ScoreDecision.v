@@ -8,6 +8,9 @@ Definition finish pol bias product stop:=match pol with
  | Zip215=>exists child ret bank ks,ZipTorsionCall.execute bias product=Some child /\
      ZipTorsion.execute bias child bank=Some(ret,ks) /\ ZipVerdict.execute bias ret=Some stop end.
 Definition observed pol bias screen stop:=exists product,ScoreProduct.observed pol bias screen product /\ finish pol bias product stop.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition selected pol bias parent e stop:=exists product,ScoreProduct.selected pol bias e product /\
  match pol with Dalek=>StrictVerdict.result bias parent e stop | Zip215=>ZipVerdict.result bias parent e stop end.
 
@@ -52,3 +55,4 @@ Proof.
      destruct Result as [tail [m [Exit Bits]]];split;[exact(ScoreTail.writes _ _ _ _ _ _ Exit)|].
      exists p;split;[destruct(All _ R) as [_ [PC [cand [_ C]]]];split;[exact PC|now exists cand]|now exists tail,m].
 Qed.
+End Iteration.

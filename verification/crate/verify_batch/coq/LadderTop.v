@@ -7,6 +7,9 @@ From Ed25519Simd.VerifyBatch Require LadderSeed.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition execute bias q:=TopPair.execute bias (regs(machine q) 4%nat) q.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition result bias e ladder seed q:=TopPair.result bias (machine ladder) generator (LadderTables.key e) seed q.
 
 Lemma loan pol bias e prev ladder : LadderEntry.entry pol bias e prev ladder ->
@@ -43,3 +46,4 @@ Proof.
  exists q;split;[unfold execute;rewrite (TopPair.stack _ _ _ Ready);exact Run|split;[|exact End]].
  eapply StoreHistory.account;[exact Paid|eapply StoreHistory.lend;[apply (loan _ _ _ _ _ L)|apply (TopPair.history _ _ _ _ _ _ End)]].
 Qed.
+End Iteration.

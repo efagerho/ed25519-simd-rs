@@ -12,6 +12,9 @@ Definition execute bias t k:=bind (StrictRCall.execute bias t) (fun child=>
 Definition observed bias score stop:=exists ks k y t bank,
  StrictRStart.execute bias score ks=Some(y,k) /\ StrictRCanonical.execute bias y k=Some(t,bank) /\
  execute bias t bank=Some stop.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record decision bias e stop:Prop:=Decision {
  writes:accounted e (writable e) stop; words:well_formed(machine stop);
  mask_byte:0<=regs(machine stop) 12%nat<256;
@@ -73,3 +76,4 @@ Proof.
  intros P I Live Start;destruct(with_frame _ _ _ _ _ _ _ P I Live Start) as [Ex All].
  split;[exact Ex|intros q Run;exact (proj1(All _ Run))].
 Qed.
+End Iteration.

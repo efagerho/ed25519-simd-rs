@@ -75,6 +75,9 @@ From Ed25519Simd.VerifyBatch Require Selection RootTest RootDecision.
 Record trace:=Trace { decision:Selection.trace; saved_x:cursor }.
 Definition observe pol bias e p bank:=bind (Selection.observe pol bias e p bank) (fun r=>
  option_map (Trace r) (execute bias (Selection.selection r))).
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record post pol bias e t : Prop:=Post {
  selection:Selection.post pol bias e (decision t);
  native:result false pol bias e (Selection.selection(decision t)) (saved_x t)
@@ -106,3 +109,4 @@ Proof.
    (Selection.scalar_registers _ _ _ _ S r K).
  destruct(RootTest.root_product _ _ _ _ (Selection.test_result _ _ _ _ S)) as [_ [_ [_ [G _]]]];apply G,R.
 Qed.
+End Iteration.

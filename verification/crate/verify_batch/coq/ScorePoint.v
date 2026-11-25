@@ -8,6 +8,9 @@ From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage.
 From Ed25519Simd.VerifyBatch Require ScoreProduct.
 Local Open Scope Z_scope.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition product e j A:=let i:=HashLayout.row e j in
  plus (scale (little_endian(s_bytes i)) generator) (scale (-challenge i) A).
 Definition accumulator e s:=buffer_words (mem s) (ScoreFrame.buffer e).
@@ -46,3 +49,4 @@ Proof.
  - intros j A J On K;rewrite (point_values_ext _ _ _ E J);apply Group;assumption.
  - eapply DecodedRows.keep;[|exact Sig];intros x X;apply Keep;right;exact X.
 Qed.
+End Iteration.

@@ -32,6 +32,9 @@ Proof.
 Qed.
 Local Opaque program.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem from_entry pol bias e p : Return.placement e -> loaded pol bias (mem e) (Return.writable e) -> DecoderPower.entry pol bias e p ->
  well_formed(machine p) -> valid_placement (locations pol bias e) DecoderPower.size ->
  exists r,execute pol bias e p=Some r /\ returned pol bias e p r.
@@ -117,3 +120,4 @@ Proof.
  exists (Checkpoints args r);split;[unfold observe;rewrite To;cbn [bind];now rewrite R|split;[exact Args|split;[exact Done|]]].
  eapply computed;[exact Args|exact (PowerInputs.from_decoder _ _ _ _ _ _ P I Al Entry W To)|exact Done].
 Qed.
+End Iteration.

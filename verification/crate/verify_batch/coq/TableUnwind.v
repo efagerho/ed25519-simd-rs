@@ -72,6 +72,9 @@ Qed.
 
 Definition observe pol bias e p ks:=bind (TableRounds.observe pol bias e p ks) (fun '(a,bank)=>
  option_map (fun q=>(q,bank)) (execute bias a)).
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem from_eligible pol bias e before p ks:placement e -> loaded pol bias (mem e) (writable e) ->
  (bias+DecoderFrame.origin) mod 64=0 -> EligibleLanes.post pol bias e before p -> regs(machine p) 14%nat<>0 ->
  exists q bank,observe pol bias e p ks=Some(q,bank) /\ returned pol bias e p q.
@@ -80,3 +83,4 @@ Proof.
  destruct(checked _ _ _ _ _ P I (EligibleLanes.words _ _ _ _ _ E) Z Kept Rows) as [q [Run [Q _]]].
  exists q,bank;split;[unfold observe;rewrite Round;cbn [bind];now rewrite Run|exact Q].
 Qed.
+End Iteration.

@@ -8,6 +8,9 @@ From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchDecod
 From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderFinish DecoderPower PowerInputs PowerWrites RootTest RootAccept PairedSetup SetupTail.
 Local Open Scope Z_scope.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition decodes sig e j:=exists x,on_curve x (residue (original_encoding sig e j mod 2^255)).
 Definition decodable:=decodes false.
 Lemma uv_field y : residue (PowerInputs.uv y)=(numerator(residue y)*denominator(residue y))%fp.
@@ -93,3 +96,4 @@ Proof.
    destruct(decode v (Z.testbit w 255)) as [z|];[destruct D as [C S];exists (Point z v C);auto|contradiction (D u U)].
  - intros [a [Y S]];exists (x a);rewrite <-Y;apply on_edwards.
 Qed.
+End Iteration.

@@ -48,7 +48,10 @@ Proof.
 Qed.
 
 Definition execute bias:=segment (bias+PrepareNative.common) CommonBytes.symbol_bytes 6.
-Definition candidate e j:=ScalarInputs.original_scalar e (TailCopy.row_index e j)<Scalar.L /\
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
+Definition candidate e j:=ScalarInputs.original_scalar e (BatchWindow.row e j)<Scalar.L /\
  RootDecision.decodes false e j /\ RootDecision.decodes true e j.
 Record post pol bias e p q:Prop:=Post {
  destination:ip q=bias+PrepareNative.common+next (regs(machine q) 14%nat);
@@ -136,7 +139,7 @@ Proof.
    [unfold observe;rewrite A;cbn [bind];now rewrite B|exact (conj D Q)].
 Qed.
 
-Lemma accepted_candidate pol e j : signature_accepts pol (read_input (mem e) (regs e 7%nat) (TailCopy.row_index e j)) ->
+Lemma accepted_candidate pol e j : signature_accepts pol (read_input (mem e) (regs e 7%nat) (BatchWindow.row e j)) ->
  candidate e j.
 Proof.
  intro H;destruct(Lane.accepted_eligible _ _ H) as [S [[r [RY _]] [a [[AY _] _]]]].
@@ -145,9 +148,10 @@ Proof.
 Qed.
 
 Corollary zero_rejects pol bias e p q : post pol bias e p q -> regs(machine q) 14%nat=0 ->
- forall j,(j<8)%nat -> (j<Scatter.count e)%nat -> ~signature_accepts pol (read_input (mem e) (regs e 7%nat) j).
+ forall j,(j<8)%nat -> (j<BatchWindow.remaining e)%nat -> ~signature_accepts pol (read_input (mem e) (regs e 7%nat) (BatchWindow.first+j)).
 Proof.
- intros T Zero j J Live Valid;rewrite <-(TailCopy.own_row e j Live) in Valid.
+ intros T Zero j J Live Valid;rewrite <-(BatchWindow.own_row e j Live) in Valid.
  pose proof(proj2(bit _ _ _ _ _ T j J) (accepted_candidate pol e j Valid)) as Bit.
  now rewrite Zero,Z.bits_0 in Bit.
 Qed.
+End Iteration.

@@ -14,48 +14,46 @@ Definition scalar_rejection pol bias pc text e c masks :=
  if regs(machine scalar) 0%nat mod 2^32=?0 then
  bind (PrepareUnwind.unwind pol bias scalar) (finish_chunk bias pc text)
  else None).
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition post_with (values:FlatMemory.bytes->Prop) entry e r := accounted e (writable e) (at_end r) /\ (regs(machine(at_end r)) 0%nat=1 /\ values (mem(machine(at_end r)))) /\ byte_memory(mem(machine(at_end r))) /\
  match r with
- | BatchReturned q=>(Scatter.count e<=8)%nat /\ ip q=read_word (mem e) (sp e) /\ regs(machine q) 4%nat=sp e+8 /\ RejectFinish.callee_saved e (machine q)
- | NextChunk q=>(8<Scatter.count e)%nat /\ ip q=entry+offset Choose /\ regs(machine q) 4%nat=Rows.frame e /\
-   regs(machine q) 12%nat=Z.of_nat (Scatter.count e-8) /\ carry q=Some false /\ StageEntry.saved_caller e (machine q) /\ ChunkContext.bindings e (machine q) /\ well_formed(machine q)
+ | BatchReturned q=>(BatchWindow.remaining e<=8)%nat /\ ip q=read_word (mem e) (sp e) /\ regs(machine q) 4%nat=sp e+8 /\ RejectFinish.callee_saved e (machine q)
+ | NextChunk q=>(8<BatchWindow.remaining e)%nat /\ ip q=entry+offset Choose /\ regs(machine q) 4%nat=Rows.frame e /\
+   regs(machine q) 12%nat=Z.of_nat (BatchWindow.remaining e-8) /\ carry q=Some false /\ StageEntry.saved_caller e (machine q) /\ ChunkContext.bindings e (machine q) /\ well_formed(machine q)
  end.
-Definition zero_results e (m:FlatMemory.bytes):=forall j,(j<Nat.min (Scatter.count e) 8)%nat ->
- m(output e+Z.of_nat(Scatter.position e j))=0.
+Definition zero_results e (m:FlatMemory.bytes):=forall j,(j<Nat.min (BatchWindow.remaining e) 8)%nat ->
+ m(output e+Z.of_nat(Scatter.position e (BatchWindow.first+j)))=0.
 Definition post entry e r:=post_with (zero_results e) entry e r.
 Lemma post_map (before after:FlatMemory.bytes->Prop) entry e r : (forall m,before m -> after m) ->
  post_with before entry e r -> post_with after entry e r.
 Proof. intros F [Paid [[OK Data] Rest]];split;[exact Paid|split;[split;[exact OK|now apply F]|exact Rest]]. Qed.
 
 Lemma classified_with (values:FlatMemory.bytes->Prop) entry e p q : placement e ->
- regs(machine p) 12%nat=Prologue.rows_left (regs e 6%nat) ->
+ regs(machine p) 12%nat=BatchWindow.next_count e ->
  ChunkContext.bindings e (machine p) -> RejectFinish.post entry e p q -> (regs(machine p) 0%nat=1 /\ values(mem(machine p))) -> well_formed(machine p) -> post_with values entry e (classify p q).
 Proof.
  intros Place Left Bindings [A [_ [Mem [Status Exit]]]] [OK Zeros] Bytes.
  assert (Outputs:regs(machine q) 0%nat=1 /\ values(mem(machine q))) by (now rewrite Status,Mem).
  assert (Octets:byte_memory(mem(machine q))) by (rewrite Mem;exact (proj2(proj2 Bytes))).
- assert (Small:RejectFinish.stopping p=true -> (Scatter.count e<=8)%nat).
- { unfold stopping;rewrite OK,Left;change ((word (Prologue.rows_left (regs e 6%nat))=?0)=true -> (Scatter.count e<=8)%nat).
-   pose proof(proj1(initial_cpu _ Place) 6%nat) as Fit;unfold Prologue.rows_left,Scatter.count.
-   rewrite (word_fits _ Fit);destruct (Z.ltb_spec (regs e 6%nat) 8);[lia|].
-   rewrite (word_fits (regs e 6%nat-8)),(word_fits (regs e 6%nat-8)) by (unfold word64 in *;lia).
-   intro Z;apply Z.eqb_eq in Z;lia. }
+ assert (L:regs(machine p) 12%nat=Z.of_nat(BatchWindow.remaining e-8)) by
+   (rewrite Left;apply BatchWindow.live_count,(initial_cpu _ Place)).
+ assert (Fit:word(regs(machine p) 12%nat)=regs(machine p) 12%nat) by (apply word_fits,Bytes).
+ assert (Small:RejectFinish.stopping p=true -> (BatchWindow.remaining e<=8)%nat).
+ { unfold stopping;rewrite OK;change ((word(regs(machine p) 12%nat)=?0)=true -> (BatchWindow.remaining e<=8)%nat).
+   rewrite Fit,L;rewrite Z.eqb_eq;lia. }
  unfold classify;destruct(RejectFinish.stopping p) eqn:Stop;
    [exact (conj A (conj Outputs (conj Octets (conj (Small eq_refl) Exit))))|].
- unfold stopping in Stop;apply Bool.orb_false_iff in Stop as [_ More].
- rewrite Left in More;pose proof(proj1(initial_cpu _ Place) 6%nat) as N.
- assert (Count:Z.of_nat(Scatter.count e)=regs e 6%nat) by (unfold Scatter.count;apply Z2Nat.id,N).
- assert (Long:8<regs e 6%nat).
- { unfold Prologue.rows_left in More;rewrite (word_fits _ N) in More.
-   destruct(Z.ltb_spec (regs e 6%nat) 8);[discriminate|].
-   destruct(Z.eq_dec (regs e 6%nat) 8) as [F|];[rewrite F in More;discriminate|lia]. }
+ assert (Long:(8<BatchWindow.remaining e)%nat).
+ { unfold stopping in Stop;apply Bool.orb_false_iff in Stop as [_ More].
+   rewrite Fit,L,Z.eqb_neq in More;lia. }
  destruct Exit as [PC [SP [CPU [CF Saved]]]].
  split;[exact A|split;[exact Outputs|split;[exact Octets|split;[lia|split;[exact PC|split;[exact SP|]]]]]].
- split;[|split;[exact CF|split;[exact Saved|rewrite CPU;split;[destruct Bindings;constructor;assumption|exact Bytes]]]];rewrite CPU;change (regs(machine p) 12%nat=Z.of_nat(Scatter.count e-8)).
- rewrite Left;unfold Prologue.rows_left;rewrite (word_fits _ N),(proj2(Z.ltb_ge (regs e 6%nat) 8) ltac:(lia)),word_fits by (unfold word64 in *;lia);lia.
+ split;[rewrite CPU;exact L|split;[exact CF|split;[exact Saved|rewrite CPU;split;[destruct Bindings;constructor;assumption|exact Bytes]]]].
 Qed.
 Lemma classified entry e p q : placement e ->
- regs(machine p) 12%nat=Prologue.rows_left (regs e 6%nat) ->
+ regs(machine p) 12%nat=BatchWindow.next_count e ->
  ChunkContext.bindings e (machine p) -> RejectFinish.post entry e p q -> RejectOutputs.outputs e (machine p) -> well_formed(machine p) -> post entry e (classify p q).
 Proof. exact (classified_with (zero_results e) entry e p q). Qed.
 
@@ -63,10 +61,10 @@ Theorem finish_checked pol bias pc text e q :
  RejectDispatch.bound pc text -> RejectFinish.bound text -> placement e -> LoadedImage.loaded pol bias (mem e) (writable e) ->
  fits64 (bias+pc) (Z.of_nat(length text)) -> offset Continue<Z.of_nat(length text) ->
  mapped (mem e) (bias+pc) text -> (forall x,bias+pc<=x<bias+pc+Z.of_nat(length text)->~writable e x) ->
- (0<Scatter.count e)%nat -> Scatter.indices e -> accounted e (writable e) q ->
+ (0<BatchWindow.remaining e)%nat -> Scatter.indices e -> accounted e (writable e) q ->
  ip q=word(bias+pc+offset Prepared) -> regs(machine q) 4%nat=Rows.frame e -> Prologue.output_registers e (machine q) ->
- regs(machine q) 12%nat=Prologue.rows_left (regs e 6%nat) -> regs(machine q) 0%nat mod 2^32=0 ->
- StageEntry.metadata e (mem(machine q)) -> StageEntry.saved_caller e (machine q) -> well_formed(machine q) ->
+ regs(machine q) 12%nat=BatchWindow.next_count e -> regs(machine q) 0%nat mod 2^32=0 ->
+ BatchWindow.metadata e (mem(machine q)) -> StageEntry.saved_caller e (machine q) -> well_formed(machine q) ->
  ChunkContext.bindings e (machine q) ->
  exists r,finish_chunk bias pc text q=Some r /\ post (bias+pc) e r.
 Proof.
@@ -99,3 +97,4 @@ Proof.
    match goal with |-option_map _ ?run=_ -> _=>destruct run eqn:End;[|discriminate] end;
    intro F;injection F as <-;cbn [at_end];[eapply returning_memory|eapply segment_memory];eassumption.
 Qed.
+End Iteration.

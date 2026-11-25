@@ -21,6 +21,9 @@ Proof.
    destruct pol;intuition lia.
 Qed.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Lemma context pol bias outer e caller p q : placement e -> PrepareOutputs.result pol bias e caller p q ->
  EligibilityFrame.context pol bias outer e caller -> EligibilityFrame.context pol bias outer e q.
 Proof.
@@ -38,3 +41,4 @@ Lemma sig_byte pol bias e caller p q : placement e -> PrepareOutputs.result pol 
 Proof.
  intros P Q;apply (retained _ _ _ _ _ _ P Q);unfold kept,PrepareOutputs.dest,span,common_top,Rows.frame,sp;destruct pol;lia.
 Qed.
+End Iteration.

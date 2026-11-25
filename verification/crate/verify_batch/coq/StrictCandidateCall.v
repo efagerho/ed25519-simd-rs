@@ -16,6 +16,9 @@ Proof. repeat constructor;vm_compute;discriminate || reflexivity. Qed.
 Definition execute bias:=segment (bias+pc) text 3.
 Definition event bias e:=qword (word(bias+pc+188)) (ScoreFrame.buffer e-8) (bias+pc+193).
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem checked bias parent e h r caller stop :
  placement e -> loaded Dalek bias (mem e) (writable e) -> ScoreCall.entered Dalek bias parent e h r caller ->
  StrictScreen.decision bias e stop -> StrictScoreFrame.context bias parent e caller stop ->
@@ -58,3 +61,4 @@ Proof.
    + split;[intros g [<-|[<-|[<-|[<-|[<-|[<-|[]]]]]]];reflexivity|].
      intros x X;change (mem u x=mem s x);rewrite M;apply write_outside;change (~(base-8<=x<base-8+8));fold base in X;lia.
 Qed.
+End Iteration.

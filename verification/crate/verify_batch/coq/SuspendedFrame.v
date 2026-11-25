@@ -23,6 +23,9 @@ Lemma off_point sig pol e x : placement e -> DecoderSpills.protected pol e x -> 
 Proof. intros P [X|[_ F]];[|apply F];destruct(above _ _ _ X);destruct(scratch_stack _ P);
  unfold span,disjoint,point,point_offset in *;destruct sig;lia. Qed.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Lemma at_power pol bias e p bank t : placement e -> loaded pol bias (mem e) (writable e) ->
  (bias+DecoderFrame.origin) mod 64=0 -> BatchDecode.entry pol bias e p -> well_formed(machine p) ->
  DecoderPower.observe bias p bank=Some t -> DecoderSpills.retained pol e (machine p) (mem(machine(exponent_entry t))).
@@ -100,3 +103,4 @@ Proof.
    (KeyReturn.frame _ _ _ _ Key x (Protected false)).
  exact (Saved x X).
 Qed.
+End Iteration.

@@ -82,6 +82,9 @@ Proof.
  rewrite Same;apply word_fits,read_word_bound,(initial_cpu _ Place).
 Qed.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem next bias pc text e p : bound text -> placement e ->
  mapped (mem e) (bias+pc) text ->
  (forall x,bias+pc<=x<bias+pc+Z.of_nat(length text)->~writable e x) ->
@@ -122,3 +125,4 @@ Proof.
      rewrite app_nil_r;split;[reflexivity|split;[reflexivity|split;[reflexivity|split;[reflexivity|split;[exact SP|]]]]].
      split;[reflexivity|split;[reflexivity|exact Saved]].
 Qed.
+End Iteration.

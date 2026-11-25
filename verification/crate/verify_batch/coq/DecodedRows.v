@@ -11,6 +11,9 @@ Local Opaque Power.apply_kernel DecoderProduct.kernel.
 
 Definition buffer sig e s:=buffer_words (mem s) (BatchDecode.point e sig).
 Definition coord w j c i:=cell w (5*c+i)%nat j.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition encoded_y sig e (w:nat->Z) := forall j,(j<8)%nat ->
  let y:=coord w j 1 in BatchDecode.radix_digits y /\ limbs y=original_encoding sig e j mod 2^255.
 Definition geometry sig e (w:nat->Z):=cache_bounds false w /\ encoded_y sig e w /\ forall j P,(j<8)%nat ->
@@ -87,3 +90,4 @@ Proof.
        -- exact (eq_trans VY (unit (y P))).
    + intros _;exact (eq_trans VT (unit (x P*y P)%fp)).
 Qed.
+End Iteration.

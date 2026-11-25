@@ -5,6 +5,9 @@ From Ed25519Simd.VerifyBatch Require PreparedReturn.
 Local Open Scope Z_scope.
 
 Definition region e x:=span (scratch e) 25344 x \/ span (Rows.frame e+768) 64 x.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record data e s:Prop:=Data {
  operands:PreparedInputs.operands e s;
  table:PreparedTables.table e s;
@@ -28,3 +31,4 @@ Proof.
    { apply preserved_read with (outside:=region e);[exact M|];intros k K;change (0<=k<8) in K;right;unfold span;lia. }
    now rewrite E.
 Qed.
+End Iteration.

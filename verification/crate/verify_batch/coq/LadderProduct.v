@@ -10,6 +10,9 @@ Local Open Scope Z_scope.
 
 Definition execute:=LoopProduct.execute.
 Definition region ladder x:=LadderStage.private_stack ladder x \/ regs(machine ladder) 7%nat<=x<regs(machine ladder) 7%nat+1280.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record meaning pol bias e ladder stop : Prop:=Meaning {
  next:ip stop=CandidateDigest.origin pol bias+LadderEntry.next pol;
  stack:regs(machine stop) 4%nat=CandidateDigest.dst e;
@@ -71,3 +74,4 @@ Proof.
        - exfalso;exact (Bad A Key). }
      now rewrite K in Q.
 Qed.
+End Iteration.

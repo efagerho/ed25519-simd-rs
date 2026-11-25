@@ -8,14 +8,17 @@ Local Open Scope Z_scope.
 Definition scatter bias pc text p:=bind (Scattered.execute bias p) (ScoreContinue.execute (bias+pc) text).
 Definition execute bias pc text p:=bind (ScoredZero.execute bias p) (scatter bias pc text).
 
-Definition stored e p mask (m:FlatMemory.bytes):=forall j,(j<Nat.min (Scatter.count e) 8)%nat ->
- m(output e+Z.of_nat(Scatter.position e j))=ScatterValues.verdict
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
+Definition stored e p mask (m:FlatMemory.bytes):=forall j,(j<Nat.min (BatchWindow.remaining e) 8)%nat ->
+ m(output e+Z.of_nat(Scatter.position e (BatchWindow.first+j)))=ScatterValues.verdict
    (fun i=>mem(machine p)(Rows.frame e+856+Z.of_nat i)) mask j.
 
 Lemma publish_values mask pol bias pc dst text e t p : Image.matches pc dst text -> StrictDispatch.bound pc text ->
  placement e -> loaded pol bias (mem e) (writable e) -> fits64 (bias+pc) (Z.of_nat(length text)) ->
  mapped (mem e) (bias+pc) text -> (forall x,bias+pc<=x<bias+pc+Z.of_nat(length text) -> ~writable e x) ->
- (0<Scatter.count e)%nat -> Scatter.indices e -> ScoreTail.entry bias pc e t p mask ->
+ (0<BatchWindow.remaining e)%nat -> Scatter.indices e -> ScoreTail.entry bias pc e t p mask ->
  exists r,scatter bias pc text p=Some r /\ RejectExecution.post_with (stored e p mask) (bias+pc) e r.
 Proof.
  intros Code [_ [_ [Exit Len]]] P I Range Map Sep Live Idx Tail.
@@ -32,7 +35,7 @@ Proof.
    intros x X Y;apply (Apart x X);right;right;exact Y. }
  assert (Back:ip q=bias+pc+539).
  { rewrite (Scattered.target _ _ _ _ End);apply word_fits;change (574<Z.of_nat(length text)) in Len;unfold fits64,word64 in *;lia. }
- assert (Left:regs(machine q) 12%nat=Prologue.rows_left (regs e 6%nat)).
+ assert (Left:regs(machine q) 12%nat=BatchWindow.next_count e).
  { rewrite (Scattered.saved _ _ _ _ End) by (simpl;tauto);exact (ScoreTail.left _ _ _ _ _ _ Tail). }
  destruct(ScoreTail.saved _ _ _ _ _ _ Tail) as [Spills BP].
  assert (Saved:StageEntry.saved_caller e (machine q)).
@@ -50,7 +53,7 @@ Qed.
 Lemma publish pol bias pc dst text e t p : Image.matches pc dst text -> StrictDispatch.bound pc text ->
  placement e -> loaded pol bias (mem e) (writable e) -> fits64 (bias+pc) (Z.of_nat(length text)) ->
  mapped (mem e) (bias+pc) text -> (forall x,bias+pc<=x<bias+pc+Z.of_nat(length text) -> ~writable e x) ->
- (0<Scatter.count e)%nat -> Scatter.indices e -> ScoreTail.entry bias pc e t p 0 ->
+ (0<BatchWindow.remaining e)%nat -> Scatter.indices e -> ScoreTail.entry bias pc e t p 0 ->
  exists r,scatter bias pc text p=Some r /\ RejectExecution.post (bias+pc) e r.
 Proof.
  intros Code Bound P I Range Map Sep Live Idx Tail.
@@ -62,7 +65,7 @@ Qed.
 Theorem checked bias pc dst text e caller stop : Image.matches pc dst text -> StrictDispatch.bound pc text ->
  placement e -> loaded Dalek bias (mem e) (writable e) -> fits64 (bias+pc) (Z.of_nat(length text)) ->
  mapped (mem e) (bias+pc) text -> (forall x,bias+pc<=x<bias+pc+Z.of_nat(length text) -> ~writable e x) ->
- (0<Scatter.count e)%nat -> Scatter.indices e -> StrictScreen.decision bias e stop ->
+ (0<BatchWindow.remaining e)%nat -> Scatter.indices e -> StrictScreen.decision bias e stop ->
  StrictScoreFrame.context bias pc e caller stop -> regs(machine stop) 12%nat=0 ->
  exists r,execute bias pc text stop=Some r /\ RejectExecution.post (bias+pc) e r.
 Proof.
@@ -71,3 +74,4 @@ Proof.
  destruct(publish _ _ _ _ _ _ _ _ Code Bound P I Range Map Sep N Idx Tail) as [r [Run Post]].
  exists r;split;[unfold execute;rewrite Prepare;exact Run|exact Post].
 Qed.
+End Iteration.

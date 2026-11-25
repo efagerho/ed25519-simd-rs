@@ -10,6 +10,9 @@ Local Open Scope Z_scope.
 (* The decoder writes the two points above the encodings and digits. The
    table builder also borrows the key point, but neither borrows this prefix. *)
 Definition prefix e x:=scratch e<=x<scratch e+1024.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition encodings e s:=PrepareCopies.staged (mem e) (mem s) (scratch e) (ScalarInputs.encoding_ptr e) 8.
 
 Lemma keep_encodings e s t : preserved (prefix e) (mem s) (mem t) -> encodings e s -> encodings e t.
@@ -27,7 +30,7 @@ Proof.
 Qed.
 
 Definition digits e s:=forall j,(j<8)%nat ->
- let x:=ScalarInputs.original_scalar e (TailCopy.row_index e j) in
+ let x:=ScalarInputs.original_scalar e (BatchWindow.row e j) in
  let ds:=SignatureScalar.Audit.digits s (scratch e+512) j in
  if x <? L then Forall (fun d=> -8<=d<8) ds /\ number 16 ds=x else ds=repeat 0 64.
 
@@ -78,3 +81,4 @@ Proof.
    change KeyTable.Frame.saved_size with 48;pose proof(Z.mod_pos_bound (TableEntry.frame pol e-48) 64 ltac:(lia)).
    unfold TableEntry.point,TableEntry.tables,TableEntry.frame,common_top,Rows.frame,sp,span in *;destruct pol;intuition lia.
 Qed.
+End Iteration.

@@ -4,6 +4,9 @@ From Ed25519Simd.VerifyBatch Require Import Policy Return.
 From Ed25519Simd.VerifyBatch Require StrictCoordinate StrictEquality.
 Local Open Scope Z_scope.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition selected e j A R:=StrictOrderClear.eligible e j /\
  decodes (little_endian(key_bytes(HashLayout.row e j))) A /\ decodes (BatchDecode.original_encoding true e j) R.
 Lemma witnesses e j : StrictOrderClear.eligible e j -> exists A R,selected e j A R.
@@ -43,3 +46,4 @@ Proof.
    destruct YOk as [A [R [[On [DA DR]] _]]];exact(proj2(C j A R J (proj1(proj1 On)) DA DR)
      (proj1(proj2(StrictEquality.coordinates _ _ _ _ B On DA DR) Acc))).
 Qed.
+End Iteration.

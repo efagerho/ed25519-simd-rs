@@ -7,7 +7,8 @@ From Ed25519Simd.SignatureScalar Require ObjectBytes OrderBytes Object Audit Pro
 From Ed25519Simd.PrepareChunk Require CommonBytes StrictBytes Staging.
 From Ed25519Simd.VerifyBatch Require Import Policy Rows Image Return StageEntry LoadedImage PrepareNative.
 From Ed25519Simd.VerifyBatch Require ScalarInputs WrapperInputs.
-Import ListNotations. Local Open Scope Z_scope.
+Import ListNotations. From Ed25519Simd.VerifyBatch Require BatchWindow.
+Local Open Scope Z_scope.
 
 Definition first_symbol pol := match pol with Zip215=>common | Dalek=>strict end.
 Definition via_strict pol bias p := match pol with
@@ -92,21 +93,23 @@ Proof.
  now rewrite Same, Return, (word_fits _ Ret).
 Qed.
 
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition input_view e p := well_formed(machine p) /\
- ScalarInputs.matrix e (machine p) /\ StageEntry.metadata e (mem(machine p)) /\ StageEntry.saved_caller e (machine p) /\
+ ScalarInputs.matrix e (machine p) /\ BatchWindow.metadata e (mem(machine p)) /\ StageEntry.saved_caller e (machine p) /\
  regs(machine p) 2%nat=regs e 8%nat /\ regs(machine p) 15%nat=Return.scratch e /\
  WrapperInputs.layout e (mem(machine p)).
 Definition arguments e p top :=
  regs (machine p) 4%nat=top /\ regs (machine p) 7%nat=Return.scratch e /\
  regs (machine p) 6%nat=Rows.frame e+512 /\ regs(machine p) 1%nat=Rows.frame e+768 /\ Prologue.output_registers e (machine p) /\
- regs(machine p) 12%nat=Prologue.rows_left (regs e 6%nat) /\ input_view e p.
+ regs(machine p) 12%nat=BatchWindow.next_count e /\ input_view e p.
 
 Definition caller_word entry e m :=
  read_word m (Rows.frame e-8)=word(entry+offset Prepared).
 Definition return_slots pol bias entry e m :=
  caller_word entry e m /\ match pol with
  | Zip215=>True | Dalek=>read_word m (common_top Dalek e)=word(bias+strict+9) /\
-     StageEntry.next_descriptor e (read_word m (Rows.frame e-16)) end.
+     BatchWindow.next_descriptor e (read_word m (Rows.frame e-16)) end.
 
 Lemma slots_preserved pol bias entry e m m' :
  (forall x,common_top pol e<=x<Rows.frame e -> m' x=m x) ->
@@ -122,11 +125,11 @@ Qed.
 
 Lemma reach_common pol bias entry e p : Return.placement e -> loaded pol bias (mem e) (writable e) ->
  accounted e (writable e) p -> ip p=bias+first_symbol pol -> arguments e p (Rows.frame e-8) ->
- caller_word entry e (mem(machine p)) -> StageEntry.next_descriptor e (regs(machine p) 3%nat) ->
+ caller_word entry e (mem(machine p)) -> BatchWindow.next_descriptor e (regs(machine p) 3%nat) ->
  exists q,via_strict pol bias p=Some q /\ accounted e (writable e) q /\
  ip q=bias+common /\ arguments e q (common_top pol e) /\ return_slots pol bias entry e (mem(machine q)) /\
  (pol=Dalek -> regs(machine q) 3%nat=Rows.frame e+768) /\
- (pol=Zip215 -> StageEntry.next_descriptor e (regs(machine q) 3%nat)).
+ (pol=Zip215 -> BatchWindow.next_descriptor e (regs(machine q) 3%nat)).
 Proof.
  intros P Image Acc At Args Root NextRow. destruct pol.
  - exists p;split;[reflexivity|split;[exact Acc|split;[exact At|]]]. split;[unfold common_top;replace (Rows.frame e-8-0) with (Rows.frame e-8) by ring;exact Args|split;[exact (conj Root I)|split;[discriminate|auto]]].
@@ -158,7 +161,7 @@ Proof.
      eapply WrapperInputs.preserve;[|exact Fields0];intros x X;apply Frame;unfold WrapperInputs.needed,span in X;lia.
    + split;[|split;[intros _;exact (eq_trans InBx Meta)|discriminate]].
      split;[|split;[exact Ret|]].
-     2:{ intro Long;change (read_word (mem(cpu_state t)) (Rows.frame e-16)=word(regs e 7%nat+320)).
+     2:{ intro Long;change (read_word (mem(cpu_state t)) (Rows.frame e-16)=word(regs e 7%nat+(40*Z.of_nat BatchWindow.first+320))).
          replace (Rows.frame e-16) with (Rows.frame e-8-8) by ring.
          rewrite (PrepareNative.strict_saved _ _ _ _ _ _ SP Fit R),(NextRow Long);apply ScalarRefinement.word_idempotent. } unfold caller_word in *;rewrite <-Root.
      apply PrepareChunk.Staging.read_block;intros k K;apply Frame;lia.
@@ -166,9 +169,9 @@ Qed.
 
 Definition saved_outputs pol e m :=
  let top:=common_top pol e in
- read_word m (top-24)=regs e 6%nat /\ read_word m (top-32)=Return.output e /\ read_word m (top-16)=Prologue.rows_left (regs e 6%nat) /\ read_word m (top-40)=Return.scratch e /\
+ read_word m (top-24)=regs e 6%nat /\ read_word m (top-32)=Return.output e /\ read_word m (top-16)=BatchWindow.next_count e /\ read_word m (top-40)=Return.scratch e /\
  (pol=Dalek -> read_word m (top-8)=Rows.frame e+768) /\
- (pol=Zip215 -> StageEntry.next_descriptor e (read_word m (top-8))).
+ (pol=Zip215 -> BatchWindow.next_descriptor e (read_word m (top-8))).
 
 Lemma keep_saved_outputs pol e m m' :
  preserved (fun x=>common_top pol e-40<=x<common_top pol e) m m' ->
@@ -181,10 +184,10 @@ Qed.
 Definition post pol bias entry e p :=
  ip p=bias+common+65 /\ regs (machine p) 4%nat=common_top pol e-104 /\
  accounted e (writable e) p /\ return_slots pol bias entry e (mem(machine p)) /\ saved_outputs pol e (mem(machine p)) /\
- ((0<Scatter.count e)%nat -> ScalarInputs.borrowed e -> ScalarInputs.recoded e (machine p) /\ ScalarInputs.copy_ready e (machine p) /\ StageEntry.metadata e (mem(machine p)) /\ StageEntry.saved_caller e (machine p)).
+ ((0<BatchWindow.remaining e)%nat -> ScalarInputs.borrowed e -> ScalarInputs.recoded e (machine p) /\ ScalarInputs.copy_ready e (machine p) /\ BatchWindow.metadata e (mem(machine p)) /\ StageEntry.saved_caller e (machine p)).
 Lemma through_scalar pol bias entry e p ks : Return.placement e -> loaded pol bias (mem e) (writable e) ->
  accounted e (writable e) p -> ip p=bias+common -> arguments e p (common_top pol e) ->
- return_slots pol bias entry e (mem(machine p)) -> (pol=Dalek -> regs(machine p) 3%nat=Rows.frame e+768) -> (pol=Zip215 -> StageEntry.next_descriptor e (regs(machine p) 3%nat)) ->
+ return_slots pol bias entry e (mem(machine p)) -> (pol=Dalek -> regs(machine p) 3%nat=Rows.frame e+768) -> (pol=Zip215 -> BatchWindow.next_descriptor e (regs(machine p) 3%nat)) ->
  exists q, bind (to_scalar bias p) (scalar_call bias ks)=Some q /\ post pol bias entry e q.
 Proof.
  intros Place Image Acc At [SP [DI [SI [Meta [[Count Out] [Left [Words [Matrix [Indices [[Spills BP] [Id [Scratch Fields0]]]]]]]] ]]]] Slots StrictBx ZipBx.
@@ -239,8 +242,8 @@ Proof.
      * unfold saved_outputs;fold top;destruct Spilled as [C [O [L12 [S15 B3]]]].
      rewrite Count,(word_fits _ (proj1(initial_cpu _ Place) 6%nat)) in C.
      rewrite Out in O;rewrite (word_fits (Return.output e) (proj1(initial_cpu _ Place) 2%nat)) in O.
-     rewrite Left in L12;assert (Fit:word64(Prologue.rows_left(regs e 6%nat))) by
-       (unfold Prologue.rows_left;destruct (_<?8);[unfold word64;lia|apply mod64_word]).
+     rewrite Left in L12;assert (Fit:word64(BatchWindow.next_count e)) by
+       (rewrite BatchWindow.live_count by exact (initial_cpu _ Place);pose proof(proj1(initial_cpu _ Place) 6%nat);rewrite BatchWindow.rest;unfold Scatter.count,word64 in *;lia).
      rewrite (word_fits _ Fit) in L12;rewrite Scratch,(word_fits (Return.scratch e) (proj1(initial_cpu _ Place) 1%nat)) in S15.
      repeat split;[rewrite <-C|rewrite <-O|rewrite <-L12|rewrite <-S15|intro Eq;rewrite (StrictBx Eq), word_fits in B3 by (unfold word64,Rows.frame,sp in *;lia);rewrite <-B3|intros Eq Long;rewrite (ZipBx Eq Long),ScalarRefinement.word_idempotent in B3;rewrite <-B3].
      all: apply preserved_read with (outside:=fun x=>~SignatureScalar.Audit.output (machine v) x).
@@ -251,7 +254,7 @@ Proof.
        { eapply (ScalarInputs.from_call pol bias e v ks top resume_ip out);
          [exact Place|exact Image|exact A|exact (segment_wf _ _ _ _ _ Words Next)|
           unfold top,common_top,Rows.frame,sp in *;destruct pol;lia|exact Dest|exact Src|exact Stack|exact Borrow|exact Full| |exact Call].
-       intros j J;unfold SignatureScalar.Audit.ptr;change (read_word (mem(cpu_state t)) (regs(cpu_state t) 6%nat+8*Z.of_nat j)=word(32+ScalarInputs.sig_ptr e (TailCopy.row_index e j))).
+       intros j J;unfold SignatureScalar.Audit.ptr;change (read_word (mem(cpu_state t)) (regs(cpu_state t) 6%nat+8*Z.of_nat j)=word(32+ScalarInputs.sig_ptr e (BatchWindow.row e j))).
        rewrite Src,Fields by exact J;unfold ptr_row;rewrite SI.
        exact (f_equal (fun a=>word(32+a)) (Matrix j true J)). }
        assert (FrameBytes:forall x,Rows.frame e+512<=x<sp e -> mem out x=mem(machine p) x).
@@ -279,6 +282,8 @@ Proof.
        split;[change (regs(snd(resume_ip,out)) 12%nat=regs e 8%nat);rewrite <-Call;exact (eq_trans Fallback Id)|].
        eapply WrapperInputs.preserve;[|exact Fields0];intros x X;apply FrameBytes;unfold WrapperInputs.needed,span,Rows.frame,sp in *;lia.
 Qed.
+
+End Iteration.
 
 Theorem from_entry pol bias pc text e c ks :
  Return.placement e -> loaded pol bias (mem e) (writable e) ->
@@ -309,8 +314,8 @@ Proof.
    apply PrepareChunk.Staging.read_block;intros k K. destruct sig.
    - exact (Matrix j 1%nat k J ltac:(lia) K).
    - exact (Matrix j 0%nat k J ltac:(lia) K). }
- destruct(reach_common pol bias (bias+pc) e p Place Loaded Acc Entry (conj SP (conj DI (conj SI (conj Meta (conj (proj1 Output) (conj (proj2 Output) View)))))) Ret NextRow) as [q [Q [Acct [IP [Args [Slots [StrictBx ZipBx]]]]]]].
- destruct(through_scalar pol bias (bias+pc) e q ks Place Loaded Acct IP Args Slots StrictBx ZipBx) as [f [S Post]].
+ destruct(@reach_common BatchWindow.initial pol bias (bias+pc) e p Place Loaded Acc Entry (conj SP (conj DI (conj SI (conj Meta (conj (proj1 Output) (conj (proj2 Output) View)))))) Ret NextRow) as [q [Q [Acct [IP [Args [Slots [StrictBx ZipBx]]]]]]].
+ destruct(@through_scalar BatchWindow.initial pol bias (bias+pc) e q ks Place Loaded Acct IP Args Slots StrictBx ZipBx) as [f [S Post]].
  exists f;split;[|exact Post].
  unfold observe,scalar_entry,StageEntry.observe;rewrite Budget,Run;cbn [bind];fold p;rewrite Q;cbn [bind];exact S.
 Qed.

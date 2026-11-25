@@ -10,13 +10,16 @@ Local Open Scope Z_scope.
 
 (* Once the canonical-Y and small-order screens have passed, equality of the
    two affine coordinates is exactly the strict encoded-signature test. *)
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Lemma canonical_bytes e j R:byte_memory(mem e) ->
  decodes (BatchDecode.original_encoding true e j) R ->
  BatchDecode.original_encoding true e j mod 2^255<prime -> multiple 8 R<>identity ->
  BatchDecode.original_encoding true e j=compression R.
 Proof.
  intros B [Y Sign] Canon Strong;set(w:=BatchDecode.original_encoding true e j) in *.
- set(ptr:=descriptor (mem e) (regs e 7%nat) (TailCopy.row_index e j) 8).
+ set(ptr:=descriptor (mem e) (regs e 7%nat) (BatchWindow.row e j) 8).
  assert (Raw:w=Decode.Unpack.encoded (mem e) ptr 0%nat).
  { unfold w,BatchDecode.original_encoding,read_input,ptr;cbn [r_bytes];rewrite Digest.read_octets by exact B.
    unfold Decode.Unpack.encoded;now rewrite Z.add_0_r. }
@@ -45,3 +48,4 @@ Proof.
    change (BatchDecode.original_encoding true e j=compression Q) in E;rewrite E in DR.
    rewrite (Lane.unique_key _ _ _ DR (Lane.decodes_compression Q));auto.
 Qed.
+End Iteration.

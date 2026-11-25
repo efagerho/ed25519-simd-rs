@@ -26,6 +26,9 @@ Record result pol bias e p q:Prop:=Result {
  parent:TableParentFrame.retained pol bias e (machine p) (machine q)
 }.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem checked pol bias e before p : placement e -> loaded pol bias (mem e) (writable e) ->
  EligibleLanes.post pol bias e before p -> regs(machine p) 14%nat<>0 ->
  exists q,execute bias p=Some q /\ result pol bias e p q.
@@ -75,3 +78,4 @@ Proof.
    + exact (TableParentFrame.identities _ _ _ K).
    + destruct K as [StackArea _];change (~span (TableProduct.frame pol e-1360) 2320 x) in StackArea;unfold span in StackArea;lia.
 Qed.
+End Iteration.

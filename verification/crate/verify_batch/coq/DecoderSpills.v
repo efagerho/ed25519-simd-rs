@@ -35,6 +35,9 @@ Proof.
  repeat match goal with |- context[word ?x]=>rewrite (word_fits x ltac:(unfold word64 in *;lia)) end;reflexivity.
 Qed.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem at_setup pol bias e p q : placement e -> loaded pol bias (mem e) (writable e) -> BatchDecode.entry pol bias e p ->
  inner bias p=Some q -> retained pol e (machine p) (mem(machine q)).
 Proof.
@@ -65,3 +68,4 @@ Proof.
  unfold DecoderFrame.top;pose proof(Z.mod_pos_bound (sp-40) 64 ltac:(lia));fold sp in Stack.
  destruct X as [X|[X _]];[unfold area in X|];fold sp in X;lia.
 Qed.
+End Iteration.

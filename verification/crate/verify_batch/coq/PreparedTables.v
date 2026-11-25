@@ -7,6 +7,9 @@ From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScala
 From Ed25519Simd.VerifyBatch Require EligibleLanes DecodedKey TableContents PrepareOutputs.
 Local Open Scope Z_scope.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem input pol bias e d t : placement e -> EligibleLanes.checked_trace pol bias e d t ->
  DecodedRows.geometry false e (TableRowMeaning.point e (machine(EligibleLanes.stopped t))).
 Proof.
@@ -61,3 +64,4 @@ Proof.
    intros P Dec;rewrite (cache_ext _ _ (fun i _=>Same i)).
    specialize(R P (Seed j P J Dec));destruct sign;[now rewrite Dg|rewrite Dg;now rewrite <-KeyTable.Correct.negative_scale].
 Qed.
+End Iteration.

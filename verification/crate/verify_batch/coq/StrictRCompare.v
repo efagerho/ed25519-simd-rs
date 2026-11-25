@@ -18,6 +18,9 @@ Proof. vm_compute;split;reflexivity. Qed.
 Definition execute bias:=PredicateBlock.execute (bias+pc) ops.
 Definition bank o s ks:=update o s (RootMasks.gate o s ks) 2 compare_low.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record result bias e p q ks:Prop:=Result {
  at_kmov:ip q=bias+pc+147; writes:accounted e (writable e) q;
  machine_after:machine q=machine p; history:log q=log p;
@@ -51,3 +54,4 @@ Proof.
    exact (StrictRY.canonical _ _ _ _ Y j J).
  - intros j J;unfold k,bank,compare_low;rewrite PredicateBlock.compare,(proj2(Nat.ltb_ge j 8) J);reflexivity.
 Qed.
+End Iteration.

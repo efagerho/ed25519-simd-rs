@@ -11,6 +11,9 @@ Definition execute pol bias pc text p ks:=match pol with
 Definition observe pol bias pc text e p ks:=bind (PreparedReturn.observe pol bias e p ks)
   (fun '(a,b)=>execute pol bias pc text a b).
 Definition site pol:=match pol with Zip215=>HashEntry.callee | Dalek=>DalekPostHash.FilterBytes.address end.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record reached pol bias e q:Prop:=Reached {
  pc:ip q=bias+site pol; writes:accounted e (writable e) q; words:well_formed(machine q);
  flags:forall j,(j<8)%nat -> let v:=mem(machine q)(PrepareOutputs.dest e+64+Z.of_nat j) in
@@ -39,3 +42,4 @@ Proof.
    intros j J;cbv zeta;rewrite (StrictFilterCall.memory_after _ _ _ _ Q);unfold StrictFilterCall.event,commit;cbn [qword address size payload].
    rewrite write_outside by (unfold StrictFilterCall.slot,common_top,PrepareOutputs.dest;lia);exact (PreparedReturn.flags _ _ _ _ _ Done j J).
 Qed.
+End Iteration.

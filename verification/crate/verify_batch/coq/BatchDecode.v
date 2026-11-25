@@ -5,7 +5,17 @@ From Ed25519Simd.Decode Require DecoderBytes.
 From Ed25519Simd.PrepareChunk Require CommonBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Rows Return LoadedImage ScalarInputs BatchScalar.
 From Ed25519Simd.VerifyBatch Require PrepareCopies TailCopy.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
 Local Open Scope Z_scope.
+From Ed25519Simd.VerifyBatch Require DecoderFrame.
+From Ed25519Simd.Decode Require HelperBytes.
+From Machine Require execution.ScalarByteMemory.
+From Ed25519Simd.VerifyBatch Require DecoderWords.
+From Curve25519 Require Radix51.
+From Ed25519Simd.Decode Require Unpack.
+From Ed25519Simd.VerifyBatch Require DecoderUnpack.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 
 Definition readable e := forall j sig,(j<8)%nat ->
  let p:=encoding_ptr e j sig in fits64 p 32 /\ forall x,p<=x<p+32 -> ~writable e x.
@@ -35,13 +45,13 @@ Record handoff pol e scalar decoder:Prop:=Handoff {
 Lemma decode_in pol : In (DecoderBytes.address,DecoderBytes.symbol_bytes) (children pol).
 Proof. apply in_or_app;left;do 5 right;left;reflexivity. Qed.
 
-Theorem from_scalar pol bias pc text e c ks p :
+Theorem from_return pol bias pc e p :
  placement e -> loaded pol bias (mem e) (writable e) -> readable e ->
- BatchScalar.observe pol bias (bias+pc) text e c ks=Some p -> BatchScalar.post pol bias (bias+pc) e p ->
+ BatchScalar.post pol bias (bias+pc) e p ->
  copy_ready e (machine p) -> regs(machine p) 0%nat mod 2^32<>0 ->
- exists q,observe pol bias pc text e c ks=Some q /\ entry pol bias e q /\ handoff pol e p q.
+ exists q,enter bias p=Some q /\ entry pol bias e q /\ handoff pol e p q.
 Proof.
- intros Place Image Inputs Prefix [PC [SP [Acc _]]] [Bytes [Ptr [BX [Rows [Meta [Identity Fields]]]]]] Live.
+ intros Place Image Inputs [PC [SP [Acc _]]] [Bytes [Ptr [BX [Rows [Meta [Identity Fields]]]]]] Live.
  set (frame:=common_top pol e-104) in *;set (dst:=scratch e) in *.
  set (table:=Rows.frame e+512) in *.
  destruct(stack_ok _ Place) as [[Lo Hi] _];destruct(scratch_ok _ Place) as [[D U] Al].
@@ -67,7 +77,7 @@ Proof.
  { eapply Forall_impl;[|exact Writes];intros w H x X;destruct (H x X);[right;left|left];unfold span;fold dst;lia. }
  pose proof (at_segment _ _ _ _ _ _ 65 _ _ Acc PC Map Sep R Safe) as [Next A].
  eexists;split.
- - unfold observe;rewrite Prefix;cbn [bind];rewrite (proj2 (Z.eqb_neq _ _) Live);exact Next.
+ - exact Next.
  - split.
    2:{ constructor.
        - split;[exact (eq_trans Selected Meta)|split;[exact Mask|split;[exact Scratch|]]].
@@ -84,9 +94,17 @@ Proof.
      exact (conj Top (conj Ret Data)).
 Qed.
 
-From Ed25519Simd.VerifyBatch Require DecoderFrame.
-From Ed25519Simd.Decode Require HelperBytes.
-From Machine Require execution.ScalarByteMemory.
+Theorem from_scalar pol bias pc text e c ks p :
+ placement e -> loaded pol bias (mem e) (writable e) -> readable e ->
+ BatchScalar.observe pol bias (bias+pc) text e c ks=Some p -> BatchScalar.post pol bias (bias+pc) e p ->
+ copy_ready e (machine p) -> regs(machine p) 0%nat mod 2^32<>0 ->
+ exists q,observe pol bias pc text e c ks=Some q /\ entry pol bias e q /\ handoff pol e p q.
+Proof.
+ intros P I Inputs Prefix Post Args Live.
+ destruct(from_return pol bias pc e p P I Inputs Post Args Live) as [q [Call End]].
+ exists q;split;[unfold observe;rewrite Prefix;cbn [bind];rewrite (proj2(Z.eqb_neq _ _) Live);exact Call|exact End].
+Qed.
+
 Definition inner bias := segment (bias+DecoderFrame.origin) DecoderFrame.code 15.
 (* The decoder invokes the same local subroutine on its two staged inputs. *)
 Definition source_offset (signature:bool) : Z := if signature then 256 else 0.
@@ -96,7 +114,7 @@ Definition source e signature := scratch e+source_offset signature.
 Definition point e signature := scratch e+point_offset signature.
 Lemma point_aligned e signature : scratch e mod 64=0 -> point e signature mod 64=0.
 Proof. intro A;unfold point,point_offset;destruct signature;[replace 2304 with (36*64) by reflexivity|replace 1024 with (16*64) by reflexivity];now rewrite Z.mod_add by lia. Qed.
-Definition original_encoding (signature:bool) e j := let input:=read_input (mem e) (regs e 7%nat) (TailCopy.row_index e j) in
+Definition original_encoding (signature:bool) e j := let input:=read_input (mem e) (regs e 7%nat) (BatchWindow.row e j) in
  little_endian (if signature then r_bytes input else key_bytes input).
 Definition key_signs e s := forall j,(j<8)%nat ->
  Z.testbit (regs s 13%nat) (Z.of_nat j)=Z.testbit (original_encoding false e j) 255.
@@ -187,7 +205,6 @@ Proof.
  - split;[intros i j I;rewrite (Values _ _ I);exact (DecoderFrame.mapped_value _ bias i I Helper (Lit _ I))|discriminate].
 Qed.
 
-From Ed25519Simd.VerifyBatch Require DecoderWords.
 Definition transpose bias := segment (bias+DecoderFrame.origin) DecoderFrame.code 16.
 Definition input_words signature e s := forall j w,(j<8)%nat -> (w<4)%nat ->
  vectors s j (DecoderWords.result_reg w)=read_word (mem e) (encoding_ptr e j signature+8*Z.of_nat w).
@@ -218,9 +235,6 @@ Proof.
  - cbn [LinkedRun.finish log machine cpu_state];rewrite app_nil_r;auto.
 Qed.
 
-From Curve25519 Require Radix51.
-From Ed25519Simd.Decode Require Unpack.
-From Ed25519Simd.VerifyBatch Require DecoderUnpack.
 Definition unpack bias p ks := match DecoderUnpack.take_signs p ks with
  | Some (q,updated)=>option_map (fun r=>(r,updated)) (segment (bias+DecoderFrame.origin) DecoderFrame.code 15 q)
  | None=>None end.
@@ -266,3 +280,4 @@ Proof.
    + intros r R;change (regs v r=regs(machine p) r);rewrite Regs;apply Other,R.
    + intros i j I;change (vectors v j (28+i)%nat=DecoderFrame.constant i);rewrite Constants,Vec by exact I;apply Mask,I.
 Qed.
+End Iteration.

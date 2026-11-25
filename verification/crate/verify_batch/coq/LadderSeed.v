@@ -18,6 +18,9 @@ Definition seeded ladder staged stop:=forall j i,(j<8)%nat -> (i<20)%nat ->
  FullLadder.SeedProjection.cell (mem(machine stop)) (regs(machine ladder) 7%nat) i j=
  FullLadder.Seed.out (Seed.lane (machine staged) (regs(machine ladder) 7%nat) (F.base_of(machine ladder)) j) i.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem with_history pol bias e prev ladder staged : loaded pol bias (mem e) (writable e) ->
  ProductRun.geometry (HashLayout.chunk pol e bias) -> LadderEntry.entry pol bias e prev ladder ->
  LadderStage.observed bias ladder staged ->
@@ -71,3 +74,4 @@ Proof.
  [exact V|exact (LadderTables.supplied _ _ _ _ _ I Map T E)|lia| |exact Seeded].
  intros i j H J;exact (Staged S.Odd i j H J).
 Qed.
+End Iteration.

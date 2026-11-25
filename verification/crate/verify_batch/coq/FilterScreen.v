@@ -20,6 +20,9 @@ Record result bias e p q:Prop:=Result {
 }.
 Lemma flag_outside e j : (j<8)%nat -> ~FilterRows.slot e (FilterFlags.flag_ptr e+Z.of_nat j).
 Proof. intros J;unfold FilterRows.slot,StrictFilterCall.slot,common_top,FilterFlags.flag_ptr,PrepareOutputs.dest;lia. Qed.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem checked bias e prep p ks : placement e -> loaded Dalek bias (mem e) (writable e) ->
  StrictFilterCall.entry bias e prep p -> FilterRows.rows e (machine p) ->
  exists q bank,execute bias p ks=Some(q,bank) /\ result bias e p q.
@@ -52,3 +55,4 @@ Proof.
        M (FilterFirst.constants _ _ _ _ _ First) (fun i N=>FilterFirst.saved_lo _ _ _ _ _ First j i J N) J).
      unfold weak;now rewrite andb_comm.
 Qed.
+End Iteration.

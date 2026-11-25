@@ -13,6 +13,9 @@ Lemma selector_bytes : linked text selector.
 Proof. repeat constructor;vm_compute;discriminate || reflexivity. Qed.
 Definition next_input bias:=segment (base bias) text 6.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Lemma switch pol bias e p : placement e -> loaded pol bias (mem e) (writable e) ->
  finished false pol bias e p -> exists q,next_input bias p=Some q /\ setup true pol bias e q /\
  preserved (fun x=>~span (link_slot pol e) 8 x) (mem(machine p)) (mem(machine q)).
@@ -78,3 +81,4 @@ Proof.
  destruct(SetupTail.from_setup true _ _ _ _ (masks a) P I Al Start) as [b [B Result]].
  exists (Chunks a b);split;[unfold observe_pair;rewrite A;cbn [bind];rewrite N;cbn [bind];now rewrite B|exact (conj Done Result)].
 Qed.
+End Iteration.

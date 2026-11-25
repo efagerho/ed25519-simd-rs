@@ -12,6 +12,9 @@ Import ListNotations. Local Open Scope Z_scope.
 Definition carry_code:list Instructions.instruction:=
  flat_map (fun i=>[((10+i)%nat,Shr i 51);(i,And i 29)]) (seq 0 5)++
  [(0%nat,Madd false 14 28)]++map (fun i=>(i,Add i (9+i))) (seq 1 4).
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Lemma carry_lane r d :
  (forall i,(i<5)%nat -> r i=d i) -> r 28%nat=19 -> r 29%nat=radix-1 ->
  forall i,(i<5)%nat -> Instructions.run no_read (DecoderKernel.body DecoderKernel.Carry) r i=reduced d i.
@@ -144,3 +147,4 @@ Proof.
  split;[exact Out|intros x X;cbn [in_decoder];now rewrite More,Keep by exact X].
 Qed.
 End Setup.
+End Iteration.

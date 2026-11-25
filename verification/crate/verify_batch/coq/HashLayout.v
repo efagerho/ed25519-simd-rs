@@ -5,22 +5,24 @@ From Ed25519Simd.VerifyBatch Require Import Policy Loop.
 From Ed25519Simd.VerifyBatch Require HashEntry StrictReturn.
 Local Open Scope Z_scope.
 
-Definition chunk pol e bias:=make_chunk e pol bias 0 (Scatter.count e) zero_loc.
-Lemma index e j : (0<Scatter.count e)%nat -> (j<8)%nat ->
- Rows.row_no 0 (Nat.min (Scatter.count e) 8) j=TailCopy.row_index e j.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
+Definition chunk pol e bias:=make_chunk e pol bias BatchWindow.first (BatchWindow.remaining e) zero_loc.
+Lemma index e j : (0<BatchWindow.remaining e)%nat -> (j<8)%nat ->
+ Rows.row_no BatchWindow.first (Nat.min (BatchWindow.remaining e) 8) j=BatchWindow.row e j.
 Proof.
- intros N J;unfold Rows.row_no,TailCopy.row_index;rewrite Nat.add_0_l.
- destruct (Nat.lt_ge_cases (Scatter.count e) 8) as [Short|Full].
- - rewrite Nat.min_l by lia;remember (Scatter.count e) as n;clear Heqn.
-   do 8 (destruct n as [|n];[do 8 (destruct j as [|j];[try reflexivity;lia|]);lia|]);lia.
- - rewrite Nat.min_r by lia;change (j=Nat.min j (Scatter.count e-1));symmetry;apply Nat.min_l;lia.
+ intros N J;unfold Rows.row_no,BatchWindow.row,ChunkRows.lane;apply f_equal.
+ set(n:=BatchWindow.remaining e) in *;destruct (Nat.lt_ge_cases n 8) as [Short|Full].
+ - rewrite Nat.min_l by lia;do 8 (destruct n as [|n];[do 8 (destruct j as [|j];[try reflexivity;lia|]);lia|]);lia.
+ - rewrite Nat.min_r by lia;change (j=Nat.min j (n-1));symmetry;apply Nat.min_l;lia.
 Qed.
-Definition row e j:=read_input (mem e) (regs e 7%nat) (TailCopy.row_index e j).
+Definition row e j:=read_input (mem e) (regs e 7%nat) (BatchWindow.row e j).
 Definition eligible pol e j:=Lane.eligible_input pol (row e j).
 Definition active pol e:=exists j,(j<8)%nat /\ eligible pol e j.
 Definition flags pol e s:=forall j,(j<8)%nat -> (HashLengths.enabled e s j=true <-> eligible pol e j).
 
-Lemma original_row pol e bias j : (0<Scatter.count e)%nat -> (j<8)%nat ->
+Lemma original_row pol e bias j : (0<BatchWindow.remaining e)%nat -> (j<8)%nat ->
  Prepare.input_at (chunk pol e bias) j=row e j.
 Proof. intros N J;unfold Prepare.input_at,Rows.original_row,chunk,make_chunk;cbn [Prepare.entry Prepare.first Prepare.live];now rewrite index. Qed.
 Lemma candidate e j : EligibleLanes.candidate e j <-> eligible Zip215 e j.
@@ -44,7 +46,7 @@ Proof.
  rewrite <-(StrictReturn.strong_lane _ _ _ _ Q j J);intuition lia.
 Qed.
 
-Lemma lengths pol bias pc e p q : (0<Scatter.count e)%nat -> Prepare.placement (chunk pol e bias) ->
+Lemma lengths pol bias pc e p q : (0<BatchWindow.remaining e)%nat -> Prepare.placement (chunk pol e bias) ->
  active pol e -> flags pol e (machine p) -> HashEntry.entry bias pc e p q ->
  forall j,(j<8)%nat -> Sha512Challenge.Output.message_length (machine q) j=Hash.masked_length (chunk pol e bias) j.
 Proof.
@@ -60,7 +62,7 @@ Proof.
  unfold Hash.src,Rows.source,c,chunk,make_chunk;cbn [Prepare.entry Prepare.first Prepare.live];now rewrite index.
 Qed.
 
-Theorem placement pol bias pc e p q : (0<Scatter.count e)%nat -> Loop.spatial (chunk pol e bias) ->
+Theorem placement pol bias pc e p q : (0<BatchWindow.remaining e)%nat -> Loop.spatial (chunk pol e bias) ->
  active pol e -> flags pol e (machine p) -> HashEntry.entry bias pc e p q ->
  Sha512Challenge.Frame.placement (machine q) (bias+HashEntry.callee)
    (Z.of_nat(length Sha512Challenge.ObjectBytes.symbol_bytes)) (bias+Sha512Challenge.LiteralBytes.address).
@@ -80,7 +82,8 @@ Proof.
  - destruct Tables as [A [B [C E]]];rewrite SI,DX,CX,R8;split;[apply Source,A|split;[apply Source,B|split;apply Source;assumption]].
  - intros j J;specialize(Slices j J);rewrite (Sz j J),<-(Hash.hash_message_length c j Place J).
    rewrite (HashEntry.messages _ _ _ _ _ Q j J).
-   replace (descriptor (mem e) (regs e 7%nat) (TailCopy.row_index e j) 16) with (Hash.src c j 16)
+   replace (descriptor (mem e) (regs e 7%nat) (BatchWindow.row e j) 16) with (Hash.src c j 16)
     by (unfold Hash.src,Rows.source,c,chunk,make_chunk;cbn [Prepare.entry Prepare.first Prepare.live];now rewrite index).
    rewrite <-(Hash.hash_message_pointer c j Place Geo J);split;[exact (proj1 Slices)|apply Source,(proj2 Slices)].
 Qed.
+End Iteration.

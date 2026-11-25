@@ -25,6 +25,9 @@ Proof.
  pose proof(Rows 0 ltac:(lia)) as First;rewrite Z.add_0_r in First;rewrite First,!Rows by lia;exact Values.
 Qed.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem inputs pol bias e t : placement e -> PairReturn.post pol bias e t -> exists sq,
  KeySquare.squared true pol bias e sq /\ RootTest.operands true pol e (PairReturn.sig_entry t) /\
  SetupValues.fields true e sq (FinishTrace.test(PairReturn.signature t)).
@@ -58,3 +61,4 @@ Proof.
  eapply RootDecision.from_comparison;[exact S|eapply RootTest.at_comparison;[exact O|exact (FinishTrace.test_result _ _ _ _ _ _ (PairReturn.signature_result _ _ _ _ T))]|
    intros lane i L I;exact (proj1(F lane i L I))|exact J].
 Qed.
+End Iteration.

@@ -13,6 +13,9 @@ Record data e caller p:Prop:=Data {
  parent:preserved (CandidateEntry.retained e) (mem(machine caller)) (mem(machine p))
 }.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Lemma at_start bias pc e h r caller score : placement e -> ScoreStart.reached Dalek bias pc e h r caller score ->
  data e caller score.
 Proof.
@@ -48,3 +51,4 @@ Proof.
    [exact Same|intros i B;right;change (0<=i<8) in B;unfold span;lia].
  - intros x X;rewrite Same by (left;exact X);apply (parent _ _ _ Before),X.
 Qed.
+End Iteration.

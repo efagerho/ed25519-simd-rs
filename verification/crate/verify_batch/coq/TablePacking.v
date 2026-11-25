@@ -52,6 +52,9 @@ Proof.
 Qed.
 
 Definition observe bias p ks:=bind (TableMask.execute bias p ks) (fun '(a,bank)=>execute bias a bank).
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem from_eligible pol bias e before p ks : placement e -> loaded pol bias (mem e) (writable e) ->
  (bias+DecoderFrame.origin) mod 64=0 -> EligibleLanes.post pol bias e before p -> regs(machine p) 14%nat<>0 ->
  exists q bank a,observe bias p ks=Some(q,bank) /\ TableMask.ready pol bias e p a bank /\ packed pol bias e 1 a q bank.
@@ -61,3 +64,4 @@ Proof.
   (TableMask.words _ _ _ _ _ _ A) (TableMask.pointers _ _ _ _ _ _ A)) as [q [Run Q]].
  exists q,bank,a;split;[unfold observe;rewrite Mask;exact Run|auto].
 Qed.
+End Iteration.

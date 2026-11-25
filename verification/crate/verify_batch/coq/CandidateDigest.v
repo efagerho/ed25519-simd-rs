@@ -61,6 +61,9 @@ Record entry pol bias e p q:Prop:=Entry {
  store_log:log q=log p++(spills (origin pol bias) (top e) (machine p)++[call_store (origin pol bias) (dst e)])
 }.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem checked pol bias e p : placement e -> loaded pol bias (mem e) (writable e) -> CandidateEntry.entry pol bias e p ->
  exists q,enter pol bias p=Some q /\ entry pol bias e p q.
 Proof.
@@ -106,3 +109,4 @@ Proof.
  - exact Mem.
  - reflexivity.
 Qed.
+End Iteration.

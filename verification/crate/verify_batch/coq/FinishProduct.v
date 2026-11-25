@@ -24,6 +24,9 @@ Definition post sig pol bias e p q:=let st:=link_slot pol e in
  forall j i,(j<8)%nat -> (i<5)%nat -> vectors(machine q) j i=
  candidate (FinishSquare.operand sig pol e (machine p) j) (row (machine p) (point e sig+960) j) i.
 
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Theorem from_entry sig pol bias e p : placement e -> loaded pol bias (mem e) (writable e) ->
  DecoderFinish.entry sig pol bias e p -> exists q,finish bias p=Some q /\ post sig pol bias e p q.
 Proof.
@@ -61,3 +64,4 @@ Proof.
        -- intros x X;apply K;specialize(Dis x X);lia.
        -- intros k Bound;change (0<=k<8) in Bound;lia.
 Qed.
+End Iteration.

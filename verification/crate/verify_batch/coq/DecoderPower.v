@@ -54,6 +54,9 @@ Proof. repeat constructor;vm_compute;discriminate || reflexivity. Qed.
 Definition enter bias:=segment (base bias) text 5.
 Definition decoder_registers pol e s:=
  regs s 3%nat=scratch e+1024 /\ regs s 5%nat=common_top pol e-120 /\ regs s 12%nat=2.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Definition entry pol bias e p:=let st:=link_slot pol e in
  ip p=power bias /\ accounted e (writable e) p /\
  regs(machine p) 4%nat=st /\ regs(machine p) 7%nat=st+8 /\
@@ -122,3 +125,4 @@ Proof.
  exists (Trace r q);split;[unfold observe;rewrite Setup;cbn [bind];now rewrite Call|
  exact (conj Points (conj Args (placement_ok _ _ _ P I)))].
 Qed.
+End Iteration.

@@ -10,6 +10,9 @@ Definition returned t:=FinishTrace.returned(signature t).
 Definition observe pol bias e p bank:=bind (KeyReturn.observe pol bias e p bank) (fun r=>
  bind (SignatureFinish.enter bias (KeyReturn.returned r)) (fun s=>option_map (Trace r s)
   (FinishTrace.execute bias s (SignedRoot.after_masks(KeyReturn.signed r))))).
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record post pol bias e t : Prop:=Post {
  key_result:KeyReturn.post pol bias e (key t);
  signature_entry:DecoderFinish.entry true pol bias e (sig_entry t);
@@ -40,3 +43,4 @@ Proof.
  - intros j J;change (Z.testbit (regs(machine(FinishTrace.returned rs)) 13%nat) (Z.of_nat j)=true <-> RootDecision.decodable e j);rewrite K;exact (KeyReturn.accepts _ _ _ _ R j J).
  - split;[exact (FinishTrace.mask_byte _ _ _ _ _ _ Done)|intros j J;exact (proj1(FinishTrace.mask_bit _ _ _ _ _ _ Done j J))].
 Qed.
+End Iteration.

@@ -39,18 +39,21 @@ Proof.
  intros E F x [S K];rewrite (FilterReturned.frame _ _ _ _ F) by exact K.
  rewrite (StrictFilterCall.memory_after _ _ _ _ E);apply write_outside,S.
 Qed.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record result (outer:Z) e p q:Prop:=Result {
  pc:ip q=word(outer+Ed25519Simd.VerifyBatch.Image.offset Ed25519Simd.VerifyBatch.Image.Prepared); writes:accounted e (writable e) q; words:well_formed(machine q);
  stack:regs(machine q) 4%nat=Rows.frame e; ax:regs(machine q) 0%nat=status e (machine q);
  inputs:WrapperInputs.layout e (mem(machine q)); encodings:PreparedInputs.encodings e (machine q);
  scratch_reg:regs(machine q) 15%nat=scratch e; outputs:Prologue.output_registers e (machine q);
- remaining:regs(machine q) 12%nat=Prologue.rows_left (regs e 6%nat);
- metadata:StageEntry.metadata e (mem(machine q)); saved:StageEntry.saved_caller e (machine q);
+ remaining:regs(machine q) 12%nat=BatchWindow.next_count e;
+ metadata:BatchWindow.metadata e (mem(machine q)); saved:StageEntry.saved_caller e (machine q);
  filtered:forall j,(j<8)%nat -> let v:=mem(machine q)(FilterFlags.flag_ptr e+Z.of_nat j) in
  (v=0 \/ v=1) /\ (v=1 <-> EligibleLanes.candidate e j /\ FilterScreen.weak e (machine p) j=false);
  decoded_r:forall j,(j<8)%nat -> (Z.testbit (mem(machine q)(Rows.frame e+840)) (Z.of_nat j)=true <-> RootDecision.decodes true e j);
  buffers:ScoreBuffers.data e (machine q);
- next_descriptor:StageEntry.next_descriptor e (regs(machine q) 3%nat);
+ next_descriptor:BatchWindow.next_descriptor e (regs(machine q) 3%nat);
  strong_lane:forall j,(j<8)%nat -> (EligibleLanes.candidate e j /\ FilterScreen.weak e (machine p) j=false <-> FilterMeaning.eligible e j)
 }.
 
@@ -148,3 +151,4 @@ Proof.
      { apply existsb_exists;exists j;split;[apply in_seq;lia|apply Z.eqb_eq,On]. }
      congruence.
 Qed.
+End Iteration.

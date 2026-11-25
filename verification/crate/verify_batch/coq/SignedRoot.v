@@ -9,6 +9,9 @@ Record trace:=Trace { candidate:RootCandidate.trace; selected:cursor; at_store:c
 Definition observe pol bias e p bank:=bind (RootCandidate.observe pol bias e p bank) (fun r=>
  bind (RootAdjusted.execute bias (RootCandidate.saved_x r) (Selection.masks(RootCandidate.decision r))) (fun '(x,k)=>
  option_map (fun '(s,m)=>Trace r x s m) (RootSign.execute bias x k))).
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
 Record post pol bias e t : Prop:=Post {
  raw:RootCandidate.post pol bias e (candidate t);
  selection:exists k,RootAdjusted.result pol bias e (RootCandidate.saved_x(candidate t))
@@ -69,3 +72,4 @@ Proof.
    (RootCandidate.frame _ _ _ _ _ _ (RootCandidate.native _ _ _ _ R) x (conj Stack Point)),
    (Selection.test_memory _ _ _ _ Select);apply Keep,Stack.
 Qed.
+End Iteration.

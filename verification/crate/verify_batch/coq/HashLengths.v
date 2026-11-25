@@ -12,7 +12,10 @@ Definition bound text:=linked text branch /\ MaskedResult.assemble 393 mask_ops=
 Definition execute o text p ks:=bind (segment o text 2 p) (fun a=>MaskedResult.execute o mask_ops a ks).
 Definition tested p:=Cursor (ip p) (with_zf (machine p) false) (Some false) (log p).
 Definition enabled e s j:=negb(mem s (PrepareOutputs.dest e+64+Z.of_nat j)=?0).
-Definition length e s j:=if enabled e s j then descriptor (mem e) (regs e 7%nat) (TailCopy.row_index e j) 24 else 0.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Section Iteration.
+Context `{iteration:BatchWindow.t}.
+Definition length e s j:=if enabled e s j then descriptor (mem e) (regs e 7%nat) (BatchWindow.row e j) 24 else 0.
 
 Theorem checked o text e p ks : bound text -> placement e -> MemoryGeometry.fits64 o (Z.of_nat(List.length text)) ->
  mapped (mem e) o text -> (forall x,o<=x<o+Z.of_nat(List.length text) -> ~writable e x) ->
@@ -47,3 +50,4 @@ Proof.
    replace (Rows.frame e+768+64) with (Rows.frame e+832) by ring;destruct(negb (_=?0));[|reflexivity].
    apply (WrapperInputs.message _ _ Layout true j J).
 Qed.
+End Iteration.
