@@ -88,6 +88,7 @@ Definition decode (bs:list Z) : option (nat*instruction) := match bs with
    Some (9%nat,StoreAlignedY 1 (Address 3 (Some (1%nat,1)) (displacement32 [a;b;c;d])))
  | 0x49::0x83::0xc7::d::_=>Some (4%nat,Add64 15 (signed_value 128 d))
  | 0x48::0x8d::0x33::_=>Some (3%nat,LeaG 6 (Address 3 None 0))
+ | 0xb9::a::b::c::d::_=>Some (5%nat,Imm32 1 (little32 [a;b;c;d]))
  | 0xba::a::b::c::d::_=>Some (5%nat,Imm32 2 (little32 [a;b;c;d]))
  | 0x48::0x83::0xec::d::_=>Some (4%nat,Sub64 4 (signed_value 128 d))
  | 0x48::0x83::0xc4::d::_=>Some (4%nat,Add64 4 (signed_value 128 d))
