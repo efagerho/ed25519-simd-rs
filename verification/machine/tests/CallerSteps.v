@@ -124,3 +124,13 @@ Example eligibility_byte_store :
    WriteTrace.pc w=107 /\ WriteTrace.address w=328 /\ WriteTrace.size w=1%nat /\ mem v 328=129 /\ mem v 329=19
  | _=>False end.
 Proof. repeat split;reflexivity. Qed.
+
+Example counted_table_stores :
+ let code:=[0x89;0xd1;0xff;0xc9;0x48;0xc7;0x40;0xf8;0xff;0xff;0xff;0xff] in
+ let s:=CPU (fun r=>if (r=?0)%nat then 224 else 2^40+1) (fun _ _=>0) (Some false) (fun _=>7) in
+ match MappedFetch.run 3 (ScalarBytes.fetch 1000 code) (ScalarBytes.State (ScalarBytes.Running 0) s (Some true)) with
+ | Some(t,[w])=>let v:=ScalarBytes.cpu_state t in
+   regs v 1%nat=0 /\ flag v=Some true /\ ScalarBytes.cf t=Some true /\
+   WriteTrace.pc w=1004 /\ WriteTrace.address w=216 /\ read_word (mem v) 216=2^64-1 /\ mem v 224=7
+ | _=>False end.
+Proof. repeat split;reflexivity. Qed.
