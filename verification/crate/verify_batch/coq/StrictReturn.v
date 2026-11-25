@@ -46,6 +46,7 @@ Record result (outer:Z) e p q:Prop:=Result {
  metadata:StageEntry.metadata e (mem(machine q)); saved:StageEntry.saved_caller e (machine q);
  filtered:forall j,(j<8)%nat -> let v:=mem(machine q)(FilterFlags.flag_ptr e+Z.of_nat j) in
  (v=0 \/ v=1) /\ (v=1 <-> EligibleLanes.candidate e j /\ FilterScreen.weak e (machine p) j=false);
+ decoded_r:forall j,(j<8)%nat -> (Z.testbit (mem(machine q)(Rows.frame e+840)) (Z.of_nat j)=true <-> RootDecision.decodes true e j);
  strong_lane:forall j,(j<8)%nat -> (EligibleLanes.candidate e j /\ FilterScreen.weak e (machine p) j=false <-> FilterMeaning.eligible e j)
 }.
 
@@ -98,6 +99,8 @@ Proof.
      unfold StrictFilterCall.slot,FilterFlags.flag_ptr,common_top,PrepareOutputs.dest;lia. }
    rewrite Initial;destruct(PreparedReturn.flags _ _ _ _ _ Done j J) as [Bit Can];fold (FilterFlags.flag_ptr e) in Bit,Can.
    destruct(FilterScreen.weak e (machine p) j);intuition discriminate.
+ - intros j J;rewrite Same;[exact (PreparedReturn.decoded_r _ _ _ _ _ Done j J)|].
+   unfold unchanged,FilterScreen.kept,FilterRows.slot,FilterFlags.flag_ptr,StrictFilterCall.slot,common_top,PrepareOutputs.dest,span;lia.
  - intros j J;exact (FilterMeaning.enabled _ _ _ _ _ _ P Done Entry J).
 Qed.
 
