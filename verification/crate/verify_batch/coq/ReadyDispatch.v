@@ -19,7 +19,8 @@ Record reached pol bias e q:Prop:=Reached {
 Theorem checked pol bias pc text e p ks : HashEntry.bound pc text -> placement e -> loaded pol bias (mem e) (writable e) ->
  fits64 (bias+pc) (Z.of_nat(length text)) -> mapped (mem e) (bias+pc) text ->
  (forall x,bias+pc<=x<bias+pc+Z.of_nat(length text) -> ~writable e x) ->
- PreparedReturn.result pol bias (bias+pc) e p -> exists q bank,execute pol bias pc text p ks=Some(q,bank) /\ reached pol bias e q.
+ PreparedReturn.result pol bias (bias+pc) e p -> exists q bank,execute pol bias pc text p ks=Some(q,bank) /\ reached pol bias e q /\
+ match pol with Zip215=>HashEntry.entry bias pc e p q | Dalek=>StrictFilterCall.entry bias e p q end.
 Proof.
  intros C P I Fit Image Sep Done;destruct pol.
  - assert (PC:ip p=bias+pc+385).
@@ -29,11 +30,11 @@ Proof.
       ltac:(rewrite (PreparedReturn.stack _ _ _ _ _ Done);unfold common_top;ring)
       (PreparedReturn.scratch_reg _ _ _ _ _ Done) (PreparedReturn.writes _ _ _ _ _ Done) (PreparedReturn.words _ _ _ _ _ Done)
       (EligibilityFrame.inputs _ _ _ _ _ (PreparedReturn.caller _ _ _ _ _ Done))) as [q [k [Run Q]]].
-   exists q,k;split;[exact Run|constructor];[exact (HashEntry.target _ _ _ _ _ Q)|exact (HashEntry.writes _ _ _ _ _ Q)|
+   exists q,k;split;[exact Run|split;[constructor|exact Q]];[exact (HashEntry.target _ _ _ _ _ Q)|exact (HashEntry.writes _ _ _ _ _ Q)|
         exact (HashEntry.words _ _ _ _ _ Q)|].
    intros j J;cbv zeta;rewrite (HashEntry.other_bytes _ _ _ _ _ Q);[apply (PreparedReturn.flags _ _ _ _ _ Done j J)|unfold PrepareOutputs.dest,span;lia].
  - destruct(StrictFilterCall.checked bias (bias+pc) e p P I Done) as [q [Run Q]].
-   exists q,ks;split;[cbn [execute];now rewrite Run|constructor];[exact (StrictFilterCall.pc _ _ _ _ Q)|exact (StrictFilterCall.writes _ _ _ _ Q)|
+   exists q,ks;split;[cbn [execute];now rewrite Run|split;[constructor|exact Q]];[exact (StrictFilterCall.pc _ _ _ _ Q)|exact (StrictFilterCall.writes _ _ _ _ Q)|
        exact (StrictFilterCall.words _ _ _ _ Q)|].
    intros j J;cbv zeta;rewrite (StrictFilterCall.memory_after _ _ _ _ Q);unfold StrictFilterCall.event,commit;cbn [qword address size payload].
    rewrite write_outside by (unfold StrictFilterCall.slot,common_top,PrepareOutputs.dest;lia);exact (PreparedReturn.flags _ _ _ _ _ Done j J).

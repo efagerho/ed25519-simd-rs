@@ -78,8 +78,10 @@ Definition rejected_inputs pol e:=forall j,(j<8)%nat -> (j<count e)%nat ->
 Definition at_boundary pol bias entry e b:=match b with
  | FirstDispatch.Completed q=>RejectExecution.post entry e (RejectExecution.BatchReturned q) /\ rejected_inputs pol e
  | FirstDispatch.MoreChunks q=>RejectExecution.post entry e (RejectExecution.NextChunk q)
- | FirstDispatch.PolicyCall q=>LinkedRun.accounted e (writable e) q /\
-   (exists j,(j<8)%nat /\ EligibleLanes.candidate e j) /\ ReadyDispatch.reached pol bias e q end.
+ | FirstDispatch.FilterCall q=>LinkedRun.accounted e (writable e) q /\
+   (exists j,(j<8)%nat /\ EligibleLanes.candidate e j) /\ ReadyDispatch.reached pol bias e q
+ | FirstDispatch.HashReturned q r=>pol=Zip215 /\ (exists j,(j<8)%nat /\ EligibleLanes.candidate e j) /\
+    NativeHash.returned bias entry e q r end.
 Lemma after_reject pol bias entry e r : rejected_inputs pol e -> RejectExecution.post entry e r ->
  at_boundary pol bias entry e (FirstDispatch.after_reject r).
 Proof. destruct r;cbn;auto. Qed.
@@ -104,10 +106,16 @@ Proof.
        destruct Decoder as [_ [_ [_ [_ [_ [_ [_ Data]]]]]]];exact Data. }
      destruct(PreparedReturn.from_eligible _ _ _ _ _ _ (TableMask.masks t) Place Loaded Al (proj2 Check) Frame Enc Yes) as [q [bank1 [Call Done]]].
      destruct(ReadyDispatch.checked pol bias pc text e q bank1 Hash Place Loaded (entry_range _ _ _ _ _ Input) (entry_text _ _ _ _ _ Input) Sep Done)
-        as [v [kv [RunCall Reached]]];unfold ReadyDispatch.observe;rewrite Call;cbn [LinkedRun.bind];rewrite RunCall.
-     eexists;split;[reflexivity|split;[exact (ReadyDispatch.writes _ _ _ _ Reached)|]].
-     split;[exact (proj1(EligibleLanes.live_branch _ _ _ _ _ (proj2 Check)) Yes)|].
-     exact Reached.
+        as [v [kv [RunCall [Reached Child]]]];unfold ReadyDispatch.observe;rewrite Call;cbn [LinkedRun.bind];rewrite RunCall.
+     assert (Active:=proj1(EligibleLanes.live_branch _ _ _ _ _ (proj2 Check)) Yes).
+     destruct pol.
+     * destruct(batch_inputs _ _ _ _ _ Input N) as [_ [[_ Slices] [_ [_ [_ Entries]]]]].
+       assert (Borrow:NativeHash.messages_immutable e).
+       { intros j k J K;destruct(Slices _ (TailCopy.live_row e j N)) as [_ [_ [_ B]]];apply B;unfold NativeHash.field in K|-*;lia. }
+       destruct(NativeHash.checked _ _ _ _ _ Place Loaded N (Entries 0%nat (count e) zero_loc N eq_refl zero_words) Borrow Active Done Child)
+          as [r [HashRun HashPost]].
+       eexists;split;[cbn [LinkedRun.bind fst FirstDispatch.continue];now rewrite HashRun|exact (conj eq_refl (conj Active HashPost))].
+     * eexists;split;[reflexivity|exact (conj (ReadyDispatch.writes _ _ _ _ Reached) (conj Active Reached))].
 Qed.
 
 Lemma rejected_verdict pol bias pc text e q : admissible pol bias pc text e -> (0<count e)%nat ->
@@ -130,10 +138,11 @@ Corollary single_ineligible_return pol pc text : batch_contract pol pc text ->
 Proof.
  intros Main bias e cf masks A [N Size] Bad.
  destruct(dispatch_correct _ _ _ _ _ _ _ A (hash_caller _ _ _ Main) N (machine_scalar_return _ _ _ Main _ _ cf masks A N))
-    as [[q|q|q] [Run Done]].
+    as [[q|q|q|q r] [Run Done]].
  - exists q;split;[exact Run|split;[exact (rejected_verdict _ _ _ _ _ _ A N Done)|]].
    destruct Done as [[Paid [[_ Zeros] _]] _];split;[exact Paid|intros i I;apply Zeros;lia].
  - destruct Done as [_ [_ [_ [More _]]]];lia.
+ - destruct Done as [_ [[j [J Candidate]] _]];exfalso;exact (Bad j J Candidate).
  - destruct Done as [_ [[j [J Candidate]] _]];exfalso;exact (Bad j J Candidate).
 Qed.
 
@@ -152,18 +161,22 @@ Proof.
  - destruct (Nat.eqb_spec (count e) 0) as [Z|Live].
    + specialize (Empty Z);unfold empty_mapped in Empty;destruct(empty_return e) as [ip f].
      exists nil,ip,f;apply observe_empty;[exact Z|exact (proj1 (Empty carry))].
-   + assert (N:(0<count e)%nat) by lia. destruct(dispatch_correct _ _ _ _ _ _ _ Caller Hash N (Batch N)) as [[q|q|q] [Run _]].
+   + assert (N:(0<count e)%nat) by lia. destruct(dispatch_correct _ _ _ _ _ _ _ Caller Hash N (Batch N)) as [[q|q|q|q r] [Run _]].
      * do 3 eexists;exact (observe_rejected _ _ _ _ _ _ _ q N Run).
-     * destruct Exists as [ip [f R]];do 3 eexists;exact (observe_batch _ _ _ _ _ _ _ q _ _ N (or_introl Run) R).
-     * destruct Exists as [ip [f R]];do 3 eexists;exact (observe_batch _ _ _ _ _ _ _ q _ _ N (or_intror Run) R).
- - intros ws ip f O;inversion O as [ws' ip' f' Z Run|q N Run|q ip' f' N [Next|Tables] R];subst.
+     * destruct Exists as [ip [f R]];do 3 eexists;exact (observe_batch _ _ _ _ _ _ _ _ _ _ _ N Run eq_refl R).
+     * destruct Exists as [ip [f R]];do 3 eexists;exact (observe_batch _ _ _ _ _ _ _ _ _ _ _ N Run eq_refl R).
+     * destruct Exists as [ip [f R]];do 3 eexists;exact (observe_batch _ _ _ _ _ _ _ _ _ _ _ N Run eq_refl R).
+ - intros ws ip f O;inversion O as [ws' ip' f' Z Run|q N Run|b ws' ip' f' N Next History R];subst.
    + specialize (Empty Z);unfold empty_mapped in Empty;destruct(empty_return e) as [back last] eqn:E.
      destruct (proj2 (Empty carry) _ _ Run) as [-> Same].
      inversion Same as [|s t u own rest Impossible];[|discriminate].
      subst;split;[apply Sound,empty_path;[exact Image|now rewrite Z|exact E]|constructor].
    + pose proof(Dispatch _ N Run) as T;split;[exact (rejected_verdict _ _ _ _ _ _ Caller N T)|exact (proj1(proj1(proj1 T)))].
-   + split;[exact (Sound _ _ R)|exact (proj1(proj1(Dispatch _ N Next)))].
-   + split;[exact (Sound _ _ R)|exact (proj1(proj1(Dispatch _ N Tables)))].
+   + split;[exact (Sound _ _ R)|];pose proof(Dispatch _ N Next) as T.
+     destruct b as [q|q|q|q r];cbn [FirstDispatch.pending_history] in History;try discriminate;injection History as <-.
+     * exact (proj1(proj1 T)).
+     * exact (proj1(proj1 T)).
+     * exact (NativeHash.writes _ _ _ _ _ (proj2(proj2 T))).
 Qed.
 
 Lemma verified pol pc text : matches pc (destination pol) text -> empty_image text -> Prologue.bound text -> StageEntry.bound text -> TailWrites.bound text -> StageWrites.bound text (destination pol Prepare-pc) -> RejectCall.bound pc text -> RejectDispatch.bound pc text -> RejectFinish.bound text -> StageEntry.preserves_bp text=true -> HashEntry.bound pc text ->
