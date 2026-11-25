@@ -267,3 +267,14 @@ Example scorer_memory_operands :
    regs(ScalarBytes.cpu_state t) 0%nat=65280 /\ WriteTrace.address w=64 /\ WriteTrace.size w=8%nat
  | _=>False end.
 Proof. repeat split;reflexivity. Qed.
+
+Example scorer_registers_and_candidate_pointer_loads :
+ let s:=CPU (fun r=>if Nat.eqb r 2 then 0x10258 else if Nat.eqb r 7 then 0x19 else if Nat.eqb r 4 then 80 else 2^64-1)
+            (fun _ _=>0) None (fun _=>0) in
+ let code:=[0x44;0x0f;0xb6;0xe2;0x48;0x89;0x3c;0x24;0x49;0x8b;0x74;0x24;0xf8;
+            0x49;0x8b;0x54;0x24;0xf8;0x49;0x8b;0x4c;0x24;0xf8;0x41;0xb9;1;0;0;0;0x41;0x21;0xc4] in
+ match MappedFetch.run 7 (ScalarBytes.fetch 1024 code) (ScalarBytes.State(ScalarBytes.Running 0) s None) with
+ | Some(t,[w])=>let g:=regs(ScalarBytes.cpu_state t) in ScalarBytes.loc t=ScalarBytes.Running 32 /\
+     g 6%nat=25 /\ g 2%nat=25 /\ g 1%nat=25 /\ g 9%nat=1 /\ g 12%nat=88 /\ WriteTrace.address w=80
+ | _=>False end.
+Proof. repeat split;reflexivity. Qed.
