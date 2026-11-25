@@ -19,7 +19,8 @@ Record pointers pol e digit s:Prop:=Pointers {
  positive:regs s 13%nat=pos e digit;
  negative:regs s 14%nat=neg e digit;
  count:regs s 3%nat=8;
- multiple:regs s 15%nat=digit
+ multiple:regs s 15%nat=digit;
+ frame_pointer:regs s 5%nat=TableEntry.frame pol e-8
 }.
 
 Definition start bias:=segment (TableFrame.base bias) TableFrame.text 3.
@@ -74,6 +75,7 @@ Proof.
    + unfold neg;fold a;ring.
    + rewrite Static by discriminate;exact (TableFrame.count _ _ _ _ Args).
    + reflexivity.
+   + rewrite Static by discriminate;exact (TableFrame.fp _ _ _ _ Args).
  - exact M.
  - exact V.
  - apply app_nil_r.
