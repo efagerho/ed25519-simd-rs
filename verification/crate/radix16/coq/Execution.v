@@ -1,4 +1,5 @@
 From Machine Require memory.BlockWrites memory.PackedWrites memory.WriteTrace abi.TracedCalls.
+From Machine Require execution.ProjectionWords execution.ScalarWords.
 From Curve25519 Require Import SignedRadix16.
 From Coq Require Import List ZArith Lia.
 From Machine Require Import execution.Blocks execution.WordBounds execution.WordSemantics
@@ -203,12 +204,31 @@ Proof.
      intros pre rest Eq;rewrite Eq in All;now apply Forall_app in All as [A _].
 Qed.
 
+(* Range-check the register expressions left by the linked packing tail,
+   including registers it leaves untouched. *)
+Local Lemma tail_registers s : well_formed s ->
+ let t:=returning (execute 8 tail s) in (forall r,word64(regs t r)) /\
+ (forall j r,(j<8)%nat -> word64(vectors t j r)).
+Proof.
+ intros Valid t;split.
+ - intros r;apply put_words;[|apply mod64_word].
+   intro g;change (word64 (update (regs s) 0 (value s (acc result_state)) g)).
+   unfold update;destruct (g=?0)%nat;[apply ProjectionWords.packed_ok;[exact Valid|vm_compute;reflexivity]|apply Valid].
+ - intros j r J;apply ProjectionWords.packed_ok;[exact Valid|].
+   destruct(Nat.lt_ge_cases r 32) as [R|R].
+   + assert (Rows:forallb (fun k=>forallb (fun i=>ProjectionWords.packed (qword (zmm result_state i) k))
+         (seq 0 32)) (seq 0 8)=true) by (vm_compute;reflexivity).
+     apply forallb_forall with (x:=j) in Rows;[|apply in_seq;lia].
+     apply forallb_forall with (x:=r) in Rows;[exact Rows|apply in_seq;lia].
+   + do 32 (destruct r as [|r];[lia|]);change ((j<?8)%nat=true);apply Nat.ltb_lt,J.
+Qed.
+
 Theorem digest_returns : exists out,
  run slide pc target n entry ret out /\
  (forall ip oth,run slide pc target n entry ip oth ->ip=ret /\ oth=out) /\
  regs out 4%nat=sp+8 /\ (forall r,In r sysv_saved -> regs out r=regs entry r) /\
  preserved (fun x=>~writable sp dst x) (mem entry)(mem out) /\
- byte_memory (mem out) /\
+ well_formed out /\
  (forall j,(j<8)%nat ->let ds:=signed_digits (mem out) dst j in
    Forall (fun d=> -8<=d<8) ds /\ number 16 ds=lane_input (ByteMemory.buffer_words (mem entry) src) j mod L).
 Proof.
@@ -244,7 +264,8 @@ Proof.
  - split.
    + intros r H;specialize (Saved r H);destruct H as[<-|[<-|[<-|[<-|[<-|[<-|[]]]]]]];exact Saved.
    + split;[exact F|]. split.
-     { intro a. change (0<=mem body a<256).
+     { destruct (tail_registers resume (ScalarWords.pop_words mid 7 Wmid)) as [G V].
+       split;[exact G|split;[exact V|]]. intro a. change (0<=mem body a<256).
        destruct (Z_lt_ge_dec a dst), (Z_lt_ge_dec a (dst+512));
          try (unfold body;rewrite tail_frame by (rewrite D;lia);apply Wmid).
        set (j:=Z.to_nat ((a-dst)/64));set (k:=Z.to_nat ((a-dst) mod 64)).

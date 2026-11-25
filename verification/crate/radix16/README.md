@@ -11,7 +11,8 @@ the integer sum of `digit[k] * 16^k` for k from 0 through 63 equals
 The same return has a unique store trace. It includes the saved RDI, the
 implicit call push, the scalar reducer's stores and the packed digit stores
 after the reducer returns. Replay starts with the caller's memory and produces
-the entire returned byte memory. Every prefix stays within the 512-byte
+the entire returned byte memory. Every returned integer register and vector
+lane holds a 64-bit word. Every prefix stays within the 512-byte
 output and the 16 bytes immediately below entry RSP.
 [Trace and permission bounds](coq/Execution.v)
 
