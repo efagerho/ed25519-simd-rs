@@ -12,17 +12,19 @@ Definition code text delta := StageEntry.bound text /\ TailWrites.bound text /\
    the descriptor pointer advance when the next eight rows are staged. *)
 Section Iteration.
 Context `{iteration:BatchWindow.t}.
-Theorem checked o text delta e p values : code text delta -> placement e -> ChunkRows.readable e ->
+Theorem checked_frame o text delta e p values : code text delta -> placement e -> ChunkRows.readable e ->
  mapped (mem e) o text -> (forall x,o<=x<o+Z.of_nat(length text) -> ~writable e x) ->
  post_with values o e (NextChunk p) ->
  exists q,ChunkStaging.execute o text (BatchWindow.remaining e-8) p=Some q /\
-   ChunkStaging.entry o delta e (BatchWindow.first+8) (BatchWindow.remaining e-8) q.
+   ChunkStaging.entry o delta e (BatchWindow.first+8) (BatchWindow.remaining e-8) q /\
+ preserved (Return.span (output e) (Z.of_nat(Scatter.count e))) (mem(machine p)) (mem(machine q)).
 Proof.
  intros [Select [Tail [Transfer BP]]] P Read Map Sep
     [Paid [_ [_ [More [PC [SP [Remaining [_ [Saved [Bindings W]]]]]]]]]].
+ destruct Saved as [Kept RBP];assert (Raw:StageEntry.saved_caller e (machine p)) by (split;[apply (BatchWindow.raw_saved _ _ Kept)|exact RBP]).
  destruct Bindings as [Globals Cursor Tables].
  pose proof (BatchWindow.total e ltac:(lia)) as Total.
- apply ChunkStaging.checked;try assumption;try lia.
+ apply ChunkStaging.checked_frame;try assumption;try lia.
  - exact (conj SP Globals).
  - rewrite (Cursor More);unfold ChunkRows.base;rewrite Nat2Z.inj_add.
    destruct Read as [[L H] _];rewrite word_fits by (unfold word64 in *;lia);ring.

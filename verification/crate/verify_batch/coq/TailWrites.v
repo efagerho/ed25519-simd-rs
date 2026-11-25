@@ -31,10 +31,10 @@ Proof.
 Qed.
 Lemma row_write e j pc addr n v : (j<8)%nat ->
  target e j<=addr -> addr+Z.of_nat n<=target e j+40 ->
- confined (writable e) [WriteTrace.Store pc addr n v].
+ confined (Prologue.stack_region e) [WriteTrace.Store pc addr n v].
 Proof.
  intros J L H;apply Forall_cons;[|constructor].
- intros x X;left;change (addr<=x<addr+Z.of_nat n) in X;unfold span,target in *;lia.
+ intros x X;change (addr<=x<addr+Z.of_nat n) in X;unfold Prologue.stack_region,span,target in *;lia.
 Qed.
 
 Local Ltac one d :=

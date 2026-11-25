@@ -6,22 +6,22 @@ Local Open Scope Z_scope.
 
 (* From the builder's return word upwards the preparation caller owns the
    live stack. The two output stores occupy exactly the pointer row and flags. *)
-Definition kept pol e x:=common_top pol e-104<=x<sp e+8 /\ ~span (PrepareOutputs.dest e) 72 x.
+From Ed25519Simd.VerifyBatch Require BatchWindow.
+Definition kept pol e x:=(common_top pol e-104<=x<sp e+8 \/ BatchWindow.external_byte e x) /\ ~span (PrepareOutputs.dest e) 72 x.
 Lemma retained pol bias e caller p q : placement e -> PrepareOutputs.result pol bias e caller p q ->
  preserved (kept pol e) (mem(machine caller)) (mem(machine q)).
 Proof.
- intros P Q x [[Low High] Outside];rewrite (PrepareOutputs.surrounding _ _ _ _ _ _ Q x Outside).
+ intros P Q x [Allowed Outside];rewrite (PrepareOutputs.surrounding _ _ _ _ _ _ Q x Outside).
  pose proof(TableUnwind.parent _ _ _ _ _ (PrepareOutputs.parent _ _ _ _ _ _ Q)) as Frame.
  rewrite Frame.
- - unfold TableParentFrame.expected;rewrite outside_spill by (unfold TableEntry.frame;lia).
-   apply write_outside;unfold TableEntry.frame;lia.
+ - unfold TableParentFrame.expected;rewrite outside_spill by (change (x<TableEntry.frame pol e-8*6 \/ TableEntry.frame pol e<=x);unfold TableEntry.frame,BatchWindow.external_byte,common_top,Rows.frame,sp in *;destruct pol;lia).
+   apply write_outside;unfold TableEntry.frame,BatchWindow.external_byte,common_top,Rows.frame,sp in *;destruct pol;lia.
  - unfold TableParentFrame.keep,TableParentFrame.top,KeyTable.Frame.staging,KeyTable.Frame.allocation,KeyTable.Frame.align64.
    change KeyTable.Frame.saved_size with 48;pose proof(Z.mod_pos_bound (TableEntry.frame pol e-48) 64 ltac:(lia)).
-   pose proof(scratch_stack _ P) as Apart;unfold TableEntry.point,TableEntry.tables,TableEntry.frame,span,disjoint,common_top,Rows.frame,sp in *;
+   pose proof(scratch_stack _ P) as Apart;unfold BatchWindow.external_byte,TableEntry.point,TableEntry.tables,TableEntry.frame,span,disjoint,common_top,Rows.frame,sp in *;
    destruct pol;intuition lia.
 Qed.
 
-From Ed25519Simd.VerifyBatch Require BatchWindow.
 Section Iteration.
 Context `{iteration:BatchWindow.t}.
 Lemma context pol bias outer e caller p q : placement e -> PrepareOutputs.result pol bias e caller p q ->
@@ -31,7 +31,7 @@ Proof.
  - eapply slots_preserved;[|exact Links];intros x X;apply Same;unfold kept,PrepareOutputs.dest,span,common_top,Rows.frame,sp in *;destruct pol;lia.
  - eapply keep_saved_outputs;[|exact Outputs];intros x X;apply Same;unfold kept,PrepareOutputs.dest,span,common_top,Rows.frame,sp in *;destruct pol;lia.
  - eapply IndexStores.metadata_preserved;[|exact Meta];intros x X;apply Same;unfold kept,PrepareOutputs.dest,span,common_top,Rows.frame,sp in *;destruct pol;lia.
- - split;[intros x X;rewrite Same;[apply Slots,X|unfold kept,PrepareOutputs.dest,span,common_top,Rows.frame,sp in *;destruct pol;lia]|].
+ - split;[intros x X;rewrite Same;[apply Slots,X|pose proof(BatchWindow.geometry _ _ X);unfold kept,BatchWindow.external_byte,PrepareOutputs.dest,span,common_top,Rows.frame,sp in *;destruct pol;lia]|].
    rewrite (PrepareOutputs.registers _ _ _ _ _ _ Q),(TableUnwind.registers _ _ _ _ _ (PrepareOutputs.parent _ _ _ _ _ _ Q)) by (cbn;tauto);exact BP.
  - eapply WrapperInputs.preserve;[|exact Layout];intros x X;apply Same;unfold kept,PrepareOutputs.dest,WrapperInputs.needed,span,common_top,Rows.frame,sp in *;destruct pol;lia.
 Qed.

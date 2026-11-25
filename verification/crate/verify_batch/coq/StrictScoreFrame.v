@@ -33,7 +33,7 @@ Proof.
      * destruct B as [_ [M _]];intros x X;now rewrite M.
      * destruct B as [_ [_ [_ [_ [M _]]]]];intros x X;rewrite M;apply write_outside.
        pose proof(Z.mod_pos_bound (ScoreFrame.top e-48) 64 ltac:(lia)).
-       unfold ScoreSaved.area,StrictRCall.call_store,ScoreFrame.buffer,FramePointer.bottom in *;cbn [qword address size];lia.
+       unfold ScoreSaved.area,StrictRCall.call_store,ScoreFrame.buffer,FramePointer.bottom,ScoreFrame.top,Rows.frame,Return.sp in *;cbn [qword address size];lia.
  - eapply keep_outputs;[exact (StrictRFrame.outputs _ _ _ _ _ F)|exact G].
 Qed.
 
@@ -49,7 +49,7 @@ Proof.
  constructor.
  - eapply ScoreSaved.keep with (s:=machine child);[exact F|rewrite K,G by discriminate;reflexivity|].
    intros x X;rewrite (StrictOrderClear.memory _ _ _ _ C);apply (StrictOrderReturn.frame _ _ _ _ R).
-   pose proof(Z.mod_pos_bound (ScoreFrame.top e-48) 64 ltac:(lia));unfold ScoreSaved.area,StrictOrderReturn.region,ScoreFrame.buffer,FramePointer.bottom in *;lia.
+   pose proof(Z.mod_pos_bound (ScoreFrame.top e-48) 64 ltac:(lia));unfold ScoreSaved.area,StrictOrderReturn.region,ScoreFrame.buffer,FramePointer.bottom,ScoreFrame.top,Rows.frame,Return.sp in *;lia.
  - unfold outputs in *;rewrite (K 13%nat),(K 14%nat),(K 15%nat),(G 13%nat),(G 14%nat),(G 15%nat) by discriminate;exact Out.
  - intro PC;pose proof(StrictOrderClear.pc _ _ _ _ C) as At;destruct (_=?0) in At;lia.
  - intro;exact Inputs.

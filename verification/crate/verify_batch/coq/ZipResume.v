@@ -36,7 +36,7 @@ Proof.
  destruct(ScoreCall.args _ _ _ _ _ _ _ C) as [_ [_ [Ptr [DX [CX [R8 R9]]]]]].
  pose proof(Z.mod_pos_bound (ScoreFrame.top e-48) 64 ltac:(lia)) as Pad.
  assert (Above:forall x,ScoreSaved.area e x -> CandidateFrame.outside e x).
- { unfold ScoreSaved.area,CandidateFrame.outside,ScoreFrame.buffer,FramePointer.bottom;lia. }
+ { unfold ScoreSaved.area,CandidateFrame.outside,CandidateDigest.dst,CandidateDigest.top,ScoreFrame.buffer,FramePointer.bottom,ScoreFrame.top,Rows.frame,Return.sp in *;lia. }
  constructor.
  - exact PC.
  - exact (CandidateReturn.words _ _ _ Ret).
@@ -51,7 +51,7 @@ Proof.
    + rewrite Restore,BP by (simpl;tauto);exact (ScoreFrame.fp _ _ _ _ _ F).
    + intros x X;rewrite (CandidateReturn.parent _ _ _ Ret x (Above x X)),(ScoreStart.memory _ _ _ _ _ S).
      unfold commit;rewrite write_outside;[now rewrite (ScoreFrame.saved _ _ _ _ _ F)|].
-     change (~(ScoreFrame.buffer e-8<=x<ScoreFrame.buffer e-8+8));unfold ScoreSaved.area,ScoreFrame.buffer,FramePointer.bottom in *;lia.
+     change (~(ScoreFrame.buffer e-8<=x<ScoreFrame.buffer e-8+8));unfold ScoreSaved.area,ScoreFrame.buffer,FramePointer.bottom,ScoreFrame.top,Rows.frame,Return.sp in *;lia.
  - intros j J;cbv zeta;rewrite (CandidateReturn.parent _ _ _ Ret) by (apply Above;unfold ScoreSaved.area,ScoreFrame.top;lia).
    rewrite (ScoreStart.memory _ _ _ _ _ S);unfold commit;rewrite write_outside.
    + rewrite (ScoreFrame.saved _ _ _ _ _ F),(WriteTrace.frame _ _ (FramePointer.confined _ _ _)) by (unfold ScoreFrame.top;lia).

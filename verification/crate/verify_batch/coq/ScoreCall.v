@@ -23,7 +23,7 @@ Record entered pol bias pc e q r child:Prop:=Entered {
  digest:forall j,(j<8)%nat -> HashLayout.eligible pol e j ->
    Scalar.ScalarSpec.lane_input (buffer_words (mem(machine child)) (Rows.frame e)) j=
    little_endian (SHA512.Spec.sha512 (r_bytes(HashLayout.row e j)++key_bytes(HashLayout.row e j)++message(HashLayout.row e j)));
- wrapper:BatchWindow.metadata e (mem(machine child)) /\ StageEntry.saved_caller e (machine child) /\
+ wrapper:BatchWindow.metadata e (mem(machine child)) /\ BatchWindow.saved_caller e (machine child) /\
    regs(machine child) 12%nat=BatchWindow.next_count e;
  restart:ChunkContext.bindings e (machine child);
  frame:preserved (fun x=>~ScoreSetup.slots (Rows.frame e) x) (Sha512Challenge.Execution.after r) (mem(machine child));
@@ -70,7 +70,7 @@ Proof.
    + eapply IndexStores.metadata_preserved;[|exact (ScoreInputs.metadata _ _ _ Data)].
      intros x X;apply Kept;unfold ScoreSetup.slots,span;unfold t in *;lia.
    + destruct(ScoreInputs.saved _ _ _ Data) as [Spills BP];split;[split|].
-     * intros x X;rewrite Kept;[exact (Spills x X)|unfold ScoreSetup.slots,span,t,Rows.frame,sp in *;lia].
+     * intros x X;rewrite Kept;[exact (Spills x X)|pose proof(BatchWindow.geometry _ _ X);unfold BatchWindow.external_byte,ScoreSetup.slots,span,t,Rows.frame,sp in *;lia].
      * rewrite (ScoreSetup.saved _ _ _ _ _ _ Entry) by (simpl;tauto);exact BP.
      * rewrite (ScoreSetup.saved _ _ _ _ _ _ Entry) by (simpl;tauto);exact (ScoreInputs.remaining _ _ _ Data).
  - apply (ChunkContext.preserve e s (machine child)).

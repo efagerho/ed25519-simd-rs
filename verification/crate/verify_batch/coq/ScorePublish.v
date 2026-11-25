@@ -29,19 +29,18 @@ Proof.
  destruct(Scattered.checked pol bias e p _ P I Paid PC (ScoreTail.sp _ _ _ _ _ _ Tail)
     (ScoreTail.ret _ _ _ _ _ _ Tail) SI N (proj2(proj2(ScoreTail.words _ _ _ _ _ _ Tail)))) as [q [Run End]].
  destruct(mapped_now _ _ _ I _ _ _ Paid (LoadedImage.scatter pol)) as [Child Apart].
- assert (O:regs(machine q) 0%nat=1 /\ stored e p mask (mem(machine q))).
- { eapply RejectOutputs.published_values;[exact P|exact Live|exact Idx|exact PC|exact DI|exact SI|exact N|exact AX|
-     exact (ScoreTail.metadata _ _ _ _ _ _ Tail)|exact Child| |exact Run].
-   intros x X Y;apply (Apart x X);right;right;exact Y. }
+ assert (SepOut:forall x,bias+Zip215.ScatterBytes.address<=x<bias+Zip215.ScatterBytes.address+Z.of_nat(length Zip215.ScatterBytes.symbol_bytes) ->
+    ~(output e<=x<output e+Z.of_nat(Scatter.count e))) by (intros x X Y;apply (Apart x X);right;right;exact Y).
+ destruct(RejectOutputs.published_values mask _ e p q P Live Idx PC DI SI N AX (ScoreTail.metadata _ _ _ _ _ _ Tail)
+   Child SepOut Run) as [ScatterFrame O].
  assert (Back:ip q=bias+pc+539).
  { rewrite (Scattered.target _ _ _ _ End);apply word_fits;change (574<Z.of_nat(length text)) in Len;unfold fits64,word64 in *;lia. }
  assert (Left:regs(machine q) 12%nat=BatchWindow.next_count e).
  { rewrite (Scattered.saved _ _ _ _ End) by (simpl;tauto);exact (ScoreTail.left _ _ _ _ _ _ Tail). }
  destruct(ScoreTail.saved _ _ _ _ _ _ Tail) as [Spills BP].
- assert (Saved:StageEntry.saved_caller e (machine q)).
+ assert (Saved:BatchWindow.saved_caller e (machine q)).
  { split.
-   - intros x X;rewrite (Scattered.outside _ _ _ _ End) by
-       (destruct(out_stack _ P);unfold Scattered.region,FlatMemory.disjoint in *;lia);apply Spills,X.
+   - intros x X;rewrite (ScatterFrame x X);apply Spills,X.
    - rewrite (Scattered.saved _ _ _ _ End) by (simpl;tauto);exact BP. }
  assert (Bindings:ChunkContext.bindings e (machine q)).
  { apply (ChunkContext.preserve e (machine p) (machine q) (ScoreTail.restart _ _ _ _ _ _ Tail) (Scattered.saved _ _ _ _ End)).

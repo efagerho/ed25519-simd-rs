@@ -6,7 +6,7 @@ From Ed25519Simd.Sha512Challenge Require Audit ObjectBytes LiteralBytes.
 From Ed25519Simd.Zip215 Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.DalekPostHash Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Arguments Image Control Tables Scatter Loop Return LoadedImage EntryWrites CallWrites NestedRegions StageEntry RejectCall BatchScalar PrepareUnwind RejectDispatch RejectFinish RejectExecution.
-From Ed25519Simd.VerifyBatch Require ChunkStaging BatchDecode EligibleLanes EligibilityFrame FirstDispatch RejectedPath ScoreStart ScoreProgress ScorePublish ScoreDecision ScoredChunk.
+From Ed25519Simd.VerifyBatch Require Iteration ChunkStaging BatchDecode EligibleLanes EligibilityFrame FirstDispatch RejectedPath ScoreStart ScoreProgress ScorePublish ScoreDecision ScoredChunk.
 Local Open Scope Z_scope.
 
 Definition destination pol t := match t with
@@ -57,22 +57,6 @@ Proof.
  rewrite Z.add_0_r,Z.mod_mod in Al by lia;rewrite Z.add_mod,Al by lia;reflexivity.
 Qed.
 
-(* Grouped execution. Each nonempty trace supplies the actual callee results
-   for its live buffers. Other private bytes may take any byte value. *)
-Inductive execution pol bias pc text : Z -> cpu -> Z -> cpu -> Prop :=
- | empty_path e ip final :
-   matches pc (destination pol) text ->
-   initial (count e)=Some Empty ->
-   empty_return e=(ip,final) ->
-   execution pol bias pc text (bias+pc) e ip final
- | batch_path e ip final out stack_bytes scratch_bytes noise :
-   matches pc (destination pol) text ->
-   initial (count e)=Some Prologue -> branch Prologue false false=Some Choose ->
-   batches e pol bias 0 (count e) (fun i=>mem e (output e+Z.of_nat i)) out ->
-   byte_memory stack_bytes -> byte_memory scratch_bytes -> well_formed noise ->
-   Return.resume e (fill e stack_bytes scratch_bytes out) noise=(ip,final) ->
-   execution pol bias pc text (bias+pc) e ip final.
-
 Definition returned pol e ip final :=
  ip=read_word (mem e) (sp e) /\ regs final 0%nat=1 /\ regs final 4%nat=sp e+8 /\
  (forall r,In r sysv_saved -> regs final r=regs e r) /\
@@ -119,42 +103,17 @@ Inductive observation pol bias pc text e carry masks : list WriteTrace.store -> 
    MappedFetch.steps (bias+pc) (length text) (ScalarBytes.State (ScalarBytes.Running 0) e carry) ws
      (ScalarBytes.State (ScalarBytes.Returned ip) final (Some false)) ->
    observation pol bias pc text e carry masks ws ip final
- | observe_rejected q : (0<count e)%nat ->
-   FirstDispatch.run pol bias pc text e carry masks=Some(FirstDispatch.Completed q) ->
-   observation pol bias pc text e carry masks (LinkedRun.log q) (LinkedRun.ip q) (LinkedRun.machine q)
- | observe_next q next ip final : (0<count e)%nat ->
-   FirstDispatch.run pol bias pc text e carry masks=Some(FirstDispatch.MoreChunks q) ->
-   ChunkStaging.execute (bias+pc) text (count e-8) q=Some next ->
-   execution pol bias pc text (bias+pc) e ip final ->
-   observation pol bias pc text e carry masks (LinkedRun.log next) ip final
- | observe_scored_return stop q : (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
-   ScoreProduct.rejected pol stop=true -> ScorePublish.execute bias pc text stop=Some(RejectExecution.BatchReturned q) ->
-   observation pol bias pc text e carry masks (LinkedRun.log q) (LinkedRun.ip q) (LinkedRun.machine q)
- | observe_scored_next stop q next ip final : (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
-   ScoreProduct.rejected pol stop=true -> ScorePublish.execute bias pc text stop=Some(RejectExecution.NextChunk q) ->
-   ChunkStaging.execute (bias+pc) text (count e-8) q=Some next ->
-   execution pol bias pc text (bias+pc) e ip final ->
-   observation pol bias pc text e carry masks (LinkedRun.log next) ip final
- | observe_published stop staged q : (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
-   ScoreProduct.rejected pol stop=false -> ScoreDecision.observed pol bias stop staged -> ScorePublish.scatter bias pc text staged=Some(RejectExecution.BatchReturned q) ->
-   observation pol bias pc text e carry masks (LinkedRun.log q) (LinkedRun.ip q) (LinkedRun.machine q)
- | observe_published_next stop staged q next ip final : (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
-   ScoreProduct.rejected pol stop=false -> ScoreDecision.observed pol bias stop staged -> ScorePublish.scatter bias pc text staged=Some(RejectExecution.NextChunk q) ->
-   ChunkStaging.execute (bias+pc) text (count e-8) q=Some next ->
-   execution pol bias pc text (bias+pc) e ip final ->
-   observation pol bias pc text e carry masks (LinkedRun.log next) ip final.
+ | observe_native q : (0<count e)%nat ->
+   Iteration.native pol bias pc text e carry masks q ->
+   observation pol bias pc text e carry masks (LinkedRun.log q) (LinkedRun.ip q) (LinkedRun.machine q).
 
-(* Up to eight rows, the verdict CPU and log reach the same outer RET.
-   This requires pointwise equality even inside writable scratch and stack. *)
 Definition effects e ws final:=WriteTrace.confined (writable e) ws /\
- ((Scatter.count e<=8)%nat -> forall x,mem final x=WriteTrace.replay (mem e) ws x).
+ forall x,mem final x=WriteTrace.replay (mem e) ws x.
 
 Definition immutable_after pol bias pc text e ip final :=
- (0<count e)%nat -> execution pol bias pc text (bias+pc) e ip final ->
- forall x, LoadedImage.readonly pol bias x -> mem final x=mem e x.
+ (0<count e)%nat -> forall carry masks ws,observation pol bias pc text e carry masks ws ip final ->
+ forall x,LoadedImage.readonly pol bias x -> mem final x=mem e x.
 
-(* Scatter after an earlier confined prefix. Fetch sees the memory produced
-   by that prefix, including the case where stack, scratch or output changed. *)
 Definition physical_scatter pol bias e := forall prior s carry ws last,
  WriteTrace.confined (Return.writable e) prior -> mem s=WriteTrace.replay (mem e) prior ->
  regs s 6%nat=output e -> regs s 2%nat=Z.of_nat (count e) ->
@@ -191,6 +150,17 @@ Record batch_contract pol pc text : Prop := {
    returned pol e ip final /\ empty_mapped (bias+pc) text e
 }.
 
+Corollary native_return pol pc text (contract:batch_contract pol pc text) bias e cf masks:
+ admissible pol bias pc text e -> (0<count e)%nat ->
+ (exists q,Iteration.native pol bias pc text e cf masks q) /\
+ forall q,Iteration.native pol bias pc text e cf masks q -> Iteration.exit e q.
+Proof.
+ intros A N;destruct(verify _ _ _ contract _ _ cf masks A) as [[ws [ip [s O]]] Sound].
+ split;[inversion O;subst;[lia|eauto]|].
+ intros q R;destruct(Sound _ _ _ (observe_native _ _ _ _ _ _ _ q N R)) as [[PC [OK [SP [Saved [_ [Bytes _]]]]]] Paid].
+ exact (conj Paid (conj Bytes (conj OK (conj PC (conj SP Saved))))).
+Qed.
+
 Theorem single_rejected_return pol pc text : batch_contract pol pc text ->
  forall bias e c masks,admissible pol bias pc text e -> (0<count e<=8)%nat -> ScalarInputs.noncanonical_chunk e ->
  exists q,RejectExecution.scalar_rejection pol bias pc text e c masks=Some(RejectExecution.BatchReturned q) /\
@@ -204,7 +174,7 @@ Proof.
  destruct(Reject Zero) as [Invalid [[q|q] [End [Paid [[Status Outputs] [Bytes Exit]]]]]].
  2:{ destruct Exit as [More _];change (8<count e)%nat in More;lia. }
  exists q;split;[exact End|split].
- - exact (proj1 (proj2 (verify _ _ _ Checked _ _ c masks A) _ _ _
-     (observe_rejected _ _ _ _ _ _ _ q Live (FirstDispatch.scalar_path _ _ _ _ _ _ _ _ _ Run Zero End)))).
+ - apply (proj1(proj2(verify _ _ _ Checked _ _ c masks A) _ _ _
+       (observe_native _ _ _ _ _ _ _ q Live (Iteration.scalar_rejected _ _ _ _ _ _ _ _ _ Run Zero End)))).
  - split;[exact Paid|intros i I;split;[apply Outputs;change (i<Nat.min (count e) 8)%nat;lia|apply Invalid;lia]].
 Qed.

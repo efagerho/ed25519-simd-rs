@@ -12,7 +12,7 @@ Context `{iteration:BatchWindow.t}.
 Record inputs pol e s:Prop:=Inputs {
  gprs:Prologue.context_registers e s;
  remaining:regs s 12%nat=BatchWindow.next_count e;
- metadata:BatchWindow.metadata e (mem s); saved:StageEntry.saved_caller e s;
+ metadata:BatchWindow.metadata e (mem s); saved:BatchWindow.saved_caller e s;
  tables:CallerSpills.table_arguments e (mem s);
  next_descriptor:BatchWindow.next_descriptor e (regs s 3%nat);
  flags:forall j,(j<8)%nat -> let b:=mem s (Rows.frame e+832+Z.of_nat j) in
@@ -51,14 +51,14 @@ Proof.
 Qed.
 
 Lemma preserve pol e s u : inputs pol e s -> (forall r,In r sysv_saved -> regs u r=regs s r) ->
- preserved (fun x=>Rows.frame e+768<=x<sp e) (mem s) (mem u) ->
+ preserved (fun x=>Rows.frame e+768<=x<sp e \/ BatchWindow.external_byte e x) (mem s) (mem u) ->
  preserved (ScoreBuffers.region e) (mem s) (mem u) -> inputs pol e u.
 Proof.
  intros [G Rem Meta [Slots BP] Tab Cursor Flags Buf Valid] Keep M B;destruct G as [Scratch [N Out]];constructor.
  - unfold Prologue.context_registers,Prologue.output_registers;rewrite (Keep 15%nat),(Keep 13%nat),(Keep 14%nat) by (simpl;tauto);auto.
  - rewrite Keep by (simpl;tauto);exact Rem.
  - eapply IndexStores.metadata_preserved;[|exact Meta];intros x X;apply M;unfold Rows.frame,sp in *;lia.
- - split;[intros x X;rewrite M;[apply Slots,X|unfold Rows.frame,sp in *;lia]|rewrite Keep by (simpl;tauto);exact BP].
+ - split;[intros x X;rewrite M;[apply Slots,X|destruct(BatchWindow.geometry _ _ X) as [G|G];[left;unfold Rows.frame,sp in *;lia|right;exact G]]|rewrite Keep by (simpl;tauto);exact BP].
  - eapply CallerSpills.keep_tables;[|exact Tab];intros x X;apply M;unfold Rows.frame,sp in *;lia.
  - rewrite Keep by (simpl;tauto);exact Cursor.
  - intros j J;cbv zeta;rewrite M;[exact (Flags j J)|unfold Rows.frame,sp;lia].
@@ -68,12 +68,12 @@ Qed.
 Lemma at_hash pol bias pc e p q : placement e -> inputs pol e (machine p) -> HashEntry.entry bias pc e p q -> inputs pol e (machine q).
 Proof.
  intros P Prep H;eapply preserve;[exact Prep|exact (HashEntry.saved _ _ _ _ _ H)| |];intros x X;apply (HashEntry.other_bytes _ _ _ _ _ H);
- destruct(scratch_stack _ P);unfold ScoreBuffers.region,span,Rows.frame,disjoint,sp in *;lia.
+ destruct(scratch_stack _ P);unfold BatchWindow.external_byte,ScoreBuffers.region,span,Rows.frame,disjoint,sp in *;lia.
 Qed.
 Lemma after_hash pol bias o e q r s : placement e -> inputs pol e (machine q) -> NativeHash.returned pol bias o e q r ->
  HashResume.compatible r s -> inputs pol e s.
 Proof.
  intros P I R C;apply (preserve _ _ _ _ I (HashResume.saved _ _ _ _ _ _ _ R C));intros x X;rewrite (proj1 C);
- apply (NativeHash.frame _ _ _ _ _ _ R);destruct(scratch_stack _ P);unfold ScoreBuffers.region,span,Rows.frame,disjoint,sp in *;lia.
+ apply (NativeHash.frame _ _ _ _ _ _ R);destruct(scratch_stack _ P);unfold BatchWindow.external_byte,ScoreBuffers.region,span,Rows.frame,disjoint,sp in *;lia.
 Qed.
 End Iteration.

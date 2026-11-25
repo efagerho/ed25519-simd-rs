@@ -8,11 +8,14 @@ initial contents of the output array and any batch length, including zero.
 [Theorems](coq/Object.v) · [Contract, execution and caller premises](coq/Audit.v) ·
 [Rust entry points](../../../src/verifier/driver.rs)
 
-For both policies, a batch of zero to eight descriptors has one instruction-level
-store log through its return to Rust. Replaying that log on entry memory recovers
-every final byte. For a longer batch the native log publishes the first eight
-verdicts, follows the back edge, stages the next descriptors and enters the
-second preparation call. When preparation builds the public-key
+Both entry points return 1. For any batch length, the byte at each descriptor’s
+output index is 1 exactly when that descriptor’s original signature verifies
+under the selected policy. The theorem reads these bytes from the CPU that
+executes the return to Rust. Replaying its instruction-level store log on
+entry memory recovers every final byte, including scratch and stack.
+[Native execution](coq/Iteration.v) · [All-row proof](coq/NativeLoop.v)
+
+When preparation builds the public-key
 tables, the log includes its six register saves, the 48 stores that initialize the eight identity entries,
 the nested arithmetic calls for all eight multiples, and the 15 stores staging
 the affine operand. The proof checks the eight-key transpose and the loaded
@@ -98,13 +101,11 @@ Both paths pass the resulting mask to scatter, which writes each verdict byte
 at its original descriptor index.
 [ZIP torsion return](coq/ZipTorsion.v) · [ZIP mask](coq/ZipVerdict.v) · [Dalek coordinate test](coq/StrictCoordinate.v) · [Dalek verdict](coq/StrictVerdict.v) · [Published verdicts](coq/ScoredChunk.v)
 
-For batches longer than eight rows, the final verdict still uses grouped
-execution on the original inputs. Every such return has status 1, resumes at the caller's return address with RSP advanced by eight,
-restores the SysV callee-saved integer registers and leaves byte-valued memory.
-Each output byte is 0 or 1. The byte at a descriptor's original output index
-is 1 exactly when its signature verifies under the selected policy. Full
-chunks, partial chunks, preparation rejecting a whole chunk and ineligible
-lanes mixed with eligible lanes are covered. [Loop](coq/Loop.v) · [Output placement](coq/Scatter.v) · [Return](coq/Return.v)
+The assembly resumes at the caller’s return address with RSP advanced by eight
+and restores its SysV callee-saved integer registers. Preparation may reject a
+whole chunk, and a scored chunk can contain both eligible and ineligible lanes.
+Only live lanes publish output. A padded copy of the last descriptor never
+adds an output store. [Scatter targets and preservation](coq/RejectOutputs.v) · [Return](coq/RejectFinish.v)
 
 ## Acceptance on the input bytes
 
@@ -143,11 +144,10 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
 3. **The wrapper-to-machine correspondence.** Compare the block bodies, call
    displacements, argument registers, frame offsets and tail copy with the
    linked disassembly. The descriptor transpose uses the shared indexed-load
-   interpreter. The model composes the separately certified component calls
-   using their live buffer views. Some wrapper instruction groups have
-   handwritten effects, including tail padding and the eligibility mask
-   applied to message lengths. [Wrapper image](coq/Image.v) · [Arguments](coq/Arguments.v) ·
-   [Transpose and padding](coq/Routing.v) · [Hash handoff](coq/Hash.v) · [Scoring](coq/Score.v)
+   interpreter. Check that each nested call consumes the preceding cursor’s
+   registers and memory. In particular, the prepare call must stage the last
+   live row into short-chunk padding, and the SHA handoff must clear the lengths
+   of ineligible lanes. [Staged rows](coq/ChunkRows.v) · [Hash handoff](coq/HashEntry.v) · [Native dispatch](coq/Iteration.v)
 4. **The memory claim.** For a zero count the theorem fetches from the caller's
    byte memory, executes through `ret` and proves that every prefix writes
    nothing. Every nonempty batch trace runs through the first nested signature-scalar call. Every recorded write is inside
@@ -273,16 +273,18 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    exclude the wrapper's five saved GPRs and its caller's return word.
    [Rejection call and return](coq/RejectedPath.v) · [Native dispatch](coq/FirstDispatch.v) · [Key-table initialization](coq/TableStart.v) · [Native cached coordinates](coq/TableValues.v) · [Table staging and transpose](coq/TablePackedInputs.v) · [Signed row contents](coq/TableSignedWords.v) · [Eight-multiple loop](coq/TableRounds.v) · [Builder return](coq/TableUnwind.v) · [Caller regions](coq/CallWrites.v) · [Nested regions](coq/NestedRegions.v) ·
    [Scorer alignment](coq/Score.v) · [Mapped image](coq/LoadedImage.v)
-6. **The remaining boundary.** Batches with more than eight descriptors reach the next
-   preparation call on the native trace. The restored descriptor pointer selects
-   row eight, R12 supplies the remaining count, and R13 retains the full output
-   capacity. A short second chunk repeats its final live descriptor in the spare
-   lanes. The final verdict and final memory for these batches still use grouped
-   execution. [Loop handoff](coq/ChunkRestart.v) · [Staged bytes and indices](coq/ChunkStaging.v)
-   The current theorem
-   preserves every final byte outside the output, 25,344-byte scratch and
-   16 KiB below entry RSP. [Call composition](coq/Loop.v) · [Frame model](coq/Return.v) ·
-   [Shared trust surface](../../README.md#shared-audit-surface)
+6. **Verdicts across iterations.** Check that `Iteration.more` passes the
+   actual scatter continuation into staging and that the recursive call starts
+   from the resulting CPU and store log. R12 counts the remaining rows, RBX
+   advances by 320 bytes and R13 retains the original output capacity. The
+   loop invariant covers every earlier descriptor’s output index, including a
+   permuted index. Preparation, SHA and scoring preserve those bytes. Scatter
+   writes only to the current live indices. At the final return the invariant
+   covers every descriptor. The same trace confines every store to output,
+   25,344 bytes of scratch or the 16 KiB below entry RSP.
+   [Execution and return](coq/Iteration.v) · [All-row induction](coq/NativeLoop.v) ·
+   [Protected output bytes](coq/BatchWindow.v) · [Scatter targets](coq/RejectOutputs.v) ·
+   [Staging back edge](coq/ChunkRestart.v) · [Shared trust surface](../../README.md#shared-audit-surface)
 
 ## Replay
 
@@ -313,7 +315,13 @@ output with 0 and return to the caller. The control checks the saved registers
 and each store address. Its replay theorem and mathematical rejection use
 the same input and final CPU. [Single-row execution](tests/RejectedBatch.v)
 
-A second control runs the decoder from its transposed input words through the
+A nine-row control sends the first eight rows to output indices 1 through 8
+and the padded tail to index 0. It checks both policies’ intermediate bytes,
+final bytes, and the addresses written during the tail. Shortening the
+descriptor stride from 320 to 280 bytes makes the public theorem fail.
+[Two-chunk execution](tests/TwoChunks.v) · [Damaged stride](tests/NextDescriptor.v) · [Linked mutations](mutations.py)
+
+A decoder control runs the decoder from its transposed input words through the
 five stores of Y. One lane encodes 2 and the other seven encode p + 1 with
 the sign bit set. It checks the sign mask and reads each unreduced value back
 from scratch. [Decoder execution](tests/DecoderY.v)

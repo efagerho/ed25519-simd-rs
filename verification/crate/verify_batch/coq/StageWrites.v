@@ -113,9 +113,9 @@ Proof.
  exists (State (Running (word(ip+delta)-ip)) child cf),((head++[])++[w]);split;[exact All|].
  split.
  - rewrite app_nil_r;apply Forall_app;split.
-   + eapply Forall_impl;[|exact W];intros v V x X;left;specialize (V x X);unfold Rows.frame,sp,span in *;lia.
-   + constructor;[|constructor]. intros x X;left;change (word(regs args 4%nat-8)<=x<word(regs args 4%nat-8)+8) in X.
-     rewrite SP',Slot in X;unfold Rows.frame,sp,span in *;lia.
+   + eapply Forall_impl;[|exact W];intros v V x X;specialize (V x X);unfold Prologue.stack_region,Rows.frame,sp,span in *;lia.
+   + constructor;[|constructor]. intros x X;change (word(regs args 4%nat-8)<=x<word(regs args 4%nat-8)+8) in X.
+     rewrite SP',Slot in X;unfold Prologue.stack_region,Rows.frame,sp,span in *;lia.
  - split.
    2:{ split.
      - intros j f k J H K;change (store_word (mem args) (word(regs args 4%nat-8)) ret (bank (Rows.frame e) f+8*Z.of_nat j+k)=word_byte (value s j f) k);

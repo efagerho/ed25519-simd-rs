@@ -23,13 +23,14 @@ Proof. intros Bad Done;destruct r;unfold post;cbn [FirstDispatch.after_reject];e
 Theorem checked pol bias pc text e p masks:admissible pol bias pc text e -> StrictDispatch.bound pc text ->
  (0<BatchWindow.remaining e)%nat ->
  ChunkStaging.entry (bias+pc) (BatchScalar.first_symbol pol-pc) e BatchWindow.first (BatchWindow.remaining e) p ->
+ (forall x,BatchWindow.earlier e x -> mem(machine p) x=BatchWindow.before x) ->
  exists b,dispatch pol bias pc text e p masks=Some b /\ post pol bias pc e b.
 Proof.
- intros A Code N Stage;pose proof (BatchWindow.total e N) as Total.
+ intros A Code N Stage Earlier;pose proof (BatchWindow.total e N) as Total.
  assert (Full:(0<Scatter.count e)%nat) by lia.
  destruct(batch_inputs _ _ _ _ _ A Full) as [P [[_ Slices] [[Range Sep] [Maps [Idx Entries]]]]].
  pose proof(callee_image _ _ _ _ _ A Full) as I;pose proof(decoder_aligned _ _ _ _ _ A Full) as Al.
- destruct(ChunkScalar.checked pol bias pc e p masks P I Stage) as [s [bank [Scalar Result]]].
+ destruct(ChunkScalar.checked pol bias pc e p masks P I Stage Earlier) as [s [bank [Scalar Result]]].
  destruct Result as [PC [SP [Paid [Links [Outputs Data]]]]] eqn:Res.
  destruct(Data N ltac:(intros j J;exact (proj1(proj2(Slices j J))))) as [Digits [Copy [Meta Saved]]].
  pose proof (proj2(proj2(proj2(proj2(proj2(proj2 Copy)))))) as Layout.

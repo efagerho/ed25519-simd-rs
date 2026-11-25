@@ -26,9 +26,11 @@ Section Iteration.
 Context `{iteration:BatchWindow.t}.
 Theorem checked pol bias pc e p masks:placement e -> loaded pol bias (mem e) (writable e) ->
  ChunkStaging.entry (bias+pc) (first_symbol pol-pc) e BatchWindow.first (BatchWindow.remaining e) p ->
+ (forall x,BatchWindow.earlier e x -> mem(machine p) x=BatchWindow.before x) ->
  exists q bank,execute pol bias p masks=Some(q,bank) /\ BatchScalar.post pol bias (bias+pc) e q.
 Proof.
- intros P Image St;destruct St as [Target Paid W SP Ret Matrix Metadata [SI [CX [DI Id]]] [Scratch Out] Left Next Saved Tables].
+ intros P Image St Earlier;destruct St as [Target Paid W SP Ret Matrix Metadata [SI [CX [DI Id]]] [Scratch Out] Left Next Saved Tables].
+ destruct Saved as [RawSlots BP];assert (Saved:BatchWindow.saved_caller e (machine p)) by (split;[apply BatchWindow.attach;assumption|exact BP]).
  assert (View:input_view e p).
  { split;[exact W|split;[|split;[exact Metadata|split;[exact Saved|split;[exact Id|split;[exact Scratch|]]]]]].
    - intros j sig J;apply PrepareChunk.Staging.read_block;intros k K;destruct sig.

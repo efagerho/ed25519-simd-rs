@@ -35,7 +35,7 @@ Theorem choose ip text e first n s c:StageEntry.bound text -> TailWrites.bound t
  TailWrites.caller_registers e s -> regs s 3%nat=base e first -> regs s 12%nat=Z.of_nat n ->
  byte_memory(mem s) -> preserved (fun x=>~writable e x) (mem e) (mem s) ->
  exists t cf ws,run (length n) (ScalarBytes.fetch ip text) (State(Running(Image.offset Image.Choose)) s c)=
-  Some(State(Running(Image.offset Image.Stage)) t cf,ws) /\ confined (writable e) ws /\ selected e first n s t.
+  Some(State(Running(Image.offset Image.Stage)) t cf,ws) /\ confined (Prologue.stack_region e) ws /\ selected e first n s t.
 Proof.
  intros Select Tail P Read N Total Frame BX Count Bytes Outside;pose proof(bounds e first n Read N ltac:(lia)) as [Fit Away].
  destruct(Read) as [_ Sep];destruct(stack_ok _ P) as [[Low High] _].
@@ -68,5 +68,5 @@ Proof.
    + rewrite Active;unfold active;rewrite Nat.min_r by lia;reflexivity.
    + intros j k J K;rewrite Base;unfold lane;rewrite Nat.min_l by lia;unfold base;rewrite Nat2Z.inj_add.
      pose proof(steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ Run)) as M;cbn [cpu_state] in M;rewrite M;
-     rewrite (WriteTrace.frame _ _ Safe),Outside;[f_equal;ring|apply Sep;lia|apply Sep;lia].
+     apply Prologue.stack_writable in Safe;rewrite (WriteTrace.frame _ _ Safe),Outside;[f_equal;ring|apply Sep;lia|apply Sep;lia].
 Qed.

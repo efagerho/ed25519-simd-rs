@@ -33,8 +33,8 @@ Use the [shared audit surface](../README.md#shared-audit-surface) for the
 machine, memory, and mathematical assumptions. For each release, follow the
 routine’s inputs from its caller to the public theorem and its outputs back
 to the caller. For production batch verification, start with the theorem for the
-policy selected by Rust. Check its caller premises and grouped execution
-boundary alongside the Rust dispatch, descriptor layout and output indices.
+policy selected by Rust. Check its caller premises, the native trace through the return to Rust, and
+the correspondence between original descriptors and returned output bytes.
 [Batch contracts and audit guide](verify_batch/README.md) ·
 [Rust driver](../../src/verifier/driver.rs) · [Descriptor layout](../../src/batch.rs) ·
 [Batch assembly](../../src/wide/avx512ifma/verify_batch.S)

@@ -60,9 +60,9 @@ Theorem resume pol bias pc text e p :
  accounted e (writable e) p -> ip p=word(bias+pc+offset Prepared) ->
  regs(machine p) 4%nat=Rows.frame e -> Prologue.output_registers e (machine p) ->
  regs(machine p) 12%nat=BatchWindow.next_count e -> regs(machine p) 0%nat mod 2^32=0 ->
- (0<BatchWindow.remaining e)%nat -> Scatter.indices e -> BatchWindow.metadata e (mem(machine p)) -> StageEntry.saved_caller e (machine p) -> byte_memory(mem(machine p)) ->
+ (0<BatchWindow.remaining e)%nat -> Scatter.indices e -> BatchWindow.metadata e (mem(machine p)) -> BatchWindow.saved_caller e (machine p) -> byte_memory(mem(machine p)) ->
  ChunkContext.bindings e (machine p) ->
- exists q,scatter_stores bias pc text p=Some q /\ continued bias pc e q /\ RejectOutputs.outputs e (machine q) /\ StageEntry.saved_caller e (machine q) /\ byte_memory(mem(machine q)) /\ ChunkContext.bindings e (machine q).
+ exists q,scatter_stores bias pc text p=Some q /\ continued bias pc e q /\ RejectOutputs.outputs e (machine q) /\ BatchWindow.saved_caller e (machine q) /\ byte_memory(mem(machine q)) /\ ChunkContext.bindings e (machine q).
 Proof.
  intros Code Place Image Range Length Bytes Apart Prev IP SP [Count Out] Left Zero Live Indices Meta [Spills BP] Octets Bindings.
  change 574 with (offset Continue) in *.
@@ -93,28 +93,28 @@ Proof.
  { apply (ScalarByteMemory.run_bytes 8 (bias+pc) (length text) (State(Running 385)(machine p)(carry p)) s w);
    [exact Octets|exact (run_lift _ _ _ _ _ _ _ Step W (image_after _ _ _ _ _ Prev Bytes Apart) Apart)]. }
  destruct(Scattered.checked pol bias e s0 _ Place Image Paid At Stack Back RegD RegN B) as [q [Returned End]].
+ assert (MetaChild:BatchWindow.metadata e (mem(machine s0))).
+ { eapply IndexStores.metadata_preserved;[|exact Meta];intros x X;change (mem(cpu_state s) x=mem(machine p) x).
+   rewrite (steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ Step));apply (WriteTrace.frame _ _ Safe);unfold pending;lia. }
+ destruct(RejectOutputs.published (bias+scatter) e s0 q Place Live Indices At MetaPtr RegD RegN Cleared MetaChild Map Const Returned)
+   as [ScatterFrame Result].
  exists q;split;[unfold scatter_stores;rewrite Dispatch;exact Returned|split].
  - unfold continued;rewrite (Scattered.target _ _ _ _ End),ScalarRefinement.word_idempotent,(word_fits _ (proj1 R)).
    split;[reflexivity|split;[exact (Scattered.stack _ _ _ _ End)|split;[exact (Scattered.writes _ _ _ _ End)|]]].
    rewrite (Scattered.saved _ _ _ _ End 12%nat) by (simpl;tauto);exact (eq_trans CarryLeft Left).
  - split.
-   + apply (RejectOutputs.published (bias+scatter) e s0 q Place Live Indices At MetaPtr RegD RegN Cleared).
-     * eapply IndexStores.metadata_preserved;[|exact Meta];intros x X;change (mem(cpu_state s) x=mem(machine p) x).
-       rewrite (steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ Step));apply (WriteTrace.frame _ _ Safe);unfold pending;lia.
-     * exact Map.
-     * exact Const.
-     * exact Returned.
+   + exact Result.
    + split;[split|split;[exact (Scattered.bytes _ _ _ _ End)|]].
      3:{ apply (ChunkContext.preserve e (machine p) (machine q) Bindings).
          - intros g G;rewrite (Scattered.saved _ _ _ _ End g G);exact(GPR g G).
          - intros x X;rewrite (Scattered.outside _ _ _ _ End) by (destruct(out_stack _ Place);unfold Scattered.region,Rows.frame,sp,disjoint in *;lia).
            change (mem(cpu_state s) x=mem(machine p) x);rewrite (steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ Step));
              apply (WriteTrace.frame _ _ Safe);unfold pending;lia. }
-     * intros x X;rewrite (Scattered.outside _ _ _ _ End) by
-         (destruct(out_stack _ Place);unfold Scattered.region,disjoint in *;lia).
-       change (mem(cpu_state s) x=Return.saved_memory e x).
+     * intros x X;rewrite (ScatterFrame x X).
+       change (mem(cpu_state s) x=BatchWindow.expected e x).
+       pose proof(BatchWindow.geometry _ _ X) as G.
        rewrite (steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ Step)),(WriteTrace.frame _ _ Safe)
-         by (unfold pending,Rows.frame,sp in *;lia);apply Spills,X.
+         by (unfold pending,BatchWindow.external_byte,Rows.frame,sp in *;lia);apply Spills,X.
      * rewrite (Scattered.saved _ _ _ _ End 5%nat) by (simpl;tauto);exact (eq_trans BP0 BP).
 Qed.
 End Iteration.

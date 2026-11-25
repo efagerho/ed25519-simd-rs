@@ -154,6 +154,7 @@ Proof.
  destruct (choose ip text e s c Select Tail P (conj SP Scratch)) as [[l t cf] [pad [Pad [Safe [[PC Frame] [Full Left]]]]]].
  cbn [loc cpu_state] in PC,Frame,Full,Left;rewrite Count in Left;subst l.
  destruct (StageWrites.instructions ip text delta e t cf Transfer P (proj1 Frame) (proj2 Frame) Left) as [child [stores [Body [Bounds [ABI [Matrix [Identity ChildScratch]]]]]]].
+ apply Prologue.stack_writable in W,Safe,Bounds.
  set (short:=(word (regs s 12%nat) <? 8)) in *.
  set (n:=(15+(if short then 90 else 4)+42)%nat).
  exists n;split;[unfold n;destruct short;auto|].

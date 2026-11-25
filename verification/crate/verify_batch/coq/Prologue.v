@@ -17,13 +17,17 @@ Definition listing := saves_and_setup ++ pointer_spills.
 Definition bound text := Forall (fun '(a,n,i)=>decode (skipn (Z.to_nat a) text)=Some(n,i)) listing.
 (* The postcondition can inspect the final state. Intermediate CPUs stay
    abstract so the proof does not repeatedly expand their stack memories. *)
+Definition stack_region e:=Return.span (sp e-16384) 16384.
+Lemma stack_writable e ws:confined (stack_region e) ws -> confined (writable e) ws.
+Proof. apply Forall_impl;intros w W x X;left;apply W,X. Qed.
+
 Definition segment ip text e n a s c (post:state->Prop) :=
  exists t ws,MappedFetch.run n (ScalarBytes.fetch ip text) (State (Running a) s c)=Some(t,ws) /\
- confined (Return.writable e) ws /\ post t.
+ confined (stack_region e) ws /\ post t.
 
 Lemma more ip text e n a s c b next carry own post :
  ScalarBytes.fetch ip text (State (Running a) s c)=Some(State (Running b) next carry,own) ->
- confined (Return.writable e) own -> segment ip text e n b next carry post ->
+ confined (stack_region e) own -> segment ip text e n b next carry post ->
  segment ip text e (S n) a s c post.
 Proof.
  intros F W [t [ws [R [S P]]]]. exists t,(own++ws);cbn [MappedFetch.run];rewrite F,R;cbn [option_map].
@@ -38,10 +42,10 @@ Definition frame_word e a := sp e-16384<=a /\ a+8<=sp e.
 
 Lemma slot_word e a : placement e -> frame_word e a -> word a=a.
 Proof. intros P [L H];apply word_fits;destruct(stack_ok _ P) as [[A B] _];unfold word64;lia. Qed.
-Lemma slot_allowed e pc a v : frame_word e a -> confined (writable e) [qword pc a v].
+Lemma slot_allowed e pc a v : frame_word e a -> confined (stack_region e) [qword pc a v].
 Proof.
  intros [L H];apply Forall_cons;[|constructor].
- intros x X;left;change (a<=x<a+8) in X;unfold span;lia.
+ intros x X;change (a<=x<a+8) in X;unfold stack_region,span;lia.
 Qed.
 
 Definition registers s (expected:nat->Z) := forall r,r<>4%nat -> regs s r=expected r.

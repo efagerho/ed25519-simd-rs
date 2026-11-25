@@ -20,12 +20,15 @@ HASH_LENGTH = ("load SHA lengths from the message-pointer row", "Zip",
                "62 f1 fe c9 6f 44 24 0b", "62 f1 fe c9 6f 44 24 0a")
 SCORE_VALIDITY = ("read the first eligibility byte as the decoded R mask", "Dalek",
                   "0f b6 57 48", "0f b6 57 40")
+NEXT_DESCRIPTOR = ("advance seven descriptors across the batch back edge", "Zip",
+                   "48 81 c3 40 01 00 00", "48 81 c3 18 01 00 00")
 CASES = (
     SCORE_VALIDITY,
     HASH_LENGTH,
     RETURN_SLOT,
     TRANSPOSE,
     ("read past the last tail row", "Dalek", "48 0f 42 f0", "48 0f 46 f0"),
+    NEXT_DESCRIPTOR,
     ("change the output index", "Zip", "48 8b 43 20", "48 8b 43 18"),
     ("shift the stack frame", "Dalek", "48 81 ec c0 03 00 00", "48 81 ec d0 03 00 00"),
     ("hash the key twice", "Dalek", "49 8d b7 00 01 00 00", "49 8d b7 00 00 00 00"),
@@ -59,10 +62,11 @@ def check(elf, audit, work):
             (work / path.name).symlink_to(path)
     dest = work / NS
     shutil.copytree(audit / NS, dest)
-    for module in ("RejectedBatch", "DecoderY", "TableIdentityBytes", "StrictCanonical"):
+    for module in ("RejectedBatch", "TwoChunks", "DecoderY", "TableIdentityBytes", "StrictCanonical"):
         shutil.copyfile(Path(__file__).with_name("tests") / f"{module}.v", dest / f"{module}.v")
         compile_module(work, FLAGS, NS, module)
     print("Both policy entries returned a confined rejection on the padded single-row control", flush=True)
+    print("Both policy entries preserved the first eight permuted outputs while the ninth row was published", flush=True)
     print("The decoder preserved the sign mask and noncanonical Y in all eight scratch lanes", flush=True)
     print("All eight table identities matched and the changed 2Z store was detected", flush=True)
     print("The strict scorer rejected Y equal to p and admitted it with a damaged cutoff byte", flush=True)
@@ -74,7 +78,8 @@ def check(elf, audit, work):
             compile_module(work, FLAGS, NS, module)
         compile_module(work, FLAGS, NS, "Object", reject=True)
         control = {RETURN_SLOT[0]: "ReturnSlot", TRANSPOSE[0]: "Transpose",
-                   HASH_LENGTH[0]: "HashPointerLength", SCORE_VALIDITY[0]: "ScoreValidity"}.get(description)
+                   HASH_LENGTH[0]: "HashPointerLength", SCORE_VALIDITY[0]: "ScoreValidity",
+                   NEXT_DESCRIPTOR[0]: "NextDescriptor"}.get(description)
         if control:
             filename = control + ".v"
             shutil.copyfile(Path(__file__).with_name("tests") / filename, dest / filename)
@@ -92,7 +97,8 @@ def check(elf, audit, work):
     if source.count(exact) != 1:
         raise ValueError("missing verdict specification")
     contract.write_text(source.replace(exact, "v=false <-> signature_accepts"))
-    compile_module(work, FLAGS, NS, "Audit")
+    for module in ("Audit", "ChunkDispatch", "ChunkScore", "NativeLoop"):
+        compile_module(work, FLAGS, NS, module)
     compile_module(work, FLAGS, NS, "Object", reject=True, diagnostic="while it is expected to have type")
     print("Batch theorem rejected an inverted acceptance specification", flush=True)
 
