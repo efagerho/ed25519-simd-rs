@@ -154,3 +154,11 @@ Example extended_shuffle_and_extract :
     mem(ScalarBytes.cpu_state t) 352=255
  | _=>False end.
 Proof. vm_compute;auto 7. Qed.
+
+Example cached_add_affine_argument :
+ let s:=CPU (fun _=>2^48+3) (fun _ _=>0) (Some true) (fun _=>0) in
+ match ScalarBytes.fetch 0 [0xb9;0x01;0x02;0x03;0x80] (ScalarBytes.State (ScalarBytes.Running 0) s (Some false)) with
+ | Some(t,[])=>let v:=ScalarBytes.cpu_state t in regs v 1%nat=0x80030201 /\ regs v 2%nat=2^48+3 /\
+    ScalarBytes.loc t=ScalarBytes.Running 5 /\ flag v=Some true /\ ScalarBytes.cf t=Some false
+ | _=>False end.
+Proof. repeat split;reflexivity. Qed.
