@@ -47,6 +47,7 @@ Record returned pol bias origin e q r:Prop:=Returned {
  saved:forall g,In g sysv_saved -> Sha512Challenge.Execution.saved_register r g=Some(regs(machine q) g);
  writes:confined (writable e) (history bias q);
  bytes:byte_memory (Sha512Challenge.Execution.after r);
+ frame:preserved (fun x=>x<sp e-16384 \/ Rows.frame e+512<=x) (mem(machine q)) (Sha512Challenge.Execution.after r);
  replayed:forall x,Sha512Challenge.Execution.after r x=replay (mem e) (history bias q) x;
  digest:forall j,(j<8)%nat -> HashLayout.eligible pol e j ->
    Scalar.ScalarSpec.lane_input (buffer_words (Sha512Challenge.Execution.after r) (Rows.frame e)) j=
@@ -65,7 +66,7 @@ Proof.
  assert (L:In (literal,Sha512Challenge.LiteralBytes.symbol_bytes) (children pol)) by (apply in_or_app;left;do 4 right;left;reflexivity).
  destruct(mapped_now _ _ _ I _ _ _ Prefix L) as [Data _].
  destruct(Sha512Challenge.Audit.returns_correct _ _ _ _ Sha512Challenge.Object.assembled_sha512_challenge_correct bias s Layout W Data)
- as [r [Run [PC [SP [G [B [_ Digests]]]]]]].
+ as [r [Run [PC [SP [G [B [Frame Digests]]]]]]].
  destruct(Sha512Challenge.Audit.write_footprint _ _ _ _ Sha512Challenge.Object.assembled_sha512_challenge_correct bias s Layout) as [Safe Replay].
  destruct(HashEntry.args _ _ _ _ _ Q) as [Top [Dst _]].
  assert (StackWrites:confined (writable e) (CallWrites.hash_events_at bias s)).
@@ -78,6 +79,8 @@ Proof.
  - exact G.
  - apply Forall_app;split;[exact (proj1 Prefix)|exact StackWrites].
  - exact B.
+ - intros x X;apply Frame;unfold Sha512Challenge.Frame.writable,Sha512Challenge.Frame.frame,Sha512Challenge.Frame.sp,Sha512Challenge.Frame.dst,s;
+   rewrite Top,Dst;pose proof(Z.mod_pos_bound (Rows.frame e-8-8) 64 ltac:(lia));unfold Rows.frame,sp in *;lia.
  - intro x;unfold history;rewrite replay_app,(Replay r Run x);apply replay_equal,(proj2 Prefix).
  - intros j J On;pose proof(Digest.sha_to_scalar s _ j J Digests) as Scalar.
    pose proof(challenge_bytes _ _ _ _ _ P Borrow Enc Q j J) as Input.
