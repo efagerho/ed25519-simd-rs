@@ -9,12 +9,14 @@ initial contents of the output array and any batch length, including zero.
 [Rust entry points](../../../src/verifier/driver.rs)
 
 For an admissible call the master theorem provides a return and the store log
-of its instruction-level entry prefix. The zero-length return executes
-through `ret`. A batch of up to eight signatures whose S values are all at least L also
-executes through the outer `ret`. For other nonempty batches, the returned
-log reaches the next chunk if the first scalar check rejects every lane. If
-that check accepts any lane, the log includes the store of the signature-R validity byte and the eligibility branch in chunk preparation. The branch reaches offset 161 when at least one lane has canonical S and both encoded Y coordinates admit an Edwards X coordinate. Otherwise it reaches the rejection block at offset 258. The final signature verdict for these paths comes from grouped execution on
-the original inputs. Every such return has
+of its instruction-level entry prefix. The zero-length call and every single-chunk preparation rejection execute
+through the outer `ret`. This includes a canonical S whose public key or R
+fails decoding. For other nonempty batches the same log reaches the next
+chunk after a rejection, or reaches the key-table preparation code when an
+eligible lane exists. A lane is eligible here exactly when S is canonical and
+both encoded Y coordinates admit an Edwards X coordinate. The final signature
+verdict on these continuing paths comes from grouped execution on the original
+inputs. Every such return has
 status 1, resumes at the caller's return address with RSP advanced by eight,
 restores the SysV callee-saved integer registers and leaves byte-valued memory.
 Each output byte is 0 or 1. The byte at a descriptor's original output index
@@ -153,7 +155,7 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    its own exponentiation result to the same code, and resumes at offset 222
    with both validity bytes. The decoder packs them into EAX, restores RBP, RBX and R12–R14 from their five live stack slots, and executes its outer return to chunk preparation. [Paired point returns](coq/PairReturn.v) · [Signature-R criterion](coq/SignatureDecision.v) · [Decoder return](coq/DecoderReturn.v) · [Eligibility branch and R-validity store](coq/EligibleLanes.v)
    [Field setup and inputs](coq/PowerInputs.v) · [Exponentiation call](coq/DecoderPower.v) · [Return and write log](coq/PowerWrites.v) · [Root comparison input](coq/RootTest.v) · [Validity byte](coq/Selection.v) · [Root candidate](coq/RootCandidate.v)
-   If the signature-scalar call returns zero, the decoded branches, pops and returns take both
+   If either the scalar mask or the combined eligibility mask is zero, the decoded branches, pops and returns take both
    policies back to the wrapper's preparation continuation with RSP restored,
    the same EAX and no additional stores. The wrapper passes its original
    output pointer and count to scatter. The proof follows the nested return
@@ -187,9 +189,9 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    offsets used to apply each component result. The decoded scorer's entry
    RSP is eight bytes below its aligned point buffer. The nested write regions
    exclude the wrapper's five saved GPRs and its caller's return word.
-   [Rejection call and return](coq/RejectCall.v) · [Caller regions](coq/CallWrites.v) · [Nested regions](coq/NestedRegions.v) ·
+   [Rejection call and return](coq/RejectedPath.v) · [Native dispatch](coq/FirstDispatch.v) · [Caller regions](coq/CallWrites.v) · [Nested regions](coq/NestedRegions.v) ·
    [Scorer alignment](coq/Score.v) · [Mapped image](coq/LoadedImage.v)
-6. **The remaining boundary.** For batches longer than eight or with a canonical S in the first
+6. **The remaining boundary.** For batches longer than eight or with an eligible lane in the first
    chunk, the verdict and final-memory guarantee still use grouped execution. It permits arbitrary
    final contents in private storage and restores the wrapper's saved slots.
    For such an entry CPU and the same prefix log, it permits both

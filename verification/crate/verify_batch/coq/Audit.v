@@ -6,7 +6,7 @@ From Ed25519Simd.Sha512Challenge Require Audit ObjectBytes LiteralBytes.
 From Ed25519Simd.Zip215 Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.DalekPostHash Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Arguments Image Control Tables Scatter Loop Return LoadedImage EntryWrites CallWrites NestedRegions StageEntry RejectCall BatchScalar PrepareUnwind RejectDispatch RejectFinish RejectExecution.
-From Ed25519Simd.VerifyBatch Require BatchDecode EligibleLanes.
+From Ed25519Simd.VerifyBatch Require BatchDecode EligibleLanes EligibilityFrame FirstDispatch RejectedPath.
 Local Open Scope Z_scope.
 
 Definition destination pol t := match t with
@@ -91,37 +91,27 @@ Definition first_chunk pol bias pc text e carry masks :=
                                  BatchDecode.entry pol bias e decoder /\
                                  exists bank r,BatchScalar.masks_after pol bias (bias+pc) text e carry masks=Some bank /\
                                    EligibleLanes.observe pol bias e decoder bank=Some r /\
-                                   EligibleLanes.checked_trace pol bias e decoder r) /\
+                                   EligibleLanes.checked_trace pol bias e decoder r /\
+                                   (regs(LinkedRun.machine(EligibleLanes.stopped r)) 14%nat=0 ->
+                                    exists final,RejectedPath.execute true pol bias pc text (EligibleLanes.stopped r)=Some final /\
+                                                 RejectExecution.post (bias+pc) e final)) /\
                 (regs (LinkedRun.machine stop) 0%nat mod 2^32=0 ->
                  (forall j,(j<8)%nat -> (j<count e)%nat -> ~signature_accepts pol (read_input (mem e) (regs e 7%nat) j)) /\
                  exists r, RejectExecution.scalar_rejection pol bias pc text e carry masks=Some r /\
                            RejectExecution.post (bias+pc) e r).
 
-(* The recorded prefix ends at the last native cursor established for the
-   actual branch. Both continuations retain the write log of their caller. *)
-Definition continuing_prefix pol bias pc text e carry masks stop :=
- if regs(LinkedRun.machine stop) 0%nat mod 2^32=?0 then
-   LinkedRun.bind (RejectExecution.scalar_rejection pol bias pc text e carry masks)
-     (fun r=>match r with RejectExecution.NextChunk p=>Some p | _=>None end)
- else LinkedRun.bind (BatchDecode.observe pol bias pc text e carry masks)
-     (fun d=>LinkedRun.bind (BatchScalar.masks_after pol bias (bias+pc) text e carry masks) (fun bank=>
-       option_map EligibleLanes.stopped (EligibleLanes.observe pol bias e d bank))).
-
-(* A single rejected chunk reaches the outer RET on the same store log. *)
+(* A completed native return fixes the verdict CPU and the write log together. *)
 Inductive observation pol bias pc text e carry masks : list WriteTrace.store -> Z -> cpu -> Prop :=
  | observe_empty ws ip final : count e=0%nat ->
    MappedFetch.steps (bias+pc) (length text) (ScalarBytes.State (ScalarBytes.Running 0) e carry) ws
      (ScalarBytes.State (ScalarBytes.Returned ip) final (Some false)) ->
    observation pol bias pc text e carry masks ws ip final
- | observe_rejected stop q : (0<count e<=8)%nat ->
-   BatchScalar.observe pol bias (bias+pc) text e carry masks=Some stop ->
-   regs(LinkedRun.machine stop) 0%nat mod 2^32=0 ->
-   RejectExecution.scalar_rejection pol bias pc text e carry masks=Some(RejectExecution.BatchReturned q) ->
+ | observe_rejected q : (0<count e)%nat ->
+   FirstDispatch.run pol bias pc text e carry masks=Some(FirstDispatch.Completed q) ->
    observation pol bias pc text e carry masks (LinkedRun.log q) (LinkedRun.ip q) (LinkedRun.machine q)
- | observe_batch stop prefix ip final : (0<count e)%nat ->
-   ((8<count e)%nat \/ regs(LinkedRun.machine stop) 0%nat mod 2^32<>0) ->
-   BatchScalar.observe pol bias (bias+pc) text e carry masks=Some stop ->
-   continuing_prefix pol bias pc text e carry masks stop=Some prefix ->
+ | observe_batch prefix ip final : (0<count e)%nat ->
+   (FirstDispatch.run pol bias pc text e carry masks=Some(FirstDispatch.MoreChunks prefix) \/
+    FirstDispatch.run pol bias pc text e carry masks=Some(FirstDispatch.BuildTables prefix)) ->
    execution pol bias pc text (bias+pc) e ip final ->
    observation pol bias pc text e carry masks (LinkedRun.log prefix) ip final.
 
@@ -176,6 +166,6 @@ Proof.
  2:{ destruct Exit as [More _];lia. }
  exists q;split;[exact End|split].
  - exact (proj1 (proj2 (verify _ _ _ Checked _ _ c masks A) _ _ _
-     (observe_rejected _ _ _ _ _ _ _ _ _ (conj Live Size) Run Zero End))).
+     (observe_rejected _ _ _ _ _ _ _ q Live (FirstDispatch.scalar_path _ _ _ _ _ _ _ _ _ Run Zero End)))).
  - split;[exact Paid|intros i I;split;[apply Outputs;lia|apply Invalid;lia]].
 Qed.
