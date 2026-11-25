@@ -1,7 +1,7 @@
 From Coq Require Import ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage.
-From Ed25519Simd.VerifyBatch Require StrictOrderClear.
+From Ed25519Simd.VerifyBatch Require StrictScoreFrame.
 Local Open Scope Z_scope.
 
 (* Retain the predicate bank produced by the Y comparison until the callee's
@@ -23,13 +23,14 @@ Lemma from_canonical bias parent e h r child score y t bank :
  placement e -> loaded Dalek bias (mem e) (writable e) ->
  ScoreStart.reached Dalek bias parent e h r child score -> StrictRStart.reached bias e score y ->
  StrictRCanonical.result bias e y t ->
- (exists q,execute bias t bank=Some q) /\ (forall q,execute bias t bank=Some q -> decision bias e q).
+ (exists q,execute bias t bank=Some q) /\ (forall q,execute bias t bank=Some q -> decision bias e q /\ StrictScoreFrame.context bias parent e child q).
 Proof.
  intros P I Start Y C;destruct(StrictRCall.checked _ _ _ _ _ _ P I (StrictRFrame.checked _ _ _ _ _ _ _ _ _ P Start Y C) C)
     as [call [Step R]].
+ destruct(StrictScoreFrame.at_call _ _ _ _ _ _ _ _ _ _ P Start Y C R) as [Saved Outputs].
  pose proof(StrictRCall.branch _ _ _ _ R) as Branch.
  unfold execute;rewrite Step;cbn [bind];destruct(Z.eqb_spec (regs(machine t) 12%nat) 0) as [NoneLeft|Live].
- - split;[eauto|];intros q E;injection E as <-;constructor.
+ - split;[eauto|];intros q E;injection E as <-;split;[constructor|exact (StrictScoreFrame.rejected _ _ _ _ _ _ Saved Outputs Branch)].
    + exact (StrictRCall.writes _ _ _ _ R).
    + exact (StrictRCall.words _ _ _ _ R).
    + intros j J;rewrite (StrictRCall.mask _ _ _ _ R),NoneLeft,Z.bits_0;split;[discriminate|].
@@ -39,16 +40,16 @@ Proof.
  - destruct(StrictOrderReturn.checked _ _ _ _ bank P I (StrictRCall.writes _ _ _ _ R) (StrictRCall.words _ _ _ _ R) Branch)
        as [ret [k [Run End]]].
    destruct(StrictOrderClear.checked _ _ _ _ _ _ I C R End) as [q [Screen Post]].
-   rewrite Run;cbn [bind];split;[eauto|];intros stop S;rewrite Screen in S;injection S as <-;constructor.
+   rewrite Run;cbn [bind];split;[eauto|];intros stop S;rewrite Screen in S;injection S as <-;split;[constructor|exact (StrictScoreFrame.screened _ _ _ _ _ _ _ Saved Outputs End Post)].
    + exact (StrictOrderClear.writes _ _ _ _ Post).
    + exact (StrictOrderClear.words _ _ _ _ Post).
    + exact (StrictOrderClear.lane _ _ _ _ Post).
    + pose proof(StrictOrderClear.pc _ _ _ _ Post) as PC;destruct(regs(machine q) 12%nat=?0);auto.
 Qed.
 
-Theorem checked bias parent e h r child score : placement e -> loaded Dalek bias (mem e) (writable e) ->
+Theorem with_frame bias parent e h r child score : placement e -> loaded Dalek bias (mem e) (writable e) ->
  HashLayout.active Dalek e -> ScoreStart.reached Dalek bias parent e h r child score ->
- (exists stop,observed bias score stop) /\ (forall stop,observed bias score stop -> decision bias e stop).
+ (exists stop,observed bias score stop) /\ (forall stop,observed bias score stop -> decision bias e stop /\ StrictScoreFrame.context bias parent e child stop).
 Proof.
  intros P I Live Start;split.
  - set (ks:=fun _ _:nat=>false);destruct(StrictRStart.checked _ _ _ _ _ _ _ ks P I Live Start) as [y [k [First Y]]].
@@ -58,4 +59,12 @@ Proof.
    destruct(StrictRStart.checked _ _ _ _ _ _ _ ks P I Live Start) as [u [ko [First Y]]];rewrite F in First;injection First as <- <-.
    destruct(StrictRCanonical.checked _ _ _ _ _ _ _ _ k P I Start Y) as [u [ko [Run Post]]];rewrite C in Run;injection Run as <- <-.
    exact (proj2(from_canonical _ _ _ _ _ _ _ _ _ bank P I Start Y Post) _ E).
+Qed.
+
+Theorem checked bias parent e h r child score : placement e -> loaded Dalek bias (mem e) (writable e) ->
+ HashLayout.active Dalek e -> ScoreStart.reached Dalek bias parent e h r child score ->
+ (exists stop,observed bias score stop) /\ (forall stop,observed bias score stop -> decision bias e stop).
+Proof.
+ intros P I Live Start;destruct(with_frame _ _ _ _ _ _ _ P I Live Start) as [Ex All].
+ split;[exact Ex|intros q Run;exact (proj1(All _ Run))].
 Qed.

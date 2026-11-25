@@ -6,7 +6,7 @@ From Ed25519Simd.Sha512Challenge Require Audit ObjectBytes LiteralBytes.
 From Ed25519Simd.Zip215 Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.DalekPostHash Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Arguments Image Control Tables Scatter Loop Return LoadedImage EntryWrites CallWrites NestedRegions StageEntry RejectCall BatchScalar PrepareUnwind RejectDispatch RejectFinish RejectExecution.
-From Ed25519Simd.VerifyBatch Require BatchDecode EligibleLanes EligibilityFrame FirstDispatch RejectedPath ScoreStart ScoreProgress.
+From Ed25519Simd.VerifyBatch Require BatchDecode EligibleLanes EligibilityFrame FirstDispatch RejectedPath ScoreStart ScoreProgress ScorePublish.
 Local Open Scope Z_scope.
 
 Definition destination pol t := match t with
@@ -114,6 +114,9 @@ Definition scoring pol bias pc text e c masks stop := exists q r s cf child scor
    HashResume.compatible r s /\ well_formed s /\ ScoreCall.execute bias pc text q r s cf=Some child /\
    ScoreStart.from_call pol bias child=Some score /\ ScoreProgress.observed pol bias score stop.
 
+Definition scorer_rejected pol stop:=match pol with
+ | Dalek=>regs(LinkedRun.machine stop) 12%nat=?0 | Zip215=>false end.
+
 (* A completed native return fixes the verdict CPU and the write log together. *)
 Inductive observation pol bias pc text e carry masks : list WriteTrace.store -> Z -> cpu -> Prop :=
  | observe_empty ws ip final : count e=0%nat ->
@@ -127,8 +130,15 @@ Inductive observation pol bias pc text e carry masks : list WriteTrace.store -> 
    FirstDispatch.run pol bias pc text e carry masks=Some(FirstDispatch.MoreChunks q) ->
    execution pol bias pc text (bias+pc) e ip final ->
    observation pol bias pc text e carry masks (LinkedRun.log q) ip final
- | observe_scoring stop ip final : (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
+ | observe_scored_return stop q : (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
+   scorer_rejected pol stop=true -> ScorePublish.execute bias pc text stop=Some(RejectExecution.BatchReturned q) ->
+   observation pol bias pc text e carry masks (LinkedRun.log q) (LinkedRun.ip q) (LinkedRun.machine q)
+ | observe_scored_next stop q ip final : (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
+   scorer_rejected pol stop=true -> ScorePublish.execute bias pc text stop=Some(RejectExecution.NextChunk q) ->
    execution pol bias pc text (bias+pc) e ip final ->
+   observation pol bias pc text e carry masks (LinkedRun.log q) ip final
+ | observe_scoring stop ip final : (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
+   scorer_rejected pol stop=false -> execution pol bias pc text (bias+pc) e ip final ->
    observation pol bias pc text e carry masks (LinkedRun.log stop) ip final.
 
 Definition immutable_after pol bias pc text e ip final :=

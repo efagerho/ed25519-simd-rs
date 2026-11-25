@@ -5,6 +5,7 @@ From Ed25519Simd.Sha512Challenge Require Object.
 From Ed25519Simd.Zip215 Require Object.
 From Ed25519Simd.DalekPostHash Require Object.
 From Ed25519Simd.VerifyBatch Require Import Policy Image Control Scatter Loop Return LoadedImage EntryWrites CallWrites NestedRegions Prologue StageEntry RejectCall Audit TableCertificate ZipBytes DalekBytes.
+From Ed25519Simd.VerifyBatch Require StrictAccept.
 Local Open Scope Z_scope.
 
 Lemma linked_calls pol : callees pol.
@@ -135,16 +136,20 @@ Proof.
           eexists;split;[unfold FirstDispatch.hash_return;now rewrite HashRun|exact (conj LiveDalek (conj HashPost (conj (ScoreInputs.at_hash _ _ _ _ _ _ Place (ScoreInputs.dalek _ _ _ _ Post) ChildRun) (HashEntry.words _ _ _ _ _ ChildRun))))].
 Qed.
 
-Lemma rejected_verdict pol bias pc text e q : admissible pol bias pc text e -> (0<count e)%nat ->
- at_boundary pol bias pc e (FirstDispatch.Completed q) -> returned pol e (LinkedRun.ip q) (LinkedRun.machine q).
+Lemma rejected_return pol bias pc text e q : admissible pol bias pc text e -> (0<count e)%nat ->
+ RejectExecution.post (bias+pc) e (RejectExecution.BatchReturned q) -> rejected_inputs pol e -> returned pol e (LinkedRun.ip q) (LinkedRun.machine q).
 Proof.
- intros Caller Live [Done [Invalid _]];destruct Done as [Paid [[Status Outputs] [Bytes [Size [PC [SP Saved]]]]]].
+ intros Caller Live Done Invalid;destruct Done as [Paid [[Status Outputs] [Bytes [Size [PC [SP Saved]]]]]].
  destruct(batch_inputs _ _ _ _ _ Caller Live) as [_ [_ [_ [_ [Idx _]]]]].
  unfold returned;repeat apply conj;try assumption.
  - intros x Outside;rewrite (proj2 Paid);apply (WriteTrace.frame _ _ (proj1 Paid)),Outside.
  - intros j J;destruct(indices_cover e Idx j J) as [i [I <-]];left;apply Outputs;lia.
  - intros i I;exists false;split;[apply Outputs;lia|split;[discriminate|intro A;exfalso;exact (Invalid i ltac:(lia) I A)]].
 Qed.
+
+Lemma rejected_verdict pol bias pc text e q : admissible pol bias pc text e -> (0<count e)%nat ->
+ at_boundary pol bias pc e (FirstDispatch.Completed q) -> returned pol e (LinkedRun.ip q) (LinkedRun.machine q).
+Proof. intros A N [Post [Invalid _]];exact (rejected_return _ _ _ _ _ _ A N Post Invalid). Qed.
 
 Corollary single_policy_rejection pol pc text : batch_contract pol pc text ->
  forall bias e cf masks,admissible pol bias pc text e -> (0<count e<=8)%nat -> ~HashLayout.active pol e ->
@@ -210,6 +215,37 @@ Proof.
  exact (proj2(proj2(proj2(proj2(Entries 0%nat (count e) zero_loc N eq_refl zero_words))))).
 Qed.
 
+Lemma scoring_context pol bias pc text e c masks stop : admissible pol bias pc text e -> (0<count e)%nat ->
+ StrictDispatch.bound pc text -> ScoreSetup.bound pol pc text -> first_chunk pol bias pc text e c masks ->
+ scoring pol bias pc text e c masks stop ->
+ exists q r child score,HashLayout.active pol e /\ ScoreStart.reached pol bias pc e q r child score /\
+ ScoreProgress.observed pol bias score stop.
+Proof.
+ intros A N Hash Scorer Native [q [r [s [cf [child [score [Run [C [W [Call [Start Progress]]]]]]]]]]].
+ destruct(dispatch_correct _ _ _ _ _ _ _ A Hash N Native) as [b [At B]];rewrite Run in At;injection At as <-.
+ destruct(score_handoff _ _ _ _ _ _ _ _ cf A N Scorer B C W) as [v [V E]];rewrite Call in V;injection V as <-.
+ destruct(ScoreStart.from_entry _ _ _ _ _ _ _ (proj1(batch_inputs _ _ _ _ _ A N)) (callee_image _ _ _ _ _ A N) E)
+    as [v [V Ready]];rewrite Start in V;injection V as <-;exists q,r,child,score;exact (conj (proj1 B) (conj Ready Progress)).
+Qed.
+
+Lemma scored_rejection pol bias pc text e c masks stop :
+ matches pc (destination pol) text -> admissible pol bias pc text e -> (0<count e)%nat ->
+ StrictDispatch.bound pc text -> ScoreSetup.bound pol pc text -> first_chunk pol bias pc text e c masks ->
+ scoring pol bias pc text e c masks stop -> scorer_rejected pol stop=true ->
+ exists v,ScorePublish.execute bias pc text stop=Some v /\ RejectExecution.post (bias+pc) e v /\ rejected_inputs pol e.
+Proof.
+ intros M A N Hash Scorer Native Scored Zero;destruct pol;[discriminate|].
+ change ((regs(LinkedRun.machine stop) 12%nat=?0)=true) in Zero;apply Z.eqb_eq in Zero.
+ destruct(scoring_context _ _ _ _ _ _ _ _ A N Hash Scorer Native Scored) as [q [r [caller [score [Live [Ready Run]]]]]].
+ destruct(batch_inputs _ _ _ _ _ A N) as [P [_ [[_ Sep] [_ [Idx _]]]]];pose proof(callee_image _ _ _ _ _ A N) as I.
+ destruct(proj2(StrictScreen.with_frame _ _ _ _ _ _ _ P I Live Ready) _ Run) as [D F].
+ destruct(ScorePublish.checked _ _ _ _ _ _ _ M Hash P I (entry_range _ _ _ _ _ A) (entry_text _ _ _ _ _ A) Sep N Idx D F Zero)
+     as [v [End Post]];exists v;split;[exact End|split;[exact Post|]].
+ intros j J Row Sig;pose proof(StrictScreen.lane _ _ _ D j J) as B;rewrite Zero,Z.bits_0 in B.
+ enough (On:StrictOrderClear.eligible e j) by (apply (proj2 B) in On;discriminate).
+ apply StrictAccept.screened;unfold HashLayout.row;now rewrite TailCopy.own_row by exact Row.
+Qed.
+
 Lemma observed_correct pol pc text bias e carry masks :
  matches pc (destination pol) text -> StrictDispatch.bound pc text -> ScoreSetup.bound pol pc text -> admissible pol bias pc text e ->
  (count e=0%nat -> empty_mapped (bias+pc) text e) ->
@@ -233,39 +269,43 @@ Proof.
        destruct(score_handoff _ _ _ _ _ _ _ _ carry Caller N Scorer Post C W) as [child [Call Enter]].
        destruct(ScoreStart.from_entry _ _ _ _ _ _ _ P (callee_image _ _ _ _ _ Caller N) Enter) as [score [Start Ready]].
        destruct (proj1 (ScoreProgress.checked _ _ _ _ _ _ _ _ P (callee_image _ _ _ _ _ Caller N) (ladder_geometry _ _ _ _ _ Caller N) (proj1 Post) Ready)) as [stop Progress].
-       destruct Exists as [ip [f R]];exists (LinkedRun.log stop),ip,f;apply (observe_scoring _ _ _ _ _ _ _ stop);[exact N| |exact R].
-       exists q,r,(HashResume.complete r e),carry,child,score;split;[exact Run|split;[exact C|split;[exact W|split;[exact Call|split;[exact Start|exact Progress]]]]].
- - intros ws ip f O;inversion O as [ws' ip' f' Z Run|q N Run|q ip' f' N Next R|stop ip' f' N Scored R];subst.
+       assert (Scored:scoring pol bias pc text e carry masks stop).
+       { exists q,r,(HashResume.complete r e),carry,child,score;split;[exact Run|split;[exact C|split;[exact W|split;[exact Call|split;[exact Start|exact Progress]]]]]. }
+       destruct(scorer_rejected pol stop) eqn:Zero.
+       -- destruct(scored_rejection _ _ _ _ _ _ _ _ Image Caller N Hash Scorer (Batch N) Scored Zero) as [[last|last] [End _]].
+          ++ do 3 eexists;eapply observe_scored_return;eassumption.
+          ++ destruct Exists as [ip [f R]];do 3 eexists;eapply observe_scored_next;eassumption.
+       -- destruct Exists as [ip [f R]];do 3 eexists;eapply observe_scoring;eassumption.
+ - intros ws ip f O;inversion O as [ws' ip' f' Z Run|q N Run|q ip' f' N Next R|
+     stop q N Scored Zero End|stop q ip' f' N Scored Zero End R|stop ip' f' N Scored Pending R];subst.
    + specialize (Empty Z);unfold empty_mapped in Empty;destruct(empty_return e) as [back last] eqn:E.
      destruct (proj2 (Empty carry) _ _ Run) as [-> Same].
      inversion Same as [|s t u own rest Impossible];[|discriminate].
      subst;split;[apply Sound,empty_path;[exact Image|now rewrite Z|exact E]|constructor].
    + pose proof(Dispatch _ N Run) as T;split;[exact (rejected_verdict _ _ _ _ _ _ Caller N T)|exact (proj1(proj1(proj1 T)))].
    + split;[exact (Sound _ _ R)|exact (proj1(proj1(proj1(Dispatch _ N Next))))].
-   + destruct Scored as [q [r [s [c [child [score [Next [C [W [Call [Start Progress]]]]]]]]]]].
-     split;[exact (Sound _ _ R)|]. destruct(score_handoff _ _ _ _ _ _ _ _ c Caller N Scorer (Dispatch _ N Next) C W) as [q' [H Post]].
-     rewrite Call in H;injection H as <-.
-     destruct(ScoreStart.from_entry _ _ _ _ _ _ _ (proj1(batch_inputs _ _ _ _ _ Caller N)) (callee_image _ _ _ _ _ Caller N) Post) as [v [V Q]].
-     rewrite Start in V;injection V as <-.
-     exact (proj1 (proj2 (ScoreProgress.checked _ _ _ _ _ _ _ _ (proj1(batch_inputs _ _ _ _ _ Caller N))
-       (callee_image _ _ _ _ _ Caller N) (ladder_geometry _ _ _ _ _ Caller N) (proj1(Dispatch _ N Next)) Q) _ Progress)).
+   + destruct(scored_rejection _ _ _ _ _ _ _ _ Image Caller N Hash Scorer (Batch N) Scored Zero) as [v [Done [Post Invalid]]].
+     rewrite End in Done;injection Done as <-;split;[eapply rejected_return;eassumption|exact (proj1(proj1 Post))].
+   + destruct(scored_rejection _ _ _ _ _ _ _ _ Image Caller N Hash Scorer (Batch N) Scored Zero) as [v [Done [Post Invalid]]].
+     rewrite End in Done;injection Done as <-;split;[exact (Sound _ _ R)|exact (proj1(proj1 Post))].
+   + destruct(scoring_context _ _ _ _ _ _ _ _ Caller N Hash Scorer (Batch N) Scored) as [q [r [child [score [Live [Ready Progress]]]]]].
+     split;[exact (Sound _ _ R)|exact (proj1 (proj2 (ScoreProgress.checked _ _ _ _ _ _ _ _ (proj1(batch_inputs _ _ _ _ _ Caller N))
+       (callee_image _ _ _ _ _ Caller N) (ladder_geometry _ _ _ _ _ Caller N) Live Ready) _ Progress))].
 Qed.
 
 Lemma scorer_verdict_checked pol bias pc text e c masks stop : admissible pol bias pc text e -> (0<count e)%nat ->
  StrictDispatch.bound pc text -> ScoreSetup.bound pol pc text -> first_chunk pol bias pc text e c masks ->
  scoring pol bias pc text e c masks stop -> scorer_result pol bias e stop.
 Proof.
- intros A N Hash Scorer Native [q [r [s [cf [child [score [Run [C [W [Call [Start Progress]]]]]]]]]]].
+ intros A N Hash Scorer Native Scored.
+ destruct(scoring_context _ _ _ _ _ _ _ _ A N Hash Scorer Native Scored) as [q [r [child [score [Live [Ready Progress]]]]]].
  destruct(batch_inputs _ _ _ _ _ A N) as [P [_ [_ [Maps _]]]];pose proof(callee_image _ _ _ _ _ A N) as I.
- destruct(dispatch_correct _ _ _ _ _ _ _ A Hash N Native) as [b [At B]];rewrite Run in At;injection At as <-.
- destruct(score_handoff _ _ _ _ _ _ _ _ cf A N Scorer B C W) as [v [V E]];rewrite Call in V;injection V as <-.
- destruct(ScoreStart.from_entry _ _ _ _ _ _ _ P I E) as [v [V Ready]];rewrite Start in V;injection V as <-.
  destruct pol.
  - pose proof(ladder_geometry _ _ _ _ _ A N) as G.
    destruct(proj2(ScoreProgress.zip _ _ _ _ _ _ _ P I G Ready) _ Progress) as [mid [ladder [L Stage]]].
    exists ladder;split;[exact Stage|split;[exact (proj2(proj2(proj2(LadderStage.checked _ _ _ _ _ I G L) _ Stage)))|]].
    eapply LadderProduct.checked;[exact I|exact Maps|exact (Tables.loaded _ _ static_tables_correct Maps)|exact G|exact L].
- - exact (proj2(StrictScreen.checked _ _ _ _ _ _ _ P I (proj1 B) Ready) _ Progress).
+ - exact (proj2(StrictScreen.checked _ _ _ _ _ _ _ P I Live Ready) _ Progress).
 Qed.
 
 Lemma verified pol pc text : matches pc (destination pol) text -> empty_image text -> Prologue.bound text -> StageEntry.bound text -> TailWrites.bound text -> StageWrites.bound text (destination pol Prepare-pc) -> RejectCall.bound pc text -> RejectDispatch.bound pc text -> RejectFinish.bound text -> StageEntry.preserves_bp text=true -> HashEntry.bound pc text -> ScoreSetup.bound pol pc text ->
