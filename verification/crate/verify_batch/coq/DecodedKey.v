@@ -42,6 +42,6 @@ Proof.
    try lia;try exact J;try exact I;intros x Hit;rewrite Keep,(SignedRoot.before_x _ _ _ _ S).
    all: try reflexivity;unfold SignedRoot.protected,BatchDecode.point,BatchDecode.point_offset,disjoint in *;lia. }
  destruct(RootOperands.y_at_test _ _ _ _ _ _ Square Fields j J) as [BY YV].
- split;[exact X|split;[exact (same_split _ _ Y BY)|split;[rewrite (same_value _ _ Y);exact YV|]]].
+ split;[exact X|split;[intros i I;rewrite Y by exact I;apply BY,I|split;[etransitivity;[apply Radix51.limbs_ext,Y|exact YV]|]]].
  intros G Dec;rewrite Value,VX;apply decoded_value;[unfold m;rewrite (proj2(Selection.accepts_key _ _ _ _ Pick j J));exact TestBit|exact Dec].
 Qed.

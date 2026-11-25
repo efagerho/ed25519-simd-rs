@@ -29,12 +29,12 @@ Qed.
 Lemma y_at_test sig pol bias e sq cmp :
  KeySquare.squared sig pol bias e sq -> SetupValues.fields sig e sq cmp ->
  forall j,(j<8)%nat -> let y0:=row (machine cmp) (BatchDecode.point e sig+320) j in
- split_field y0 /\ value y0=fy(original_encoding sig e j).
+ radix_digits y0 /\ limbs y0=original_encoding sig e j mod 2^255.
 Proof.
  intros [_ [_ [_ [In _]]]] Fields j J y0;destruct(In j J) as [B [Y _]].
  assert (E:same y0 (DecoderSave.digits sig e (machine sq) j)) by
    (intros i I;exact (proj2(proj2(proj2(Fields j i J I))))).
- split;[exact (same_split _ _ E B)|rewrite (same_value _ _ E);unfold value,pack;now rewrite Y].
+ split;[intros i I;rewrite E by exact I;apply B,I|rewrite <-Y;apply limbs_ext,E].
 Qed.
 
 Lemma numerator sig pol bias e sq cmp valid j :
