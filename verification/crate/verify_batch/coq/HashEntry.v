@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Lia.
-From Machine Require Import isa.Instructions isa.VectorMoves execution.WordSemantics execution.WordBounds execution.LinkedCalls execution.LinkedRun
+From Machine Require Import isa.Instructions isa.VectorMoves execution.WordSemantics execution.WordBounds execution.LinkedCalls abi.SysV execution.LinkedRun
  execution.ScalarBytes execution.ScalarWords execution.MappedFetch execution.InstructionRoute memory.ByteMemory memory.FlatMemory memory.WriteTrace.
 From Ed25519Simd.Sha512Challenge Require ObjectBytes Output.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar.
@@ -25,13 +25,15 @@ Lemma raw bias pc text s c top dst : linked text (path pc) -> regs s 4%nat=top -
  loc last=Running(callee-pc) /\ regs(cpu_state last) 4%nat=top-8 /\
  regs(cpu_state last) 7%nat=top /\ regs(cpu_state last) 6%nat=dst+256 /\ regs(cpu_state last) 2%nat=dst /\
  regs(cpu_state last) 1%nat=top+640 /\ regs(cpu_state last) 8%nat=top+704 /\
- mem(cpu_state last)=commit (commit (mem s) len) ret.
+ mem(cpu_state last)=commit (commit (mem s) len) ret /\
+ (forall r,In r sysv_saved -> regs(cpu_state last) r=regs s r).
 Proof.
  intros Code SP Scratch L H D Target o len ret;eexists;split;[apply (InstructionRoute.checked _ _ _ Code)|].
  all: cbn [path follow step loc cpu_state cf option_map push push_words regs effective set set_regs with_words mem put Nat.eqb app];rewrite ?SP,?Scratch,?Z.add_0_r.
  all: repeat match goal with |-context[word ?x]=>rewrite (word_fits x ltac:(unfold word64 in *;lia)) end.
  all: replace (o+(453+Z.of_nat 5+(callee-(pc+458)))) with (bias+callee) by (unfold o;ring).
- all: rewrite ?(word_fits _ Target);replace (bias+callee-o) with (callee-pc) by (unfold o;ring);repeat split;reflexivity.
+ all: rewrite ?(word_fits _ Target);replace (bias+callee-o) with (callee-pc) by (unfold o;ring);repeat split;try reflexivity.
+ intros r [<-|[<-|[<-|[<-|[<-|[<-|[]]]]]]];reflexivity.
 Qed.
 
 Record entry bias pc e p q:Prop:=Entry {
@@ -42,6 +44,7 @@ Record entry bias pc e p q:Prop:=Entry {
  lengths:forall j,(j<8)%nat -> Sha512Challenge.Output.message_length (machine q) j=HashLengths.length e (machine p) j;
  messages:forall j,(j<8)%nat -> read_word (mem(machine q)) (regs(machine q) 1%nat+8*Z.of_nat j)=
     descriptor (mem e) (regs e 7%nat) (TailCopy.row_index e j) 16;
+ saved:forall r,In r sysv_saved -> regs(machine q) r=regs(machine p) r;
  other_bytes:preserved (fun x=>~span (Rows.frame e-8) 8 x /\ ~span (Rows.frame e+704) 64 x) (mem(machine p)) (mem(machine q))
 }.
 Theorem checked pol bias pc text e p ks : bound pc text -> placement e -> loaded pol bias (mem e) (writable e) ->
@@ -60,7 +63,7 @@ Proof.
  assert (T:8<=t /\ t+768<2^64) by (unfold t,Rows.frame,sp in *;lia).
  destruct(raw bias pc text (machine a) (LinkedRun.carry a) t (scratch e) Call ltac:(now rewrite G) ltac:(now rewrite G)
     (proj1 T) (proj2 T) ltac:(unfold word64;lia) (mapped_word _ _ _ I _ _ (in_image pol) ltac:(vm_compute;reflexivity)))
-   as [last [Run [Next [Stack [DI [SI [DX [CX [R8 Bytes]]]]]]]]];fold o in Run,Bytes.
+   as [last [Run [Next [Stack [DI [SI [DX [CX [R8 [Bytes Saved]]]]]]]]]];fold o in Run,Bytes.
  set (ws:=[length_store o t (machine a);link_store o t]) in *.
  assert (StoreSafe:confined (writable e) ws).
  { constructor;[intros x X;left;change (t+704<=x<t+704+64) in X|constructor;[intros x X;left;change (t-8<=x<t-8+8) in X|constructor]];
@@ -81,5 +84,6 @@ Proof.
  - intros j J;cbn [LinkedRun.finish machine];rewrite CX;transitivity (read_word (mem(machine p)) (t+640+8*Z.of_nat j));[|exact (WrapperInputs.message _ _ Layout false j J)].
    apply preserved_read with (outside:=fun x=>~span (t-8) 8 x /\ ~span (t+704) 64 x);[exact Outside|].
    intros k K;change (0<=k<8) in K;unfold span;lia.
+ - intros r R;cbn [LinkedRun.finish machine];rewrite (Saved r R),G;reflexivity.
  - exact Outside.
 Qed.
