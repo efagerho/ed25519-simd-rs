@@ -151,6 +151,7 @@ Definition decode (bs:list Z) : option (nat*instruction) := match bs with
  | 0x48::0x8d::0x1c::0x24::_=>Some (4%nat,LeaG 3 (Address 4 None 0))
  | 0x45::0x31::0xc9::_=>Some (3%nat,Zero32 9)
  | 0x45::0x31::0xe4::_=>Some (3%nat,Zero32 12)
+ | 0x31::0xd2::_=>Some (2%nat,Zero32 2)
  | 0x31::0xc9::_=>Some (2%nat,Zero32 1)
  | 0xeb::d::_=>Some (2%nat,Jump (signed_value 128 d))
  | 0xe9::a::b::c::d::_=>Some (5%nat,Jump (displacement32 [a;b;c;d]))

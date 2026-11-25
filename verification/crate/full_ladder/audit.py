@@ -17,8 +17,8 @@ from proof_build import GROUP_PROJECTS, check_object, compile_libraries, write_s
 
 SYMBOL = "ed25519_simd_mul_s_base_minus_k_public"
 SOURCE = VERIFY.parent / "src/wide/avx512ifma/mul_s_base_minus_k_public.S"
-MODULES = ("LinkedBytes", "StageEntry", "ScalarAction", "Seed", "SeedPath", "SeedProjection", "NativeSeed", "Program", "Operands", "Execution",
-           "SeedPoint", "Native", "Composition", "Progress", "Audit", "FirstStage", "Object", "NegativeControls")
+MODULES = ("LinkedBytes", "StageEntry", "TopCall", "ScalarAction", "Seed", "SeedPath", "SeedProjection", "NativeSeed", "Program", "Operands", "RoundOperands", "Execution",
+           "SeedPoint", "Native", "Composition", "Progress", "Audit", "TopPoint", "TopPair", "FirstStage", "Object", "NegativeControls")
 
 
 def compile_full(elf, work, flags):

@@ -85,18 +85,27 @@ Proof.
  pose proof(B 8%nat 1%nat ltac:(auto) ltac:(lia));
  rewrite ?Nat.add_0_r,?Nat.add_1_r in *;lia.
 Qed.
+Lemma from_selected_words s B A n k a : valid_tables s B A ->
+ (forall j,(j<8)%nat -> legal_index (affine k) (weight s j n k)) ->
+ (forall i j,(i<SA.columns k)%nat -> (j<8)%nat -> cell a i j=table_row s j (affine k) (weight s j n k) i) ->
+ cache_bounds (affine k) a /\ forall j,(j<8)%nat ->
+ represents_cache (cache_values (affine k) a j) (operand_point s B A j n k).
+Proof.
+ intros T Index Word;split.
+ - intros i j I J;rewrite Word by (destruct k;assumption);apply (proj1(T j _ _ J (Index j J))),I.
+ - intros j J;unfold operand_point.
+   replace (cache_values (affine k) a j) with (scalar_cache (affine k) (table_row s j (affine k) (weight s j n k))) by
+    (unfold scalar_cache,cache_values,cache_from_fields,word_coordinate,field_at;
+     destruct k;cbn [affine];f_equal;try match goal with |-Some _=Some _=>f_equal end;
+     apply Radix51.limbs_ext;intros i I;symmetry;apply Word;cbn;auto;lia).
+   exact (proj2(T j _ _ J (Index j J))).
+Qed.
 Lemma operand_correct pc pad s B A n k :
  valid_inputs pc pad s -> valid_tables s B A -> (n<32)%nat ->
  let a:=slice (staged pc pad s n) (SA.first_row k) in
  cache_bounds (affine k) a /\ forall j,(j<8)%nat ->
  represents_cache (cache_values (affine k) a j) (operand_point s B A j n k).
 Proof.
- intros V Tables N w;pose proof (fun j J=>Tables j _ _ J (valid_weight pc pad s n k j V N J)) as T.
- split.
- - intros i j I J;unfold w;rewrite source_limb by (auto;destruct k;assumption).
-   apply (proj1 (T j J));exact I.
- - intros j J;destruct(T j J) as [_ Rep]. unfold operand_point.
-   replace (cache_values (affine k) w j) with (scalar_cache (affine k) (table_row s j (affine k) (weight s j n k)));[exact Rep|].
-   unfold scalar_cache,cache_values,cache_from_fields,word_coordinate,field_at,w.
-   destruct k;cbn [affine];f_equal;try match goal with |- Some _ = Some _ => f_equal end;apply Radix51.limbs_ext;intros;symmetry;apply source_limb;cbn;auto;lia.
+ intros V T N w;apply from_selected_words;[exact T|intros;apply (valid_weight pc pad);assumption|].
+ intros;apply source_limb;assumption.
 Qed.

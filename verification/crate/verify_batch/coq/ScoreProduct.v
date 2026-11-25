@@ -1,7 +1,7 @@
 From Coq Require Import ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage.
-From Ed25519Simd.VerifyBatch Require ScoreProgress StrictCandidateCall LadderSeed.
+From Ed25519Simd.VerifyBatch Require ScoreProgress StrictCandidateCall LadderTop.
 Local Open Scope Z_scope.
 
 Definition rejected pol screen:=match pol with Dalek=>regs(machine screen) 12%nat=?0 | Zip215=>false end.
@@ -9,11 +9,12 @@ Definition staging pol bias screen stop:=match pol with
  | Zip215=>stop=screen
  | Dalek=>exists candidate,StrictCandidateCall.execute bias screen=Some candidate /\
     ScoreProgress.product Dalek bias candidate stop end.
-Definition observed pol bias screen stop:=exists staged,staging pol bias screen staged /\
- LadderSeed.execute bias staged=Some stop.
-Definition selected pol bias e stop:=exists ladder staged,LadderStage.observed bias ladder staged /\
+Definition observed pol bias screen stop:=exists staged seed,staging pol bias screen staged /\
+ LadderSeed.execute bias staged=Some seed /\ LadderTop.execute bias seed=Some stop.
+Definition selected pol bias e stop:=exists ladder staged seed,LadderStage.observed bias ladder staged /\
  LadderStage.selected ladder staged /\ LadderProduct.meaning pol bias e ladder /\
- LadderSeed.execute bias staged=Some stop /\ LadderSeed.seeded ladder staged stop /\ LadderSeed.odd_point e ladder stop.
+ LadderSeed.execute bias staged=Some seed /\ LadderSeed.seeded ladder staged seed /\ LadderSeed.odd_point e ladder seed /\
+ LadderTop.result bias e ladder seed stop.
 
 Lemma stage_checked pol bias pc e h r caller score screen :
  placement e -> loaded pol bias (mem e) (writable e) -> ProductRun.geometry (HashLayout.chunk pol e bias) ->
@@ -49,12 +50,15 @@ Proof.
  destruct(stage_checked _ _ _ _ _ _ _ _ _ P I G Live Start Screen On) as [[staged Stage] Sound].
  split.
  - destruct(Sound _ Stage) as [mid [ladder [E End]]].
-   destruct(LadderSeed.checked _ _ _ _ _ _ I G E End) as [q [Run _]];exists q,staged;auto.
- - intros stop [v [S Seed]];destruct(Sound _ S) as [mid [ladder [E End]]].
-   destruct(LadderSeed.checked _ _ _ _ _ _ I G E End) as [q [Run [Paid [_ [Actual _]]]]].
-   rewrite Seed in Run;injection Run as <-;split;[exact Paid|exists ladder,v;split;[exact End|split]].
-   + exact (proj2(proj2(proj2(LadderStage.checked _ _ _ _ _ I G E) _ End))).
-   + split;[eapply LadderProduct.checked;eassumption|split;[exact Seed|split;[exact Actual|]]].
-     eapply LadderSeed.represents;try eassumption.
-     exact (proj2(proj2(proj2(LadderStage.checked _ _ _ _ _ I G E) _ End))).
+   destruct(LadderSeed.checked _ _ _ _ _ _ I G E End) as [seed [Run _]].
+   destruct(LadderTop.checked _ _ _ _ _ _ _ I M Tables G E End Run) as [stop [Top _]].
+   exists stop,staged,seed;auto.
+ - intros stop [v [seed [S [Seed Top]]]];destruct(Sound _ S) as [mid [ladder [E End]]].
+   destruct(LadderTop.checked _ _ _ _ _ _ _ I M Tables G E End Seed) as [q [Run [Paid Pair]]].
+   rewrite Top in Run;injection Run as Eq;subst q.
+   destruct(LadderSeed.checked _ _ _ _ _ _ I G E End) as [q [SR [_ [_ [Actual _]]]]];rewrite Seed in SR;injection SR as Eq;subst q.
+   pose proof(proj2(proj2(proj2(LadderStage.checked _ _ _ _ _ I G E) _ End))) as Selected.
+   split;[exact Paid|exists ladder,v,seed;split;[exact End|split;[exact Selected|]]].
+   split;[eapply LadderProduct.checked;eassumption|split;[exact Seed|split;[exact Actual|split;[|exact Pair]]]].
+   eapply LadderSeed.represents;eassumption.
 Qed.
