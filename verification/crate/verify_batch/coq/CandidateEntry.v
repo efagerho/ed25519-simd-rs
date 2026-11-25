@@ -6,6 +6,13 @@ From Ed25519Simd.VerifyBatch Require ScoreStart.
 Local Open Scope Z_scope.
 
 Definition retained e x:=x<sp e-16384 \/ Rows.frame e<=x.
+Lemma read_above e a m m' : preserved (retained e) m m' -> Rows.frame e<=a ->
+ read_word m' a=read_word m a.
+Proof.
+ intros M A;apply preserved_read with (outside:=retained e);[exact M|].
+ intros k K;right;change (0<=k<8) in K;lia.
+Qed.
+
 Lemma unchanged pol bias pc e h r caller q : placement e -> ScoreStart.reached pol bias pc e h r caller q ->
  preserved (retained e) (mem(machine caller)) (mem(machine q)).
 Proof.
@@ -23,6 +30,8 @@ Record entry pol bias e p:Prop:=Entry {
  stack:regs(machine p) 4%nat=ScoreFrame.buffer e-8;
  point:regs(machine p) 7%nat=ScoreFrame.buffer e;
  inputs:regs(machine p) 6%nat=Rows.frame e+768;
+ ladder_ptrs:read_word (mem(machine p)) (Rows.frame e+832)=regs e 9%nat /\
+   read_word (mem(machine p)) (Rows.frame e+840)=scratch e+512;
  digest_ptr:read_word (mem(machine p)) (Rows.frame e+848)=Rows.frame e;
  digest:forall j,(j<8)%nat -> HashLayout.eligible pol e j ->
   Scalar.ScalarSpec.lane_input (buffer_words (mem(machine p)) (Rows.frame e)) j=
@@ -33,10 +42,11 @@ Theorem zip bias pc e h r caller q : placement e -> ScoreStart.reached Zip215 bi
 Proof.
  intros P Reached;pose proof(unchanged _ _ _ _ _ _ _ _ P Reached) as M;destruct Reached as [Entry [f [_ [F [_ S]]]]].
  destruct(ScoreStart.arguments _ _ _ _ _ S) as [_ [_ [_ [_ [_ [_ [SP [DI SI]]]]]]]].
- constructor;[exact (ScoreStart.pc _ _ _ _ _ S)|exact (ScoreStart.writes _ _ _ _ _ S)|exact (ScoreStart.words _ _ _ _ _ S)|exact SP|exact DI| | | |].
+ constructor;[exact (ScoreStart.pc _ _ _ _ _ S)|exact (ScoreStart.writes _ _ _ _ _ S)|exact (ScoreStart.words _ _ _ _ _ S)|exact SP|exact DI| | | | |].
  - rewrite SI,(ScoreFrame.gpr _ _ _ _ _ F) by discriminate;exact (proj1(proj2(ScoreCall.args _ _ _ _ _ _ _ Entry))).
- - etransitivity;[|exact (proj2(proj2(proj2(ScoreCall.stack_args _ _ _ _ _ _ _ Entry))))].
-   apply preserved_read with (outside:=retained e);[exact M|intros k K;right;change (0<=k<8) in K;lia].
+ - rewrite !(read_above _ _ _ _ M) by lia.
+   destruct (ScoreCall.stack_args _ _ _ _ _ _ _ Entry) as [_ [Base [Sdigits _]]];auto.
+ - rewrite (read_above _ _ _ _ M) by lia;exact (proj2(proj2(proj2(ScoreCall.stack_args _ _ _ _ _ _ _ Entry)))).
  - intros j J On;etransitivity;[|exact (ScoreCall.digest _ _ _ _ _ _ _ Entry j J On)].
    unfold Scalar.ScalarSpec.lane_input;f_equal;apply map_ext_in;intros k K;unfold buffer_words.
    apply preserved_read with (outside:=retained e);[exact M|intros n N;right;change (0<=n<8) in N;lia].
