@@ -1,3 +1,4 @@
+From Ed25519Simd.VerifyBatch Require TableParentFrame.
 From Coq Require Import List ZArith Lia.
 From Machine Require Import execution.WordSemantics execution.LinkedCalls execution.LinkedRun execution.ScalarWords
  execution.VectorProcedure memory.ByteMemory memory.FlatMemory memory.WriteTrace.
@@ -21,7 +22,8 @@ Record result pol bias e p q:Prop:=Result {
  point_after:preserved (span (TableEntry.point e) 1280) (mem(machine p)) (mem(machine q));
  rows:forall j i,(j<8)%nat -> 0<=i<20 ->
   read_word (mem(machine q)) (TableIdentity.center (TableIdentity.first e) j+8*i)=Image.identity_word i;
- product:forall j i,(j<8)%nat -> (i<5)%nat -> vectors(machine q) j i=TableProduct.two_dt e (machine p) j i
+ product:forall j i,(j<8)%nat -> (i<5)%nat -> vectors(machine q) j i=TableProduct.two_dt e (machine p) j i;
+ parent:TableParentFrame.retained pol bias e (machine p) (machine q)
 }.
 
 Theorem checked pol bias e before p : placement e -> loaded pol bias (mem e) (writable e) ->
@@ -67,4 +69,9 @@ Proof.
    apply preserved_read with (outside:=span (TableEntry.point e) 1280).
    + exact Input.
    + intros v V;change (0<=v<8) in V;unfold span;lia.
+ - intros x K;rewrite (TableProduct.outside _ _ _ _ _ _ Q),(TableMultiple.flat _ _ _ _ _ _ D),
+     (TableIdentity.surrounding _ _ _ _ _ C),(TableParentFrame.prologue _ _ _ _ _ _ A B).
+   + reflexivity.
+   + exact (TableParentFrame.identities _ _ _ K).
+   + destruct K as [StackArea _];change (~span (TableProduct.frame pol e-1360) 2320 x) in StackArea;unfold span in StackArea;lia.
 Qed.
