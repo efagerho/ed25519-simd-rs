@@ -220,3 +220,16 @@ Example gather_merges_inactive_lanes_and_clears_mask :
    b 6%nat 0%nat=false /\ b 2%nat 8%nat=true
  | _=>False end.
 Proof. repeat split;reflexivity. Qed.
+
+From Machine Require execution.PredicateFlags.
+Example kortest_word_flags :
+ let code:=[0xc5;0xf8;0x98;0xd2] in
+ let s:=CPU (fun _=>0) (fun _ _=>0) None (fun x=>nth (Z.to_nat(x-900)) code 0) in
+ let p:=LinkedRun.Cursor 900 s None [] in
+ let flags b:=option_map (fun q=>(flag(LinkedRun.machine q),LinkedRun.carry q))
+    (PredicateFlags.test 2 p (fun _=>b)) in
+ flags (fun _=>false)=Some(Some true,Some false) /\
+ flags (fun j=>Nat.eqb j 15)=Some(Some false,Some false) /\
+ flags (fun j=>(j<?16)%nat)=Some(Some false,Some true) /\
+ flags (fun j=>Nat.eqb j 16)=Some(Some true,Some false).
+Proof. repeat split;reflexivity. Qed.
