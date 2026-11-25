@@ -6,8 +6,10 @@ Import ListNotations. Local Open Scope Z_scope.
 (* The scalar view of a straight-line block shares its arithmetic with the
    instruction interpreter. Only instructions which act independently on each
    lane have a projection here. *)
-Inductive operation := Arithmetic (i:Instructions.instruction) | BitOr (dst a b:nat).
-Definition native i := match i with Arithmetic i=>Alu i | BitOr d a b=>Or d a b end.
+Inductive operation := Arithmetic (i:Instructions.instruction) | BitOr (dst a b:nat)
+ | WithMemory (subtract:bool) (dst src base:nat) (disp:Z).
+Definition native i := match i with Arithmetic i=>Alu i | BitOr d a b=>Or d a b
+ | WithMemory sub d a b disp=>MemoryArithmetic sub d a b disp end.
 Definition width i := length (QwordRegister.encoding (native i)).
 Fixpoint route pc code := match code with
  | []=>[] | i::rest=>(pc,width i,QwordOp(native i))::route (pc+Z.of_nat(width i)) rest end.
@@ -15,7 +17,8 @@ Fixpoint after pc code := match code with
  | []=>pc | i::rest=>after (pc+Z.of_nat(width i)) rest end.
 Definition lane_step load (r:nat->Z) i := match i with
  | Arithmetic (d,op)=>put r d (bits load r d op)
- | BitOr d a b=>put r d (word (Z.lor (r a) (r b))) end.
+ | BitOr d a b=>put r d (word (Z.lor (r a) (r b)))
+ | WithMemory sub d a b disp=>put r d ((if sub then Arithmetic.vpsubq else Arithmetic.vpaddq) (r a) (load b disp)) end.
 Fixpoint lane load r code := match code with
  | []=>r | i::rest=>lane load (lane_step load r i) rest end.
 Lemma route_length pc code : length(route pc code)=length code.
@@ -34,7 +37,7 @@ Proof.
    assert (One:exists mid,step origin pc (width i) (QwordOp (native i)) s carry=
      Some(State (Running next) mid carry,[]) /\ regs mid=regs s /\ mem mid=mem s /\
      flag mid=flag s /\ forall j,vectors mid j=lane_step (vector_load s j) (vectors s j) i).
-   { destruct i as [[d op]|d a b];eexists;repeat split;reflexivity. }
+   { destruct i as [[d op]|d a b|sub d a b disp];eexists;repeat split;reflexivity. }
    destruct One as [mid [Step [Regs [Mem [Flag V]]]]].
    destruct (IH next mid Tail) as [t [Run [Rt [Mt [Ft Value]]]]].
    exists t;split.
@@ -51,7 +54,8 @@ Definition same_operation (a b:operation) : {a=b}+{a<>b}.
 Proof. repeat decide equality. Defined.
 Definition projected i := match i with
  | QwordOp (Alu ins)=>Some (Arithmetic ins)
- | QwordOp (Or d a b)=>Some (BitOr d a b) | _=>None end.
+ | QwordOp (Or d a b)=>Some (BitOr d a b)
+ | QwordOp (MemoryArithmetic sub d a b disp)=>Some (WithMemory sub d a b disp) | _=>None end.
 Lemma projected_native i op : projected i=Some op -> i=QwordOp (native op).
 Proof. destruct i;try discriminate;destruct i;intro E;try discriminate;injection E as <-;reflexivity. Qed.
 

@@ -185,12 +185,15 @@ Definition qword_op next s i := match i with
  | QwordRegister.AlignedRip d disp=>let addr:=word(next+disp) in
    if addr mod 64=?0 then Some(vector_dest s d (fun j=>read_word (mem s) (addr+8*Z.of_nat j))) else None
  | QwordRegister.SubRip d a disp=>let v:=read_word (mem s) (word(next+disp)) in
-   Some(vector_dest s d (fun j=>Arithmetic.vpsubq (vectors s j a) v)) end.
+   Some(vector_dest s d (fun j=>Arithmetic.vpsubq (vectors s j a) v))
+ | QwordRegister.MemoryArithmetic sub d a b disp=>
+   Some(vector_dest s d (fun j=>(if sub then Arithmetic.vpsubq else Arithmetic.vpaddq)
+       (vectors s j a) (vector_load s j b disp))) end.
 
 Lemma qword_state next s i out : qword_op next s i=Some out ->
  mem out=mem s /\ regs out=regs s /\ flag out=flag s.
 Proof.
- destruct i as [[d op]| | | |];cbn [qword_op];try destruct (_=?0);intro R;try discriminate;
+ destruct i as [[d op]| | | | |];cbn [qword_op];try destruct (_=?0);intro R;try discriminate;
  injection R as <-;repeat split;reflexivity.
 Qed.
 

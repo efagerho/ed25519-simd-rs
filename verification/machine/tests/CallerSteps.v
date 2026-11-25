@@ -134,3 +134,12 @@ Example counted_table_stores :
    WriteTrace.pc w=1004 /\ WriteTrace.address w=216 /\ read_word (mem v) 216=2^64-1 /\ mem v 224=7
  | _=>False end.
 Proof. repeat split;reflexivity. Qed.
+
+Example memory_source_add_sub :
+ let s:=CPU (fun _=>128) (fun _ _=>0) None (fun x=>if x=?200 then 7 else 0) in
+ let test opcode expected:=match ScalarBytes.fetch 0 [0x62;0xd1;0xf5;0x48;opcode;0x4c;0x24;1]
+    (ScalarBytes.State (ScalarBytes.Running 0) s (Some true)) with
+  | Some(t,[]) =>vectors(ScalarBytes.cpu_state t) 1%nat 1%nat=expected /\
+     vectors(ScalarBytes.cpu_state t) 0%nat 1%nat=0 /\ ScalarBytes.cf t=Some true
+  | _=>False end in test 0xfb (2^64-7) /\ test 0xd4 7.
+Proof. vm_compute;auto. Qed.
