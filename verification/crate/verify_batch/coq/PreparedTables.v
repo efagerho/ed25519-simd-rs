@@ -47,7 +47,7 @@ Qed.
 
 Theorem meaning e w s : DecodedRows.geometry false e w -> TableContents.contents e w s -> table e s.
 Proof.
- intros [Bound Seed] [Center Rows] j d J D;cbv zeta.
+ intros [Bound [_ Seed]] [Center Rows] j d J D;cbv zeta.
  destruct (Z.eq_dec d 0) as [->|NZ].
  - assert (E:forall i,(i<20)%nat -> row e s j 0 i=KeyTable.Image.identity_word (Z.of_nat i)) by
      (intros i N;rewrite (stored e s j 0 true i);apply Center;assumption).

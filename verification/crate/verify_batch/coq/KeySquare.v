@@ -16,7 +16,7 @@ Definition lea_line:list line:=[(497,7%nat,LeaG 8 (Address 7 None 320))].
 Lemma image : linked text lea_line /\ ScalarBytes.decode (skipn 504 text)=Some(5%nat,CallRelative(0xa57-509)).
 Proof. repeat split;repeat constructor;vm_compute;discriminate || reflexivity. Qed.
 Definition raw signature e s := forall j,(j<8)%nat -> let y:=digits signature e s j in
- split_field y /\ limbs y=original_encoding signature e j mod 2^255 /\
+ radix_digits y /\ limbs y=original_encoding signature e j mod 2^255 /\
  Z.testbit (regs s 0%nat) (Z.of_nat j)=Z.testbit (original_encoding signature e j) 255.
 Definition squared signature pol bias e p := ip p=base bias+509 /\ accounted e (writable e) p /\
  frame signature pol bias e (machine p) /\ raw signature e (machine p) /\
@@ -91,7 +91,7 @@ Proof.
    + split;[intros i I;rewrite D by assumption;apply B,I|split].
      * rewrite <-Y;apply limbs_ext;intros;apply D;assumption.
      * rewrite G;exact Sign.
-   + pose proof(DecoderProduct.lane_square (args j) (digits signature e s j) B
+   + pose proof(DecoderProduct.lane_square (args j) (digits signature e s j) (digits_split _ B)
        ltac:(intros i I;apply Inputs;assumption) (C j)) as [Bound [Value Positive]].
      split;[intros i I;rewrite YY;apply Bound,I|split;[|rewrite YY;exact Positive]].
      erewrite limbs_ext;[rewrite <-Y;exact Value|intro i;intros;apply YY].

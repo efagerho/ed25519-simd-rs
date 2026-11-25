@@ -11,7 +11,9 @@ Local Opaque Power.apply_kernel DecoderProduct.kernel.
 
 Definition buffer sig e s:=buffer_words (mem s) (BatchDecode.point e sig).
 Definition coord w j c i:=cell w (5*c+i)%nat j.
-Definition geometry sig e (w:nat->Z):=cache_bounds false w /\ forall j P,(j<8)%nat ->
+Definition encoded_y sig e (w:nat->Z) := forall j,(j<8)%nat ->
+ let y:=coord w j 1 in BatchDecode.radix_digits y /\ limbs y=original_encoding sig e j mod 2^255.
+Definition geometry sig e (w:nat->Z):=cache_bounds false w /\ encoded_y sig e w /\ forall j P,(j<8)%nat ->
  Policy.decodes (original_encoding sig e j) P ->
  represents_point true (point_values w j) P /\ value(coord w j 2)=1%fp.
 
@@ -23,10 +25,15 @@ Qed.
 Lemma keep sig e s t : preserved (Return.span (BatchDecode.point e sig) 1280) (mem s) (mem t) ->
  geometry sig e (buffer sig e s) -> geometry sig e (buffer sig e t).
 Proof.
- intros M [B P];assert (Eq:forall k,(k<160)%nat -> buffer sig e t k=buffer sig e s k).
+ intros M [B [Raw P]];assert (Eq:forall k,(k<160)%nat -> buffer sig e t k=buffer sig e s k).
  { intros k K;apply preserved_read with (outside:=Return.span (BatchDecode.point e sig) 1280);[exact M|].
    intros i I;change (0<=i<8) in I;unfold Return.span;lia. }
  split;[intros i j I J;unfold cell;change (i<20)%nat in I;rewrite Eq by lia;apply B;assumption|].
+ split.
+ { intros j J;destruct(Raw j J) as [T Val];cbv zeta.
+   assert (Y:same (coord (buffer sig e t) j 1) (coord (buffer sig e s) j 1)) by
+    (intros i I;unfold coord,cell;apply Eq;lia).
+   split;[intros i I;rewrite Y by exact I;apply T,I|rewrite <-Val;apply limbs_ext,Y]. }
  intros j G J R;destruct(P j G J R) as [Rep Z1];split;[now rewrite(point_values_ext _ _ _ Eq J)|].
  rewrite <-Z1;apply same_value;intros i I;unfold coord,cell;apply Eq;lia.
 Qed.
@@ -34,7 +41,7 @@ Qed.
 Theorem returned sig pol bias e s q : ReturnedPoint.result sig pol bias e s q ->
  (forall j,(j<8)%nat ->
  let x0:=vectors(machine s) j in let y0:=row (machine s) (BatchDecode.point e sig+320) j in
- split_field x0 /\ split_field y0 /\ value y0=fy(original_encoding sig e j) /\
+ split_field x0 /\ BatchDecode.radix_digits y0 /\ limbs y0=original_encoding sig e j mod 2^255 /\
  forall P,Policy.decodes (original_encoding sig e j) P -> value x0=x P) ->
  geometry sig e (buffer sig e (machine q)).
 Proof.
@@ -53,17 +60,22 @@ Proof.
  split.
  - intros i j I J;change (i<20)%nat in I;destruct (Inputs j J) as [BX [BY _]];destruct(Lane j J) as [X [Y [Z T]]].
    assert (Bound:forall c,(c<4)%nat -> split_field(coord w j c)).
-   { intros [|[|[|[|c]]]] C;try lia;[exact(same_split _ _ X BX)|exact(same_split _ _ Y BY)|exact(same_split _ _ Z One)|].
-     apply(same_split _ _ T),bounded_split,(proj1(mul_ok _ _ _ (proj1 DecoderProduct.multiplication) BX BY)). }
+   { intros [|[|[|[|c]]]] C;try lia;[exact(same_split _ _ X BX)|exact(same_split _ _ Y (digits_split _ BY))|exact(same_split _ _ Z One)|].
+     apply(same_split _ _ T),bounded_split,(proj1(mul_ok _ _ _ (proj1 DecoderProduct.multiplication) BX (digits_split _ BY))). }
    pose proof(Nat.div_mod i 5 ltac:(lia)) as D;pose proof(Nat.mod_upper_bound i 5 ltac:(lia)) as R.
    specialize(Bound (i/5)%nat ltac:(lia) (i mod 5)%nat R);unfold coord in Bound;rewrite <-D in Bound;unfold Radix51.split in Bound;lia.
- - intros j P J In;destruct (Inputs j J) as [BX [BY [YVal XVal]]];destruct (Lane j J) as [X [Y [Z T]]].
+ - split.
+   { intros j J;destruct(Inputs j J) as [_ [Bound [Val _]]];destruct(Lane j J) as [_ [Y _]].
+     split;[intros i I;rewrite Y by exact I;apply Bound,I|rewrite <-Val;apply limbs_ext,Y]. }
+   intros j P J In;destruct (Inputs j J) as [BX [BY [YVal XVal]]];destruct (Lane j J) as [X [Y [Z T]]].
    assert (YP:fy(original_encoding sig e j)=y P) by exact (eq_sym(proj1 In)).
    pose proof(same_value _ _ X) as VX;rewrite (XVal P In) in VX.
-   pose proof(same_value _ _ Y) as VY;rewrite YVal,YP in VY.
+   assert (YField:value(row (machine s) (point e sig+320) j)=fy(original_encoding sig e j))
+     by (unfold value,pack;now rewrite YVal).
+   pose proof(same_value _ _ Y) as VY;rewrite YField,YP in VY.
    pose proof(same_value _ _ Z) as VZ;change (value one) with 1%fp in VZ.
-   pose proof(same_value _ _ T) as VT;destruct(mul_ok _ _ _ (proj1 DecoderProduct.multiplication) BX BY) as [_ [_ Product]].
-   rewrite Product,(XVal P In),YVal,YP in VT.
+   pose proof(same_value _ _ T) as VT;destruct(mul_ok _ _ _ (proj1 DecoderProduct.multiplication) BX (digits_split _ BY)) as [_ [_ Product]].
+   rewrite Product,(XVal P In),YField,YP in VT.
    split;[|exact VZ];change ((value(coord w j 2)<>0%fp /\ value(coord w j 0)=(x P*value(coord w j 2))%fp /\
     value(coord w j 1)=(y P*value(coord w j 2))%fp) /\ (true=true -> value(coord w j 3)=(x P*y P*value(coord w j 2))%fp)).
    assert (unit:forall z:fp,z=(z*value(coord w j 2))%fp) by (intro z;rewrite VZ;ring).

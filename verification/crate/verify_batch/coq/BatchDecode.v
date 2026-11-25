@@ -224,9 +224,13 @@ From Ed25519Simd.VerifyBatch Require DecoderUnpack.
 Definition unpack bias p ks := match DecoderUnpack.take_signs p ks with
  | Some (q,updated)=>option_map (fun r=>(r,updated)) (segment (bias+DecoderFrame.origin) DecoderFrame.code 15 q)
  | None=>None end.
+Definition radix_digits := Radix51.field_bound (fun _=>Radix51.radix-1).
+Lemma digits_split y : radix_digits y -> Radix51.split_field y.
+Proof. intros B i I;specialize(B i I);unfold Radix51.radix,Radix51.split in *;lia. Qed.
+
 Definition unpacked signature bias e p := ip p=bias+DecoderFrame.origin+462 /\ accounted e (writable e) p /\
  0<=regs(machine p) 0%nat<256 /\ forall j,(j<8)%nat -> let y:=vectors(machine p) j in
- Radix51.split_field y /\ Radix51.limbs y=original_encoding signature e j mod 2^255 /\
+ radix_digits y /\ Radix51.limbs y=original_encoding signature e j mod 2^255 /\
  Z.testbit (regs(machine p) 0%nat) (Z.of_nat j)=Z.testbit (original_encoding signature e j) 255.
 
 Theorem from_words signature pol bias e p ks : placement e -> loaded pol bias (mem e) (writable e) ->
@@ -252,7 +256,7 @@ Proof.
    assert (Encoding:Unpack.encoded (mem e) (src j) 0%nat=original_encoding signature e j).
    { destruct signature;unfold original_encoding;cbn [read_input r_bytes key_bytes];rewrite Digest.read_octets by exact (proj2(proj2(initial_cpu _ Place)));unfold Unpack.encoded,src,encoding_ptr;cbn [read_input r_bytes key_bytes];now rewrite Z.add_0_r. }
    rewrite Encoding in Y,Sign;split.
-   + intros i I;rewrite Values by assumption;apply Bound,I.
+   + intros i I;rewrite Values by assumption;apply Unpack.unpack_strict,I.
    + split;[rewrite <-Y;apply Radix51.limbs_ext;intros i I;apply Values;assumption|].
      rewrite Bits by exact J;rewrite <-Sign;unfold Unpack.sign.
      change (Z.testbit (vectors(machine p) j (DecoderWords.result_reg 3)) 63=

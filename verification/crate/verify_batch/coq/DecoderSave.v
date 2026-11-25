@@ -15,7 +15,7 @@ Definition preserve bias := segment (bias+DecoderFrame.origin) DecoderFrame.code
 Definition digits signature e s j i := read_word (mem s) (address signature e+64*Z.of_nat i+8*Z.of_nat j).
 Definition saved signature bias e p := ip p=bias+DecoderFrame.origin+497 /\ accounted e (writable e) p /\
  0<=regs(machine p) 0%nat<256 /\ forall j,(j<8)%nat ->
- split_field (digits signature e (machine p) j) /\ limbs (digits signature e (machine p) j)=original_encoding signature e j mod 2^255 /\
+ radix_digits (digits signature e (machine p) j) /\ limbs (digits signature e (machine p) j)=original_encoding signature e j mod 2^255 /\
  Z.testbit (regs(machine p) 0%nat) (Z.of_nat j)=Z.testbit (original_encoding signature e j) 255.
 Lemma bytes : linked DecoderFrame.code (AlignedRows.route true 462 0 7 320 5).
 Proof. repeat constructor;vm_compute;discriminate || reflexivity. Qed.
@@ -34,7 +34,7 @@ Proof.
  assert (Aligned:address signature e mod 64=0) by (unfold address;replace 320 with (5*64) by reflexivity;rewrite Z.mod_add by lia;apply point_aligned,Al).
  destruct (stores o _ 5 462 0 7 320 (address signature e) (machine p) (carry p) bytes Base Aligned
     ltac:(unfold fits64,address,point,point_offset;destruct signature;lia)
-    ltac:(intros i j I J;pose proof (proj1(Data j J) i I) as B;change (0<=vectors(machine p) j i<=2^52-1) in B;change (0<=vectors(machine p) j i<2^64);lia))
+    ltac:(intros i j I J;pose proof (proj1(Data j J) i I) as B;change (0<=vectors(machine p) j i<=2^51-1) in B;change (0<=vectors(machine p) j i<2^64);lia))
     as [s [ws [Run [Regs [Vec [_ [Safe Rows]]]]]]].
  assert (W:confined (writable e) ws).
  { apply Forall_impl with (P:=permits (range (address signature e) 5));[|exact Safe].
