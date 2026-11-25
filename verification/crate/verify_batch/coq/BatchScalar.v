@@ -96,7 +96,7 @@ Qed.
 Section Iteration.
 Context `{iteration:BatchWindow.t}.
 Definition input_view e p := well_formed(machine p) /\
- ScalarInputs.matrix e (machine p) /\ BatchWindow.metadata e (mem(machine p)) /\ StageEntry.saved_caller e (machine p) /\
+ ScalarInputs.matrix e (machine p) /\ BatchWindow.metadata e (mem(machine p)) /\ BatchWindow.saved_caller e (machine p) /\
  regs(machine p) 2%nat=regs e 8%nat /\ regs(machine p) 15%nat=Return.scratch e /\
  WrapperInputs.layout e (mem(machine p)).
 Definition arguments e p top :=
@@ -145,8 +145,8 @@ Proof.
    cbn [LinkedRun.finish ip machine];unfold absolute;rewrite PC;split;[ring|].
    pose proof (steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ R)) as M.
    cbn [at_pc cpu_state] in M.
-   assert (Frame:forall x,Rows.frame e-8<=x -> mem(cpu_state t) x=mem(machine p) x).
-   { intros x X;rewrite M;apply (WriteTrace.frame _ _ Bounds);unfold stack_range;lia. }
+   assert (Frame:forall x,Rows.frame e-8<=x \/ x<sp e-16384 -> mem(cpu_state t) x=mem(machine p) x).
+   { intros x X;rewrite M;apply (WriteTrace.frame _ _ Bounds);unfold stack_range,Rows.frame,sp in *;lia. }
    split.
    + split;[exact Stack|split;[exact (eq_trans D DI)|split;[exact (eq_trans S SI)|]]].
      split;[exact (eq_trans (PreservedRegister.run_keeps_at 1 _ StrictBytes.symbol_bytes ltac:(vm_compute;reflexivity) 3 0 _ _ _ _ ltac:(vm_compute;reflexivity) R) Meta)|].
@@ -154,7 +154,7 @@ Proof.
      split;[exact (segment_wf _ _ _ _ _ Words Next)|].
      split;[intros j sig J;rewrite <- (Matrix j sig J);apply PrepareChunk.Staging.read_block;intros k K;apply Frame;destruct sig;lia|].
      split;[eapply IndexStores.metadata_preserved;[|exact Indices];intros x X;apply Frame;lia|].
-     split;[split;[intros x X;change (mem(cpu_state t) x=Return.saved_memory e x);rewrite Frame by (unfold Rows.frame,sp in *;lia);apply Spills,X|
+     split;[split;[intros x X;change (mem(cpu_state t) x=BatchWindow.expected e x);pose proof(BatchWindow.geometry _ _ X) as G;rewrite Frame by (unfold BatchWindow.external_byte,Rows.frame,sp in *;lia);apply Spills,X|
        exact (eq_trans (PreservedRegister.run_keeps 5 _ StrictBytes.symbol_bytes _ _ _ _ ltac:(vm_compute;reflexivity) R) BP)]|].
      split;[exact (eq_trans (PreservedRegister.run_keeps_at 2 _ StrictBytes.symbol_bytes ltac:(vm_compute;reflexivity) 3 0 _ _ _ _ ltac:(vm_compute;reflexivity) R) Id)|].
      split;[exact (eq_trans (PreservedRegister.run_keeps_at 15 _ StrictBytes.symbol_bytes ltac:(vm_compute;reflexivity) 3 0 _ _ _ _ ltac:(vm_compute;reflexivity) R) Scratch)|].
@@ -184,7 +184,7 @@ Qed.
 Definition post pol bias entry e p :=
  ip p=bias+common+65 /\ regs (machine p) 4%nat=common_top pol e-104 /\
  accounted e (writable e) p /\ return_slots pol bias entry e (mem(machine p)) /\ saved_outputs pol e (mem(machine p)) /\
- ((0<BatchWindow.remaining e)%nat -> ScalarInputs.borrowed e -> ScalarInputs.recoded e (machine p) /\ ScalarInputs.copy_ready e (machine p) /\ BatchWindow.metadata e (mem(machine p)) /\ StageEntry.saved_caller e (machine p)).
+ ((0<BatchWindow.remaining e)%nat -> ScalarInputs.borrowed e -> ScalarInputs.recoded e (machine p) /\ ScalarInputs.copy_ready e (machine p) /\ BatchWindow.metadata e (mem(machine p)) /\ BatchWindow.saved_caller e (machine p)).
 Lemma through_scalar pol bias entry e p ks : Return.placement e -> loaded pol bias (mem e) (writable e) ->
  accounted e (writable e) p -> ip p=bias+common -> arguments e p (common_top pol e) ->
  return_slots pol bias entry e (mem(machine p)) -> (pol=Dalek -> regs(machine p) 3%nat=Rows.frame e+768) -> (pol=Zip215 -> BatchWindow.next_descriptor e (regs(machine p) 3%nat)) ->
@@ -257,16 +257,16 @@ Proof.
        intros j J;unfold SignatureScalar.Audit.ptr;change (read_word (mem(cpu_state t)) (regs(cpu_state t) 6%nat+8*Z.of_nat j)=word(32+ScalarInputs.sig_ptr e (BatchWindow.row e j))).
        rewrite Src,Fields by exact J;unfold ptr_row;rewrite SI.
        exact (f_equal (fun a=>word(32+a)) (Matrix j true J)). }
-       assert (FrameBytes:forall x,Rows.frame e+512<=x<sp e -> mem out x=mem(machine p) x).
+       assert (FrameBytes:forall x,Rows.frame e+512<=x<sp e \/ BatchWindow.external_byte e x -> mem out x=mem(machine p) x).
        { intros x X;rewrite Memory,(WriteTrace.frame _ _ Inside).
          - change (mem (cpu_state t) x=mem(machine p) x).
            rewrite (steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ R));apply (WriteTrace.frame _ _ W).
-           unfold stack_range,top,common_top;destruct pol;lia.
+           unfold stack_range,top,common_top,BatchWindow.external_byte,Rows.frame,sp in *;destruct pol;lia.
          - unfold SignatureScalar.Audit.output;rewrite Dest;destruct (scratch_stack _ Place);
-           unfold Rows.frame,sp in *;lia. }
+           unfold BatchWindow.external_byte,Rows.frame,sp in *;lia. }
        split;[exact (proj2 Data)|]. split.
        2:{ split;[eapply IndexStores.metadata_preserved;[|exact Indices];intros x X;apply FrameBytes;unfold Rows.frame,sp in *;lia|].
-           split;[intros x X;rewrite FrameBytes by (unfold Rows.frame,sp in *;lia);apply Spills,X|].
+           split;[intros x X;pose proof (BatchWindow.geometry _ _ X) as G;rewrite (FrameBytes x ltac:(destruct G as [G|G];[left;unfold Rows.frame,sp in *;lia|right;exact G]));apply Spills,X|].
            assert (BPout:regs out 5%nat=regs(machine v) 5%nat) by
              (change (regs(snd(resume_ip,out)) 5%nat=regs(machine v) 5%nat);rewrite <-Call;reflexivity).
            exact (eq_trans BPout (eq_trans (PreservedRegister.run_keeps_at 5 _ CommonBytes.symbol_bytes ltac:(vm_compute;reflexivity) 17 0 _ _ _ _ ltac:(vm_compute;reflexivity) R) BP)). }

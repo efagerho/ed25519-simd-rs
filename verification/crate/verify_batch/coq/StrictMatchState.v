@@ -33,7 +33,7 @@ Proof.
  - rewrite G by (unfold kept;simpl;tauto);exact Q.
  - unfold StrictScoreFrame.outputs;rewrite (G 13%nat),(G 14%nat),(G 15%nat) by (unfold kept;simpl;tauto);exact Out.
  - eapply ScoreSaved.keep;[exact Frame|apply G;unfold kept;simpl;tauto|].
-   intros x X;apply M;unfold private,ScoreSaved.area,ScoreFrame.buffer,FramePointer.bottom in *;lia.
+   intros x X;apply M;unfold private,ScoreSaved.area,ScoreFrame.buffer,FramePointer.bottom,ScoreFrame.top,Rows.frame,Return.sp in *;lia.
  - intros j J;cbv zeta;rewrite M;[exact(Flags j J)|unfold private,ScoreFrame.buffer,FramePointer.bottom,ScoreFrame.top in *;lia].
  - eapply ScorePoint.keep_points;[|exact Points];intros x X;apply M;destruct(scratch_stack _ P);
    unfold FlatMemory.disjoint,private,span,BatchDecode.point,BatchDecode.point_offset,ScoreFrame.buffer,FramePointer.bottom,ScoreFrame.top,Rows.frame,sp in *;lia.

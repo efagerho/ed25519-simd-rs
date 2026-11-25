@@ -17,11 +17,16 @@ Definition scalar_rejection pol bias pc text e c masks :=
 From Ed25519Simd.VerifyBatch Require BatchWindow.
 Section Iteration.
 Context `{iteration:BatchWindow.t}.
+Definition final_frame e m (abi:Prop):=match BatchWindow.first with O=>abi | S _=>abi /\ BatchWindow.saved e m end.
+Lemma end_with e m (abi:Prop):abi -> BatchWindow.saved e m -> final_frame e m abi.
+Proof. unfold final_frame;destruct BatchWindow.first;auto. Qed.
+Lemma end_abi e m abi:final_frame e m abi -> abi.
+Proof. unfold final_frame;destruct BatchWindow.first;tauto. Qed.
 Definition post_with (values:FlatMemory.bytes->Prop) entry e r := accounted e (writable e) (at_end r) /\ (regs(machine(at_end r)) 0%nat=1 /\ values (mem(machine(at_end r)))) /\ byte_memory(mem(machine(at_end r))) /\
  match r with
- | BatchReturned q=>(BatchWindow.remaining e<=8)%nat /\ ip q=read_word (mem e) (sp e) /\ regs(machine q) 4%nat=sp e+8 /\ RejectFinish.callee_saved e (machine q)
+ | BatchReturned q=>(BatchWindow.remaining e<=8)%nat /\ final_frame e (mem(machine q)) (ip q=read_word (mem e) (sp e) /\ regs(machine q) 4%nat=sp e+8 /\ RejectFinish.callee_saved e (machine q))
  | NextChunk q=>(8<BatchWindow.remaining e)%nat /\ ip q=entry+offset Choose /\ regs(machine q) 4%nat=Rows.frame e /\
-   regs(machine q) 12%nat=Z.of_nat (BatchWindow.remaining e-8) /\ carry q=Some false /\ StageEntry.saved_caller e (machine q) /\ ChunkContext.bindings e (machine q) /\ well_formed(machine q)
+   regs(machine q) 12%nat=Z.of_nat (BatchWindow.remaining e-8) /\ carry q=Some false /\ BatchWindow.saved_caller e (machine q) /\ ChunkContext.bindings e (machine q) /\ well_formed(machine q)
  end.
 Definition zero_results e (m:FlatMemory.bytes):=forall j,(j<Nat.min (BatchWindow.remaining e) 8)%nat ->
  m(output e+Z.of_nat(Scatter.position e (BatchWindow.first+j)))=0.
@@ -32,9 +37,9 @@ Proof. intros F [Paid [[OK Data] Rest]];split;[exact Paid|split;[split;[exact OK
 
 Lemma classified_with (values:FlatMemory.bytes->Prop) entry e p q : placement e ->
  regs(machine p) 12%nat=BatchWindow.next_count e ->
- ChunkContext.bindings e (machine p) -> RejectFinish.post entry e p q -> (regs(machine p) 0%nat=1 /\ values(mem(machine p))) -> well_formed(machine p) -> post_with values entry e (classify p q).
+ BatchWindow.saved_caller e (machine p) -> ChunkContext.bindings e (machine p) -> RejectFinish.post entry e p q -> (regs(machine p) 0%nat=1 /\ values(mem(machine p))) -> well_formed(machine p) -> post_with values entry e (classify p q).
 Proof.
- intros Place Left Bindings [A [_ [Mem [Status Exit]]]] [OK Zeros] Bytes.
+ intros Place Left Keep Bindings [A [_ [Mem [Status Exit]]]] [OK Zeros] Bytes.
  assert (Outputs:regs(machine q) 0%nat=1 /\ values(mem(machine q))) by (now rewrite Status,Mem).
  assert (Octets:byte_memory(mem(machine q))) by (rewrite Mem;exact (proj2(proj2 Bytes))).
  assert (L:regs(machine p) 12%nat=Z.of_nat(BatchWindow.remaining e-8)) by
@@ -43,18 +48,19 @@ Proof.
  assert (Small:RejectFinish.stopping p=true -> (BatchWindow.remaining e<=8)%nat).
  { unfold stopping;rewrite OK;change ((word(regs(machine p) 12%nat)=?0)=true -> (BatchWindow.remaining e<=8)%nat).
    rewrite Fit,L;rewrite Z.eqb_eq;lia. }
+ assert (SavedEnd:BatchWindow.saved e (mem(machine q))) by (rewrite Mem;exact (proj1 Keep)).
  unfold classify;destruct(RejectFinish.stopping p) eqn:Stop;
-   [exact (conj A (conj Outputs (conj Octets (conj (Small eq_refl) Exit))))|].
+   [exact (conj A (conj Outputs (conj Octets (conj (Small eq_refl) (end_with _ _ _ Exit SavedEnd)))))|].
  assert (Long:(8<BatchWindow.remaining e)%nat).
  { unfold stopping in Stop;apply Bool.orb_false_iff in Stop as [_ More].
    rewrite Fit,L,Z.eqb_neq in More;lia. }
  destruct Exit as [PC [SP [CPU [CF Saved]]]].
  split;[exact A|split;[exact Outputs|split;[exact Octets|split;[lia|split;[exact PC|split;[exact SP|]]]]]].
- split;[rewrite CPU;exact L|split;[exact CF|split;[exact Saved|rewrite CPU;split;[destruct Bindings;constructor;assumption|exact Bytes]]]].
+ split;[rewrite CPU;exact L|split;[exact CF|split;[rewrite CPU;exact Keep|rewrite CPU;split;[destruct Bindings;constructor;assumption|exact Bytes]]]].
 Qed.
 Lemma classified entry e p q : placement e ->
  regs(machine p) 12%nat=BatchWindow.next_count e ->
- ChunkContext.bindings e (machine p) -> RejectFinish.post entry e p q -> RejectOutputs.outputs e (machine p) -> well_formed(machine p) -> post entry e (classify p q).
+ BatchWindow.saved_caller e (machine p) -> ChunkContext.bindings e (machine p) -> RejectFinish.post entry e p q -> RejectOutputs.outputs e (machine p) -> well_formed(machine p) -> post entry e (classify p q).
 Proof. exact (classified_with (zero_results e) entry e p q). Qed.
 
 Theorem finish_checked pol bias pc text e q :
@@ -64,7 +70,7 @@ Theorem finish_checked pol bias pc text e q :
  (0<BatchWindow.remaining e)%nat -> Scatter.indices e -> accounted e (writable e) q ->
  ip q=word(bias+pc+offset Prepared) -> regs(machine q) 4%nat=Rows.frame e -> Prologue.output_registers e (machine q) ->
  regs(machine q) 12%nat=BatchWindow.next_count e -> regs(machine q) 0%nat mod 2^32=0 ->
- BatchWindow.metadata e (mem(machine q)) -> StageEntry.saved_caller e (machine q) -> well_formed(machine q) ->
+ BatchWindow.metadata e (mem(machine q)) -> BatchWindow.saved_caller e (machine q) -> well_formed(machine q) ->
  ChunkContext.bindings e (machine q) ->
  exists r,finish_chunk bias pc text q=Some r /\ post (bias+pc) e r.
 Proof.
@@ -74,9 +80,9 @@ Proof.
  assert (Words:well_formed(machine cont)).
  { unfold RejectDispatch.scatter_stores in Dispatch;destruct(segment _ _ _ q) as [child|] eqn:Call;[|discriminate].
    exact(returning_wf _ _ _ _ _ (segment_wf _ _ _ _ _ Bytes Call) Dispatch). }
- destruct(RejectFinish.next _ _ _ _ _ Exit P Map Apart Continued Kept) as [last [End Result]].
+ destruct(RejectFinish.next _ _ _ _ _ Exit P Map Apart Continued (conj (BatchWindow.raw_saved _ _ (proj1 Kept)) (proj2 Kept))) as [last [End Result]].
  exists(classify cont last);split;[unfold finish_chunk;rewrite Dispatch;cbn [bind];now rewrite End|].
- apply classified with (p:=cont) (q:=last);[exact P|exact (proj2(proj2(proj2 Continued)))|exact B|exact Result|exact Stored|exact Words].
+ apply classified with (p:=cont) (q:=last);[exact P|exact (proj2(proj2(proj2 Continued)))|exact Kept|exact B|exact Result|exact Stored|exact Words].
 Qed.
 
 Theorem final_bytes pol bias pc text e c masks r :

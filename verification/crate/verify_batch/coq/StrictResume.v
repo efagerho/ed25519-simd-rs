@@ -29,7 +29,7 @@ Proof.
  pose proof(StrictScoreFrame.candidate _ _ _ _ _ F Live) as Args.
  pose proof(Z.mod_pos_bound (ScoreFrame.top e-48) 64 ltac:(lia)) as Gap.
  assert (Area:forall x,ScoreSaved.area e x -> CandidateFrame.outside e x /\ ~(ScoreFrame.buffer e-8<=x<ScoreFrame.buffer e)).
- { unfold ScoreSaved.area,CandidateFrame.outside,ScoreFrame.buffer,FramePointer.bottom;lia. }
+ { unfold ScoreSaved.area,CandidateFrame.outside,CandidateDigest.dst,CandidateDigest.top,ScoreFrame.buffer,FramePointer.bottom,ScoreFrame.top,Rows.frame,Return.sp in *;lia. }
  assert (Keep:forall g,In g sysv_saved -> regs(machine q) g=regs(machine screen) g).
  { intros g G;now rewrite (CandidateReturn.saved _ _ _ Ret g G),(Regs g G). }
  assert (Parent:preserved (ScoreSaved.area e) (mem(machine screen)) (mem(machine q))).

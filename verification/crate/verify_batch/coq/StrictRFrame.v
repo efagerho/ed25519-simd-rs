@@ -15,7 +15,7 @@ Record inputs bias parent e child t:Prop:=Inputs {
  point:regs(machine t) 3%nat=BatchDecode.point e true;
  outputs:regs(machine t) 13%nat=Rows.frame e+856 /\ regs(machine t) 14%nat=output e /\ regs(machine t) 15%nat=regs e 6%nat;
  rows:PreparedInputs.signature e (machine t);
- caller_frame:preserved (fun x=>ScoreFrame.top e-48<=x)
+ caller_frame:preserved (fun x=>x<sp e-16384 \/ ScoreFrame.top e-48<=x)
    (replay (mem(machine child)) (FramePointer.stores (bias+ScoreSetup.callee Dalek) (ScoreFrame.top e) (regs(machine child))))
    (mem(machine t));
  return_word:read_word (mem(machine t)) (ScoreFrame.top e)=bias+parent+539
@@ -34,13 +34,13 @@ Proof.
  { intros g A B;rewrite (StrictRCanonical.unchanged_regs _ _ _ _ Last),(StrictRStart.unchanged_regs _ _ _ _ First) by assumption;reflexivity. }
  assert (Memory:mem(machine t)=mem(machine score)) by
    (rewrite (StrictRCanonical.memory _ _ _ _ Last);apply (StrictRStart.memory _ _ _ _ First)).
- assert (Saved:preserved (fun x=>ScoreFrame.top e-48<=x)
+ assert (Saved:preserved (fun x=>x<sp e-16384 \/ ScoreFrame.top e-48<=x)
      (replay (mem(machine child)) (FramePointer.stores (bias+ScoreSetup.callee Dalek) (ScoreFrame.top e) (regs(machine child))))
      (mem(machine t))).
  { intros x X;rewrite Memory,(ScoreStart.memory _ _ _ _ _ S);unfold commit;rewrite write_outside.
    - rewrite (ScoreFrame.saved _ _ _ _ _ F);reflexivity.
    - change (~(ScoreFrame.buffer e<=x<ScoreFrame.buffer e+8)).
-     pose proof(Z.mod_pos_bound (ScoreFrame.top e-48) 64 ltac:(lia));unfold ScoreFrame.buffer,FramePointer.bottom;lia. }
+     pose proof(Z.mod_pos_bound (ScoreFrame.top e-48) 64 ltac:(lia));unfold ScoreFrame.buffer,FramePointer.bottom,ScoreFrame.top,Rows.frame,sp in *;lia. }
  constructor.
  - rewrite G by discriminate;exact SP.
  - rewrite G,BP by discriminate;exact (ScoreFrame.fp _ _ _ _ _ F).

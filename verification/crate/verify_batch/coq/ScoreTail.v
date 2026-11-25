@@ -21,7 +21,7 @@ Record entry bias parent e p q mask:Prop:=Entry {
  sp:regs(machine q) 4%nat=ScoreFrame.top e;
  args:arguments e mask (machine q); ret:read_word(mem(machine q))(ScoreFrame.top e)=bias+parent+539;
  left:regs(machine q) 12%nat=BatchWindow.next_count e; metadata:BatchWindow.metadata e (mem(machine q));
- saved:StageEntry.saved_caller e (machine q); restart:ChunkContext.bindings e (machine q);
+ saved:BatchWindow.saved_caller e (machine q); restart:ChunkContext.bindings e (machine q);
  memory:mem(machine q)=mem(machine p); history:log q=log p
 }.
 Theorem checked pol bias parent e caller p mask : placement e -> loaded pol bias (mem e) (writable e) ->

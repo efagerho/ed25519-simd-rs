@@ -25,13 +25,14 @@ Record entry o delta e first n q:Prop:=Entry {
 
 Definition preserves_bp text := (Z.of_nat(List.length text)<?2^32) &&
  PreservedRegister.checks_at 5 text 56 46 && PreservedRegister.checks_at 5 text 56 132.
-Theorem checked o text delta e first n p : StageEntry.bound text -> TailWrites.bound text -> StageWrites.bound text delta ->
+Theorem checked_frame o text delta e first n p : StageEntry.bound text -> TailWrites.bound text -> StageWrites.bound text delta ->
  preserves_bp text=true -> placement e -> ChunkRows.readable e -> (0<n)%nat -> (first+n=Scatter.count e)%nat ->
  mapped (mem e) o text -> (forall x,o<=x<o+Z.of_nat(List.length text) -> ~writable e x) ->
  ip p=o+offset Choose -> accounted e (writable e) p -> well_formed(machine p) ->
  caller_registers e (machine p) -> regs(machine p) 3%nat=ChunkRows.base e first -> regs(machine p) 12%nat=Z.of_nat n ->
  StageEntry.saved_caller e (machine p) -> CallerSpills.table_arguments e (mem(machine p)) ->
- exists q,execute o text n p=Some q /\ entry o delta e first n q.
+ exists q,execute o text n p=Some q /\ entry o delta e first n q /\
+ preserved (Return.span (output e) (Z.of_nat(Scatter.count e))) (mem(machine p)) (mem(machine q)).
 Proof.
  intros Choose Tail Transfer BP P Read Live N Map Sep PC Paid W Caller BX Count [Saved OldBP] Tables.
  set(s:=machine p) in *;set(f:=Rows.frame e).
@@ -41,7 +42,7 @@ Proof.
  destruct(ChunkRows.stack _ _ _ _ _ S) as [SP Glob].
  destruct(StageWrites.instructions_with o text delta e (Z.of_nat(n-8)) t cf Transfer P SP Glob (ChunkRows.left _ _ _ _ _ S))
    as [v [w [Body [Writes [[Dest [Top [Ret [SI [CX [DI [Out Left]]]]]]] [Matrix [Table Scratch]]]]]]].
- pose proof(run_append _ _ _ _ _ Select _ _ _ Body) as Total;assert(Conf:confined (writable e)(ws++w)) by (apply Forall_app;auto).
+ pose proof(run_append _ _ _ _ _ Select _ _ _ Body) as Total;assert(Conf:confined (writable e)(ws++w)) by (apply Prologue.stack_writable,Forall_app;auto).
  destruct(at_segment _ _ _ o text _ _ _ _ Paid PC (image_after _ _ _ _ _ Paid Map Sep) Sep Total Conf) as [Run Done].
  set(q:=LinkedRun.finish o p (v,ws++w)) in *.
  assert (Rows:forall j off,(j<8)%nat -> 0<=off<=32 ->
@@ -54,7 +55,12 @@ Proof.
  assert (High:forall x,f+936<=x -> mem(cpu_state v) x=mem s x).
  { intros x X;rewrite Upper by exact X;exact(ChunkRows.above _ _ _ _ _ S x X). }
  assert (Pointer:regs(cpu_state v) 3%nat=word(regs t 3%nat+320)) by exact(proj1(StageCursor.advanced _ _ _ _ _ _ _ _ Transfer P SP Body)).
- exists q;split;[exact Run|constructor].
+ exists q;split;[exact Run|split].
+ 2:{ intros x X;change (mem(cpu_state v) x=mem s x).
+     rewrite (steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ Total)).
+     apply (WriteTrace.frame (Prologue.stack_region e));[apply Forall_app;auto|].
+     destruct(out_stack _ P);unfold Prologue.stack_region,span,disjoint in *;lia. }
+ constructor.
  - change (absolute o v=word(o+delta));unfold absolute;rewrite Dest;ring.
  - exact Done.
  - exact (segment_wf _ _ _ _ _ W Run).

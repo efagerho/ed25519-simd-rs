@@ -48,7 +48,7 @@ Record result (outer:Z) e p q:Prop:=Result {
  inputs:WrapperInputs.layout e (mem(machine q)); encodings:PreparedInputs.encodings e (machine q);
  scratch_reg:regs(machine q) 15%nat=scratch e; outputs:Prologue.output_registers e (machine q);
  remaining:regs(machine q) 12%nat=BatchWindow.next_count e;
- metadata:BatchWindow.metadata e (mem(machine q)); saved:StageEntry.saved_caller e (machine q);
+ metadata:BatchWindow.metadata e (mem(machine q)); saved:BatchWindow.saved_caller e (machine q);
  filtered:forall j,(j<8)%nat -> let v:=mem(machine q)(FilterFlags.flag_ptr e+Z.of_nat j) in
  (v=0 \/ v=1) /\ (v=1 <-> EligibleLanes.candidate e j /\ FilterScreen.weak e (machine p) j=false);
  decoded_r:forall j,(j<8)%nat -> (Z.testbit (mem(machine q)(Rows.frame e+840)) (Z.of_nat j)=true <-> RootDecision.decodes true e j);
@@ -98,7 +98,7 @@ Proof.
  - eapply IndexStores.metadata_preserved;[|exact Meta];intros x X;apply Same;
    unfold unchanged,FilterScreen.kept,FilterRows.slot,StrictFilterCall.slot,FilterFlags.flag_ptr,common_top,PrepareOutputs.dest,span;lia.
  - split;[intros x X;rewrite Same;[apply Saved,X|]|now rewrite Keep by discriminate].
-   unfold unchanged,FilterScreen.kept,FilterRows.slot,StrictFilterCall.slot,FilterFlags.flag_ptr,common_top,PrepareOutputs.dest,Rows.frame,sp,span in *;lia.
+   pose proof(BatchWindow.geometry _ _ X);unfold BatchWindow.external_byte,unchanged,FilterScreen.kept,FilterRows.slot,StrictFilterCall.slot,FilterFlags.flag_ptr,common_top,PrepareOutputs.dest,Rows.frame,sp,span in *;lia.
  - intros j J;cbv zeta;rewrite Mem;unfold s;rewrite (FilterReturned.flags _ _ _ _ F j J).
    assert (Initial:mem(machine p)(FilterFlags.flag_ptr e+Z.of_nat j)=mem(machine prep)(FilterFlags.flag_ptr e+Z.of_nat j)).
    { rewrite (StrictFilterCall.memory_after _ _ _ _ Entry);apply write_outside.

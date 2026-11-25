@@ -6,7 +6,7 @@ From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScala
 From Ed25519Simd.VerifyBatch Require ScoreStart.
 Import ListNotations. Local Open Scope Z_scope.
 
-Definition area e x:=ScoreFrame.top e-48<=x.
+Definition area e x:=x<Return.sp e-16384 \/ ScoreFrame.top e-48<=x.
 From Ed25519Simd.VerifyBatch Require BatchWindow.
 Section Iteration.
 Context `{iteration:BatchWindow.t}.
@@ -14,7 +14,7 @@ Record frame bias parent e caller (s:cpu):Prop:=Frame {
  fp:regs s 5%nat=ScoreFrame.top e-8;
  slots:FrameRestore.saved (mem s) (ScoreFrame.top e) (regs(machine caller));
  link:read_word (mem s) (ScoreFrame.top e)=bias+parent+539;
- metadata:BatchWindow.metadata e (mem s); spills:CallerSpills.saved e (mem s);
+ metadata:BatchWindow.metadata e (mem s); spills:BatchWindow.saved e (mem s);
  outer_bp:regs(machine caller) 5%nat=regs e 5%nat;
  counter:regs(machine caller) 12%nat=BatchWindow.next_count e;
  globals:Prologue.context_registers e (machine caller);
@@ -46,7 +46,9 @@ Proof.
  - intros g G;rewrite (read_slot _ _ _ M _ G);apply FrameSlots.saved_words;[exact (proj1(ScoreCall.words _ _ _ _ _ _ _ C))|exact G].
  - rewrite (above_top _ _ _ Above);exact (proj1(ScoreCall.stack_args _ _ _ _ _ _ _ C)).
  - eapply IndexStores.metadata_preserved;[|exact Meta];intros x X;apply Above;unfold ScoreFrame.top;lia.
- - intros x X;rewrite Above;[apply Spills,X|unfold ScoreFrame.top,Rows.frame,sp in *;lia].
+ - intros x X;pose proof(BatchWindow.geometry _ _ X) as G.
+   rewrite M;[rewrite (WriteTrace.frame _ _ (FramePointer.confined _ _ _));[apply Spills,X|]|];
+     unfold area,BatchWindow.external_byte,ScoreFrame.top,Rows.frame,sp in *;lia.
  - eapply CallerSpills.keep_tables;[|exact T];intros x X;apply Above;unfold ScoreFrame.top;lia.
 Qed.
 Lemma keep bias parent e caller s u : frame bias parent e caller s ->
@@ -57,7 +59,7 @@ Proof.
  - intros g G;rewrite (read_slot _ _ _ M _ G);apply (slots _ _ _ _ _ F),G.
  - rewrite (above_top e (mem s) (mem u) ltac:(intros x X;apply M;unfold area;lia));exact (link _ _ _ _ _ F).
  - eapply IndexStores.metadata_preserved;[|exact (metadata _ _ _ _ _ F)];intros x X;apply M;unfold area,ScoreFrame.top;lia.
- - intros x X;rewrite M;[exact (spills _ _ _ _ _ F x X)|unfold area,ScoreFrame.top,Rows.frame,sp in *;lia].
+ - intros x X;rewrite M;[exact (spills _ _ _ _ _ F x X)|pose proof(BatchWindow.geometry _ _ X);unfold BatchWindow.external_byte,area,ScoreFrame.top,Rows.frame,sp in *;lia].
  - exact (outer_bp _ _ _ _ _ F).
  - exact (counter _ _ _ _ _ F).
  - exact(globals _ _ _ _ _ F).

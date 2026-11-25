@@ -18,7 +18,7 @@ Theorem checked_with (values:FlatMemory.bytes->Prop) bias pc dst text e p :
  matches pc dst text -> RejectFinish.bound text -> placement e ->
  mapped (mem e) (bias+pc) text -> (forall x,bias+pc<=x<bias+pc+Z.of_nat(length text) -> ~writable e x) ->
  ip p=bias+pc+539 -> regs(machine p) 4%nat=Rows.frame e -> accounted e (writable e) p ->
- regs(machine p) 12%nat=BatchWindow.next_count e -> StageEntry.saved_caller e (machine p) -> ChunkContext.bindings e (machine p) ->
+ regs(machine p) 12%nat=BatchWindow.next_count e -> BatchWindow.saved_caller e (machine p) -> ChunkContext.bindings e (machine p) ->
  (regs(machine p) 0%nat=1 /\ values(mem(machine p))) -> well_formed(machine p) ->
  exists r,execute (bias+pc) text p=Some r /\ RejectExecution.post_with values (bias+pc) e r.
 Proof.
@@ -30,16 +30,16 @@ Proof.
  destruct(at_segment _ _ p o text 1 539 _ _ Paid At (image_after _ _ _ _ _ Paid Map Sep) Sep Step (Forall_nil _)) as [Jump Acc].
  set (cont:=LinkedRun.finish o p (State(Running 574)(machine p)(carry p),[])) in *.
  assert (Continued:RejectDispatch.continued bias pc e cont) by (exact (conj eq_refl (conj Stack (conj Acc Left)))).
- destruct(RejectFinish.next _ _ _ _ _ Exit P Map Sep Continued Saved) as [q [Done Post]].
+ destruct(RejectFinish.next _ _ _ _ _ Exit P Map Sep Continued (conj (BatchWindow.raw_saved _ _ (proj1 Saved)) (proj2 Saved))) as [q [Done Post]].
  exists(RejectExecution.classify cont q);split;[unfold execute;rewrite Jump;change (option_map (RejectExecution.classify cont) (RejectFinish.leave (bias+pc) text cont)=Some(RejectExecution.classify cont q));now rewrite Done|].
- exact (RejectExecution.classified_with values o e cont q P Left Bindings Post Output Bytes).
+ exact (RejectExecution.classified_with values o e cont q P Left Saved Bindings Post Output Bytes).
 Qed.
 
 Theorem checked bias pc dst text e p :
  matches pc dst text -> RejectFinish.bound text -> placement e ->
  mapped (mem e) (bias+pc) text -> (forall x,bias+pc<=x<bias+pc+Z.of_nat(length text) -> ~writable e x) ->
  ip p=bias+pc+539 -> regs(machine p) 4%nat=Rows.frame e -> accounted e (writable e) p ->
- regs(machine p) 12%nat=BatchWindow.next_count e -> StageEntry.saved_caller e (machine p) -> ChunkContext.bindings e (machine p) ->
+ regs(machine p) 12%nat=BatchWindow.next_count e -> BatchWindow.saved_caller e (machine p) -> ChunkContext.bindings e (machine p) ->
  RejectOutputs.outputs e (machine p) -> well_formed(machine p) ->
  exists r,execute (bias+pc) text p=Some r /\ RejectExecution.post (bias+pc) e r.
 Proof. exact (checked_with (RejectExecution.zero_results e) bias pc dst text e p). Qed.

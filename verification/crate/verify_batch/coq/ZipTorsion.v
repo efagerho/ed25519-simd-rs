@@ -86,7 +86,7 @@ Proof.
  - exact (StoreHistory.account _ _ _ _ (ZipTorsionCall.writes _ _ _ _ _ Call) (StoreHistory.lend _ _ _ _ Loan Hist)).
  - exact (MaskReturn.words _ _ _ _ _ _ _ _ Ret).
  - eapply ScoreSaved.keep;[exact (ZipTorsionCall.frame _ _ _ _ _ Call)|apply Keep;discriminate|].
-   intros x X;apply Same;unfold ScoreSaved.area,area,ScoreFrame.buffer,FramePointer.bottom in *;lia.
+   intros x X;apply Same;unfold ScoreSaved.area,area,ScoreFrame.buffer,FramePointer.bottom,ScoreFrame.top,Rows.frame,Return.sp in *;lia.
  - eapply StrictScoreFrame.keep_outputs;[exact (ZipTorsionCall.outputs _ _ _ _ _ Call)|].
    intros g G;apply Keep;intros Eq;subst;cbv [sysv_saved In] in G;intuition discriminate.
  - intros j J;rewrite Keep by discriminate;apply (ZipTorsionCall.mask _ _ _ _ _ Call),J.

@@ -36,6 +36,7 @@ Proof.
  destruct (Prologue.before_spills ip symbol_bytes e None ltac:(repeat constructor) P Live)
    as [[l s c] [head [Run [Safe [L [R _]]]]]].
  cbn [loc cpu_state] in L,R;subst l.
+ apply Prologue.stack_writable in Safe.
  pose proof (MappedFetch.run_lift _ _ _ _ _ _ _ Run Safe Map Apart) as First.
  pose proof (steps_memory _ _ _ _ _ (MappedFetch.run_steps _ _ _ _ _ _ Run)) as Memory.
  change (mem s=WriteTrace.replay (mem e) head) in Memory.

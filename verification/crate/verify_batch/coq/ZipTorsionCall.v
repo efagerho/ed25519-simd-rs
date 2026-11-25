@@ -62,7 +62,7 @@ Proof.
  - exact BX.
  - change (read_word (mem u) (base-8)=bias+pc+62);rewrite Mem;apply write_read_word.
    destruct(proj1(symbols _ _ _ _ I _ _ (ScoreSetup.image Zip215))) as [L H];change (bias+pc+93<=2^64) in H;unfold word64,o;lia.
- - eapply ScoreSaved.keep;[exact (ZipResume.frame _ _ _ _ _ Before)|reflexivity|intros x X;apply Preserve;unfold slot,ScoreSaved.area,ScoreFrame.buffer,FramePointer.bottom in *;lia].
+ - eapply ScoreSaved.keep;[exact (ZipResume.frame _ _ _ _ _ Before)|reflexivity|intros x X;apply Preserve;unfold slot,ScoreSaved.area,ScoreFrame.buffer,FramePointer.bottom,ScoreFrame.top,Rows.frame,Return.sp in *;lia].
  - apply (StrictScoreFrame.keep_outputs _ s u (ZipResume.outputs _ _ _ _ _ Before) Kept).
  - exact (ZipResume.mask _ _ _ _ _ Before).
  - intros j J;cbv zeta;rewrite Preserve;[exact (ZipResume.eligibility _ _ _ _ _ Before j J)|].
