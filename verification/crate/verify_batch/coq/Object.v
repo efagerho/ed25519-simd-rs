@@ -226,20 +226,36 @@ Proof.
        destruct(score_handoff _ _ _ _ _ _ _ _ carry Caller N Scorer Post C W) as [child [Call Enter]].
        destruct(ScoreStart.from_entry _ _ _ _ _ _ _ P (callee_image _ _ _ _ _ Caller N) Enter) as [score [Start Ready]].
        destruct (proj1 (ScoreProgress.checked _ _ _ _ _ _ _ _ P (callee_image _ _ _ _ _ Caller N) Ready)) as [stop Progress].
-       destruct Exists as [ip [f R]];do 3 eexists;eapply observe_scoring;[exact N|exact Run|exact C|exact W|exact Call|exact Start|exact Progress|exact R].
- - intros ws ip f O;inversion O as [ws' ip' f' Z Run|q N Run|q ip' f' N Next R|q r s c child score stop ip' f' N Next C W Call Start Progress R];subst.
+       destruct Exists as [ip [f R]];exists (LinkedRun.log stop),ip,f;apply (observe_scoring _ _ _ _ _ _ _ stop);[exact N| |exact R].
+       exists q,r,(HashResume.complete r e),carry,child,score;split;[exact Run|split;[exact C|split;[exact W|split;[exact Call|split;[exact Start|exact Progress]]]]].
+ - intros ws ip f O;inversion O as [ws' ip' f' Z Run|q N Run|q ip' f' N Next R|stop ip' f' N Scored R];subst.
    + specialize (Empty Z);unfold empty_mapped in Empty;destruct(empty_return e) as [back last] eqn:E.
      destruct (proj2 (Empty carry) _ _ Run) as [-> Same].
      inversion Same as [|s t u own rest Impossible];[|discriminate].
      subst;split;[apply Sound,empty_path;[exact Image|now rewrite Z|exact E]|constructor].
    + pose proof(Dispatch _ N Run) as T;split;[exact (rejected_verdict _ _ _ _ _ _ Caller N T)|exact (proj1(proj1(proj1 T)))].
    + split;[exact (Sound _ _ R)|exact (proj1(proj1(proj1(Dispatch _ N Next))))].
-   + split;[exact (Sound _ _ R)|]. destruct(score_handoff _ _ _ _ _ _ _ _ c Caller N Scorer (Dispatch _ N Next) C W) as [q' [H Post]].
+   + destruct Scored as [q [r [s [c [child [score [Next [C [W [Call [Start Progress]]]]]]]]]]].
+     split;[exact (Sound _ _ R)|]. destruct(score_handoff _ _ _ _ _ _ _ _ c Caller N Scorer (Dispatch _ N Next) C W) as [q' [H Post]].
      rewrite Call in H;injection H as <-.
      destruct(ScoreStart.from_entry _ _ _ _ _ _ _ (proj1(batch_inputs _ _ _ _ _ Caller N)) (callee_image _ _ _ _ _ Caller N) Post) as [v [V Q]].
      rewrite Start in V;injection V as <-.
      exact (proj1 (proj2 (ScoreProgress.checked _ _ _ _ _ _ _ _ (proj1(batch_inputs _ _ _ _ _ Caller N))
        (callee_image _ _ _ _ _ Caller N) Q) _ Progress)).
+Qed.
+
+Lemma zip_ladder bias pc text e c masks stop : admissible Zip215 bias pc text e -> (0<count e)%nat ->
+ StrictDispatch.bound pc text -> ScoreSetup.bound Zip215 pc text -> first_chunk Zip215 bias pc text e c masks ->
+ scoring Zip215 bias pc text e c masks stop -> LadderProduct.meaning Zip215 bias e stop.
+Proof.
+ intros A N Hash Scorer Native [q [r [s [cf [child [score [Run [C [W [Call [Start Progress]]]]]]]]]]].
+ destruct(batch_inputs _ _ _ _ _ A N) as [P [_ [_ [Maps [_ Entries]]]]];pose proof(callee_image _ _ _ _ _ A N) as I.
+ destruct(dispatch_correct _ _ _ _ _ _ _ A Hash N Native) as [b [At B]];rewrite Run in At;injection At as <-.
+ destruct(score_handoff _ _ _ _ _ _ _ _ cf A N Scorer B C W) as [v [V E]];rewrite Call in V;injection V as <-.
+ destruct(ScoreStart.from_entry _ _ _ _ _ _ _ P I E) as [v [V Ready]];rewrite Start in V;injection V as <-.
+ destruct(proj2(ScoreProgress.zip _ _ _ _ _ _ _ P I Ready) _ Progress) as [mid L].
+ eapply LadderProduct.checked;[exact I|exact Maps|exact (Tables.loaded _ _ static_tables_correct Maps)| |exact L].
+ exact (proj2(proj2(proj2(proj2(Entries 0%nat (count e) zero_loc N eq_refl zero_words))))).
 Qed.
 
 Lemma verified pol pc text : matches pc (destination pol) text -> empty_image text -> Prologue.bound text -> StageEntry.bound text -> TailWrites.bound text -> StageWrites.bound text (destination pol Prepare-pc) -> RejectCall.bound pc text -> RejectDispatch.bound pc text -> RejectFinish.bound text -> StageEntry.preserves_bp text=true -> HashEntry.bound pc text -> ScoreSetup.bound pol pc text ->
@@ -304,7 +320,7 @@ Proof.
  assert (CallerCode:StrictDispatch.bound pc text) by
    (exact (conj Hash (conj ScatterCode (conj ExitCode (proj1(proj2(proj2(proj2 Rejection)))))))).
  constructor;[exact Image|exact Arguments.checked_arguments|exact static_tables_correct|
- exact (linked_calls pol)|exact (conj CallWrites.embedded (conj NestedRegions.embedded protected_slots))| | |exact CallerCode|exact Scorer| | |].
+ exact (linked_calls pol)|exact (conj CallWrites.embedded (conj NestedRegions.embedded protected_slots))| | |exact CallerCode|exact Scorer| | | |].
  - intros bias e carry masks Input;eapply observed_correct;[exact Image|exact CallerCode|exact Scorer|exact Input|apply Empty|apply Native];exact Input.
  - intros bias e Input;split.
    + intros ip final N Run x X.
@@ -331,6 +347,7 @@ Proof.
           exact (entry_text _ _ _ _ _ Input)|exact Apart|exact (callee_image _ _ _ _ _ Input N)].
  - exact Live.
  - exact Native.
+ - intros -> bias e c masks stop A N Run;eapply zip_ladder;[exact A|exact N|exact CallerCode|exact Scorer|apply Native|exact Run];assumption.
  - intros bias e Input Z. destruct (empty_return e) as [ip final] eqn:E. split.
    + apply (proj2 (grouped _ _ _ Image _ _ Input)),empty_path;[exact Image|now rewrite Z|exact E].
    + exact (Empty _ _ Input Z).

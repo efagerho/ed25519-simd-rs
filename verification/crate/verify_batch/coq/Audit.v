@@ -101,6 +101,11 @@ Definition first_chunk pol bias pc text e carry masks :=
                  exists r, RejectExecution.scalar_rejection pol bias pc text e carry masks=Some r /\
                            RejectExecution.post (bias+pc) e r).
 
+Definition scoring pol bias pc text e c masks stop := exists q r s cf child score,
+   FirstDispatch.run pol bias pc text e c masks=Some(FirstDispatch.HashReturned q r) /\
+   HashResume.compatible r s /\ well_formed s /\ ScoreCall.execute bias pc text q r s cf=Some child /\
+   ScoreStart.from_call pol bias child=Some score /\ ScoreProgress.observed pol bias score stop.
+
 (* A completed native return fixes the verdict CPU and the write log together. *)
 Inductive observation pol bias pc text e carry masks : list WriteTrace.store -> Z -> cpu -> Prop :=
  | observe_empty ws ip final : count e=0%nat ->
@@ -114,11 +119,7 @@ Inductive observation pol bias pc text e carry masks : list WriteTrace.store -> 
    FirstDispatch.run pol bias pc text e carry masks=Some(FirstDispatch.MoreChunks q) ->
    execution pol bias pc text (bias+pc) e ip final ->
    observation pol bias pc text e carry masks (LinkedRun.log q) ip final
- | observe_scoring q r s c child score stop ip final : (0<count e)%nat ->
-   FirstDispatch.run pol bias pc text e carry masks=Some(FirstDispatch.HashReturned q r) ->
-   HashResume.compatible r s -> well_formed s ->
-   ScoreCall.execute bias pc text q r s c=Some child -> ScoreStart.from_call pol bias child=Some score ->
-   ScoreProgress.observed pol bias score stop ->
+ | observe_scoring stop ip final : (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
    execution pol bias pc text (bias+pc) e ip final ->
    observation pol bias pc text e carry masks (LinkedRun.log stop) ip final.
 
@@ -156,6 +157,9 @@ Record batch_contract pol pc text : Prop := {
    StageEntry.physical (bias+pc) text (destination pol Prepare-pc) e;
  machine_scalar_return : forall bias e carry masks, admissible pol bias pc text e -> (0<count e)%nat ->
    first_chunk pol bias pc text e carry masks;
+ zip_ladder_product : pol=Zip215 -> forall bias e c masks stop,
+   admissible pol bias pc text e -> (0<count e)%nat -> scoring pol bias pc text e c masks stop ->
+   LadderProduct.meaning pol bias e stop;
  machine_empty : forall bias e, admissible pol bias pc text e -> count e=0%nat ->
    let '(ip,final):=empty_return e in
    returned pol e ip final /\ empty_mapped (bias+pc) text e
