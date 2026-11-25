@@ -298,3 +298,13 @@ Example test_bytes_across_zmm :
      k 1%nat 64%nat=false /\ k 2%nat 64%nat=true
  | _=>False end.
 Proof. vm_compute;repeat split;reflexivity. Qed.
+
+Example save_ladder_arguments :
+ let s:=CPU (fun r=>if (r=?4)%nat then 32 else Z.of_nat r) (fun _ _=>0) None (fun _=>0) in
+ match MappedFetch.run 2 (ScalarBytes.fetch 80 [0x41;0x50;0x41;0x51])
+       (ScalarBytes.State(ScalarBytes.Running 0) s None) with
+ | Some(t,[u;v])=>regs(ScalarBytes.cpu_state t) 4%nat=16 /\
+   (WriteTrace.pc u,WriteTrace.address u,WriteTrace.payload u 0)=(80,24,8) /\
+   (WriteTrace.pc v,WriteTrace.address v,WriteTrace.payload v 0)=(82,16,9)
+ | _=>False end.
+Proof. repeat split;reflexivity. Qed.
