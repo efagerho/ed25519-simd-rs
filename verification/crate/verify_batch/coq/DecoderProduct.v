@@ -42,10 +42,9 @@ Proof.
  assert (S:In(section b,K.image b)(children pol)) by (destruct b;apply helper_in || apply decode_in).
  destruct(proj1(symbols _ _ _ _ Loaded _ _ S));unfold word64;lia.
 Qed.
-Lemma check_columns : spec (h+0xb90) (h+0xca3) 8
- (K.body K.Seed++(K.body K.Convolve++K.body K.Fold)) (columns bias).
+Lemma after_seed : spec (h+0xbfc) (h+0xca3) 8 (K.body K.Convolve++K.body K.Fold)
+ (then_run (wrapped h HelperBytes.symbol_bytes h HelperBytes.symbol_bytes (native bias K.Convolve)) (native bias K.Fold)).
 Proof.
- eapply (compose _ _ _ _ (h+0xbfc) _ 0 8);[exact (calc K.Seed)|].
  eapply (compose _ _ _ _ (h+0xc01) _ 8 0);[|exact (calc K.Fold)].
  apply (invoke _ _ _ _ _ 0xbfc (0xcb0-0xc01) _ _ 0xddc 0).
  - apply stack.
@@ -59,6 +58,12 @@ Proof.
  - replace (h+(0xbfc+5)+(0xcb0-0xc01)) with (h+0xcb0) by ring;apply (address_fits K.Convolve);vm_compute;split;discriminate || reflexivity.
  - exact (address_fits K.Convolve 0xc01 ltac:(vm_compute;split;discriminate || reflexivity)).
  - replace (h+(0xbfc+5)+(0xcb0-0xc01)) with (h+0xcb0) by ring;exact (calc K.Convolve).
+Qed.
+Lemma check_columns : spec (h+0xb90) (h+0xca3) 8
+ (K.body K.Seed++(K.body K.Convolve++K.body K.Fold)) (columns bias).
+Proof.
+ exact (compose _ _ _ _ (h+0xbfc) _ 0 8 _ _ _ _ (calc K.Seed) after_seed).
+
 Qed.
 
 Lemma check_product : spec (d+0xa79) (d+0xadd) 16 (Kernels.product Ed25519Simd.Decode.Program.code) (product bias).

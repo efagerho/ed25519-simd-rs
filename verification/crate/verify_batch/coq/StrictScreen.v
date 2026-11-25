@@ -43,7 +43,8 @@ Proof.
        as [ret [k [Run End]]].
    destruct(StrictOrderClear.checked _ _ _ _ _ _ I C R End) as [q [Screen Post]].
    rewrite Run;cbn [bind];split;[eauto|];intros stop S;rewrite Screen in S;injection S as <-;split;[constructor|exact (StrictScoreFrame.screened _ _ _ _ _ _ _ Saved Outputs End Post
-       (StrictCandidateInputs.after_screen _ _ _ _ _ _ _ _ _ _ _ _ P Start Y C Branch End Post))].
+       (StrictCandidateInputs.after_screen _ _ _ _ _ _ _ _ _ _ _ _ P Start Y C Branch
+          (StrictRCall.saved _ _ _ _ R 3%nat ltac:(simpl;tauto)) End Post))].
    + exact (StrictOrderClear.writes _ _ _ _ Post).
    + exact (StrictOrderClear.words _ _ _ _ Post).
    + exact (StrictOrderClear.mask_byte _ _ _ _ Post).

@@ -133,22 +133,18 @@ Inductive observation pol bias pc text e carry masks : list WriteTrace.store -> 
    ScoreProduct.rejected pol stop=true -> ScorePublish.execute bias pc text stop=Some(RejectExecution.NextChunk q) ->
    execution pol bias pc text (bias+pc) e ip final ->
    observation pol bias pc text e carry masks (LinkedRun.log q) ip final
- | observe_published stop staged q : pol=Zip215 -> (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
-   ScoreDecision.observed pol bias stop staged -> ScorePublish.scatter bias pc text staged=Some(RejectExecution.BatchReturned q) ->
+ | observe_published stop staged q : (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
+   ScoreProduct.rejected pol stop=false -> ScoreDecision.observed pol bias stop staged -> ScorePublish.scatter bias pc text staged=Some(RejectExecution.BatchReturned q) ->
    observation pol bias pc text e carry masks (LinkedRun.log q) (LinkedRun.ip q) (LinkedRun.machine q)
- | observe_published_next stop staged q ip final : pol=Zip215 -> (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
-   ScoreDecision.observed pol bias stop staged -> ScorePublish.scatter bias pc text staged=Some(RejectExecution.NextChunk q) ->
+ | observe_published_next stop staged q ip final : (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
+   ScoreProduct.rejected pol stop=false -> ScoreDecision.observed pol bias stop staged -> ScorePublish.scatter bias pc text staged=Some(RejectExecution.NextChunk q) ->
    execution pol bias pc text (bias+pc) e ip final ->
-   observation pol bias pc text e carry masks (LinkedRun.log q) ip final
- | observe_scoring stop staged ip final : pol=Dalek -> (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
-   ScoreProduct.rejected pol stop=false -> ScoreDecision.observed pol bias stop staged ->
-   execution pol bias pc text (bias+pc) e ip final ->
-   observation pol bias pc text e carry masks (LinkedRun.log staged) ip final.
+   observation pol bias pc text e carry masks (LinkedRun.log q) ip final.
 
-(* Up to eight rows, the ZIP verdict CPU and log reach the same outer RET.
+(* Up to eight rows, the verdict CPU and log reach the same outer RET.
    This requires pointwise equality even inside writable scratch and stack. *)
-Definition effects pol e ws final:=WriteTrace.confined (writable e) ws /\
- (pol=Zip215 -> (Scatter.count e<=8)%nat -> forall x,mem final x=WriteTrace.replay (mem e) ws x).
+Definition effects e ws final:=WriteTrace.confined (writable e) ws /\
+ ((Scatter.count e<=8)%nat -> forall x,mem final x=WriteTrace.replay (mem e) ws x).
 
 Definition immutable_after pol bias pc text e ip final :=
  (0<count e)%nat -> execution pol bias pc text (bias+pc) e ip final ->
@@ -174,7 +170,7 @@ Record batch_contract pol pc text : Prop := {
  verify : forall bias e carry masks, admissible pol bias pc text e ->
    (exists ws ip final, observation pol bias pc text e carry masks ws ip final) /\
    (forall ws ip final, observation pol bias pc text e carry masks ws ip final ->
-      returned pol e ip final /\ effects pol e ws final);
+      returned pol e ip final /\ effects e ws final);
  image_preserved : forall bias e, admissible pol bias pc text e ->
    (forall ip final,immutable_after pol bias pc text e ip final) /\
    ((0<count e)%nat -> physical_scatter pol bias e /\ RejectCall.contract bias pc text e);

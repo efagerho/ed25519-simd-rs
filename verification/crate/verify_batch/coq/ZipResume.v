@@ -5,19 +5,9 @@ From Machine Require abi.FramePointer.
 From Curve25519.group Require Import Affine Representation SignedMultiple.
 From Ed25519Simd Require Import Wide51.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage.
-From Ed25519Simd.VerifyBatch Require ScoreProduct.
+From Ed25519Simd.VerifyBatch Require ScorePoint.
 Local Open Scope Z_scope.
 
-Definition product e j A:=let i:=HashLayout.row e j in
- plus (scale (little_endian(s_bytes i)) generator) (scale (-challenge i) A).
-Definition accumulator e s:=buffer_words (mem s) (ScoreFrame.buffer e).
-Record points e s:Prop:=Points {
- reduced:strict (accumulator e s);
- value:forall j A,(j<8)%nat -> HashLayout.eligible Zip215 e j ->
-   decodes (little_endian(key_bytes(HashLayout.row e j))) A ->
-   represents_point true (point_values (accumulator e s) j) (product e j A);
- signature:PreparedInputs.signature e s
-}.
 Definition live e s:=forall j,(j<8)%nat ->
  Z.testbit (regs s 12%nat) (Z.of_nat j)=true <-> RootDecision.decodes true e j.
 Definition flags e s:=forall j,(j<8)%nat -> let byte:=mem s (Rows.frame e+856+Z.of_nat j) in
@@ -29,7 +19,7 @@ Record ready bias pc e caller q:Prop:=Ready {
  decoded:regs(machine q) 3%nat=BatchDecode.point e true;
  mask:live e (machine q); outputs:StrictScoreFrame.outputs e (machine q);
  frame:ScoreSaved.frame bias pc e caller (machine q);
- eligibility:flags e (machine q); operands:points e (machine q)
+ eligibility:flags e (machine q); operands:ScorePoint.points Zip215 e (machine q)
 }.
 
 Theorem checked bias pc e h r caller score q:placement e ->
@@ -65,26 +55,5 @@ Proof.
      apply (ScoreCall.lanes _ _ _ _ _ _ _ C),J.
    + change (~(ScoreFrame.buffer e-8<=Rows.frame e+856+Z.of_nat j<ScoreFrame.buffer e-8+8)).
      unfold ScoreFrame.buffer,FramePointer.bottom,ScoreFrame.top in *;lia.
- - constructor.
-   + unfold accumulator;rewrite Mem;exact (LadderProduct.bound _ _ _ _ _ Prod).
-   + unfold accumulator;rewrite Mem;exact (LadderProduct.value _ _ _ _ _ Prod).
-   + eapply DecodedRows.keep;[|exact (PreparedInputs.signature_point _ _
-       (ScoreBuffers.operands _ _ (CandidateEntry.buffers _ _ _ _ Entry)))].
-     intros x X;apply (CandidateReturn.parent _ _ _ Ret);destruct(scratch_stack _ P);
-     unfold CandidateFrame.outside,CandidateDigest.dst,CandidateDigest.top,ScoreFrame.buffer,FramePointer.bottom,ScoreFrame.top,Rows.frame,sp,
-       BatchDecode.point,BatchDecode.point_offset,FlatMemory.disjoint,span in *;lia.
-Qed.
-
-Lemma keep_points e s t : preserved (fun x=>span (ScoreFrame.buffer e) 1280 x \/ span (BatchDecode.point e true) 1280 x)
- (mem s) (mem t) -> points e s -> points e t.
-Proof.
- intros Keep [Bounds Group Sig].
- assert (E:forall k,(k<160)%nat -> accumulator e t k=accumulator e s k).
- { intros k K;apply preserved_read with (outside:=span (ScoreFrame.buffer e) 1280).
-   - intros x X;apply Keep;left;exact X.
-   - intros i I;change (0<=i<8) in I;unfold span;lia. }
- constructor.
- - intros c j C J i I;unfold cell;rewrite E by lia;apply Bounds;assumption.
- - intros j A J On K;rewrite (point_values_ext _ _ _ E J);apply Group;assumption.
- - eapply DecodedRows.keep;[|exact Sig];intros x X;apply Keep;right;exact X.
+ - exact (ScorePoint.returned _ _ _ _ _ _ _ P Entry Prod Ret Mem).
 Qed.

@@ -5,7 +5,7 @@ From Curve25519 Require Import Field.
 From Curve25519.group Require Import PrimeField Affine Cofactor Representation Decompression.
 From Ed25519Simd.Dalek Require Encoding.
 From Ed25519Simd.VerifyBatch Require Import Policy Return.
-From Ed25519Simd.VerifyBatch Require StrictAccept ZipResume.
+From Ed25519Simd.VerifyBatch Require StrictAccept ScorePoint.
 Local Open Scope Z_scope.
 
 (* Once the canonical-Y and small-order screens have passed, equality of the
@@ -30,13 +30,13 @@ Qed.
 Theorem coordinates e j A R:byte_memory(mem e) -> StrictOrderClear.eligible e j ->
  decodes (little_endian(key_bytes(HashLayout.row e j))) A ->
  decodes (BatchDecode.original_encoding true e j) R ->
- (x(ZipResume.product e j A)=x R /\ y(ZipResume.product e j A)=y R <->
+ (x(ScorePoint.product e j A)=x R /\ y(ScorePoint.product e j A)=y R <->
   signature_accepts Dalek (HashLayout.row e j)).
 Proof.
  intros B [[On Canon] [R' [DR' Strong]]] DA DR.
  destruct On as [S [Dec [A' [DA' Key]]]];rewrite (Lane.unique_key _ _ _ DA' DA) in Key.
  rewrite (Lane.unique_key _ _ _ DR' DR) in Strong.
- set(Q:=ZipResume.product e j A).
+ set(Q:=ScorePoint.product e j A).
  split.
  - intro Eq;apply point_ext in Eq;split;[exact S|exists A;split;[exact DA|split;[apply Key;reflexivity|]]].
    change (BatchDecode.original_encoding true e j=compression Q /\ multiple 8 Q<>identity);rewrite Eq;split;
