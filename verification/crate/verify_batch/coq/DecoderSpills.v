@@ -11,6 +11,20 @@ Definition top pol e:=common_top pol e-112.
 Definition area pol e x:=top pol e-40<=x<top pol e+8.
 Definition saved pol e s m:=preserved (area pol e) (spill (regs s) (mem s) (top pol e) registers) m.
 
+(* Include every caller byte outside the private stack and both output points.
+   The five saved qwords have their pushed values until the decoder returns. *)
+Definition caller_byte pol e x := ~(Return.sp e-16384<=x<top pol e) /\
+ forall sig,~span (point e sig) 1280 x.
+Definition protected pol e x:=area pol e x \/ caller_byte pol e x.
+Definition retained pol e s m:=preserved (protected pol e) (spill (regs s) (mem s) (top pol e) registers) m.
+Lemma saved_part pol e s m : retained pol e s m -> saved pol e s m.
+Proof. intros R x X;apply R;now left. Qed.
+Lemma caller_part pol e s m : retained pol e s m -> preserved (caller_byte pol e) (mem s) m.
+Proof.
+ intros R x X;rewrite (R x (or_intror X));apply outside_spill;destruct X as [Outside _].
+ change (Z.of_nat(length registers)) with 5;unfold top,common_top,Rows.frame,Return.sp in *;destruct pol;lia.
+Qed.
+
 Lemma pushed o s c sp : regs s 4%nat=sp -> 800<=sp<2^64 ->
  exists t ws,run 6 (ScalarBytes.fetch o text) (State (Running 0) s c)=Some(State (Running 11) t c,ws) /\
  mem t=spill (regs s) (mem s) sp registers.
@@ -22,7 +36,7 @@ Proof.
 Qed.
 
 Theorem at_setup pol bias e p q : placement e -> loaded pol bias (mem e) (writable e) -> BatchDecode.entry pol bias e p ->
- inner bias p=Some q -> saved pol e (machine p) (mem(machine q)).
+ inner bias p=Some q -> retained pol e (machine p) (mem(machine q)).
 Proof.
  intros P I [PC [Acc [_ [_ [_ [SP _]]]]]] Call;set (s:=machine p) in *;set (sp:=top pol e) in *;fold sp in SP.
  set (o:=base bias) in *;set (c:=LinkedRun.carry p).
@@ -48,5 +62,6 @@ Proof.
  change (segment o text 15 p=Some q) in Call;rewrite Call in Exec;injection Exec as ->.
  pose proof(steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ C)) as V;change (mem v=WriteTrace.replay (mem d) [w]) in V.
  intros x X;change (mem v x=spill (regs s) (mem s) sp registers x);rewrite V,(WriteTrace.frame _ _ Last),MD,MB,Mem;[reflexivity|].
- unfold area in X;fold sp in X;unfold DecoderFrame.top;pose proof(Z.mod_pos_bound (sp-40) 64 ltac:(lia));lia.
+ unfold DecoderFrame.top;pose proof(Z.mod_pos_bound (sp-40) 64 ltac:(lia));fold sp in Stack.
+ destruct X as [X|[X _]];[unfold area in X|];fold sp in X;lia.
 Qed.
