@@ -61,3 +61,16 @@ Proof.
  specialize(Words (defined sign i j));unfold location,offset,index in Words;unfold TablePackRows.row,TableMultiple.pos,TableMultiple.neg.
  rewrite Nat2Z.inj_add,Nat2Z.inj_mul in Words;change (Z.of_nat 340) with 340 in Words;destruct sign;rewrite <-Words;f_equal;ring.
 Qed.
+
+Definition signed e digit (f:nat->nat->Z) s:=forall sign j i,(j<8)%nat -> (i<20)%nat ->
+ read_word (mem s) (TablePackRows.row e digit sign (Z.of_nat j)+8*Z.of_nat i)=Rows.eval f (Pack.signed_word sign i j).
+Theorem first pol bias e before p ks : placement e -> LoadedImage.loaded pol bias (mem e) (writable e) ->
+ (bias+DecoderFrame.origin) mod 64=0 -> EligibleLanes.post pol bias e before p -> regs(machine p) 14%nat<>0 ->
+ exists q bank a,TablePacking.observe bias p ks=Some(q,bank) /\ TableMask.ready pol bias e p a bank /\
+ TablePacking.packed pol bias e 1 a q bank /\ signed e 1 (TablePackedInputs.column e (machine p)) (machine q).
+Proof.
+ intros P I Al E Live;destruct(TablePacking.from_eligible _ _ _ _ _ ks P I Al E Live) as [q [bank [a [Run [Mask Pack]]]]].
+ exists q,bank,a;split;[exact Run|split;[exact Mask|split;[exact Pack|]]].
+ exact (contents pol bias e 1 a q bank _ P ltac:(lia) (TableMask.pointers _ _ _ _ _ _ Mask)
+   (TableMask.words _ _ _ _ _ _ Mask) (TableMask.enabled _ _ _ _ _ _ Mask) (incoming _ _ _ _ _ _ Mask) Pack).
+Qed.

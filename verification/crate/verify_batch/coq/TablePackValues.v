@@ -61,18 +61,24 @@ Definition initial n j:=match n with
  | 1|2|3|4=>Pack.Input (16+(n-1)) j
  | 28|29|30=>Pack.Literal (nth j (TablePackLiterals.words (n-28)) 0%Z)
  | _=>Pack.Unknown end.
-Lemma incoming pol bias e p a ks : TableMask.ready pol bias e p a ks ->
- represents (TablePackedInputs.column e (machine p)) initial (machine a).
+Lemma from_registers f s :
+ (forall b j i,(j<8)%nat -> (i<8)%nat -> vectors s i (TableTranspose.reg b j)=f j (TablePackedInputs.index b i)) ->
+ (forall j i,(j<8)%nat -> (i<4)%nat -> vectors s j (1+i)%nat=f j (16+i)%nat) ->
+ (forall i j,(i<3)%nat -> (j<8)%nat -> vectors s j (28+i)%nat=nth j (TablePackLiterals.words i) 0%Z) ->
+ represents f initial s.
 Proof.
- intros A n j J;do 31 (destruct n as [|n];[shelve|]);try discriminate. Unshelve. all:cbn [initial known Rows.eval];try discriminate;intro Know.
+ intros Pair Tail Literals n j J;do 31 (destruct n as [|n];[shelve|]);try discriminate. Unshelve. all:cbn [initial known Rows.eval];try discriminate;intro Know.
  all: match goal with |-vectors _ _ ?reg=_=>
   let which:=(eval compute in (if reg=?0 then 0 else if reg<?5 then 1 else if reg<?10 then 2 else if reg<?24 then 3 else if reg<?26 then 4 else 5)) in
   lazymatch which with
-  | 0=>exact (TableMask.packed _ _ _ _ _ _ A true 7 j ltac:(lia) J)
-  | 1=>let i:=(eval compute in (reg-1)) in exact (TableMask.tail _ _ _ _ _ _ A j i J ltac:(lia))
-  | 2=>let i:=(eval compute in (reg-3)) in exact (TableMask.packed _ _ _ _ _ _ A true i j ltac:(lia) J)
-  | 3=>let i:=(eval compute in (reg-16)) in exact (TableMask.packed _ _ _ _ _ _ A false i j ltac:(lia) J)
-  | 4=>let i:=(eval compute in (reg-24)) in exact (TableMask.packed _ _ _ _ _ _ A true i j ltac:(lia) J)
-  | 5=>let i:=(eval compute in (reg-28)) in exact (TableMask.literals _ _ _ _ _ _ A i j ltac:(lia) J)
+  | 0=>exact (Pair true 7 j ltac:(lia) J)
+  | 1=>let i:=(eval compute in (reg-1)) in exact (Tail j i J ltac:(lia))
+  | 2=>let i:=(eval compute in (reg-3)) in exact (Pair true i j ltac:(lia) J)
+  | 3=>let i:=(eval compute in (reg-16)) in exact (Pair false i j ltac:(lia) J)
+  | 4=>let i:=(eval compute in (reg-24)) in exact (Pair true i j ltac:(lia) J)
+  | 5=>let i:=(eval compute in (reg-28)) in exact (Literals i j ltac:(lia) J)
   end end.
 Qed.
+Lemma incoming pol bias e p a ks : TableMask.ready pol bias e p a ks ->
+ represents (TablePackedInputs.column e (machine p)) initial (machine a).
+Proof. intro A;apply from_registers;[apply (TableMask.packed _ _ _ _ _ _ A)|apply (TableMask.tail _ _ _ _ _ _ A)|apply (TableMask.literals _ _ _ _ _ _ A)]. Qed.
