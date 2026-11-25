@@ -44,6 +44,17 @@ Definition broadcast_reg prefix modrm : option nat :=
    0xe2=>Some 16 | 0x62=>Some 24 | _=>None end in
  if (0<=?modrm)&&(modrm<?64)&&(modrm mod 8=?5) then
    option_map (fun b=>Z.to_nat (b+modrm/8)) bank else None.
+(* REX.W LEA without an index. Re-encoding requires the complete ModRM,
+   optional SIB and displacement, and excludes RIP-relative addressing. *)
+Definition base_lea rex m tail :=
+ let r:=Z.to_nat (m/8 mod 8+8*(rex/4 mod 2)) in
+ let b:=Z.to_nat (m mod 8+8*(rex mod 2)) in
+ let '(a,_):=VectorMoves.operands 1 m tail in let d:=IndexedLoad.displacement a in
+ let code:=IndexedLoad.rex true (Z.of_nat r) 0 (Z.of_nat b)++[0x8d]++
+    IndexedLoad.addressing 1 (Z.of_nat r) (IndexedLoad.Addr b false d) in
+ if list_eq_dec Z.eq_dec (firstn (length code) (rex::0x8d::m::tail)) code
+ then Some(length code,LeaG r (Address b None d)) else None.
+
 Definition decode (bs:list Z) : option (nat*instruction) := match bs with
  | 0xc1::m::imm::_=>if (0xe0<=?m)&&(m<?0xe8) then Some(3%nat,Shl32 (Z.to_nat(m-0xe0)) imm) else
     if (0xe8<=?m)&&(m<?0xf0) then Some(3%nat,Shr32 (Z.to_nat(m-0xe8)) imm) else None
@@ -166,6 +177,7 @@ Definition decode (bs:list Z) : option (nat*instruction) := match bs with
  | 0xe8::a::b::c::d::_=>Some (5%nat,CallRelative (displacement32 [a;b;c;d]))
  | 0xc3::_ => Some (1%nat,Ret)
  | rex::0x89::m::_=>reg_move rex m
+ | rex::0x8d::m::tail=>base_lea rex m tail
  | _=>match VectorMoves.decode bs with Some(n,i)=>Some(n,VectorMove i)
       | None=>match QwordRegister.decode bs with Some(n,i)=>Some(n,QwordOp i)
               | None=>option_map (fun '(n,i)=>(n,AlignedRow i)) (VectorMoves.decode_row bs) end end end.

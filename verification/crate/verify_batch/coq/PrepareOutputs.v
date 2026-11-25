@@ -71,13 +71,13 @@ Proof.
  destruct(PrepareVectors.pointer_values pol bias e p ks P I (TableUnwind.pc _ _ _ _ _ T)
   (TableUnwind.writes _ _ _ _ _ T) (TableUnwind.words _ _ _ _ _ T)
   ltac:(rewrite G by (cbn;tauto);exact (EligibleLanes.scratch_base _ _ _ _ _ E))) as [a [ak [PointerRun [AP [A V]]]]].
- destruct(store_checked pol bias e a Pointers P I AP (PrepareVectors.writes _ _ _ A) (PrepareVectors.words _ _ _ A)
-   ltac:(rewrite (PrepareVectors.registers _ _ _ A);exact D)) as [b [First B]].
+ destruct(store_checked pol bias e a Pointers P I AP (MaskedResult.accounted_after _ _ _ _ A) (MaskedResult.words_after _ _ _ _ A)
+   ltac:(rewrite (MaskedResult.registers_after _ _ _ _ A);exact D)) as [b [First B]].
  destruct(PrepareVectors.flag_values pol bias e b ak I (next_pc _ _ _ _ _ B) (accounted_after _ _ _ _ _ B) (valid_words _ _ _ _ _ B))
     as [c [ck [FlagsRun [CP [C F]]]]].
  assert (Back:regs(machine c)=regs(machine p)) by
-   (now rewrite (PrepareVectors.registers _ _ _ C),(regs_after _ _ _ _ _ B),(PrepareVectors.registers _ _ _ A)).
- destruct(store_checked pol bias e c Flags P I CP (PrepareVectors.writes _ _ _ C) (PrepareVectors.words _ _ _ C)
+   (now rewrite (MaskedResult.registers_after _ _ _ _ C),(regs_after _ _ _ _ _ B),(MaskedResult.registers_after _ _ _ _ A)).
+ destruct(store_checked pol bias e c Flags P I CP (MaskedResult.accounted_after _ _ _ _ C) (MaskedResult.words_after _ _ _ _ C)
     ltac:(now rewrite Back)) as [q [Second Q]].
  exists q,ck;split;[unfold execute;rewrite PointerRun;cbn [bind];rewrite First;cbn [bind];rewrite FlagsRun;cbn [bind];now rewrite Second|constructor].
  - exact (next_pc _ _ _ _ _ Q).
@@ -88,14 +88,14 @@ Proof.
    transitivity (read_word (mem(machine c)) (dest e+8*Z.of_nat j)).
    + apply preserved_read with (outside:=fun x=>~span (dest e+64) 8 x);
      [intros x X;apply write_outside,X|intros n N;change (0<=n<8) in N;unfold span;lia].
-   + rewrite (PrepareVectors.memory_after _ _ _ C),(bytes_after _ _ _ _ _ B).
-     unfold event,commit;cbn [vector address size payload];rewrite write_read_vector by (exact J || apply (PrepareVectors.words _ _ _ A),J).
+   + rewrite (MaskedResult.memory_after _ _ _ _ C),(bytes_after _ _ _ _ _ B).
+     unfold event,commit;cbn [vector address size payload];rewrite write_read_vector by (exact J || apply (MaskedResult.words_after _ _ _ _ A),J).
      rewrite V by exact J;rewrite (G 15%nat),(G 12%nat) by (cbn;tauto);reflexivity.
  - intros j J;rewrite (bytes_after _ _ _ _ _ Q);unfold event,commit;cbn [qword address size payload].
-   rewrite write_at by lia;rewrite F by exact J;rewrite (regs_after _ _ _ _ _ B),(PrepareVectors.registers _ _ _ A),G by (cbn;tauto);reflexivity.
+   rewrite write_at by lia;rewrite F by exact J;rewrite (regs_after _ _ _ _ _ B),(MaskedResult.registers_after _ _ _ _ A),G by (cbn;tauto);reflexivity.
  - intros x X;rewrite (bytes_after _ _ _ _ _ Q);unfold event,commit;cbn [qword address size payload];rewrite write_outside by (unfold span in X;lia).
-   rewrite (PrepareVectors.memory_after _ _ _ C),(bytes_after _ _ _ _ _ B);unfold event,commit;cbn [vector address size payload].
-   rewrite write_outside by (unfold span in X;lia);now rewrite (PrepareVectors.memory_after _ _ _ A).
+   rewrite (MaskedResult.memory_after _ _ _ _ C),(bytes_after _ _ _ _ _ B);unfold event,commit;cbn [vector address size payload].
+   rewrite write_outside by (unfold span in X;lia);now rewrite (MaskedResult.memory_after _ _ _ _ A).
  - exact T.
 Qed.
 

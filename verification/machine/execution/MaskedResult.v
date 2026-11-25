@@ -11,14 +11,13 @@ Inductive op :=
  | TestBroadcast (d a:nat) (target:Z)
  | LoadRow (d k base:nat) (offset:Z) | Subtract (d k a b:nat)
  | BroadcastGpr (d r:nat) | WidenWords (d:nat) (target:Z)
- | AddQ (d k a b:nat) | MaskBytes (d k:nat) | AbsBytes (d a:nat).
+ | AddQ (d k a b:nat) | MaskBytes (d k:nat) | AbsBytes (d a:nat)
+ | WidenBytes (d base:nat) (disp:Z) | TestQ (k a b:nat) | ZeroRow (d k base:nat) (disp:Z).
 
 (* VPMOVZXWQ reads sixteen contiguous bytes at RIP+disp32. *)
-Definition widen_encoding d disp :=
- let r:=Z.of_nat d in
- match prefix 2 1 r 0 5 with
- | a::b::c::rest=>a::b::(c-128)::rest++[0x34;modrm 0 r 5]++le32 disp
- | _=>[] end.
+Definition widen_prefix d base:=match prefix 2 1 (Z.of_nat d) 0 base with
+ | a::b::c::rest=>a::b::(c-128)::rest | _=>[] end.
+Definition widen_encoding d disp :=widen_prefix d 5++[0x34;modrm 0 (Z.of_nat d) 5]++le32 disp.
 
 Definition mask_qword (bits:nat->bool) (lane:nat) :=
  read_word (fun i=>if bits (8*lane+Z.to_nat i)%nat then 255 else 0) 0.
@@ -51,6 +50,11 @@ Definition encode pc op:=match op with
  | AddQ d k a b=>MaskedWords.encode pc (MaskedWords.Add d k a b)
  | MaskBytes d k=>Packed.rr_w0 2 2 0x28 d 0 k
  | AbsBytes d a=>Packed.rr_w0 2 1 0x1c d 0 a
+ | WidenBytes d b disp=>widen_prefix d (Z.of_nat b)++[0x32]++
+      IndexedLoad.addressing 8 (Z.of_nat d) (IndexedLoad.Addr b false disp)
+ | TestQ k a b=>rr 2 1 0x27 k a b
+ (* EVEX.z is bit 7 of the same prefix byte as EVEX.aaa. *)
+ | ZeroRow d k b disp=>MaskedWords.writemask (128+k)%nat (Move.encode_load d (Z.of_nat b) disp)
  end.
 Definition valid pc op:=let kr k:=(k<?8)%nat in let vr r:=(r<?32)%nat in match op with
  | Invert d a=>kr d && kr a | Exclusive d a b=>kr d && kr a && kr b
@@ -60,7 +64,10 @@ Definition valid pc op:=let kr k:=(k<?8)%nat in let vr r:=(r<?32)%nat in match o
  | Subtract d k a b | AddQ d k a b=>vr d && kr k && vr a && vr b
  | BroadcastGpr d r=>vr d && (r<?16)%nat
  | WidenWords d t=>vr d && signed 32 (MaskedWords.relative pc t (widen_encoding d))
- | MaskBytes d k=>vr d && kr k | AbsBytes d a=>vr d && vr a end.
+ | MaskBytes d k=>vr d && kr k | AbsBytes d a=>vr d && vr a
+ | WidenBytes d b disp=>vr d && (b<?16)%nat && signed 32 disp
+ | TestQ k a b=>kr k && vr a && vr b
+ | ZeroRow d k b disp=>vr d && (0<?k)%nat && kr k && (b<?16)%nat && signed 32 disp end.
 
 Lemma widen_target pc d t : valid pc (WidenWords d t)=true ->
  let bs:=encode pc (WidenWords d t) in pc+Z.of_nat(length bs)+displacement32(firstn 4 (skipn 6 bs))=t.
@@ -84,6 +91,9 @@ Definition step origin s (ks:MaskTransfer.bank) op : option (cpu*MaskTransfer.ba
  | AddQ d k a b=>Some(merge s ks d k (fun j=>Arithmetic.vpaddq (vectors s j a) (vectors s j b)),ks)
  | MaskBytes d k=>Some(ScalarBytes.vector_dest s d (mask_qword (ks k)),ks)
  | AbsBytes d a=>Some(ScalarBytes.vector_dest s d (fun j=>abs_qword (vectors s j a)),ks)
+ | WidenBytes d b disp=>Some(ScalarBytes.vector_dest s d (fun j=>mem s (word(regs s b+disp)+Z.of_nat j)),ks)
+ | TestQ k a b=>Some(s,set_mask ks k 8 (fun j=>negb (Z.land (vectors s j a) (vectors s j b)=?0)))
+ | ZeroRow d k b disp=>Some(ScalarBytes.vector_dest s d (fun j=>if ks k j then ScalarBytes.vector_load s j b disp else 0),ks)
  end.
 Fixpoint assemble pc ops:=match ops with []=>Some [] | op::rest=>
  if valid pc op then let bytes:=encode pc op in option_map (app bytes) (assemble (pc+Z.of_nat(length bytes)) rest) else None end.
@@ -107,7 +117,7 @@ Proof.
  induction ops as [|op tail IH];intros s ks v k Exec;[injection Exec as <- <-;auto|].
  cbn [evaluate] in Exec;destruct(step origin s ks op) as [[u bank]|] eqn:S;[|discriminate].
  cbn [bind] in Exec;destruct(IH _ _ _ _ Exec) as [G [M [F W]]];rewrite G,M,F.
- destruct op as [d a|d a b|d r|d a target|d mask base off|d mask a b|d r|d target|d mask a b|d mask|d a];cbn [step] in S;try (destruct (_=?0) eqn:A;[|discriminate]);
+ destruct op as [d a|d a b|d r|d a target|d mask base off|d mask a b|d r|d target|d mask a b|d mask|d a|d reg disp|mask a b|d mask reg disp];cbn [step] in S;try (destruct (_=?0) eqn:A;[|discriminate]);
  injection S as <- <-.
  all: split;[reflexivity|split;[reflexivity|split;[reflexivity|]]];auto.
  - intro H;apply W;destruct H as [R [Vec Bytes]];split;[exact R|split;[|exact Bytes]].
@@ -122,6 +132,38 @@ Proof.
  - intro H;apply W,ScalarWords.set_vector_words;[exact H|intros j J];destruct ((mask=?0)%nat || ks mask j);[apply low64_word|apply H,J].
  - intro H;apply W,ScalarWords.set_vector_words;[exact H|intros;apply read_word_bound,mask_memory].
  - intro H;apply W,ScalarWords.set_vector_words;[exact H|intros;apply read_word_bound,abs_memory].
+ - intro H;apply W,ScalarWords.set_vector_words;[exact H|intros j J].
+   pose proof(proj2(proj2 H) (word(regs s reg+disp)+Z.of_nat j)) as B;cbv beta;unfold word64;lia.
+ - intro H;apply W,ScalarWords.set_vector_words;[exact H|intros j J];cbv beta;destruct (ks mask j);[apply read_word_bound,H|unfold word64;lia].
+Qed.
+
+Record unchanged entry allowed p q:Prop:=Unchanged {
+ accounted_after:accounted entry allowed q; words_after:well_formed(machine q);
+ registers_after:regs(machine q)=regs(machine p); memory_after:mem(machine q)=mem(machine p);
+ history:log q=log p; carry_after:LinkedRun.carry q=LinkedRun.carry p
+}.
+
+Lemma mapped_slice origin text entry allowed p ks off n ops v k :
+ 0<=origin -> origin+Z.of_nat(length text)<=2^64 -> mapped (mem(machine p)) origin text ->
+ ip p=origin+Z.of_nat off -> accounted entry allowed p -> well_formed(machine p) -> (off+n<length text)%nat ->
+ assemble (Z.of_nat off) ops=Some(firstn n (skipn off text)) ->
+ evaluate origin (machine p) ks ops=Some(v,k) ->
+ exists q,execute origin ops p ks=Some(q,k) /\ ip q=origin+Z.of_nat(off+n) /\ machine q=v /\ unchanged entry allowed p q.
+Proof.
+ intros L H Map PC Acc W N Enc Eval;set (bs:=firstn n (skipn off text)) in *.
+ assert (Len:length bs=n) by (unfold bs;rewrite firstn_length,skipn_length,Nat.min_l;lia).
+ assert (Slice:mapped (mem(machine p)) (ip p) bs).
+ { rewrite PC;apply MaskTransfer.subimage with (text:=text);[exact Map|rewrite Len;lia|now rewrite Len]. }
+ destruct(stable _ _ _ _ _ _ Eval) as [G [M [_ V]]].
+ pose proof(mapped_block _ _ _ _ _ _ _ _ PC Enc Slice Eval) as B.
+ eexists;split;[exact B|split;[|split;[reflexivity|constructor]]].
+ - cbn [ip];rewrite PC,Len,Nat2Z.inj_add,Z.add_assoc;apply word_fits;unfold word64;lia.
+ - split;[exact (proj1 Acc)|];cbn [machine log];rewrite M;exact (proj2 Acc).
+ - exact (V W).
+ - exact G.
+ - exact M.
+ - reflexivity.
+ - reflexivity.
 Qed.
 
 Fixpoint rows d k base off n:=match n with
