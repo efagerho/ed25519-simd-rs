@@ -233,3 +233,14 @@ Example kortest_word_flags :
  flags (fun j=>(j<?16)%nat)=Some(Some false,Some true) /\
  flags (fun j=>Nat.eqb j 16)=Some(Some true,Some false).
 Proof. repeat split;reflexivity. Qed.
+
+Example xmm_filter_forms :
+ MaskedResult.assemble 0 [MaskedResult.AndWord 1 1 2;MaskedResult.LoadLowQ 1 6 0;MaskedResult.AndNotXmm 0 0 1]=
+ Some [0xc5;0xf4;0x41;0xca;0xc5;0xfa;0x7e;0x0e;0xc5;0xf9;0xdf;0xc1] /\
+ let s:=CPU (fun _=>272) (fun j r=>if Nat.eqb r 0 then 0xff00 else 99+Z.of_nat j) None (fun _=>255) in
+ match MaskedResult.evaluate 0 s (fun r j=>if Nat.eqb r 1 then Nat.even j else (j<?2)%nat)
+    [MaskedResult.AndWord 1 1 2;MaskedResult.LoadLowQ 1 6 0;MaskedResult.AndNotXmm 0 0 1] with
+ | Some(t,k)=>vectors t 0%nat 0%nat=0xffffffffffff00ff /\ vectors t 1%nat 1%nat=0 /\
+    vectors t 1%nat 0%nat=0 /\ vectors t 2%nat 0%nat=0 /\ k 1%nat 0%nat=true /\ k 1%nat 1%nat=false /\ k 2%nat 1%nat=true
+ | _=>False end.
+Proof. repeat split;reflexivity. Qed.
