@@ -82,3 +82,14 @@ Proof.
  - exact (RootTest.root_test _ _ _ _ R).
  - intros j i J I;exact (proj1(RootTest.setup_fields_live _ _ _ _ R false j i J I)).
 Qed.
+
+Lemma signed_encoding sig e j : decodes sig e j <->
+ exists a,Policy.decodes (BatchDecode.original_encoding sig e j) a.
+Proof.
+ set (w:=BatchDecode.original_encoding sig e j). set (v:=residue (w mod 2^255)).
+ change ((exists x,on_curve x v) <-> exists a,y a=v /\ has_sign (Z.testbit w 255) (x a)).
+ split.
+ - intros [u U];pose proof(decode_correct v (Z.testbit w 255)) as D.
+   destruct(decode v (Z.testbit w 255)) as [z|];[destruct D as [C S];exists (Point z v C);auto|contradiction (D u U)].
+ - intros [a [Y S]];exists (x a);rewrite <-Y;apply on_edwards.
+Qed.
