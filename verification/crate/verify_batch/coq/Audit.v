@@ -111,7 +111,7 @@ Inductive observation pol bias pc text e carry masks : list WriteTrace.store -> 
    observation pol bias pc text e carry masks (LinkedRun.log q) (LinkedRun.ip q) (LinkedRun.machine q)
  | observe_batch prefix ip final : (0<count e)%nat ->
    (FirstDispatch.run pol bias pc text e carry masks=Some(FirstDispatch.MoreChunks prefix) \/
-    FirstDispatch.run pol bias pc text e carry masks=Some(FirstDispatch.TablesReturned prefix)) ->
+    FirstDispatch.run pol bias pc text e carry masks=Some(FirstDispatch.PreparedLanes prefix)) ->
    execution pol bias pc text (bias+pc) e ip final ->
    observation pol bias pc text e carry masks (LinkedRun.log prefix) ip final.
 
