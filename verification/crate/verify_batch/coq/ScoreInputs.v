@@ -13,6 +13,7 @@ Record inputs pol e s:Prop:=Inputs {
  base:read_word (mem s) (Rows.frame e+944)=regs e 9%nat;
  flags:forall j,(j<8)%nat -> let b:=mem s (Rows.frame e+832+Z.of_nat j) in
    (b=0 \/ b=1) /\ (b=1 <-> HashLayout.eligible pol e j);
+ buffers:ScoreBuffers.data e s;
  r_valid:forall j,(j<8)%nat -> (Z.testbit (mem s (Rows.frame e+840)) (Z.of_nat j)=true <-> RootDecision.decodes true e j)
 }.
 
@@ -26,6 +27,7 @@ Proof.
  - exact (proj2(WrapperInputs.tables _ _ Layout)).
  - intros j J;destruct(PreparedReturn.flags _ _ _ _ _ R j J) as [Bit On];unfold PrepareOutputs.dest in *;
    replace (Rows.frame e+832) with (Rows.frame e+768+64) by ring;split;[exact Bit|rewrite <-HashLayout.candidate;exact On].
+ - exact (ScoreBuffers.from_prepare _ _ _ _ _ R).
  - exact (PreparedReturn.decoded_r _ _ _ _ _ R).
 Qed.
 Lemma dalek o e p q : StrictReturn.result o e p q -> inputs Dalek e (machine q).
@@ -38,13 +40,15 @@ Proof.
  - exact (proj2(WrapperInputs.tables _ _ (StrictReturn.inputs _ _ _ _ R))).
  - intros j J;destruct(StrictReturn.filtered _ _ _ _ R j J) as [Bit On];unfold FilterFlags.flag_ptr,PrepareOutputs.dest in *;
    replace (Rows.frame e+832) with (Rows.frame e+768+64) by ring;split;[exact Bit|rewrite On;exact (StrictReturn.strong_lane _ _ _ _ R j J)].
+ - exact (StrictReturn.buffers _ _ _ _ R).
  - exact (StrictReturn.decoded_r _ _ _ _ R).
 Qed.
 
 Lemma preserve pol e s u : inputs pol e s -> (forall r,In r sysv_saved -> regs u r=regs s r) ->
- preserved (fun x=>Rows.frame e+768<=x<sp e) (mem s) (mem u) -> inputs pol e u.
+ preserved (fun x=>Rows.frame e+768<=x<sp e) (mem s) (mem u) ->
+ preserved (ScoreBuffers.region e) (mem s) (mem u) -> inputs pol e u.
 Proof.
- intros [G Rem Meta [Slots BP] Base Flags Valid] Keep M;destruct G as [Scratch [N Out]];constructor.
+ intros [G Rem Meta [Slots BP] Base Flags Buf Valid] Keep M B;destruct G as [Scratch [N Out]];constructor.
  - unfold Prologue.context_registers,Prologue.output_registers;rewrite (Keep 15%nat),(Keep 13%nat),(Keep 14%nat) by (simpl;tauto);auto.
  - rewrite Keep by (simpl;tauto);exact Rem.
  - eapply IndexStores.metadata_preserved;[|exact Meta];intros x X;apply M;unfold Rows.frame,sp in *;lia.
@@ -52,12 +56,17 @@ Proof.
  - rewrite <-Base;apply preserved_read with (outside:=fun x=>Rows.frame e+768<=x<sp e);[exact M|].
    intros k K;change (0<=k<8) in K;unfold Rows.frame,sp;lia.
  - intros j J;cbv zeta;rewrite M;[exact (Flags j J)|unfold Rows.frame,sp;lia].
+ - exact (ScoreBuffers.keep _ _ _ B Buf).
  - intros j J;rewrite M;[exact (Valid j J)|unfold Rows.frame,sp;lia].
 Qed.
-Lemma at_hash pol bias pc e p q : inputs pol e (machine p) -> HashEntry.entry bias pc e p q -> inputs pol e (machine q).
-Proof. intros Prep H;eapply preserve;[exact Prep|exact (HashEntry.saved _ _ _ _ _ H)|].
- intros x X;apply (HashEntry.other_bytes _ _ _ _ _ H);unfold span;lia. Qed.
-Lemma after_hash pol bias o e q r s : inputs pol e (machine q) -> NativeHash.returned pol bias o e q r ->
+Lemma at_hash pol bias pc e p q : placement e -> inputs pol e (machine p) -> HashEntry.entry bias pc e p q -> inputs pol e (machine q).
+Proof.
+ intros P Prep H;eapply preserve;[exact Prep|exact (HashEntry.saved _ _ _ _ _ H)| |];intros x X;apply (HashEntry.other_bytes _ _ _ _ _ H);
+ destruct(scratch_stack _ P);unfold ScoreBuffers.region,span,Rows.frame,disjoint,sp in *;lia.
+Qed.
+Lemma after_hash pol bias o e q r s : placement e -> inputs pol e (machine q) -> NativeHash.returned pol bias o e q r ->
  HashResume.compatible r s -> inputs pol e s.
-Proof. intros I R C;apply (preserve _ _ _ _ I (HashResume.saved _ _ _ _ _ _ _ R C)).
- intros x X;rewrite (proj1 C);apply (NativeHash.frame _ _ _ _ _ _ R);right;lia. Qed.
+Proof.
+ intros P I R C;apply (preserve _ _ _ _ I (HashResume.saved _ _ _ _ _ _ _ R C));intros x X;rewrite (proj1 C);
+ apply (NativeHash.frame _ _ _ _ _ _ R);destruct(scratch_stack _ P);unfold ScoreBuffers.region,span,Rows.frame,disjoint,sp in *;lia.
+Qed.
