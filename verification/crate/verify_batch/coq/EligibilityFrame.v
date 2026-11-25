@@ -11,7 +11,8 @@ Record context pol bias outer e q:Prop:=Context {
  links:return_slots pol bias outer e (mem(machine q));
  outputs:saved_outputs pol e (mem(machine q));
  metadata:StageEntry.metadata e (mem(machine q));
- caller:StageEntry.saved_caller e (machine q)
+ caller:StageEntry.saved_caller e (machine q);
+ inputs:WrapperInputs.layout e (mem(machine q))
 }.
 
 Lemma frame_bytes pol bias e scalar d t :
@@ -28,17 +29,16 @@ Qed.
 
 Theorem restore pol bias outer e scalar d t :
  placement e -> BatchScalar.post pol bias outer e scalar -> BatchDecode.handoff pol e scalar d ->
- StageEntry.metadata e (mem(machine scalar)) -> StageEntry.saved_caller e (machine scalar) ->
+ StageEntry.metadata e (mem(machine scalar)) -> StageEntry.saved_caller e (machine scalar) -> WrapperInputs.layout e (mem(machine scalar)) ->
  EligibleLanes.checked_trace pol bias e d t -> context pol bias outer e (EligibleLanes.stopped t).
 Proof.
- intros P [_ [_ [_ [Links [Outputs _]]]]] H Meta [Slots BP] C;pose proof(frame_bytes _ _ _ _ _ _ P H C) as Frame.
+ intros P [_ [_ [_ [Links [Outputs _]]]]] H Meta [Slots BP] Layout C;pose proof(frame_bytes _ _ _ _ _ _ P H C) as Frame.
  destruct C as [D Q]. constructor.
  - eapply slots_preserved;[|exact Links];intros x X;apply Frame;unfold live_byte,common_top,Rows.frame,sp in *;destruct pol;lia.
- - destruct Outputs as [N [O Left]];unfold saved_outputs in *;repeat split;[rewrite <-N|rewrite <-O|rewrite <-Left].
-   all: apply preserved_read with (outside:=live_byte pol e);[exact Frame|intros k K;change (0<=k<8) in K;
-        unfold live_byte,common_top,Rows.frame,sp;destruct pol;lia].
+ - eapply keep_saved_outputs;[|exact Outputs];intros x X;apply Frame;unfold live_byte,common_top,Rows.frame,sp in *;destruct pol;lia.
  - eapply IndexStores.metadata_preserved;[|exact Meta];intros x X;apply Frame;unfold live_byte,common_top,Rows.frame,sp in *;destruct pol;lia.
  - split;[intros x X;rewrite Frame;[apply Slots,X|unfold live_byte,common_top,Rows.frame,sp in *;destruct pol;lia]|].
    rewrite (EligibleLanes.kept_rbp _ _ _ _ _ Q),(DecoderReturn.restores _ _ _ _ _ D) by (cbn;tauto).
    now rewrite (BatchDecode.kept_rbp _ _ _ _ H).
+ - eapply WrapperInputs.preserve;[|exact Layout];intros x X;apply Frame;unfold live_byte,WrapperInputs.needed,span,common_top,Rows.frame,sp in *;destruct pol;lia.
 Qed.

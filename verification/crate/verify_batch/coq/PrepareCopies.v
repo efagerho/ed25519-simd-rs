@@ -201,7 +201,7 @@ Theorem to_decoder slide frame dst table original ptr s c :
  byte_memory (mem s) -> table_view (mem s) table ptr -> source_view original (mem s) ptr ->
  exists t ws,run 88 (run_common slide) (State (Running 65) s c)=Some(t,ws) /\
  handed slide frame dst original ptr t /\ confined (fun x=>dst<=x<dst+512 \/ frame-8<=x<frame) ws /\
- regs(cpu_state t) 13%nat=regs s 13%nat /\ regs(cpu_state t) 14%nat=regs s 0%nat mod 2^32 /\ regs(cpu_state t) 3%nat=dst.
+ regs(cpu_state t) 13%nat=regs s 13%nat /\ regs(cpu_state t) 14%nat=regs s 0%nat mod 2^32 /\ regs(cpu_state t) 3%nat=dst /\ regs(cpu_state t) 12%nat=regs s 12%nat.
 Proof.
  intros Nonzero SP BX R15 Fit Al Table Apart Stack Target Sep Inputs Bytes Ptr Original.
  destruct(started slide s c frame dst table Nonzero SP BX R15) as [u [Start [Held M]]].
@@ -210,10 +210,10 @@ Proof.
    ltac:(unfold source_view;now rewrite M) ltac:(intros j b k J;lia))
    as [v [cv [body [Copies [V [Data W]]]]]].
  destruct(dispatch slide v cv frame dst _ table V Fit Stack Target) as [t [tail [Call [IP [DI [SI [DX [Top [Ret Safe]]]]]]]]].
- assert (Sel:regs(cpu_state t) 13%nat=regs s 13%nat).
- { pose proof(PreservedRegister.run_keeps_at 13 _ CommonBytes.symbol_bytes ltac:(vm_compute;reflexivity) 4 65 _ _ _ _ ltac:(vm_compute;reflexivity) Start) as H.
-   pose proof(PreservedRegister.run_keeps_at 13 _ CommonBytes.symbol_bytes ltac:(vm_compute;reflexivity) 80 78 _ _ _ _ ltac:(vm_compute;reflexivity) Copies) as M'.
-   pose proof(PreservedRegister.run_keeps_at 13 _ CommonBytes.symbol_bytes ltac:(vm_compute;reflexivity) 4 122 _ _ _ _ ltac:(vm_compute;reflexivity) Call) as E.
+ assert (Sel:forall r,r=12%nat \/ r=13%nat -> regs(cpu_state t) r=regs s r).
+ { intros r Index;pose proof(PreservedRegister.run_keeps_at r _ CommonBytes.symbol_bytes ltac:(vm_compute;reflexivity) 4 65 _ _ _ _ ltac:(destruct Index as [->| ->];vm_compute;reflexivity) Start) as H.
+   pose proof(PreservedRegister.run_keeps_at r _ CommonBytes.symbol_bytes ltac:(vm_compute;reflexivity) 80 78 _ _ _ _ ltac:(destruct Index as [->| ->];vm_compute;reflexivity) Copies) as M'.
+   pose proof(PreservedRegister.run_keeps_at r _ CommonBytes.symbol_bytes ltac:(vm_compute;reflexivity) 4 122 _ _ _ _ ltac:(destruct Index as [->| ->];vm_compute;reflexivity) Call) as E.
    exact (eq_trans E (eq_trans M' H)). }
  assert (Mask:regs(cpu_state t) 14%nat=regs s 0%nat mod 2^32) by
    (rewrite (PreservedRegister.run_keeps_at 14 _ CommonBytes.symbol_bytes ltac:(vm_compute;reflexivity) 4 122 _ _ _ _ ltac:(vm_compute;reflexivity) Call);exact (proj1(proj2(proj2 V)))).
@@ -221,7 +221,7 @@ Proof.
    (rewrite (PreservedRegister.run_keeps_at 3 _ CommonBytes.symbol_bytes ltac:(vm_compute;reflexivity) 4 122 _ _ _ _ ltac:(vm_compute;reflexivity) Call);exact (proj1(proj2 V))).
  exists t,(body++tail);split.
  - exact (run_append _ 84 _ _ _ (run_append _ 4 _ _ _ Start 80 _ _ Copies) 4 _ _ Call).
- - split;[|split;[|exact (conj Sel (conj Mask Scratch))];apply Forall_app;split;eapply Forall_impl;[|exact W| |exact Safe];intros w H x X;auto].
+ - split;[|split;[|exact (conj (Sel 13%nat (or_intror eq_refl)) (conj Mask (conj Scratch (Sel 12%nat (or_introl eq_refl)))))];apply Forall_app;split;eapply Forall_impl;[|exact W| |exact Safe];intros w H x X;auto].
    unfold handed;repeat (split;[assumption|]). intros j sig k J K;rewrite <- (Data j sig k J K).
    pose proof(steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ Call)) as M'.
    cbn [cpu_state] in M';rewrite M';apply (WriteTrace.frame _ _ Safe).

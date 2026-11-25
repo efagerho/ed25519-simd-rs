@@ -22,7 +22,8 @@ Definition entry pol bias e p :=
 
 Definition caller_values e scalar decoder:=
  regs(machine decoder) 13%nat=Rows.frame e+768 /\
- regs(machine decoder) 14%nat=regs(machine scalar) 0%nat mod 2^32 /\ regs(machine decoder) 3%nat=scratch e.
+ regs(machine decoder) 14%nat=regs(machine scalar) 0%nat mod 2^32 /\ regs(machine decoder) 3%nat=scratch e /\
+ regs(machine decoder) 12%nat=regs e 8%nat.
 
 Record handoff pol e scalar decoder:Prop:=Handoff {
  caller_args:caller_values e scalar decoder;
@@ -40,7 +41,7 @@ Theorem from_scalar pol bias pc text e c ks p :
  copy_ready e (machine p) -> regs(machine p) 0%nat mod 2^32<>0 ->
  exists q,observe pol bias pc text e c ks=Some q /\ entry pol bias e q /\ handoff pol e p q.
 Proof.
- intros Place Image Inputs Prefix [PC [SP [Acc _]]] [Bytes [Ptr [BX [Rows Meta]]]] Live.
+ intros Place Image Inputs Prefix [PC [SP [Acc _]]] [Bytes [Ptr [BX [Rows [Meta [Identity Fields]]]]]] Live.
  set (frame:=common_top pol e-104) in *;set (dst:=scratch e) in *.
  set (table:=Rows.frame e+512) in *.
  destruct(stack_ok _ Place) as [[Lo Hi] _];destruct(scratch_ok _ Place) as [[D U] Al].
@@ -60,7 +61,7 @@ Proof.
  destruct (PrepareCopies.to_decoder bias frame dst table (mem e) (encoding_ptr e) (machine p) (carry p)
     Live SP BX Rows ltac:(unfold fits64;lia) Aligned T Apart ltac:(unfold word64;lia) Target
     ltac:(destruct (scratch_stack _ Place);unfold disjoint,dst in *;lia)
-    Ranges Bytes Ptr Original) as [t [ws [R [[IP [DI [SI [DX [Top [Ret Data]]]]]] [Writes [Selected [Mask Scratch]]]]]]].
+    Ranges Bytes Ptr Original) as [t [ws [R [[IP [DI [SI [DX [Top [Ret Data]]]]]] [Writes [Selected [Mask [Scratch Fallback]]]]]]]].
  destruct (mapped_now _ _ _ Image _ _ _ Acc (in_common _)) as [Map Sep].
  assert (Safe:confined (writable e) ws).
  { eapply Forall_impl;[|exact Writes];intros w H x X;destruct (H x X);[right;left|left];unfold span;fold dst;lia. }
@@ -69,7 +70,8 @@ Proof.
  - unfold observe;rewrite Prefix;cbn [bind];rewrite (proj2 (Z.eqb_neq _ _) Live);exact Next.
  - split.
    2:{ constructor.
-       - exact (conj (eq_trans Selected Meta) (conj Mask Scratch)).
+       - split;[exact (eq_trans Selected Meta)|split;[exact Mask|split;[exact Scratch|]]].
+         exact (eq_trans Fallback Identity).
        - exact (PreservedRegister.run_keeps_at 5 _ CommonBytes.symbol_bytes ltac:(vm_compute;reflexivity)
            88 65 _ _ _ _ ltac:(vm_compute;reflexivity) R).
        - intros x [Out Above];change (mem(cpu_state t) x=mem(machine p) x).
