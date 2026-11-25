@@ -9,7 +9,7 @@ Local Notation text:=(ScoreSetup.code Dalek).
 
 Definition execute bias p ks:=bind (StrictRY.execute bias p) (fun y=>
  bind (StrictRCompare.execute bias y ks) (fun '(cmp,bank)=>bind (MaskTransfer.tick (ToEax 2) cmp bank)
- (fun '(r,_)=>StrictRClear.execute bias r))).
+ (fun '(r,k)=>option_map (fun t=>(t,k)) (StrictRClear.execute bias r)))).
 Lemma kmov:MaskTransfer.encoding (ToEax 2)=firstn 4 (skipn 147 text).
 Proof. vm_compute;reflexivity. Qed.
 Definition eligible e j:=HashLayout.eligible Dalek e j /\ BatchDecode.original_encoding true e j mod 2^255<Field.prime.
@@ -18,6 +18,7 @@ Record result bias e p t:Prop:=Result {
  writes:accounted e (writable e) t; words:well_formed(machine t);
  memory:mem(machine t)=mem(machine p); history:log t=log p;
  unchanged_regs:forall g,g<>0%nat -> g<>12%nat -> regs(machine t) g=regs(machine p) g;
+ mask_byte:0<=regs(machine t) 12%nat<256;
  lane:forall j,(j<8)%nat -> (Z.testbit (regs(machine t) 12%nat) (Z.of_nat j)=true <-> eligible e j);
  continues:regs(machine t) 12%nat<>0 <-> exists j,(j<8)%nat /\ eligible e j
 }.
@@ -49,7 +50,7 @@ Qed.
 
 Theorem checked bias parent e h r child score p ks : placement e -> loaded Dalek bias (mem e) (writable e) ->
  ScoreStart.reached Dalek bias parent e h r child score -> StrictRStart.reached bias e score p ->
- exists t,execute bias p ks=Some t /\ result bias e p t.
+ exists t bank,execute bias p ks=Some(t,bank) /\ result bias e p t.
 Proof.
  intros P I S T;destruct(StrictRY.checked _ _ _ _ _ _ _ _ P I S T) as [y [Y Rows]].
  destruct(StrictRCompare.checked _ _ _ _ ks I Rows) as [q [k [Cmp Q]]].
@@ -74,7 +75,8 @@ Proof.
      (HashLayout.eligible Dalek e) (fun j=>BatchDecode.original_encoding true e j mod 2^255<Field.prime)
      (eq_trans Mask (f_equal2 StrictRClear.clear Old AX))
      (StrictRStart.eligible _ _ _ _ T) (StrictRCompare.noncanonical _ _ _ _ _ Q)). }
- exists t;split;[unfold execute;rewrite Y;cbn [bind];rewrite Cmp;cbn [bind];rewrite Move;exact End|constructor].
+ assert (Byte:0<=regs(machine t) 12%nat<256) by (rewrite Mask,Old;apply StrictRClear.bounded,(StrictRStart.mask_byte _ _ _ _ T)).
+ exists t,k;split;[unfold execute;rewrite Y;cbn [bind];rewrite Cmp;cbn [bind];rewrite Move;cbn [bind];rewrite End;reflexivity|constructor].
  - rewrite Mask;exact Dest.
  - exact Paid.
  - exact Wt.
@@ -82,7 +84,7 @@ Proof.
  - rewrite Log;change (log q=log p);rewrite (StrictRCompare.history _ _ _ _ _ Q);apply (StrictRY.history _ _ _ _ Rows).
  - intros g A B;rewrite G by assumption;change (put (regs(machine q)) 0 m g=regs(machine p) g).
    unfold put;rewrite Regs;destruct (Nat.eqb_spec 0 g);congruence.
+ - exact Byte.
  - exact Bits.
- - assert (Byte:0<=regs(machine t) 12%nat<256) by (rewrite Mask,Old;apply StrictRClear.bounded,(StrictRStart.mask_byte _ _ _ _ T)).
-   exact (nonempty _ _ Byte Bits).
+ - exact (nonempty _ _ Byte Bits).
 Qed.

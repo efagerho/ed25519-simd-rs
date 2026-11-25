@@ -8,8 +8,8 @@ From Ed25519Simd.VerifyBatch Require LadderProduct LadderStage StrictRCall.
 Definition observed pol bias score stop : Prop := match pol with
  | Zip215=>exists q mid ladder,CandidateDigest.enter Zip215 bias score=Some q /\ ReducedDigest.observed bias q mid /\
                       LadderEntry.enter Zip215 bias mid=Some ladder /\ LadderStage.observed bias ladder stop
- | Dalek=>exists ks k p t,StrictRStart.execute bias score ks=Some(p,k) /\
-                        StrictRCanonical.execute bias p k=Some t /\ StrictRCall.execute bias t=Some stop end.
+ | Dalek=>exists ks k p t after,StrictRStart.execute bias score ks=Some(p,k) /\
+                        StrictRCanonical.execute bias p k=Some(t,after) /\ StrictRCall.execute bias t=Some stop end.
 
 Lemma zip pc bias e h r child score :
  placement e -> loaded Zip215 bias (mem e) (writable e) -> ProductRun.geometry (HashLayout.chunk Zip215 e bias) -> ScoreStart.reached Zip215 bias pc e h r child score ->
@@ -36,14 +36,14 @@ Proof.
  intros P I Live Ready;split.
  - set (ks:=fun _ _:nat=>false).
    destruct(StrictRStart.checked _ _ _ _ _ _ _ ks P I Live Ready) as [p [k [Start E]]].
-   destruct(StrictRCanonical.checked _ _ _ _ _ _ _ _ k P I Ready E) as [t [Run Post]].
+   destruct(StrictRCanonical.checked _ _ _ _ _ _ _ _ k P I Ready E) as [t [after [Run Post]]].
    destruct(StrictRCall.checked _ _ _ _ _ _ P I (StrictRFrame.checked _ _ _ _ _ _ _ _ _ P Ready E Post) Post) as [u [Call C]].
-   exists u,ks,k,p,t;auto.
- - intros stop [ks [k [p [t [Start [Run Call]]]]]].
+   exists u,ks,k,p,t,after;auto.
+ - intros stop [ks [k [p [t [after [Start [Run Call]]]]]]].
    destruct(StrictRStart.checked _ _ _ _ _ _ _ ks P I Live Ready) as [v [k' [S E]]].
    rewrite Start in S;injection S as <- <-.
-   destruct(StrictRCanonical.checked _ _ _ _ _ _ _ _ k P I Ready E) as [v [Next Post]].
-   rewrite Run in Next;injection Next as <-.
+   destruct(StrictRCanonical.checked _ _ _ _ _ _ _ _ k P I Ready E) as [v [bank [Next Post]]].
+   rewrite Run in Next;injection Next as <- <-.
    destruct(StrictRCall.checked _ _ _ _ _ _ P I (StrictRFrame.checked _ _ _ _ _ _ _ _ _ P Ready E Post) Post) as [u [Next C]].
    rewrite Call in Next;injection Next as <-;exists p,t;auto.
 Qed.
