@@ -203,6 +203,13 @@ Proof.
    exact (entry_text _ _ _ _ _ A)|exact Sep|exact Inputs|exact R|exact C|exact W].
 Qed.
 
+Lemma ladder_geometry pol bias pc text e : admissible pol bias pc text e -> (0<count e)%nat ->
+ ProductRun.geometry (HashLayout.chunk pol e bias).
+Proof.
+ intros A N;destruct(batch_inputs _ _ _ _ _ A N) as [_ [_ [_ [_ [_ Entries]]]]].
+ exact (proj2(proj2(proj2(proj2(Entries 0%nat (count e) zero_loc N eq_refl zero_words))))).
+Qed.
+
 Lemma observed_correct pol pc text bias e carry masks :
  matches pc (destination pol) text -> StrictDispatch.bound pc text -> ScoreSetup.bound pol pc text -> admissible pol bias pc text e ->
  (count e=0%nat -> empty_mapped (bias+pc) text e) ->
@@ -225,7 +232,7 @@ Proof.
        destruct(HashResume.complete_ok _ _ _ _ _ _ e P (proj2(proj2(proj2 Post))) (initial_cpu _ P) (proj1(proj2 Post))) as [C W].
        destruct(score_handoff _ _ _ _ _ _ _ _ carry Caller N Scorer Post C W) as [child [Call Enter]].
        destruct(ScoreStart.from_entry _ _ _ _ _ _ _ P (callee_image _ _ _ _ _ Caller N) Enter) as [score [Start Ready]].
-       destruct (proj1 (ScoreProgress.checked _ _ _ _ _ _ _ _ P (callee_image _ _ _ _ _ Caller N) (proj1 Post) Ready)) as [stop Progress].
+       destruct (proj1 (ScoreProgress.checked _ _ _ _ _ _ _ _ P (callee_image _ _ _ _ _ Caller N) (ladder_geometry _ _ _ _ _ Caller N) (proj1 Post) Ready)) as [stop Progress].
        destruct Exists as [ip [f R]];exists (LinkedRun.log stop),ip,f;apply (observe_scoring _ _ _ _ _ _ _ stop);[exact N| |exact R].
        exists q,r,(HashResume.complete r e),carry,child,score;split;[exact Run|split;[exact C|split;[exact W|split;[exact Call|split;[exact Start|exact Progress]]]]].
  - intros ws ip f O;inversion O as [ws' ip' f' Z Run|q N Run|q ip' f' N Next R|stop ip' f' N Scored R];subst.
@@ -241,21 +248,22 @@ Proof.
      destruct(ScoreStart.from_entry _ _ _ _ _ _ _ (proj1(batch_inputs _ _ _ _ _ Caller N)) (callee_image _ _ _ _ _ Caller N) Post) as [v [V Q]].
      rewrite Start in V;injection V as <-.
      exact (proj1 (proj2 (ScoreProgress.checked _ _ _ _ _ _ _ _ (proj1(batch_inputs _ _ _ _ _ Caller N))
-       (callee_image _ _ _ _ _ Caller N) (proj1(Dispatch _ N Next)) Q) _ Progress)).
+       (callee_image _ _ _ _ _ Caller N) (ladder_geometry _ _ _ _ _ Caller N) (proj1(Dispatch _ N Next)) Q) _ Progress)).
 Qed.
 
 Lemma zip_ladder bias pc text e c masks stop : admissible Zip215 bias pc text e -> (0<count e)%nat ->
  StrictDispatch.bound pc text -> ScoreSetup.bound Zip215 pc text -> first_chunk Zip215 bias pc text e c masks ->
- scoring Zip215 bias pc text e c masks stop -> LadderProduct.meaning Zip215 bias e stop.
+ scoring Zip215 bias pc text e c masks stop -> staged_product Zip215 bias e stop.
 Proof.
  intros A N Hash Scorer Native [q [r [s [cf [child [score [Run [C [W [Call [Start Progress]]]]]]]]]]].
  destruct(batch_inputs _ _ _ _ _ A N) as [P [_ [_ [Maps [_ Entries]]]]];pose proof(callee_image _ _ _ _ _ A N) as I.
  destruct(dispatch_correct _ _ _ _ _ _ _ A Hash N Native) as [b [At B]];rewrite Run in At;injection At as <-.
  destruct(score_handoff _ _ _ _ _ _ _ _ cf A N Scorer B C W) as [v [V E]];rewrite Call in V;injection V as <-.
  destruct(ScoreStart.from_entry _ _ _ _ _ _ _ P I E) as [v [V Ready]];rewrite Start in V;injection V as <-.
- destruct(proj2(ScoreProgress.zip _ _ _ _ _ _ _ P I Ready) _ Progress) as [mid L].
- eapply LadderProduct.checked;[exact I|exact Maps|exact (Tables.loaded _ _ static_tables_correct Maps)| |exact L].
- exact (proj2(proj2(proj2(proj2(Entries 0%nat (count e) zero_loc N eq_refl zero_words))))).
+ pose proof(ladder_geometry _ _ _ _ _ A N) as G.
+ destruct(proj2(ScoreProgress.zip _ _ _ _ _ _ _ P I G Ready) _ Progress) as [mid [ladder [L Stage]]].
+ exists ladder;split;[exact Stage|split;[exact (proj2(proj2(proj2(LadderStage.checked _ _ _ _ _ I G L) _ Stage)))|]].
+ eapply LadderProduct.checked;[exact I|exact Maps|exact (Tables.loaded _ _ static_tables_correct Maps)|exact G|exact L].
 Qed.
 
 Lemma verified pol pc text : matches pc (destination pol) text -> empty_image text -> Prologue.bound text -> StageEntry.bound text -> TailWrites.bound text -> StageWrites.bound text (destination pol Prepare-pc) -> RejectCall.bound pc text -> RejectDispatch.bound pc text -> RejectFinish.bound text -> StageEntry.preserves_bp text=true -> HashEntry.bound pc text -> ScoreSetup.bound pol pc text ->
