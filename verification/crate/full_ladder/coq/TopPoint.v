@@ -90,7 +90,7 @@ Proof.
  - exists (TopCall.push_store slide k base::ws);split;[rewrite Log,(TopCall.stores _ _ _ _ _ _ E),<-app_assoc;reflexivity|split].
    + constructor;[intros x X;right;change (base-8<=x<base-8+8) in X;lia|].
      eapply Forall_impl;[|exact Safe];intros w H x X;specialize(H x X);unfold callee_writable in H;rewrite S,D in H;unfold region;lia.
-   + rewrite Replay,Push;reflexivity.
+   + intro x;rewrite Replay,Push;reflexivity.
  - assert (Point:forall i,(i<160)%nat -> buffer_words (mem(machine p)) pt i=buffer_words (mem(machine call)) pt i).
    { intros i I;rewrite Push;symmetry;apply read_store_away;unfold disjoint in *;lia. }
    assert (Cache:forall d i,0<=d -> d+8*Z.of_nat i+8<=3520 ->

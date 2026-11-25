@@ -94,6 +94,7 @@ execution/ProjectionWords.v
 execution/ScalarWords.v
 abi/FramePointer.v
 abi/FrameRestore.v
+abi/FrameSlots.v
 execution/ScalarByteMemory.v
 execution/PreservedRegister.v
 execution/IndexedRegisterWords.v
