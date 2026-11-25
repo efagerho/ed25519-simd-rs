@@ -3,6 +3,7 @@ From Machine Require Import isa.Instructions execution.IndexedLoads execution.Pa
   execution.LinkedCalls execution.WordSemantics memory.ByteMemory memory.FlatMemory
   memory.PackedMemory memory.MemoryGeometry abi.SysV.
 From Ed25519Simd.StageRound Require Import Program Audit Routing Selection.
+From Machine Require execution.IndexedRegisterWords execution.PackedRegisterWords.
 Import ListNotations. Local Open Scope Z_scope.
 
 Section Stage.
@@ -194,3 +195,20 @@ Proof.
      split;[intros x;change (0<=mem (returning last) x<256);rewrite ret_memory;apply final_bytes|exact output_words].
 Qed.
 End Stage.
+
+Lemma return_words s : well_formed s -> well_formed (returning s).
+Proof.
+ intros [G V];exact (conj (put_words (regs s) 4 (word(regs s 4%nat+8)) G (WordBounds.mod64_word _)) V).
+Qed.
+
+Theorem stage_words pc s : well_formed s -> well_formed(snd(run pc s)).
+Proof.
+ intro W;assert (Each:forall k st,well_formed st -> well_formed(phase st k)).
+ { intros k st H;apply PackedRegisterWords.execute_words;[apply IndexedRegisterWords.execute_words,H|].
+   destruct k;repeat constructor. }
+ pose proof(IndexedRegisterWords.execute_words prefix s W) as Start.
+ pose proof(Each Even _ (Each Base _ (Each Odd _ Start))) as Body.
+ set (last:=Packed.execute 55 [Upper] (body s)).
+ assert (End:well_formed last) by (apply PackedRegisterWords.execute_words;[exact Body|repeat constructor]).
+ exact (return_words last End).
+Qed.

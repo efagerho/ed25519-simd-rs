@@ -23,6 +23,13 @@ Proof.
    assert (Target:0<Z.of_nat(length Ed25519Simd.StageRound.ObjectBytes.symbol_bytes)) by (vm_compute;reflexivity).
    eapply StageEntry.checked;try eassumption;unfold fits64,word64 in *;lia.
  - exact FirstStage.checked.
+ - intros slide s v c P W Pt Stack Map.
+   destruct(ladder_placement _ _ _ (child_layout _ _ P)) as [_ SA PA CA SF PF CF PS CS CP Code].
+   destruct(loaded_images _ _ P _ _ (or_introl eq_refl)) as [_ [Separate _]].
+   eapply NativeSeed.checked;[exact W|exact Pt|exact Stack|exact (conj PA PF)|split;[exact CA|]| |exact Map|].
+   + unfold fits64 in *;lia.
+   + unfold disjoint in *;lia.
+   + intros x X;unfold SeedPath.region,disjoint in *;lia.
  - intros slide s full B A P Mode V Tables.
    pose proof (checked_path full _ (entry_alignment _ _ P)) as Trace.
    assert (IPs:forall e,direct e -> word64(slide+continuation e)).

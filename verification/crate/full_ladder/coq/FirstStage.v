@@ -85,7 +85,8 @@ Proof.
  pose proof(placement_preserved _ _ _ _ G M ltac:(lia) _ _ (proj2 V 31%nat ltac:(lia))) as Layout.
  pose proof(SA.stage_correct _ SO.assembled_stage_round_correct _ _ Layout (StageEntry.stage_words _ _ _ E)) as Post.
  destruct(SA.write_footprint _ SO.assembled_stage_round_correct _ _ Layout) as [Safe Log].
- cbv zeta in Post;destruct(S.run (slide+stage_pc) u) as [ip v] eqn:Run in Post,Log|-*;cbn [snd] in Log.
+ pose proof(SA.returned_words _ SO.assembled_stage_round_correct (slide+stage_pc) u (StageEntry.stage_words _ _ _ E)) as Words.
+ cbv zeta in Post;destruct(S.run (slide+stage_pc) u) as [ip v] eqn:Run in Post,Log,Words|-*;cbn [snd] in Log.
  destruct Post as [_ [_ [_ [PC [SP [Saved [_ [B Rows]]]]]]]].
  assert (Dst:regs u 7%nat=base_of s) by (apply G;cbv [In];tauto).
  assert (Stack:regs u 4%nat=base_of s-8) by (apply G;cbv [In];tauto).
@@ -93,7 +94,8 @@ Proof.
  - rewrite PC;apply (StageEntry.stage_return_word _ _ _ E).
  - rewrite SP,Stack;ring.
  - exact Saved.
- - exact B.
+ - rewrite Saved by (simpl;tauto);destruct (StageEntry.stage_arguments _ _ _ E) as [_ [_ [_ [_ [_ [_ [_ [Pt _]]]]]]]];exact Pt.
+ - exact Words.
  - intros x;unfold stage_stores;rewrite replay_app,<-(StageEntry.stage_memory _ _ _ E);apply Log.
  - unfold stage_stores;apply Forall_app;split;[apply (StageEntry.stage_stack_stores _ _ _ E)|].
    eapply Forall_impl;[|exact Safe];intros w W x X;specialize(W x X);unfold SA.destination in W.

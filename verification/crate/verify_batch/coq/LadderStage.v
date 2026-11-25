@@ -36,10 +36,13 @@ Definition selected ladder stop := forall k i j,(i<SA.columns k)%nat -> (j<8)%na
  read_word (mem(machine stop)) (F.base_of (machine ladder)+64*Z.of_nat(SA.first_row k+i)+8*Z.of_nat j)=
  table_row (machine ladder) j (affine k) (weight (machine ladder) j 31 k) i.
 
-Theorem checked pol bias e p t : loaded pol bias (mem e) (writable e) ->
+Definition ready ladder stop:=well_formed(machine stop) /\ regs(machine stop) 3%nat=regs(machine ladder) 7%nat /\
+ regs(machine stop) 4%nat=F.base_of(machine ladder).
+
+Theorem with_cpu pol bias e p t : loaded pol bias (mem e) (writable e) ->
  ProductRun.geometry (HashLayout.chunk pol e bias) -> LadderEntry.entry pol bias e p t ->
  (exists stop,observed bias t stop) /\ (forall stop,observed bias t stop ->
- accounted e (writable e) stop /\ ip stop=bias+pc+54 /\ selected t stop).
+ accounted e (writable e) stop /\ ip stop=bias+pc+54 /\ selected t stop /\ ready t stop).
 Proof.
  intros I Geo L;pose proof(LadderEntry.writes _ _ _ _ _ L) as Prev.
  destruct(LadderLayout.checked _ _ _ _ _ Geo L) as [Place Valid].
@@ -68,5 +71,14 @@ Proof.
    + unfold q;cbn [log];rewrite <-app_assoc;apply append_accounted;[exact Prev| |].
      * apply Safe,(F.writes _ _ _ _ _ Done).
      * exact (F.account _ _ _ _ _ Done).
-   + split;[exact (F.at_continuation _ _ _ _ _ Done)|exact (F.rows _ _ _ _ _ Done)].
+   + split;[exact (F.at_continuation _ _ _ _ _ Done)|split;[exact (F.rows _ _ _ _ _ Done)|exact (conj (F.returned_words _ _ _ _ _ Done) (conj (F.point_pointer _ _ _ _ _ Done) (F.restored_rsp _ _ _ _ _ Done)))]].
+Qed.
+
+Theorem checked pol bias e p t : loaded pol bias (mem e) (writable e) ->
+ ProductRun.geometry (HashLayout.chunk pol e bias) -> LadderEntry.entry pol bias e p t ->
+ (exists stop,observed bias t stop) /\ (forall stop,observed bias t stop ->
+ accounted e (writable e) stop /\ ip stop=bias+pc+54 /\ selected t stop).
+Proof.
+ intros I G L;destruct(with_cpu _ _ _ _ _ I G L) as [Ex Sound];split;[exact Ex|].
+ intros stop O;destruct(Sound _ O) as [A [At [Rows _]]];auto.
 Qed.

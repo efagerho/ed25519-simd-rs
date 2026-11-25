@@ -2,27 +2,13 @@ From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions execution.WordSemantics execution.WordBounds execution.LinkedCalls
  execution.ScalarBytes execution.MappedFetch execution.LinkedRun execution.StoreInstructions
  memory.FlatMemory memory.ByteMemory memory.WriteTrace.
-From Machine Require isa.QwordRegister isa.VectorMoves isa.IndexedLoad execution.Packed execution.IndexedLoads.
+From Machine Require execution.IndexedRegisterWords isa.QwordRegister isa.VectorMoves isa.IndexedLoad execution.Packed execution.IndexedLoads.
 Import ListNotations. Local Open Scope Z_scope.
 
 (* Defined words in the scalar decoder, including the indexed vector loads
    that manipulate the batch's descriptor and pointer rows. *)
 Lemma indexed_words i s : well_formed s -> well_formed (IndexedLoads.execute [i] s).
-Proof.
- intros [G [V B]];destruct i.
- all: split;[intro r'|split;[intros j r' J|exact B]].
- all: cbn [IndexedLoads.execute IndexedLoads.summary fold_left IndexedLoads.step IndexedLoads.initial
-           IndexedLoads.eval IndexedLoads.gp IndexedLoads.vec regs vectors Packed.update
-           Packed.unpack_source Packed.shuffle_source].
- all: unfold Packed.update;repeat match goal with |-context[if ?b then _ else _]=>destruct b eqn:? end;cbn [IndexedLoads.eval].
- all: try apply G;try solve [apply V;exact J | apply mod64_word | apply mod32_word |
-     apply (read_word_bound _ _ B) | unfold word64;lia].
- all: try solve [apply V;lia|apply V;
-  pose proof (Nat.mod_upper_bound (imm/4^(j/2)) 4 ltac:(lia));
-  pose proof (Nat.mod_upper_bound j 2 ltac:(lia));lia].
- all: try (match goal with |-word64 (read_le ?n _ ?a)=>pose proof (read_le_bound n _ a B);unfold word64;cbn [Z.of_nat] in *;lia end).
- all: apply V;pose proof (Nat.div_mod j 2 ltac:(lia));lia.
-Qed.
+Proof. apply IndexedRegisterWords.execute_words. Qed.
 
 Lemma low8_words s r v : well_formed s -> well_formed (low_byte s r v).
 Proof.

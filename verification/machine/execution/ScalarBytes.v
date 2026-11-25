@@ -27,7 +27,7 @@ Inductive instruction :=
 | AlignedRow (i:VectorMoves.aligned_row)
 | Shl32 (r:nat) (imm:Z) | Or32 (dst src:nat) | ZeroUpper
 | Shr32 (r:nat) (imm:Z) | And32 (dst src:nat) | ExtendByte (dst src:nat) | StoreByte (r:nat) (a:addr) | Dec32 (r:nat) | Inc32 (r:nat)
-| CompareMemImm (a:addr) (imm:Z) | SetNotEqual (d:nat) | LoadZX8 (d:nat) (a:addr) | Not32 (r:nat).
+| CompareMemImm (a:addr) (imm:Z) | SetNotEqual (d:nat) | LoadZX8 (d:nat) (a:addr) | Not32 (r:nat) | Imm64 (r:nat) (imm:Z).
 
 Definition little32 bs := read_le 4 (fun i=>nth (Z.to_nat i) bs 0) 0.
 (* REX-prefixed opcode 89 /r with a register destination. REX.R extends the source
@@ -123,7 +123,11 @@ Definition decode (bs:list Z) : option (nat*instruction) := match bs with
  | 0x4d::0x85::0xe4::_=>Some (3%nat,Test 12)
  | 0x0f::0x85::a::b::c::d::_=>Some (6%nat,Branch Unequal (displacement32 [a;b;c;d]))
  | 0x85::0xc0::_=>Some (2%nat,Test32 0)
- | 0x62::0xf2::0xfd::0x48::0x7c::0xc0::_=>Some (6%nat,BroadcastG 0 0)
+ | 0x48::0xb8::a::b::c::d::e::f::g::h::_=>Some(10%nat,Imm64 0 (read_word (fun i=>nth (Z.to_nat i) [a;b;c;d;e;f;g;h] 0) 0))
+ | 0x62::p::0xfd::0x48::0x7c::m::_=>
+   let r:=Z.to_nat (m/8 mod 8+8*X86.invbit p 7+16*X86.invbit p 4) in
+   if list_eq_dec Z.eq_dec [0x62;p;0xfd;0x48;0x7c;m] (X86.rr 2 1 0x7c r 0 0)
+   then Some(6%nat,BroadcastG r 0) else None
  | 0x62::0xf1::0xfd::0x48::0xd4::0x46::d::_=>
    Some (7%nat,AddVectorMem 0 0 (Address 6 None (64*signed_value 128 d)))
  | 0x53::_=>Some (1%nat,SaveG 3)
@@ -274,6 +278,7 @@ Definition step origin off n op s carry : option (state*list store) :=
       go (with_zf (set s 0 t) (t=?0)) (Some (Z.odd v))
  | Inc r=>let t:=word(regs s r+1) in go (with_zf (set s r t) (t=?0)) carry
  | RestoreG r=>go (pop s r) carry
+ | Imm64 r k=>go (set s r (word k)) carry
  | Imm32 r k=>go (set s r (k mod 2^32)) carry
  | Test32 r=>go (with_zf s (regs s r mod 2^32=?0)) (Some false)
  | BroadcastG d r=>go (CPU (regs s) (fun j=>Instructions.put (vectors s j) d (regs s r))
