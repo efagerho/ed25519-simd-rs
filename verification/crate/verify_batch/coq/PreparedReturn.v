@@ -3,7 +3,7 @@ From Machine Require Import isa.Instructions execution.WordSemantics execution.W
  execution.ScalarBytes execution.ScalarWords execution.MappedFetch execution.InstructionRoute memory.FlatMemory memory.ByteMemory memory.WriteTrace.
 From Machine Require execution.ScalarRefinement.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar.
-From Ed25519Simd.VerifyBatch Require PreparedInputs PrepareUnwind.
+From Ed25519Simd.VerifyBatch Require PreparedInputs PrepareUnwind PreparedTables.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition suffix:list line:=[(248,3%nat,ZeroUpper);(251,5%nat,OneEax);(256,2%nat,Jump 2)]++skipn 2 PrepareUnwind.common_reject.
@@ -41,15 +41,17 @@ Record result pol bias entry e q:Prop:=Result {
  output_regs:Prologue.output_registers e (machine q); remaining:regs(machine q) 12%nat=Prologue.rows_left (regs e 6%nat);
  flags:forall j,(j<8)%nat -> let v:=mem(machine q)(PrepareOutputs.dest e+64+Z.of_nat j) in
    (v=0 \/ v=1) /\ (v=1 <-> EligibleLanes.candidate e j);
- decoded_r:forall j,(j<8)%nat -> (Z.testbit (mem(machine q)(Rows.frame e+840)) (Z.of_nat j)=true <-> RootDecision.decodes true e j)
+ decoded_r:forall j,(j<8)%nat -> (Z.testbit (mem(machine q)(Rows.frame e+840)) (Z.of_nat j)=true <-> RootDecision.decodes true e j);
+ key_tables:PreparedTables.table e (machine q)
 }.
 
 Theorem checked pol bias entry e before caller p a : placement e -> loaded pol bias (mem e) (writable e) ->
  EligibleLanes.post pol bias e before caller -> EligibilityFrame.context pol bias entry e caller ->
+ DecodedRows.geometry false e (TableRowMeaning.point e (machine caller)) ->
  PreparedInputs.encodings e (machine caller) -> PrepareOutputs.result pol bias e caller p a -> exists q,execute bias a=Some q /\ result pol bias entry e q /\
  mem(machine q)=mem(machine a) /\ log q=log a.
 Proof.
- intros P I E C Enc A;pose proof(PreparedFrame.context _ _ _ _ _ _ _ P A C) as Frame.
+ intros P I E C Points Enc A;pose proof(PreparedFrame.context _ _ _ _ _ _ _ P A C) as Frame.
  destruct Frame as [Link Outputs Meta [Slots BP] Layout].
  destruct(stack_ok _ P) as [[L H] Al];set (top:=common_top pol e) in *.
  assert (SP:regs(machine a) 4%nat=top-104).
@@ -80,13 +82,18 @@ Proof.
  - intros j J;cbn [LinkedRun.finish machine];cbv zeta;rewrite M,(PrepareOutputs.eligibility _ _ _ _ _ _ A j J),<-(EligibleLanes.bit _ _ _ _ _ E j J).
    destruct (Z.testbit _ _);cbn;intuition discriminate.
  - intros j J;cbn [LinkedRun.finish machine];rewrite M,(PreparedFrame.sig_byte _ _ _ _ _ _ P A);exact (EligibleLanes.sig_bits _ _ _ _ _ E j J).
+ - apply (PreparedTables.meaning _ _ _ Points).
+   apply (TableContents.preserve _ _ (machine p));[|exact (TableUnwind.contents _ _ _ _ _ (PrepareOutputs.parent _ _ _ _ _ _ A))].
+   intros x X;cbn [LinkedRun.finish machine];rewrite M;apply (PrepareOutputs.surrounding _ _ _ _ _ _ A).
+   destruct(scratch_stack _ P);unfold TableEntry.tables,PrepareOutputs.dest,Rows.frame,sp,span in *;lia.
 Qed.
 
 Definition observe pol bias e p ks:=bind (PrepareOutputs.observe pol bias e p ks) (fun '(a,ak)=>option_map (fun q=>(q,ak)) (execute bias a)).
 Theorem from_eligible pol bias entry e before p ks : placement e -> loaded pol bias (mem e) (writable e) ->
  (bias+DecoderFrame.origin) mod 64=0 -> EligibleLanes.post pol bias e before p -> EligibilityFrame.context pol bias entry e p ->
+ DecodedRows.geometry false e (TableRowMeaning.point e (machine p)) ->
  PreparedInputs.encodings e (machine p) -> regs(machine p) 14%nat<>0 -> exists q bank,observe pol bias e p ks=Some(q,bank) /\ result pol bias entry e q.
 Proof.
- intros P I Al E C Enc Live;destruct(PrepareOutputs.from_eligible _ _ _ _ _ ks P I Al E Live) as [a [ak [r [Run A]]]].
- destruct(checked _ _ _ _ _ _ _ _ P I E C Enc A) as [q [End [Q _]]];exists q,ak;split;[unfold observe;rewrite Run;cbn [bind];now rewrite End|exact Q].
+ intros P I Al E C Points Enc Live;destruct(PrepareOutputs.from_eligible _ _ _ _ _ ks P I Al E Live) as [a [ak [r [Run A]]]].
+ destruct(checked _ _ _ _ _ _ _ _ P I E C Points Enc A) as [q [End [Q _]]];exists q,ak;split;[unfold observe;rewrite Run;cbn [bind];now rewrite End|exact Q].
 Qed.
