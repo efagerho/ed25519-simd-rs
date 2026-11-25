@@ -4,14 +4,16 @@ From Ed25519Simd.VerifyBatch Require Import Policy Return BatchScalar BatchDecod
 From Ed25519Simd.VerifyBatch Require RejectExecution RejectedPath EligibleLanes ReadyDispatch NativeHash StrictDispatch.
 Local Open Scope Z_scope.
 
-Inductive boundary:=Completed (q:cursor) | MoreChunks (q:cursor) | Filtered (entry q:cursor) (out:StrictDispatch.outcome)
+Inductive boundary:=Completed (q:cursor) | MoreChunks (q:cursor)
  | HashReturned (entry:cursor) (result:Sha512Challenge.Execution.observation).
 Definition after_reject r:=match r with RejectExecution.BatchReturned q=>Completed q | RejectExecution.NextChunk q=>MoreChunks q end.
+Definition hash_return bias q:=option_map (HashReturned q) (NativeHash.execute bias q).
+Definition after_filter bias v:=match v with StrictDispatch.Zero r=>Some(after_reject r) | StrictDispatch.HashCall h=>hash_return bias h end.
 Definition continue pol bias pc text (q:cursor) ks:=match pol with
- | Zip215=>option_map (HashReturned q) (NativeHash.execute bias q)
- | Dalek=>bind (StrictReturn.observe bias q ks) (fun '(a,k)=>option_map (Filtered q a) (StrictDispatch.execute bias pc text a k)) end.
+ | Zip215=>hash_return bias q
+ | Dalek=>bind (StrictReturn.observe bias q ks) (fun '(a,k)=>bind (StrictDispatch.execute bias pc text a k) (after_filter bias)) end.
 Definition pending_history bias b:=match b with
- | Completed _=>None | MoreChunks q=>Some(log q) | Filtered _ _ v=>Some(log(StrictDispatch.endpoint v))
+ | Completed _=>None | MoreChunks q=>Some(log q)
  | HashReturned q _=>Some(NativeHash.history bias q) end.
 Definition run pol bias pc text e c ks:=
  bind (BatchScalar.observe pol bias (bias+pc) text e c ks) (fun scalar=>
