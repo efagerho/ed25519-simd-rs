@@ -5,7 +5,8 @@ From ProofArithmetic Require Import Radix.
 From Ed25519Simd Require Import Wide51.
 From Ed25519Simd.FullLadder Require Import LinkedBytes Program Operands ScalarAction Execution Native Composition.
 From Ed25519Simd.FullLadder Require StageEntry.
-From Machine Require execution.MappedFetch.
+From Machine Require Import memory.ByteMemory memory.WriteTrace.
+From Machine Require abi.SysV execution.MappedFetch.
 From Ed25519Simd.LadderStep Require Audit LinkedBytes.
 Import ListNotations. Local Open Scope Z_scope.
 
@@ -36,6 +37,23 @@ Definition execution slide s full out :=
  native_runs slide (regs s 7%nat) (base_of s) (slide+stage_pc) (pad_of s) s ops
   (ByteMemory.buffer_words (mem s) (regs s 7%nat),ByteMemory.buffer_words (mem s) (base_of s)) (out,cache).
 
+(* The caller consumes every column of the three operands from the same
+   staged CPU that returned. The log includes the return-address push and
+   the stores executed by all three transpose phases. *)
+Definition stage_stores slide s u := StageEntry.stores (slide+entry_pc) (regs s 4%nat) s ++ SA.writes (slide+stage_pc) u.
+
+Record first_stage_result slide s u (ip:Z) v : Prop := {
+ at_continuation : ip=slide+entry_pc+54;
+ restored_rsp : regs v 4%nat=base_of s;
+ saved : forall r,In r SysV.sysv_saved -> regs v r=regs u r;
+ bytes : byte_memory (mem v);
+ account : forall x,mem v x=WriteTrace.replay (mem s) (stage_stores slide s u) x;
+ writes : confined (fun x=>regs s 4%nat-5032<=x<regs s 4%nat) (stage_stores slide s u);
+ rows : forall k i j,(i<SA.columns k)%nat -> (j<8)%nat ->
+   read_word (mem v) (base_of s+64*Z.of_nat(SA.first_row k+i)+8*Z.of_nat j)=
+   table_row s j (affine k) (weight s j 31 k) i
+}.
+
 Record full_ladder_contract : Prop := {
  wrapper_binding : image=symbol_bytes /\ valid=true /\ separate images;
  staging_certificate : SA.stage_contract Ed25519Simd.StageRound.ObjectBytes.symbol_bytes;
@@ -43,6 +61,9 @@ Record full_ladder_contract : Prop := {
  first_stage_call : forall slide s c, placement slide s -> well_formed s ->
    MappedFetch.mapped (mem s) (slide+entry_pc) symbol_bytes ->
    exists u k,StageEntry.entered slide s c u k /\ StageEntry.entry_state slide s u;
+ first_stage_return : forall slide s u, placement slide s -> valid_inputs (slide+stage_pc) (pad_of s) s ->
+   StageEntry.entry_state slide s u ->
+   let '(ip,v):=S.run (slide+stage_pc) u in first_stage_result slide s u ip v;
  full_product : forall slide s full B A, placement slide s ->
    regs s 9%nat=bits full -> valid_inputs (slide+stage_pc) (pad_of s) s ->
    valid_tables s B A ->
