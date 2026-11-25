@@ -88,5 +88,6 @@ execution/PredicateBlock.v
 execution/MaskedResult.v
 execution/ProjectionWords.v
 execution/ScalarWords.v
+abi/FramePointer.v
 execution/ScalarByteMemory.v
 execution/PreservedRegister.v
