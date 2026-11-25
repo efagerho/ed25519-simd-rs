@@ -52,7 +52,7 @@ Lemma strict_dispatch slide s carry top :
  regs (cpu_state t) 7%nat=regs s 7%nat /\ regs (cpu_state t) 6%nat=regs s 6%nat /\
  read_word (mem (cpu_state t)) (top-16)=word(slide+strict+9) /\
  confined (stack_range top 16) ws /\
- regs (cpu_state t) 13%nat=regs s 13%nat /\ regs (cpu_state t) 14%nat=regs s 14%nat /\ regs (cpu_state t) 12%nat=regs s 12%nat.
+ regs (cpu_state t) 13%nat=regs s 13%nat /\ regs (cpu_state t) 14%nat=regs s 14%nat /\ regs (cpu_state t) 12%nat=regs s 12%nat /\ regs(cpu_state t) 3%nat=regs s 1%nat.
 Proof.
  intros SP Fit PC.
  lazymatch goal with |- exists t ws, _ => do 2 eexists end;split.
@@ -74,13 +74,13 @@ Definition common_post slide top s t :=
  loc t=Running (scalar-common) /\ regs (cpu_state t) 4%nat=top-112 /\
  regs (cpu_state t) 6%nat=top-104 /\ regs (cpu_state t) 7%nat=word(regs s 7%nat+512) /\
  read_word (mem (cpu_state t)) (top-112)=word(slide+common+65) /\
- regs(cpu_state t) 3%nat=regs s 7%nat /\ regs(cpu_state t) 15%nat=regs s 6%nat /\ regs(cpu_state t) 13%nat=regs s 1%nat.
+ regs(cpu_state t) 3%nat=regs s 7%nat /\ regs(cpu_state t) 15%nat=regs s 6%nat /\ regs(cpu_state t) 13%nat=regs s 1%nat /\ regs(cpu_state t) 12%nat=regs s 2%nat.
 
 Definition common_fetch slide := ScalarBytes.fetch (slide+common) CommonBytes.symbol_bytes.
 
 Definition spilled_output top (s:cpu) m :=
  read_word m (top-24)=word(regs s 13%nat) /\ read_word m (top-32)=word(regs s 14%nat) /\
- read_word m (top-16)=word(regs s 12%nat).
+ read_word m (top-16)=word(regs s 12%nat) /\ read_word m (top-40)=word(regs s 15%nat) /\ read_word m (top-8)=word(regs s 3%nat).
 
 Lemma saved slide s carry top : regs s 4%nat=top -> words_fit top ->
  exists u ws, MappedFetch.run 5 (common_fetch slide) (at_pc 0 s carry)=Some(at_pc 9 u carry,ws) /\
@@ -101,7 +101,7 @@ Qed.
 
 Lemma assigned slide s carry top : regs s 4%nat=top-40 -> words_fit top ->
  exists u c,MappedFetch.run 5 (common_fetch slide) (at_pc 9 s carry)=Some(at_pc 25 u c,[]) /\
- regs u 4%nat=top-104 /\ regs u 3%nat=regs s 7%nat /\ regs u 6%nat=regs s 6%nat /\ mem u=mem s /\ regs u 15%nat=regs s 6%nat /\ regs u 13%nat=regs s 1%nat.
+ regs u 4%nat=top-104 /\ regs u 3%nat=regs s 7%nat /\ regs u 6%nat=regs s 6%nat /\ mem u=mem s /\ regs u 15%nat=regs s 6%nat /\ regs u 13%nat=regs s 1%nat /\ regs u 12%nat=regs s 2%nat.
 Proof.
  intros SP Fit;do 2 eexists;split;[apply (checked _ _ _ assign_linked);reflexivity|].
  simplify_cpu;rewrite SP;normalize;repeat split;lia.
@@ -152,7 +152,7 @@ Lemma common_dispatch slide s carry top :
 Proof.
  intros SP Fit PC Table Separate.
  destruct (saved slide s carry top SP Fit) as [v [head [S [VSP [DI [SI [H Slots]]]]]]].
- destruct (assigned slide v carry top VSP Fit) as [a [ca [A [ASP [BX [RSI [Mem [Rows Sel]]]]]]]].
+ destruct (assigned slide v carry top VSP Fit) as [a [ca [A [ASP [BX [RSI [Mem [Rows [Sel Id]]]]]]]]].
  destruct (stored slide a ca top ASP Fit) as [b [stores [B [BSP [RBX [Ptrs [W RowsB]]]]]]].
  destruct (dispatched slide b ca top BSP Fit PC) as [t [tail [T [IP [Top [R6 [R7 [Ret [Keep [Safe [Scratch RowsT]]]]]]]]]]].
  pose proof(run_append _ _ _ _ _ S _ _ _ A) as First.
@@ -161,18 +161,21 @@ Proof.
  pose proof(PreservedRegister.run_keeps_at 1 _ CommonBytes.symbol_bytes ltac:(vm_compute;reflexivity) 5 0 _ _ _ _ ltac:(vm_compute;reflexivity) S) as FirstArg.
  pose proof(PreservedRegister.run_keeps_at 13 _ CommonBytes.symbol_bytes ltac:(vm_compute;reflexivity) 7 25 _ _ _ _ ltac:(vm_compute;reflexivity) (run_append _ _ _ _ _ B _ _ _ T)) as LastArg.
  change (regs v 1%nat=regs s 1%nat) in FirstArg;rewrite Sel,FirstArg in LastArg.
+ pose proof(PreservedRegister.run_keeps_at 2 _ CommonBytes.symbol_bytes ltac:(vm_compute;reflexivity) 5 0 _ _ _ _ ltac:(vm_compute;reflexivity) S) as FirstId.
+ pose proof(PreservedRegister.run_keeps_at 12 _ CommonBytes.symbol_bytes ltac:(vm_compute;reflexivity) 7 25 _ _ _ _ ltac:(vm_compute;reflexivity) (run_append _ _ _ _ _ B _ _ _ T)) as LastId.
+ change (regs v 2%nat=regs s 2%nat) in FirstId;change (regs(cpu_state t) 12%nat=regs a 12%nat) in LastId;rewrite Id,FirstId in LastId.
  exists t,(((head++[])++stores)++tail);split;[exact All|].
  split;[unfold common_post;rewrite R7,Scratch,RBX,BX,DI,RowsT,RowsB,Rows,SI;repeat split;assumption || reflexivity|]. split.
  - rewrite app_nil_r;unfold confined;rewrite !Forall_app;repeat split.
    all: eapply Forall_impl;[|eassumption];intros w K x X;specialize (K x X);unfold stack_range in *;lia.
  - split.
-   { destruct Slots as [Count [Output Left]]. pose proof (run_append _ _ _ _ _ B _ _ _ T) as Run.
+   { destruct Slots as [Count [Output [Left [ScratchSlot BxSlot]]]]. pose proof (run_append _ _ _ _ _ B _ _ _ T) as Run.
      pose proof(steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ Run)) as M.
      cbn [at_pc cpu_state] in M.
      assert (Both:confined (fun x=>top-112<=x<top-40) (stores++tail)).
      { apply Forall_app;split;[eapply Forall_impl;[|exact W]|eapply Forall_impl;[|exact Safe]];
        intros w K x X;specialize(K x X);cbv beta in K|-*;lia. }
-     repeat split;[rewrite <-Count|rewrite <-Output|rewrite <-Left];rewrite M;rewrite <-Mem.
+     repeat split;[rewrite <-Count|rewrite <-Output|rewrite <-Left|rewrite <-ScratchSlot|rewrite <-BxSlot];rewrite M;rewrite <-Mem.
      all: apply preserved_read with (outside:=fun x=>~(top-112<=x<top-40));
        [exact (WriteTrace.frame _ _ Both _)|intros k K;change (0<=k<8) in K;lia]. }
    intros j J;rewrite Keep,Ptrs by exact J.

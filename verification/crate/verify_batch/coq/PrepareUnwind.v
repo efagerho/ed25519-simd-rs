@@ -94,7 +94,7 @@ Theorem rejected_at decoded pol bias entry e p :
  return_value decoded (machine p) mod 2^32=0 ->
  exists q,unwind_at decoded pol bias p=Some q /\ prepared_result entry e p q (return_value decoded (machine p)).
 Proof.
- intros Place Image IP SP Acc [Root Shim] [Count [Out Left]] Zero.
+ intros Place Image IP SP Acc [Root Shim] [Count [Out [Left _]]] Zero.
  destruct (stack_ok _ Place) as [[Low High] _].
  set (top:=common_top pol e) in *.
  assert (Limits:112<=top /\ top+8<2^64) by

@@ -31,6 +31,12 @@ Record result pol bias entry e q:Prop:=Result {
  pc:ip q=destination pol bias entry; stack:regs(machine q) 4%nat=common_top pol e+8;
  success:regs(machine q) 0%nat=1; writes:accounted e (writable e) q; words:well_formed(machine q);
  caller:EligibilityFrame.context pol bias entry e q;
+ scratch_reg:regs(machine q) 15%nat=Return.scratch e;
+ strict_arg:pol=Dalek -> regs(machine q) 3%nat=PrepareOutputs.dest e;
+ selected:forall j,(j<8)%nat ->
+   let ptr:=read_word (mem(machine q)) (PrepareOutputs.dest e+8*Z.of_nat j) in
+   (RootDecision.decodes false e j -> ptr=Return.scratch e+PrepareChunk.Caller.table_offset j) /\
+   (~RootDecision.decodes false e j -> ptr=regs e 8%nat);
  output_regs:Prologue.output_registers e (machine q); remaining:regs(machine q) 12%nat=Prologue.rows_left (regs e 6%nat);
  flags:forall j,(j<8)%nat -> let v:=mem(machine q)(PrepareOutputs.dest e+64+Z.of_nat j) in
    (v=0 \/ v=1) /\ (v=1 <-> EligibleLanes.candidate e j);
@@ -43,7 +49,7 @@ Theorem checked pol bias entry e before caller p a : placement e -> loaded pol b
  mem(machine q)=mem(machine a) /\ log q=log a.
 Proof.
  intros P I E C A;pose proof(PreparedFrame.context _ _ _ _ _ _ _ P A C) as Frame.
- destruct Frame as [Link Outputs Meta [Slots BP]].
+ destruct Frame as [Link Outputs Meta [Slots BP] Layout].
  destruct(stack_ok _ P) as [[L H] Al];set (top:=common_top pol e) in *.
  assert (SP:regs(machine a) 4%nat=top-104).
  { rewrite (PrepareOutputs.registers _ _ _ _ _ _ A),(TableUnwind.stack _ _ _ _ _ (PrepareOutputs.parent _ _ _ _ _ _ A));unfold TableEntry.frame,top;ring. }
@@ -61,10 +67,14 @@ Proof.
  - exact AX.
  - exact Paid.
  - exact (segment_wf _ _ _ _ _ (PrepareOutputs.words _ _ _ _ _ _ A) Next).
- - constructor;cbn [LinkedRun.finish machine];[now rewrite M|now rewrite M|now rewrite M|split;[now rewrite M|now rewrite RBP]].
- - destruct Outputs as [Count [Out Left]];split;cbn [LinkedRun.finish machine];
+ - constructor;cbn [LinkedRun.finish machine];[now rewrite M|now rewrite M|now rewrite M|split;[now rewrite M|now rewrite RBP]|now rewrite M].
+ - destruct Outputs as [_ [_ [_ [S _]]]];cbn [LinkedRun.finish machine];rewrite (G 4%nat 15%nat eq_refl),<-S;f_equal;ring.
+ - destruct Outputs as [_ [_ [_ [_ D]]]];intros Eq;cbn [LinkedRun.finish machine];unfold PrepareOutputs.dest;rewrite (G 0%nat 3%nat eq_refl),<-(D Eq);f_equal;ring.
+ - intros j J;cbn [LinkedRun.finish machine];cbv zeta;rewrite M,(PrepareOutputs.table_ptr _ _ _ _ _ _ A j J),(EligibleLanes.identity_address _ _ _ _ _ E).
+   pose proof(EligibleLanes.key_bits _ _ _ _ _ E j J) as K;destruct(Z.testbit _ _);intuition discriminate.
+ - destruct Outputs as [Count [Out [Left _]]];split;cbn [LinkedRun.finish machine];
      [rewrite (G 2%nat 13%nat eq_refl),<-Count|rewrite (G 3%nat 14%nat eq_refl),<-Out];f_equal;ring.
- - destruct Outputs as [_ [_ Left]];change (regs(cpu_state last) 12%nat=Prologue.rows_left (regs e 6%nat));rewrite (G 1%nat 12%nat eq_refl),<-Left;f_equal;ring.
+ - destruct Outputs as [_ [_ [Left _]]];change (regs(cpu_state last) 12%nat=Prologue.rows_left (regs e 6%nat));rewrite (G 1%nat 12%nat eq_refl),<-Left;f_equal;ring.
  - intros j J;cbn [LinkedRun.finish machine];cbv zeta;rewrite M,(PrepareOutputs.eligibility _ _ _ _ _ _ A j J),<-(EligibleLanes.bit _ _ _ _ _ E j J).
    destruct (Z.testbit _ _);cbn;intuition discriminate.
  - intros j J;cbn [LinkedRun.finish machine];rewrite M,(PreparedFrame.sig_byte _ _ _ _ _ _ P A);exact (EligibleLanes.sig_bits _ _ _ _ _ E j J).

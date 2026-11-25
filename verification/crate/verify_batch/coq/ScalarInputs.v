@@ -5,7 +5,7 @@ From Ed25519Simd.SignatureScalar Require Object ObjectBytes OrderBytes Audit Pro
 From Curve25519 Require Import Scalar.
 From ProofArithmetic Require Import Radix.
 From Ed25519Simd.VerifyBatch Require Import Policy Digest Rows Return LoadedImage PrepareNative.
-From Ed25519Simd.VerifyBatch Require TailCopy PrepareCopies.
+From Ed25519Simd.VerifyBatch Require TailCopy PrepareCopies WrapperInputs.
 Local Open Scope Z_scope.
 
 Definition sig_ptr e j := descriptor (mem e) (regs e 7%nat) j 8.
@@ -16,7 +16,7 @@ Definition encoding_ptr e j (sig:bool) :=
  descriptor (mem e) (regs e 7%nat) (TailCopy.row_index e j) (if sig then 8 else 0).
 Definition matrix e s := PrepareCopies.table_view (mem s) (Rows.frame e+512) (encoding_ptr e).
 Definition copy_ready e s := byte_memory (mem s) /\ matrix e s /\
- regs s 3%nat=Return.scratch e /\ regs s 15%nat=Rows.frame e+512 /\ regs s 13%nat=Rows.frame e+768.
+ regs s 3%nat=Return.scratch e /\ regs s 15%nat=Rows.frame e+512 /\ regs s 13%nat=Rows.frame e+768 /\ regs s 12%nat=regs e 8%nat /\ WrapperInputs.layout e (mem s).
 
 Definition recoded e s := 0<=regs s 0%nat<256 /\ forall j,(j<8)%nat ->
  let x:=original_scalar e (TailCopy.row_index e j) in let ds:=SignatureScalar.Audit.digits s (scratch e+512) j in
