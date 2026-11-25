@@ -97,8 +97,8 @@ Proof.
    destruct(Z.eqb_spec (regs(LinkedRun.machine(EligibleLanes.stopped t)) 14%nat) 0) as [Zero|Yes].
    + destruct(Reject Zero) as [r [End Post]];rewrite End;exists(FirstDispatch.after_reject r);split;[reflexivity|].
      apply after_reject;[exact (EligibleLanes.zero_rejects _ _ _ _ _ (proj2 Check) Zero)|exact Post].
-   + destruct(TableMask.checked _ _ _ _ _ (TableMask.masks t) Place Loaded Al (proj2 Check) Yes) as [q [negation_mask [Call Args]]];rewrite Call.
-     eexists;split;[reflexivity|exact (conj (TableMask.writes _ _ _ _ _ _ Args) (proj1(EligibleLanes.live_branch _ _ _ _ _ (proj2 Check)) Yes))].
+   + destruct(TablePacking.from_eligible _ _ _ _ _ (TableMask.masks t) Place Loaded Al (proj2 Check) Yes) as [q [bank1 [a [Call [Mask Rows]]]]];rewrite Call.
+     eexists;split;[reflexivity|exact (conj (TablePacking.writes _ _ _ _ _ _ _ Rows) (proj1(EligibleLanes.live_branch _ _ _ _ _ (proj2 Check)) Yes))].
 Qed.
 
 Lemma rejected_verdict pol bias pc text e q : admissible pol bias pc text e -> (0<count e)%nat ->
