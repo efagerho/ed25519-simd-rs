@@ -1,14 +1,14 @@
 From Coq Require Import ZArith.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage.
-From Ed25519Simd.VerifyBatch Require LadderProduct.
+From Ed25519Simd.VerifyBatch Require LadderProduct StrictRStart.
 
 (* The two scorers diverge after their common frame allocation. ZIP calls
    the candidate immediately. Dalek starts by screening its decoded R. *)
 Definition observed pol bias score stop : Prop := match pol with
  | Zip215=>exists q mid,CandidateDigest.enter Zip215 bias score=Some q /\ ReducedDigest.observed bias q mid /\
                       LadderEntry.enter Zip215 bias mid=Some stop
- | Dalek=>stop=score end.
+ | Dalek=>exists ks k,StrictRStart.execute bias score ks=Some(stop,k) end.
 
 Lemma zip pc bias e h r child score :
  placement e -> loaded Zip215 bias (mem e) (writable e) -> ScoreStart.reached Zip215 bias pc e h r child score ->
@@ -27,12 +27,16 @@ Proof.
 Qed.
 
 Theorem checked pol bias pc e h r child score :
- placement e -> loaded pol bias (mem e) (writable e) -> ScoreStart.reached pol bias pc e h r child score ->
+ placement e -> loaded pol bias (mem e) (writable e) -> HashLayout.active pol e -> ScoreStart.reached pol bias pc e h r child score ->
  (exists stop,observed pol bias score stop) /\
  (forall stop,observed pol bias score stop -> LinkedRun.accounted e (writable e) stop).
 Proof.
- intros P I Ready;destruct pol.
- - destruct(zip _ _ _ _ _ _ _ P I Ready) as [Live Sound];split;[exact Live|].
+ intros P I Live Ready;destruct pol.
+ - destruct(zip _ _ _ _ _ _ _ P I Ready) as [Exists Sound];split;[exact Exists|].
    intros stop O;destruct(Sound _ O) as [mid E];exact (LadderEntry.writes _ _ _ _ _ E).
- - split;[exists score;reflexivity|intros stop ->;exact (ScoreStart.accounted _ _ _ _ _ _ _ _ Ready)].
+ - split.
+   + set (ks:=fun _ _:nat=>false);destruct(StrictRStart.checked _ _ _ _ _ _ _ ks P I Live Ready) as [t [k [Run _]]].
+     exists t,ks,k;exact Run.
+   + intros stop [ks [k Run]];destruct(StrictRStart.checked _ _ _ _ _ _ _ ks P I Live Ready) as [t [out [Next Post]]].
+     rewrite Run in Next;injection Next as <- <-;exact (StrictRStart.writes _ _ _ _ Post).
 Qed.

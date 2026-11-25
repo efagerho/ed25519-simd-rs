@@ -225,7 +225,7 @@ Proof.
        destruct(HashResume.complete_ok _ _ _ _ _ _ e P (proj2(proj2(proj2 Post))) (initial_cpu _ P) (proj1(proj2 Post))) as [C W].
        destruct(score_handoff _ _ _ _ _ _ _ _ carry Caller N Scorer Post C W) as [child [Call Enter]].
        destruct(ScoreStart.from_entry _ _ _ _ _ _ _ P (callee_image _ _ _ _ _ Caller N) Enter) as [score [Start Ready]].
-       destruct (proj1 (ScoreProgress.checked _ _ _ _ _ _ _ _ P (callee_image _ _ _ _ _ Caller N) Ready)) as [stop Progress].
+       destruct (proj1 (ScoreProgress.checked _ _ _ _ _ _ _ _ P (callee_image _ _ _ _ _ Caller N) (proj1 Post) Ready)) as [stop Progress].
        destruct Exists as [ip [f R]];exists (LinkedRun.log stop),ip,f;apply (observe_scoring _ _ _ _ _ _ _ stop);[exact N| |exact R].
        exists q,r,(HashResume.complete r e),carry,child,score;split;[exact Run|split;[exact C|split;[exact W|split;[exact Call|split;[exact Start|exact Progress]]]]].
  - intros ws ip f O;inversion O as [ws' ip' f' Z Run|q N Run|q ip' f' N Next R|stop ip' f' N Scored R];subst.
@@ -241,7 +241,7 @@ Proof.
      destruct(ScoreStart.from_entry _ _ _ _ _ _ _ (proj1(batch_inputs _ _ _ _ _ Caller N)) (callee_image _ _ _ _ _ Caller N) Post) as [v [V Q]].
      rewrite Start in V;injection V as <-.
      exact (proj1 (proj2 (ScoreProgress.checked _ _ _ _ _ _ _ _ (proj1(batch_inputs _ _ _ _ _ Caller N))
-       (callee_image _ _ _ _ _ Caller N) Q) _ Progress)).
+       (callee_image _ _ _ _ _ Caller N) (proj1(Dispatch _ N Next)) Q) _ Progress)).
 Qed.
 
 Lemma zip_ladder bias pc text e c masks stop : admissible Zip215 bias pc text e -> (0<count e)%nat ->
