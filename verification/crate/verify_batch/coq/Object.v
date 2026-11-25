@@ -75,22 +75,22 @@ Qed.
 Definition rejected_inputs pol e:=forall j,(j<8)%nat -> (j<count e)%nat ->
  ~signature_accepts pol (read_input (mem e) (regs e 7%nat) j).
 
-Definition at_boundary pol entry e b:=match b with
+Definition at_boundary pol bias entry e b:=match b with
  | FirstDispatch.Completed q=>RejectExecution.post entry e (RejectExecution.BatchReturned q) /\ rejected_inputs pol e
  | FirstDispatch.MoreChunks q=>RejectExecution.post entry e (RejectExecution.NextChunk q)
- | FirstDispatch.PreparedLanes q=>LinkedRun.accounted e (writable e) q /\
-   (exists j,(j<8)%nat /\ EligibleLanes.candidate e j) /\
-   forall j,(j<8)%nat -> let v:=mem(LinkedRun.machine q)(PrepareOutputs.dest e+64+Z.of_nat j) in
-     (v=0 \/ v=1) /\ (v=1 <-> EligibleLanes.candidate e j) end.
-Lemma after_reject pol entry e r : rejected_inputs pol e -> RejectExecution.post entry e r ->
- at_boundary pol entry e (FirstDispatch.after_reject r).
+ | FirstDispatch.PolicyCall q=>LinkedRun.accounted e (writable e) q /\
+   (exists j,(j<8)%nat /\ EligibleLanes.candidate e j) /\ ReadyDispatch.reached pol bias e q end.
+Lemma after_reject pol bias entry e r : rejected_inputs pol e -> RejectExecution.post entry e r ->
+ at_boundary pol bias entry e (FirstDispatch.after_reject r).
 Proof. destruct r;cbn;auto. Qed.
 
-Lemma dispatch_correct pol bias pc text e c ks : placement e -> LoadedImage.loaded pol bias (mem e) (writable e) ->
- (bias+DecoderFrame.origin) mod 64=0 -> first_chunk pol bias pc text e c ks ->
- exists b,FirstDispatch.run pol bias pc text e c ks=Some b /\ at_boundary pol (bias+pc) e b.
+Lemma dispatch_correct pol bias pc text e c ks : admissible pol bias pc text e -> HashEntry.bound pc text -> (0<count e)%nat ->
+ first_chunk pol bias pc text e c ks ->
+ exists b,FirstDispatch.run pol bias pc text e c ks=Some b /\ at_boundary pol bias (bias+pc) e b.
 Proof.
- intros Place Loaded Al [s [Scalar [_ [_ [Checked Rejected]]]]];destruct(Z.eqb_spec (regs(LinkedRun.machine s) 0%nat mod 2^32) 0) as [Z|Live].
+ intros Input Hash N.
+ destruct(batch_inputs _ _ _ _ _ Input N) as [Place [_ [[_ Sep] _]]];pose proof(callee_image _ _ _ _ _ Input N) as Loaded.
+ pose proof(decoder_aligned _ _ _ _ _ Input N) as Al;intros [s [Scalar [_ [_ [Checked Rejected]]]]];destruct(Z.eqb_spec (regs(LinkedRun.machine s) 0%nat mod 2^32) 0) as [Z|Live].
  - destruct(Rejected Z) as [Invalid [r [End Post]]];exists(FirstDispatch.after_reject r);split;
    [eapply FirstDispatch.scalar_path;[exact Scalar|exact Z|exact End]|now apply after_reject].
  - destruct(Checked Live) as [d [Run [_ [bank [t [Bank [Trace [Check [Frame Reject]]]]]]]]].
@@ -99,14 +99,16 @@ Proof.
    destruct(Z.eqb_spec (regs(LinkedRun.machine(EligibleLanes.stopped t)) 14%nat) 0) as [Zero|Yes].
    + destruct(Reject Zero) as [r [End Post]];rewrite End;exists(FirstDispatch.after_reject r);split;[reflexivity|].
      apply after_reject;[exact (EligibleLanes.zero_rejects _ _ _ _ _ (proj2 Check) Zero)|exact Post].
-   + destruct(PreparedReturn.from_eligible _ _ _ _ _ _ (TableMask.masks t) Place Loaded Al (proj2 Check) Frame Yes) as [q [bank1 [Call Done]]];rewrite Call.
-     eexists;split;[reflexivity|split;[exact (PreparedReturn.writes _ _ _ _ _ Done)|]].
+   + destruct(PreparedReturn.from_eligible _ _ _ _ _ _ (TableMask.masks t) Place Loaded Al (proj2 Check) Frame Yes) as [q [bank1 [Call Done]]].
+     destruct(ReadyDispatch.checked pol bias pc text e q bank1 Hash Place Loaded (entry_range _ _ _ _ _ Input) (entry_text _ _ _ _ _ Input) Sep Done)
+        as [v [kv [RunCall Reached]]];unfold ReadyDispatch.observe;rewrite Call;cbn [LinkedRun.bind];rewrite RunCall.
+     eexists;split;[reflexivity|split;[exact (ReadyDispatch.writes _ _ _ _ Reached)|]].
      split;[exact (proj1(EligibleLanes.live_branch _ _ _ _ _ (proj2 Check)) Yes)|].
-     exact (PreparedReturn.flags _ _ _ _ _ Done).
+     exact Reached.
 Qed.
 
 Lemma rejected_verdict pol bias pc text e q : admissible pol bias pc text e -> (0<count e)%nat ->
- at_boundary pol (bias+pc) e (FirstDispatch.Completed q) -> returned pol e (LinkedRun.ip q) (LinkedRun.machine q).
+ at_boundary pol bias (bias+pc) e (FirstDispatch.Completed q) -> returned pol e (LinkedRun.ip q) (LinkedRun.machine q).
 Proof.
  intros Caller Live [Done Invalid];destruct Done as [Paid [[Status Outputs] [Bytes [Size [PC [SP Saved]]]]]].
  destruct(batch_inputs _ _ _ _ _ Caller Live) as [_ [_ [_ [_ [Idx _]]]]].
@@ -124,7 +126,7 @@ Corollary single_ineligible_return pol pc text : batch_contract pol pc text ->
  forall i,(i<count e)%nat -> mem(LinkedRun.machine q)(output e+Z.of_nat(position e i))=0.
 Proof.
  intros Main bias e cf masks A [N Size] Bad.
- destruct(dispatch_correct _ _ _ _ _ _ _ (proj1(batch_inputs _ _ _ _ _ A N)) (callee_image _ _ _ _ _ A N) (decoder_aligned _ _ _ _ _ A N) (machine_scalar_return _ _ _ Main _ _ cf masks A N))
+ destruct(dispatch_correct _ _ _ _ _ _ _ A (hash_caller _ _ _ Main) N (machine_scalar_return _ _ _ Main _ _ cf masks A N))
     as [[q|q|q] [Run Done]].
  - exists q;split;[exact Run|split;[exact (rejected_verdict _ _ _ _ _ _ A N Done)|]].
    destruct Done as [[Paid [[_ Zeros] _]] _];split;[exact Paid|intros i I;apply Zeros;lia].
@@ -133,21 +135,21 @@ Proof.
 Qed.
 
 Lemma observed_correct pol pc text bias e carry masks :
- matches pc (destination pol) text -> admissible pol bias pc text e ->
+ matches pc (destination pol) text -> HashEntry.bound pc text -> admissible pol bias pc text e ->
  (count e=0%nat -> empty_mapped (bias+pc) text e) ->
  ((0<count e)%nat -> first_chunk pol bias pc text e carry masks) ->
  (exists ws ip final,observation pol bias pc text e carry masks ws ip final) /\
  (forall ws ip final,observation pol bias pc text e carry masks ws ip final ->
     returned pol e ip final /\ WriteTrace.confined (writable e) ws).
 Proof.
- intros Image Caller Empty Batch;destruct (grouped _ _ _ Image _ _ Caller) as [Exists Sound].
- assert (Dispatch:forall b,(0<count e)%nat -> FirstDispatch.run pol bias pc text e carry masks=Some b -> at_boundary pol (bias+pc) e b).
- { intros b N Run;destruct(dispatch_correct _ _ _ _ _ _ _ (proj1(batch_inputs _ _ _ _ _ Caller N)) (callee_image _ _ _ _ _ Caller N) (decoder_aligned _ _ _ _ _ Caller N) (Batch N)) as [v [Eq Post]];rewrite Run in Eq;now injection Eq as <-. }
+ intros Image Hash Caller Empty Batch;destruct (grouped _ _ _ Image _ _ Caller) as [Exists Sound].
+ assert (Dispatch:forall b,(0<count e)%nat -> FirstDispatch.run pol bias pc text e carry masks=Some b -> at_boundary pol bias (bias+pc) e b).
+ { intros b N Run;destruct(dispatch_correct _ _ _ _ _ _ _ Caller Hash N (Batch N)) as [v [Eq Post]];rewrite Run in Eq;now injection Eq as <-. }
  split.
  - destruct (Nat.eqb_spec (count e) 0) as [Z|Live].
    + specialize (Empty Z);unfold empty_mapped in Empty;destruct(empty_return e) as [ip f].
      exists nil,ip,f;apply observe_empty;[exact Z|exact (proj1 (Empty carry))].
-   + assert (N:(0<count e)%nat) by lia. destruct(dispatch_correct _ _ _ _ _ _ _ (proj1(batch_inputs _ _ _ _ _ Caller N)) (callee_image _ _ _ _ _ Caller N) (decoder_aligned _ _ _ _ _ Caller N) (Batch N)) as [[q|q|q] [Run _]].
+   + assert (N:(0<count e)%nat) by lia. destruct(dispatch_correct _ _ _ _ _ _ _ Caller Hash N (Batch N)) as [[q|q|q] [Run _]].
      * do 3 eexists;exact (observe_rejected _ _ _ _ _ _ _ q N Run).
      * destruct Exists as [ip [f R]];do 3 eexists;exact (observe_batch _ _ _ _ _ _ _ q _ _ N (or_introl Run) R).
      * destruct Exists as [ip [f R]];do 3 eexists;exact (observe_batch _ _ _ _ _ _ _ q _ _ N (or_intror Run) R).
@@ -161,10 +163,10 @@ Proof.
    + split;[exact (Sound _ _ R)|exact (proj1(proj1(Dispatch _ N Tables)))].
 Qed.
 
-Lemma verified pol pc text : matches pc (destination pol) text -> empty_image text -> Prologue.bound text -> StageEntry.bound text -> TailWrites.bound text -> StageWrites.bound text (destination pol Prepare-pc) -> RejectCall.bound pc text -> RejectDispatch.bound pc text -> RejectFinish.bound text -> StageEntry.preserves_bp text=true ->
+Lemma verified pol pc text : matches pc (destination pol) text -> empty_image text -> Prologue.bound text -> StageEntry.bound text -> TailWrites.bound text -> StageWrites.bound text (destination pol Prepare-pc) -> RejectCall.bound pc text -> RejectDispatch.bound pc text -> RejectFinish.bound text -> StageEntry.preserves_bp text=true -> HashEntry.bound pc text ->
  batch_contract pol pc text.
 Proof.
- intros Image Bytes Setup Select Pad Transfer Rejection ScatterCode ExitCode RBP.
+ intros Image Bytes Setup Select Pad Transfer Rejection ScatterCode ExitCode RBP Hash.
  assert (Empty:forall bias e,admissible pol bias pc text e -> count e=0%nat ->
    empty_mapped (bias+pc) text e).
  { intros bias e Input Z;apply mapped_return;[exact (entry_text _ _ _ _ _ Input)|].
@@ -221,8 +223,8 @@ Proof.
       Acc (proj1(proj1(proj2 Data))) SP PC Zero) as [r [End Result]].
    exists r;split;[unfold RejectExecution.scalar_rejection;rewrite Run;cbn [LinkedRun.bind];rewrite Zero,Z.eqb_refl;exact End|exact Result]. }
  constructor;[exact Image|exact Arguments.checked_arguments|exact static_tables_correct|
- exact (linked_calls pol)|exact (conj CallWrites.embedded (conj NestedRegions.embedded protected_slots))| | | | |].
- - intros bias e carry masks Input;eapply observed_correct;[exact Image|exact Input|apply Empty|apply Native];exact Input.
+ exact (linked_calls pol)|exact (conj CallWrites.embedded (conj NestedRegions.embedded protected_slots))| | |exact Hash| | |].
+ - intros bias e carry masks Input;eapply observed_correct;[exact Image|exact Hash|exact Input|apply Empty|apply Native];exact Input.
  - intros bias e Input;split.
    + intros ip final N Run x X.
      destruct (proj2 (grouped _ _ _ Image _ _ Input) _ _ Run) as [_ [_ [_ [_ [F _]]]]].
@@ -255,8 +257,8 @@ Qed.
 
 Theorem assembled_zip215_verify_batch_correct :
  batch_contract Zip215 ZipBytes.address ZipBytes.symbol_bytes.
-Proof. apply verified;[vm_compute;split;reflexivity|vm_compute;repeat split;reflexivity|repeat constructor|repeat constructor|repeat constructor|vm_compute;repeat split;reflexivity|vm_compute;repeat split;discriminate || reflexivity|repeat constructor;vm_compute;discriminate || reflexivity|repeat constructor;vm_compute;discriminate || reflexivity|vm_compute;reflexivity]. Qed.
+Proof. apply verified;[vm_compute;split;reflexivity|vm_compute;repeat split;reflexivity|repeat constructor|repeat constructor|repeat constructor|vm_compute;repeat split;reflexivity|vm_compute;repeat split;discriminate || reflexivity|repeat constructor;vm_compute;discriminate || reflexivity|repeat constructor;vm_compute;discriminate || reflexivity|vm_compute;reflexivity|repeat constructor;vm_compute;discriminate || reflexivity]. Qed.
 
 Theorem assembled_dalek_verify_batch_correct :
  batch_contract Dalek DalekBytes.address DalekBytes.symbol_bytes.
-Proof. apply verified;[vm_compute;split;reflexivity|vm_compute;repeat split;reflexivity|repeat constructor|repeat constructor|repeat constructor|vm_compute;repeat split;reflexivity|vm_compute;repeat split;discriminate || reflexivity|repeat constructor;vm_compute;discriminate || reflexivity|repeat constructor;vm_compute;discriminate || reflexivity|vm_compute;reflexivity]. Qed.
+Proof. apply verified;[vm_compute;split;reflexivity|vm_compute;repeat split;reflexivity|repeat constructor|repeat constructor|repeat constructor|vm_compute;repeat split;reflexivity|vm_compute;repeat split;discriminate || reflexivity|repeat constructor;vm_compute;discriminate || reflexivity|repeat constructor;vm_compute;discriminate || reflexivity|vm_compute;reflexivity|repeat constructor;vm_compute;discriminate || reflexivity]. Qed.
