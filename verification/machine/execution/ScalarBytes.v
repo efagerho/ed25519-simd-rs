@@ -61,6 +61,13 @@ Definition decode (bs:list Z) : option (nat*instruction) := match bs with
  | 0x0f::0x95::m::_=>if (0xc0<=?m)&&(m<?0xc4) then Some(3%nat,SetNotEqual (Z.to_nat(m-0xc0))) else None
  | 0xc1::m::imm::_=>if (0xe0<=?m)&&(m<?0xe8) then Some(3%nat,Shl32 (Z.to_nat(m-0xe0)) imm) else
     if (0xe8<=?m)&&(m<?0xf0) then Some(3%nat,Shr32 (Z.to_nat(m-0xe8)) imm) else None
+ | 0x44::0x0f::0xb6::0xe2::_=>Some(4%nat,ExtendByte 12 2)
+ | 0x48::0x89::0x3c::0x24::_=>Some(4%nat,Store64 7 (Address 4 None 0))
+ | 0x41::0x21::0xc4::_=>Some(3%nat,And32 12 0)
+ | 0x49::0x8b::0x74::0x24::d::_=>Some(5%nat,Load64 6 (Address 12 None (signed_value 128 d)))
+ | 0x49::0x8b::0x54::0x24::d::_=>Some(5%nat,Load64 2 (Address 12 None (signed_value 128 d)))
+ | 0x49::0x8b::0x4c::0x24::d::_=>Some(5%nat,Load64 1 (Address 12 None (signed_value 128 d)))
+ | 0x41::0xb9::a::b::c::d::_=>Some(6%nat,Imm32 9 (little32 [a;b;c;d]))
  | 0x44::0x0f::0xb6::0xf8::_=>Some(4%nat,ExtendByte 15 0)
  | 0x41::0x88::0x45::d::_=>Some(4%nat,StoreByte 0 (Address 13 None (signed_value 128 d)))
  | 0x45::0x21::0xfe::_=>Some(3%nat,And32 14 15)
