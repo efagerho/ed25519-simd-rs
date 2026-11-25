@@ -20,6 +20,10 @@ Definition entry pol bias e p :=
  read_word (mem(machine p)) (common_top pol e-112)=word(bias+PrepareNative.common+142) /\
  PrepareCopies.staged (mem e) (mem(machine p)) (scratch e) (encoding_ptr e) 8.
 
+Definition caller_values e scalar decoder:=
+ regs(machine decoder) 13%nat=Rows.frame e+768 /\
+ regs(machine decoder) 14%nat=regs(machine scalar) 0%nat mod 2^32 /\ regs(machine decoder) 3%nat=scratch e.
+
 Lemma decode_in pol : In (DecoderBytes.address,DecoderBytes.symbol_bytes) (children pol).
 Proof. apply in_or_app;left;do 5 right;left;reflexivity. Qed.
 
@@ -27,7 +31,7 @@ Theorem from_scalar pol bias pc text e c ks p :
  placement e -> loaded pol bias (mem e) (writable e) -> readable e ->
  BatchScalar.observe pol bias (bias+pc) text e c ks=Some p -> BatchScalar.post pol bias (bias+pc) e p ->
  copy_ready e (machine p) -> regs(machine p) 0%nat mod 2^32<>0 ->
- exists q,observe pol bias pc text e c ks=Some q /\ entry pol bias e q.
+ exists q,observe pol bias pc text e c ks=Some q /\ entry pol bias e q /\ caller_values e p q.
 Proof.
  intros Place Image Inputs Prefix [PC [SP [Acc _]]] [Bytes [Ptr [BX [Rows Meta]]]] Live.
  set (frame:=common_top pol e-104) in *;set (dst:=scratch e) in *.
@@ -49,14 +53,15 @@ Proof.
  destruct (PrepareCopies.to_decoder bias frame dst table (mem e) (encoding_ptr e) (machine p) (carry p)
     Live SP BX Rows ltac:(unfold fits64;lia) Aligned T Apart ltac:(unfold word64;lia) Target
     ltac:(destruct (scratch_stack _ Place);unfold disjoint,dst in *;lia)
-    Ranges Bytes Ptr Original) as [t [ws [R [[IP [DI [SI [DX [Top [Ret Data]]]]]] Writes]]]].
+    Ranges Bytes Ptr Original) as [t [ws [R [[IP [DI [SI [DX [Top [Ret Data]]]]]] [Writes [Selected [Mask Scratch]]]]]]].
  destruct (mapped_now _ _ _ Image _ _ _ Acc (in_common _)) as [Map Sep].
  assert (Safe:confined (writable e) ws).
  { eapply Forall_impl;[|exact Writes];intros w H x X;destruct (H x X);[right;left|left];unfold span;fold dst;lia. }
  pose proof (at_segment _ _ _ _ _ _ 65 _ _ Acc PC Map Sep R Safe) as [Next A].
  eexists;split.
  - unfold observe;rewrite Prefix;cbn [bind];rewrite (proj2 (Z.eqb_neq _ _) Live);exact Next.
- - split;[|split;[exact A|]].
+ - split;[|exact (conj (eq_trans Selected Meta) (conj Mask Scratch))].
+   split;[|split;[exact A|]].
    + cbn [LinkedRun.finish ip];unfold absolute;rewrite IP;unfold PrepareCopies.common,PrepareCopies.decoder,PrepareNative.common;ring.
    + cbn [LinkedRun.finish machine];split;[exact DI|split;[exact SI|split;[exact DX|]]].
      replace (common_top pol e-112) with (frame-8) by (unfold frame;ring).
