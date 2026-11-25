@@ -184,3 +184,19 @@ Example store_low_xmm_qword :
    ScalarBytes.cf t=Some true
  | _=>False end.
 Proof. repeat split;reflexivity. Qed.
+
+Example masked_length_load :
+ let s:=CPU (fun _=>512) (fun _ _=>17) (Some true)
+    (fun x=>if x=?520 then 255 else if x=?522 then 1 else if x=?576 then 127 else if x=?592 then 33 else 0) in
+ let ops:=[MaskedResult.WidenBytes 0 4 8;MaskedResult.TestQ 2 0 0;MaskedResult.ZeroRow 0 2 4 64] in
+ match MaskedResult.evaluate 0 s (fun _ _=>true) ops with
+ | Some(t,k)=>vectors t 0%nat 0%nat=127 /\ vectors t 1%nat 0%nat=0 /\ vectors t 2%nat 0%nat=33 /\
+   k 2%nat 7%nat=false /\ k 2%nat 8%nat=false /\ flag t=Some true /\ mem t 576=127
+ | _=>False end.
+Proof. repeat split;reflexivity. Qed.
+
+Example base_lea_forms :
+ ScalarBytes.decode [0x4c;0x8d;0x84;0x24;0xc0;2;0;0]=Some(8%nat,ScalarBytes.LeaG 8 (ScalarBytes.Address 4 None 704)) /\
+ ScalarBytes.decode [0x48;0x8d;0x73;0xc0]=Some(4%nat,ScalarBytes.LeaG 6 (ScalarBytes.Address 3 None (-64))) /\
+ ScalarBytes.decode [0x48;0x8d;0x73]=None.
+Proof. repeat split;reflexivity. Qed.
