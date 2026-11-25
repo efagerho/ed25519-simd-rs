@@ -54,7 +54,8 @@ Definition fields (p q:cursor):=forall j i,(j<8)%nat -> (i<5)%nat ->
  let h:=vectors(machine p) j in
  row (machine q) a j i=u_digits h i /\
  row (machine q) (a+640) j i=v_digits h i /\
- row (machine q) (a+960) j i=product h i.
+ row (machine q) (a+960) j i=product h i /\
+ row (machine q) (a+320) j i=DecoderSave.digits signature e (machine p) j i.
 
 Lemma off_stack delta n x : 0<=delta<=960 -> 0<=n<=24 ->
  a+delta<=x<a+delta+320 -> ~(link_slot pol e-n<=x<link_slot pol e).
@@ -119,6 +120,10 @@ Proof.
  intros j i J I;split.
  - replace a with (a+0) at 1 by ring;rewrite Later by lia;rewrite Z.add_0_r;apply U;assumption.
  - split;[rewrite Later by lia;apply V;assumption|].
+   split.
+   2:{ rewrite Later by lia;change (row (machine c) (a+320) j i=row (machine p) (a+320) j i).
+       apply keep_row with (protect:=fun x=>a+320<=x<a+640);[|lia|exact J|exact I].
+       intros x X;rewrite KeepU,CMem,ScaleMem;try reflexivity;try lia;apply (off_stack 320 8 x);lia. }
    unfold row;rewrite RM,(UVRows i j I J);change (vectors(machine g) j i=product (vectors(machine p) j) i).
    rewrite MRegs;unfold product;apply DecoderProduct.lane_product;[| |exact I].
    + intros k K;unfold DecoderProduct.arguments;rewrite (proj2(Nat.leb_gt 5 k) ltac:(lia)),

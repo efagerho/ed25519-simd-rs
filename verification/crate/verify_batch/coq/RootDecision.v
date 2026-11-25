@@ -21,11 +21,17 @@ Proof.
  rewrite uv_field;unfold test_value;ring.
 Qed.
 
-Lemma from_comparison sig pol bias e sq cmp :
+Definition power_value y:=Decompression.power (numerator y*denominator y)%fp Decompression.exponent.
+Definition test y:=test_value (numerator y) (denominator y) (power_value y).
+Lemma comparison_values sig pol bias e sq cmp :
  KeySquare.squared sig pol bias e sq -> RootTest.math sig e cmp ->
  (forall j i,(j<8)%nat -> (i<5)%nat ->
   row (machine cmp) (point e sig) j i=u_digits (vectors(machine sq) j) i) ->
- forall j,(j<8)%nat -> RootAccept.bits sig e (machine cmp) j=true <-> decodes sig e j.
+ forall j,(j<8)%nat -> let fy:=residue (original_encoding sig e j mod 2^255) in
+ let u:=row (machine cmp) (point e sig) j in let q:=vectors(machine cmp) j in
+ split_field u /\ Decode.value u=numerator fy /\
+ (high_test q (-1)=true <-> test fy=(0-1)%fp) /\
+ (RootAccept.bits sig e (machine cmp) j=true <-> decodes sig e j).
 Proof.
  intros [_ [_ [_ [_ Square]]]] Math Numerator j J.
  set (q:=vectors(machine cmp) j);set (h:=vectors(machine sq) j);set (u:=row (machine cmp) (point e sig) j).
@@ -53,9 +59,19 @@ Proof.
    rewrite u_test_correct by assumption;rewrite Decode.congruent_value;rewrite <-Ufield;reflexivity. }
  assert (Plus:high_test q 1=true <-> Decode.value q=1%fp) by (apply Test;lia).
  assert (Minus:high_test q (-1)=true <-> Decode.value q=(0-1)%fp) by (apply Test;lia).
+ split.
+ { intros i I;rewrite U by exact I;exact (bounded_split _ (proj1(scaled_bounds h H Pos)) i I). }
+ split;[unfold Decode.value,pack;erewrite limbs_ext by exact U;exact Ufield|].
+ split;[rewrite Minus,Qfield;reflexivity|].
  change ((high_test q 1 || high_test u 0 || high_test q (-1))%bool=true <-> exists x,on_curve x fy).
  rewrite !orb_true_iff,Plus,Minus,Zero,Qfield;rewrite <-root_criterion;tauto.
 Qed.
+
+Lemma from_comparison sig pol bias e sq cmp :
+ KeySquare.squared sig pol bias e sq -> RootTest.math sig e cmp ->
+ (forall j i,(j<8)%nat -> (i<5)%nat -> row (machine cmp) (point e sig) j i=u_digits (vectors(machine sq) j) i) ->
+ forall j,(j<8)%nat -> RootAccept.bits sig e (machine cmp) j=true <-> decodes sig e j.
+Proof. intros S M U j J;exact (proj2(proj2(proj2(comparison_values _ _ _ _ _ _ S M U j J)))). Qed.
 
 Theorem bits pol bias e r : RootTest.post pol bias e r -> forall j,(j<8)%nat ->
  RootAccept.bits false e (machine(RootTest.at_test r)) j=true <-> decodable e j.

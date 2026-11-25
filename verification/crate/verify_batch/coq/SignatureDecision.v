@@ -32,7 +32,7 @@ Proof.
  pose proof(FinishTrace.test_result _ _ _ _ _ _ (PairReturn.signature_result _ _ _ _ T)) as Last;fold b q in Last.
  apply (RootDecision.from_comparison true pol bias e (SetupTail.after_square(PowerInputs.half prepared true)) q).
  - exact (proj1(proj2(proj1(proj1(RootTest.power_result _ _ _ _ First))))).
- - eapply RootTest.at_comparison;[apply (RootTest.operands_preserved _ _ _ _ _ (RootTest.signature_operands _ _ _ _ First) Stayed)|exact Last].
+ - eapply RootTest.at_comparison;[apply (RootTest.operands_preserved _ _ _ _ _ (RootTest.initial_operands _ _ _ _ First true) Stayed)|exact Last].
  - intros lane i L I;destruct(RootTest.root_product _ _ _ _ First) as [_ [_ [_ [_ [KeepA _]]]]].
    destruct Last as [_ [_ [_ [_ [KeepR _]]]]];fold a in KeepA.
    etransitivity;[|exact (proj1(RootTest.setup_fields_live _ _ _ _ First true lane i L I))].
