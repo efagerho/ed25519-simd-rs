@@ -75,6 +75,7 @@ execution/QwordBlock.v
 execution/VectorProcedure.v
 execution/AlignedRows.v
 execution/RipBroadcasts.v
+execution/PermutationBlock.v
 execution/VectorWindow.v
 execution/VectorSpills.v
 execution/LinkedRun.v
