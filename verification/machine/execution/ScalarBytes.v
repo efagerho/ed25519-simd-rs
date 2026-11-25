@@ -99,7 +99,6 @@ Definition decode (bs:list Z) : option (nat*instruction) := match bs with
  | 0x4d::0x85::0xe4::_=>Some (3%nat,Test 12)
  | 0x0f::0x85::a::b::c::d::_=>Some (6%nat,Branch Unequal (displacement32 [a;b;c;d]))
  | 0x85::0xc0::_=>Some (2%nat,Test32 0)
- | 0xb8::0x20::0::0::0::_=>Some (5%nat,Imm32 0 32)
  | 0x62::0xf2::0xfd::0x48::0x7c::0xc0::_=>Some (6%nat,BroadcastG 0 0)
  | 0x62::0xf1::0xfd::0x48::0xd4::0x46::d::_=>
    Some (7%nat,AddVectorMem 0 0 (Address 6 None (64*signed_value 128 d)))
@@ -148,6 +147,7 @@ Definition decode (bs:list Z) : option (nat*instruction) := match bs with
  | 0x49::0xff::0xc0::_ => Some (3%nat,Inc 8)
  | 0x49::0x39::0xc8::_ => Some (3%nat,Compare 8 1)
  | 0xb8::0x01::0x00::0x00::0x00::_ => Some (5%nat,OneEax)
+ | 0xb8::a::b::c::d::_=>Some (5%nat,Imm32 0 (little32 [a;b;c;d]))
  | 0x31::0xc0::_ => Some (2%nat,Zero32 0)
  | 0x77::d::_ => Some (2%nat,Branch Above (signed_value 128 d))
  | 0x74::d::_ => Some (2%nat,Branch Equal (signed_value 128 d))
