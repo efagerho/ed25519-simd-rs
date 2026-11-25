@@ -24,14 +24,13 @@ Qed.
 Lemma context pol bias outer e caller p q : placement e -> PrepareOutputs.result pol bias e caller p q ->
  EligibilityFrame.context pol bias outer e caller -> EligibilityFrame.context pol bias outer e q.
 Proof.
- intros P Q [Links Outputs Meta [Slots BP]];pose proof(retained _ _ _ _ _ _ P Q) as Same. constructor.
+ intros P Q [Links Outputs Meta [Slots BP] Layout];pose proof(retained _ _ _ _ _ _ P Q) as Same. constructor.
  - eapply slots_preserved;[|exact Links];intros x X;apply Same;unfold kept,PrepareOutputs.dest,span,common_top,Rows.frame,sp in *;destruct pol;lia.
- - destruct Outputs as [N [O Left]];unfold saved_outputs in *;repeat split;[rewrite <-N|rewrite <-O|rewrite <-Left].
-   all: apply preserved_read with (outside:=kept pol e);[exact Same|intros k K;change (0<=k<8) in K;
-     unfold kept,PrepareOutputs.dest,span,common_top,Rows.frame,sp in *;destruct pol;lia].
+ - eapply keep_saved_outputs;[|exact Outputs];intros x X;apply Same;unfold kept,PrepareOutputs.dest,span,common_top,Rows.frame,sp in *;destruct pol;lia.
  - eapply IndexStores.metadata_preserved;[|exact Meta];intros x X;apply Same;unfold kept,PrepareOutputs.dest,span,common_top,Rows.frame,sp in *;destruct pol;lia.
  - split;[intros x X;rewrite Same;[apply Slots,X|unfold kept,PrepareOutputs.dest,span,common_top,Rows.frame,sp in *;destruct pol;lia]|].
    rewrite (PrepareOutputs.registers _ _ _ _ _ _ Q),(TableUnwind.registers _ _ _ _ _ (PrepareOutputs.parent _ _ _ _ _ _ Q)) by (cbn;tauto);exact BP.
+ - eapply WrapperInputs.preserve;[|exact Layout];intros x X;apply Same;unfold kept,PrepareOutputs.dest,WrapperInputs.needed,span,common_top,Rows.frame,sp in *;destruct pol;lia.
 Qed.
 
 Lemma sig_byte pol bias e caller p q : placement e -> PrepareOutputs.result pol bias e caller p q ->

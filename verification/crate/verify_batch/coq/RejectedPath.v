@@ -16,7 +16,7 @@ Theorem checked decoded pol bias pc text e p :
  ip p=bias+PrepareNative.common+unwind_offset decoded -> return_value decoded (machine p) mod 2^32=0 ->
  exists r,execute decoded pol bias pc text p=Some r /\ RejectExecution.post (bias+pc) e r.
 Proof.
- intros ScatterCode ExitCode P I Range Len Map Apart N Idx [Links Outputs Meta [Slots BP]] Acc Bytes SP Start Zero.
+ intros ScatterCode ExitCode P I Range Len Map Apart N Idx [Links Outputs Meta [Slots BP] _] Acc Bytes SP Start Zero.
  destruct(rejected_at decoded pol bias (bias+pc) e p P I Start SP Acc Links Outputs Zero) as [q [Unwind Again]].
  destruct Again as [At [Stack [AX [Memory [Log [Args [Left Kept]]]]]]].
  assert (Paid:accounted e (writable e) q) by

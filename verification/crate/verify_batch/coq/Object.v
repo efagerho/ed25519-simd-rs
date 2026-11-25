@@ -186,6 +186,8 @@ Proof.
    assert (Data:ScalarInputs.recoded e (LinkedRun.machine stop) /\ ScalarInputs.copy_ready e (LinkedRun.machine stop) /\ StageEntry.metadata e (mem(LinkedRun.machine stop)) /\ StageEntry.saved_caller e (LinkedRun.machine stop)).
    { destruct Post as [_ [_ [_ [_ [_ Contract]]]]]. apply Contract;[exact N|].
      intros j J;exact (proj1 (proj2 (Inputs j J))). }
+   assert (Layout:WrapperInputs.layout e (mem(LinkedRun.machine stop))) by
+      (destruct Data as [_ [[_ [_ [_ [_ [_ [_ Layout]]]]]] _]];exact Layout).
    assert (Exit:forall decoded p,EligibilityFrame.context pol bias (bias+pc) e p ->
      LinkedRun.accounted e (writable e) p -> byte_memory(mem(LinkedRun.machine p)) ->
      regs(LinkedRun.machine p) 4%nat=BatchScalar.common_top pol e-104 -> LinkedRun.ip p=bias+PrepareNative.common+PrepareUnwind.unwind_offset decoded ->
@@ -202,7 +204,7 @@ Proof.
          destruct(EligibleLanes.from_decoder _ _ _ stop d bank P (callee_image _ _ _ _ _ Input N)
             (decoder_aligned _ _ _ _ _ Input N) Entry Words (proj1 Data) (BatchDecode.caller_args _ _ _ _ CallerRegs)) as [r [R Check]].
          exists bank,r;split;[exact Bank|split;[exact R|split;[exact Check|]]].
-         pose proof(EligibilityFrame.restore _ _ _ _ _ _ _ P Post CallerRegs (proj1(proj2(proj2 Data))) (proj2(proj2(proj2 Data))) Check) as Frame.
+         pose proof(EligibilityFrame.restore _ _ _ _ _ _ _ P Post CallerRegs (proj1(proj2(proj2 Data))) (proj2(proj2(proj2 Data))) Layout Check) as Frame.
          split;[exact Frame|intro Zero;apply Exit].
          - exact Frame.
          - exact (EligibleLanes.writes _ _ _ _ _ (proj2 Check)).
@@ -215,7 +217,7 @@ Proof.
      split;[unfold fits64;split;[exact Low|lia]|intros x X;apply Away;lia]. }
    intro Zero;split;[exact (ScalarInputs.zero_rejects pol e _ (proj1 Data) Zero)|].
    destruct Post as [PC [SP [Acc [Links [Outputs _]]]]].
-   destruct(Exit false stop (EligibilityFrame.Context _ _ _ _ _ Links Outputs (proj1(proj2(proj2 Data))) (proj2(proj2(proj2 Data))))
+   destruct(Exit false stop (EligibilityFrame.Context _ _ _ _ _ Links Outputs (proj1(proj2(proj2 Data))) (proj2(proj2(proj2 Data))) Layout)
       Acc (proj1(proj1(proj2 Data))) SP PC Zero) as [r [End Result]].
    exists r;split;[unfold RejectExecution.scalar_rejection;rewrite Run;cbn [LinkedRun.bind];rewrite Zero,Z.eqb_refl;exact End|exact Result]. }
  constructor;[exact Image|exact Arguments.checked_arguments|exact static_tables_correct|
