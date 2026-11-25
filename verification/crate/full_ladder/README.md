@@ -32,7 +32,11 @@ return in the model and covers every permitted return.
    instructions from the ladder's mapped text. Check the stage arguments,
    including digit pair 31, the saved return address, and the nine qword
    writes confined to the ladder's stack frame. The stage receives the CPU
-   and byte memory produced by those instructions. [First call](coq/StageEntry.v)
+   and byte memory produced by those instructions. `first_stage_return`
+   follows that invocation through its return. It proves every staged word
+   equals the limb selected by the original signed digits and that replaying
+   the frame and transpose stores gives the returned memory byte for byte.
+   [First call](coq/StageEntry.v) · [Staging return](coq/FirstStage.v)
 
    Check the projection at later call boundaries. `Program.walk` follows the
    linked relative targets and both conditional branches. It models the

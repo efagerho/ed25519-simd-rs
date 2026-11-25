@@ -1,6 +1,7 @@
 From Coq Require Import List ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.WordBounds memory.MemoryGeometry memory.FlatMemory.
 From Ed25519Simd.FullLadder Require Import LinkedBytes Program Operands Execution Native Composition Progress Audit.
+From Ed25519Simd.FullLadder Require FirstStage.
 Import ListNotations. Local Open Scope Z_scope.
 
 Lemma checked_path full pad : In pad [8;24;40;56] -> run full pad=Some(schedule full).
@@ -21,6 +22,7 @@ Proof.
    assert (Code:54<Z.of_nat(length symbol_bytes)) by (vm_compute;reflexivity).
    assert (Target:0<Z.of_nat(length Ed25519Simd.StageRound.ObjectBytes.symbol_bytes)) by (vm_compute;reflexivity).
    eapply StageEntry.checked;try eassumption;unfold fits64,word64 in *;lia.
+ - exact FirstStage.checked.
  - intros slide s full B A P Mode V Tables.
    pose proof (checked_path full _ (entry_alignment _ _ P)) as Trace.
    assert (IPs:forall e,direct e -> word64(slide+continuation e)).
