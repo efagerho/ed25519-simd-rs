@@ -5,6 +5,7 @@ From Machine Require execution.ScalarRefinement.
 From Ed25519Simd.PrepareChunk Require StrictBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Image Return LoadedImage BatchScalar.
 From Ed25519Simd.VerifyBatch Require FilterReturned FilterMeaning.
+From Ed25519Simd.VerifyBatch Require ScoreBuffers.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition path:list line:=[(25,2%nat,Zero32 0);(27,5%nat,CompareMemImm (Address 3 None 64) 0);
@@ -47,6 +48,7 @@ Record result (outer:Z) e p q:Prop:=Result {
  filtered:forall j,(j<8)%nat -> let v:=mem(machine q)(FilterFlags.flag_ptr e+Z.of_nat j) in
  (v=0 \/ v=1) /\ (v=1 <-> EligibleLanes.candidate e j /\ FilterScreen.weak e (machine p) j=false);
  decoded_r:forall j,(j<8)%nat -> (Z.testbit (mem(machine q)(Rows.frame e+840)) (Z.of_nat j)=true <-> RootDecision.decodes true e j);
+ buffers:ScoreBuffers.data e (machine q);
  strong_lane:forall j,(j<8)%nat -> (EligibleLanes.candidate e j /\ FilterScreen.weak e (machine p) j=false <-> FilterMeaning.eligible e j)
 }.
 
@@ -101,6 +103,9 @@ Proof.
    destruct(FilterScreen.weak e (machine p) j);intuition discriminate.
  - intros j J;rewrite Same;[exact (PreparedReturn.decoded_r _ _ _ _ _ Done j J)|].
    unfold unchanged,FilterScreen.kept,FilterRows.slot,FilterFlags.flag_ptr,StrictFilterCall.slot,common_top,PrepareOutputs.dest,span;lia.
+ - eapply ScoreBuffers.keep;[|exact (ScoreBuffers.from_prepare _ _ _ _ _ Done)];intros x X;apply Same.
+   destruct(scratch_stack _ P);unfold ScoreBuffers.region,unchanged,FilterScreen.kept,FilterRows.slot,FilterFlags.flag_ptr,
+    StrictFilterCall.slot,common_top,PrepareOutputs.dest,Rows.frame,sp,span,disjoint in *;lia.
  - intros j J;exact (FilterMeaning.enabled _ _ _ _ _ _ P Done Entry J).
 Qed.
 
