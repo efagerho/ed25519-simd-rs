@@ -6,7 +6,7 @@ From Ed25519Simd.Sha512Challenge Require Audit ObjectBytes LiteralBytes.
 From Ed25519Simd.Zip215 Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.DalekPostHash Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Arguments Image Control Tables Scatter Loop Return LoadedImage EntryWrites CallWrites NestedRegions StageEntry RejectCall BatchScalar PrepareUnwind RejectDispatch RejectFinish RejectExecution.
-From Ed25519Simd.VerifyBatch Require BatchDecode EligibleLanes EligibilityFrame FirstDispatch RejectedPath ScoreStart ScoreProgress ScorePublish.
+From Ed25519Simd.VerifyBatch Require BatchDecode EligibleLanes EligibilityFrame FirstDispatch RejectedPath ScoreStart ScoreProgress ScorePublish ScoreProduct.
 Local Open Scope Z_scope.
 
 Definition destination pol t := match t with
@@ -101,21 +101,17 @@ Definition first_chunk pol bias pc text e carry masks :=
                  exists r, RejectExecution.scalar_rejection pol bias pc text e carry masks=Some r /\
                            RejectExecution.post (bias+pc) e r).
 
-Definition staged_product pol bias e stop := exists ladder,LadderStage.observed bias ladder stop /\
- LadderStage.selected ladder stop /\ LadderProduct.meaning pol bias e ladder.
-
-Definition scorer_result pol bias e stop:=match pol with
- | Zip215=>staged_product Zip215 bias e stop
- | Dalek=>StrictScreen.decision bias e stop
- end.
+Definition scorer_result pol bias e screen:=
+ (match pol with Dalek=>StrictScreen.decision bias e screen | Zip215=>True end) /\
+ (ScoreProduct.rejected pol screen=false ->
+  (exists stop,ScoreProduct.observed pol bias screen stop) /\
+  forall stop,ScoreProduct.observed pol bias screen stop ->
+     LinkedRun.accounted e (writable e) stop /\ ScoreProduct.selected pol bias e stop).
 
 Definition scoring pol bias pc text e c masks stop := exists q r s cf child score,
    FirstDispatch.run pol bias pc text e c masks=Some(FirstDispatch.HashReturned q r) /\
    HashResume.compatible r s /\ well_formed s /\ ScoreCall.execute bias pc text q r s cf=Some child /\
    ScoreStart.from_call pol bias child=Some score /\ ScoreProgress.observed pol bias score stop.
-
-Definition scorer_rejected pol stop:=match pol with
- | Dalek=>regs(LinkedRun.machine stop) 12%nat=?0 | Zip215=>false end.
 
 (* A completed native return fixes the verdict CPU and the write log together. *)
 Inductive observation pol bias pc text e carry masks : list WriteTrace.store -> Z -> cpu -> Prop :=
@@ -131,15 +127,16 @@ Inductive observation pol bias pc text e carry masks : list WriteTrace.store -> 
    execution pol bias pc text (bias+pc) e ip final ->
    observation pol bias pc text e carry masks (LinkedRun.log q) ip final
  | observe_scored_return stop q : (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
-   scorer_rejected pol stop=true -> ScorePublish.execute bias pc text stop=Some(RejectExecution.BatchReturned q) ->
+   ScoreProduct.rejected pol stop=true -> ScorePublish.execute bias pc text stop=Some(RejectExecution.BatchReturned q) ->
    observation pol bias pc text e carry masks (LinkedRun.log q) (LinkedRun.ip q) (LinkedRun.machine q)
  | observe_scored_next stop q ip final : (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
-   scorer_rejected pol stop=true -> ScorePublish.execute bias pc text stop=Some(RejectExecution.NextChunk q) ->
+   ScoreProduct.rejected pol stop=true -> ScorePublish.execute bias pc text stop=Some(RejectExecution.NextChunk q) ->
    execution pol bias pc text (bias+pc) e ip final ->
    observation pol bias pc text e carry masks (LinkedRun.log q) ip final
- | observe_scoring stop ip final : (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
-   scorer_rejected pol stop=false -> execution pol bias pc text (bias+pc) e ip final ->
-   observation pol bias pc text e carry masks (LinkedRun.log stop) ip final.
+ | observe_scoring stop staged ip final : (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
+   ScoreProduct.rejected pol stop=false -> ScoreProduct.observed pol bias stop staged ->
+   execution pol bias pc text (bias+pc) e ip final ->
+   observation pol bias pc text e carry masks (LinkedRun.log staged) ip final.
 
 Definition immutable_after pol bias pc text e ip final :=
  (0<count e)%nat -> execution pol bias pc text (bias+pc) e ip final ->

@@ -317,3 +317,14 @@ Example complement_register32_preserves_flags :
      flag(ScalarBytes.cpu_state t)=Some true /\ ScalarBytes.cf t=Some true /\ ScalarBytes.loc t=ScalarBytes.Running 2
  | _=>False end.
 Proof. repeat split;reflexivity. Qed.
+
+Example reload_stack_pointer_argument :
+ let code:=[0x48;0x8b;0x34;0x24] in
+ let s:=CPU (fun r=>if (r=?4)%nat then 17 else 5) (fun _ _=>0) (Some false)
+     (fun a=>if a=?17 then 0xda else if a=?24 then 0xb7 else 0) in
+ ScalarBytes.decode [0x48;0x8b;0x34]=None /\
+ match MappedFetch.run 1 (ScalarBytes.fetch 64 code) (ScalarBytes.State(ScalarBytes.Running 0) s (Some true)) with
+ | Some(t,[])=>regs(ScalarBytes.cpu_state t) 6%nat=0xb7000000000000da /\ regs(ScalarBytes.cpu_state t) 4%nat=17 /\
+     flag(ScalarBytes.cpu_state t)=Some false /\ ScalarBytes.cf t=Some true /\ ScalarBytes.loc t=ScalarBytes.Running 4
+ | _=>False end.
+Proof. repeat split;reflexivity. Qed.

@@ -38,12 +38,13 @@ Record entry pol bias e p:Prop:=Entry {
   little_endian (SHA512.Spec.sha512 (r_bytes(HashLayout.row e j)++key_bytes(HashLayout.row e j)++message(HashLayout.row e j)));
  buffers:ScoreBuffers.data e (machine p)
 }.
-Theorem zip bias pc e h r caller q : placement e -> ScoreStart.reached Zip215 bias pc e h r caller q -> entry Zip215 bias e q.
+Lemma from_caller pol bias pc e h r caller q : placement e -> ScoreCall.entered pol bias pc e h r caller ->
+ preserved (retained e) (mem(machine caller)) (mem(machine q)) ->
+ ip q=bias+ScoreStart.candidate pol -> accounted e (writable e) q -> well_formed(machine q) ->
+ regs(machine q) 4%nat=ScoreFrame.buffer e-8 -> regs(machine q) 7%nat=ScoreFrame.buffer e ->
+ regs(machine q) 6%nat=Rows.frame e+768 -> entry pol bias e q.
 Proof.
- intros P Reached;pose proof(unchanged _ _ _ _ _ _ _ _ P Reached) as M;destruct Reached as [Entry [f [_ [F [_ S]]]]].
- destruct(ScoreStart.arguments _ _ _ _ _ S) as [_ [_ [_ [_ [_ [_ [SP [DI SI]]]]]]]].
- constructor;[exact (ScoreStart.pc _ _ _ _ _ S)|exact (ScoreStart.writes _ _ _ _ _ S)|exact (ScoreStart.words _ _ _ _ _ S)|exact SP|exact DI| | | | |].
- - rewrite SI,(ScoreFrame.gpr _ _ _ _ _ F) by discriminate;exact (proj1(proj2(ScoreCall.args _ _ _ _ _ _ _ Entry))).
+ intros P Entry M At Paid W SP DI SI;constructor;try assumption.
  - rewrite !(read_above _ _ _ _ M) by lia.
    destruct (ScoreCall.stack_args _ _ _ _ _ _ _ Entry) as [_ [Base [Sdigits _]]];auto.
  - rewrite (read_above _ _ _ _ M) by lia;exact (proj2(proj2(proj2(ScoreCall.stack_args _ _ _ _ _ _ _ Entry)))).
@@ -52,4 +53,13 @@ Proof.
    apply preserved_read with (outside:=retained e);[exact M|intros n N;right;change (0<=n<8) in N;lia].
  - eapply ScoreBuffers.keep;[|exact (ScoreCall.buffers _ _ _ _ _ _ _ Entry)];intros x X;apply M.
    destruct(scratch_stack _ P);unfold ScoreBuffers.region,retained,span,Rows.frame,sp,disjoint in *;lia.
+Qed.
+
+Theorem zip bias pc e h r caller q : placement e -> ScoreStart.reached Zip215 bias pc e h r caller q -> entry Zip215 bias e q.
+Proof.
+ intros P Reached;pose proof(unchanged _ _ _ _ _ _ _ _ P Reached) as M;destruct Reached as [Entry [f [_ [F [_ S]]]]].
+ destruct(ScoreStart.arguments _ _ _ _ _ S) as [_ [_ [_ [_ [_ [_ [SP [DI SI]]]]]]]].
+ eapply from_caller;[exact P|exact Entry|exact M|exact (ScoreStart.pc _ _ _ _ _ S)|exact (ScoreStart.writes _ _ _ _ _ S)|
+    exact (ScoreStart.words _ _ _ _ _ S)|exact SP|exact DI|].
+ rewrite SI,(ScoreFrame.gpr _ _ _ _ _ F) by discriminate;exact (proj1(proj2(ScoreCall.args _ _ _ _ _ _ _ Entry))).
 Qed.
