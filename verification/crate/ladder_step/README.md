@@ -18,6 +18,11 @@ by eight, SysV saved registers restored, and bytes outside the point and
 private stack preserved. Bounded inputs alone suffice for the coordinate
 formulas and reduced limb bounds.
 
+For the production caller, the mapped execution also returns an ordered log of
+every store in the wrapper and its five nested point calls. Replaying that log
+on the incoming memory gives the memory containing the Edwards sum. Each store
+lies inside the accumulator or the private stack. [Mapped return](coq/History.v)
+
 ## What to audit
 
 1. **The call targets.** In the retained `LadderStep/LinkedBytes.v` and

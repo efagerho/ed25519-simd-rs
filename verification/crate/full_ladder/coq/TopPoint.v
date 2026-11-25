@@ -42,16 +42,16 @@ Proof.
  { rewrite Ret;destruct k;unfold continuation;cbn [event return_offset TopCall.next setup_length defer_double];ring. }
  destruct k;cbn [bytes TopCall.target] in M,PC.
  - rewrite <-double_binding in M.
-   destruct(PointTrace.double_checked _ _ _ _ PC M W Stack End (direct_double_layout _ _ _ _ A Pt SP Back))
-     as [q [Run [F Spec]]];exists q;split;[exact Run|split;[exact F|]].
+   destruct(PointTrace.double_run _ _ _ _ PC M W Stack End (direct_double_layout _ _ _ _ A Pt SP Back))
+     as [q [Run [F [Spec _]]]];exists q;split;[exact Run|split;[exact F|]].
    unfold point_words in Spec;fold s in Spec;rewrite Pt in Spec;exact Spec.
  - destruct Args as [Ptr [F G]];rewrite <-add_binding in M.
-   destruct(PointTrace.add_checked _ _ _ true true call PC M W Stack End F G
-      (direct_add_layout _ _ _ _ true true 20 A Pt SP Ptr Back ltac:(cbv;discriminate))) as [q [Run [R Spec]]].
+   destruct(PointTrace.add_run _ _ _ true true call PC M W Stack End F G
+      (direct_add_layout _ _ _ _ true true 20 A Pt SP Ptr Back ltac:(cbv;discriminate))) as [q [Run [R [Spec _]]]].
    exists q;split;[exact Run|split;[exact R|]];unfold point_words in Spec;fold s in Spec;rewrite Pt,Ptr in Spec;exact Spec.
  - destruct Args as [Ptr [F G]];rewrite <-add_binding in M.
-   destruct(PointTrace.add_checked _ _ _ false false call PC M W Stack End F G
-      (direct_add_layout _ _ _ _ false false 35 A Pt SP Ptr Back ltac:(cbv;discriminate))) as [q [Run [R Spec]]].
+   destruct(PointTrace.add_run _ _ _ false false call PC M W Stack End F G
+      (direct_add_layout _ _ _ _ false false 35 A Pt SP Ptr Back ltac:(cbv;discriminate))) as [q [Run [R [Spec _]]]].
    exists q;split;[exact Run|split;[exact R|]];unfold point_words in Spec;fold s in Spec;rewrite Pt,Ptr in Spec;exact Spec.
 Qed.
 

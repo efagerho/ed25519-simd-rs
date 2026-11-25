@@ -27,3 +27,16 @@ Proof.
  intros Paid [ws [L [W M]]];destruct q as [pc s c logs];cbn [log machine] in L,M;subst logs;
  apply append_accounted;[exact Paid|exact W|exact M].
 Qed.
+
+(* The PC may be an in-symbol offset, a relative call target outside the
+   symbol, or the absolute address popped by RET. *)
+Lemma segment_checked region o text n p off t ws : ip p=o+off -> mapped (mem(machine p)) o text ->
+ (forall x,o<=x<o+Z.of_nat(length text) -> ~region x) ->
+ run n (ScalarBytes.fetch o text) (ScalarBytes.State (ScalarBytes.Running off) (machine p) (carry p))=Some(t,ws) ->
+ confined region ws -> let q:=finish o p (t,ws) in
+ segment o text n p=Some q /\ extends region p q.
+Proof.
+ intros PC Code Sep R Safe q;split.
+ - unfold segment;rewrite PC;replace (o+off-o) with off by ring;now rewrite (run_lift _ _ _ _ _ _ _ R Safe Code Sep).
+ - exists ws;split;[reflexivity|split;[exact Safe|intro x;exact (f_equal (fun m=>m x) (ScalarBytes.steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ R)))]].
+Qed.

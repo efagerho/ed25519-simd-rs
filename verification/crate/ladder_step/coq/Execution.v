@@ -2,7 +2,7 @@ From Ed25519Simd Require Import PointResults.
 From Ed25519Simd Require Import Wide51.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions execution.Blocks memory.FlatMemory memory.ByteMemory execution.WordBounds
- memory.MemoryGeometry execution.ScalarRefinement abi.SysV execution.LinkedCalls.
+ memory.MemoryGeometry execution.ScalarWords execution.ScalarRefinement abi.SysV execution.LinkedCalls.
 From Ed25519Simd.Double4 Require Double4Spec Double4ABI.
 From Ed25519Simd.CachedAdd Require CachedAddSpec CachedAddABI.
 From Ed25519Simd.LadderStep Require Import LinkedBytes Callees Schedule Audit Calls.
@@ -93,7 +93,7 @@ Proof.
 Qed.
 Lemma invoke_ok k pc s : invariant s -> wrapper_pc<=pc -> pc+5<wrapper_pc+wrapper_size ->
  parameters k s pt cache ->
- exists out,dispatch (slide+double4_pc)(slide+cached_pc) sc pad (word (slide+target k))
+ exists out,checked_call slide sc pad pt (word (slide+target k))
  (push s (slide+(pc+5))) (word (slide+(pc+5))) out /\ invariant out /\
  operation_spec k (mem s)(mem out) pt cache.
 Proof.
@@ -145,7 +145,7 @@ Local Ltac inputs I :=
 
 Definition restored s := pop (pop (pop s 13) 12) 3.
 Lemma finish pc s : invariant s ->
- runs (dispatch (slide+double4_pc)(slide+cached_pc) sc pad) slide pc epilogue s caller
+ runs (checked_call slide sc pad pt) slide pc epilogue s caller
   (returning(restored s)) /\ regs(returning(restored s))4%nat=top+8 /\
  (forall r,In r sysv_saved -> regs(returning(restored s))r=regs initial r).
 Proof.
@@ -186,8 +186,8 @@ Lemma execute :
  cache_bounds false (buffer_words(mem initial)cache) ->
  cache_bounds true (buffer_words(mem initial)(cache+1280)) ->
  cache_bounds false (buffer_words(mem initial)(cache+2240)) ->
- exists out,
- runs (dispatch (slide+double4_pc)(slide+cached_pc) sc pad)
+ exists out, well_formed out /\
+ runs (checked_call slide sc pad pt)
    slide wrapper_pc program initial caller out /\
  regs out 4%nat=top+8 /\
  (forall r,In r sysv_saved -> regs out r=regs initial r) /\
@@ -231,6 +231,9 @@ Proof.
    V4 (handoff_bounds _ _ B4) Even A5)as[B5 V5].
  destruct(finish (wrapper_pc+(88+setup_length)) s5 I5)as[Ret [Stack Saved]].
  exists(returning(restored s5));split.
+ { change (well_formed(set (restored s5) 4 (word(regs (restored s5) 4%nat+8)))).
+   apply set_wf;[unfold restored;repeat apply pop_words;exact(inv_wf _ I5)|apply mod64_word]. }
+ split.
  - exists s1;split;[exact R1|];exists s2;split;[exact R2|];exists s3;split;[exact R3|];
    exists s4;split;[exact R4|];exists s5;split;[exact R5|exact Ret].
  - exact(conj Stack (conj Saved (conj (inv_frame _ I5) (conj B5 (conj V5 (proj1 A5)))))).
