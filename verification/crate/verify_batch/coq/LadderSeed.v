@@ -41,7 +41,7 @@ Proof.
    + apply append_accounted with (p:=staged);[exact Acc| |intros x;rewrite (Seed.memory _ _ _ _ _ R);reflexivity].
      eapply Forall_impl;[|exact (Seed.stores _ _ _ _ _ R)];intros w Allow x X;apply Loan,(Allow x X).
    + split;[reflexivity|split;[exact (Seed.rows _ _ _ _ _ R)|split;[exact (Seed.words _ _ _ _ _ R)|split;[exact (Seed.kept _ _ _ _ _ R)|]]]].
-     exists ws;split;[reflexivity|split;[exact (Seed.stores _ _ _ _ _ R)|exact (Seed.memory _ _ _ _ _ R)]].
+     exists ws;split;[reflexivity|split;[exact (Seed.stores _ _ _ _ _ R)|intro x;exact (f_equal (fun m=>m x) (Seed.memory _ _ _ _ _ R))]].
 Qed.
 
 Theorem checked pol bias e prev ladder staged : loaded pol bias (mem e) (writable e) ->
