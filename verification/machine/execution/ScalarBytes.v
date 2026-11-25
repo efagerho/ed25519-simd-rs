@@ -26,7 +26,7 @@ Inductive instruction :=
 | AndImmediate (r:nat) (mask:Z) | BroadcastRip (r:nat) (disp:Z)
 | AlignedRow (i:VectorMoves.aligned_row)
 | Shl32 (r:nat) (imm:Z) | Or32 (dst src:nat) | ZeroUpper
-| Shr32 (r:nat) (imm:Z) | And32 (dst src:nat) | ExtendByte (dst src:nat) | StoreByte (r:nat) (a:addr).
+| Shr32 (r:nat) (imm:Z) | And32 (dst src:nat) | ExtendByte (dst src:nat) | StoreByte (r:nat) (a:addr) | Dec32 (r:nat).
 
 Definition little32 bs := read_le 4 (fun i=>nth (Z.to_nat i) bs 0) 0.
 (* REX-prefixed opcode 89 /r with a register destination. REX.R extends the source
@@ -55,6 +55,16 @@ Definition decode (bs:list Z) : option (nat*instruction) := match bs with
  | 0xc5::0xf8::0x77::_=>Some(3%nat,ZeroUpper)
  | 0x48::0x8d::0x65::d::_=>Some(4%nat,LeaG 4 (Address 5 None (signed_value 128 d)))
  | 0x5d::_=>Some(1%nat,RestoreG 5)
+ | 0x4c::0x8d::0xae::a::b::c::d::_=>Some(7%nat,LeaG 13 (Address 6 None (displacement32 [a;b;c;d])))
+ | 0x89::m::_=>option_map (fun ni=>(2%nat,snd ni)) (reg_move 0x40 m)
+ | 0xc5::0xfe::0x7f::0x80::a::b::c::d::_=>Some(8%nat,StoreY 0 (Address 0 None (displacement32 [a;b;c;d])))
+ | 0x48::0xc7::0x00::a::b::c::d::_=>Some(7%nat,StoreImmediate (Address 0 None 0) (displacement32 [a;b;c;d]))
+ | 0x48::0xc7::0x40::n::a::b::c::d::_=>Some(8%nat,StoreImmediate (Address 0 None (signed_value 128 n)) (displacement32 [a;b;c;d]))
+ | 0x48::0x05::a::b::c::d::_=>Some(6%nat,Add64 0 (displacement32 [a;b;c;d]))
+ | 0xff::0xc9::_=>Some(2%nat,Dec32 1)
+ | 0x41::0xbf::a::b::c::d::_=>Some(6%nat,Imm32 15 (little32 [a;b;c;d]))
+ | 0x49::0x81::0xc5::a::b::c::d::_=>Some(7%nat,Add64 13 (displacement32 [a;b;c;d]))
+ | 0x49::0x81::0xee::a::b::c::d::_=>Some(7%nat,Sub64 14 (displacement32 [a;b;c;d]))
  | 0x55::_=>Some(1%nat,SaveG 5)
  | 0x48::0x83::0xe4::k::_=>Some(4%nat,AndImmediate 4 (signed_value 128 k))
  | 0x62::p::0xfd::0x48::0x59::m::a::b::c::d::_=>
@@ -204,6 +214,7 @@ Definition step origin off n op s carry : option (state*list store) :=
       let v:=Z.shiftl a n mod 2^32 in
       if n=?0 then go (set s r v) carry
       else go (with_zf (set s r v) (v=?0)) (Some(Z.testbit a (32-n)))
+ | Dec32 r=>let v:=(regs s r-1) mod 2^32 in go (with_zf (set s r v) (v=?0)) carry
  | Shr32 r imm=>let n:=imm mod 32 in let a:=regs s r mod 2^32 in
       let v:=Z.shiftr a n mod 2^32 in
       if n=?0 then go (set s r v) carry

@@ -8,7 +8,7 @@ Import ListNotations. Local Open Scope Z_scope.
    may still choose any target and all implicit RSP writes are included. *)
 Definition keeps r op := let other d:=negb (Nat.eqb d r) in match op with
  | AndImmediate d _ | Load64 d _ | Load8 d _ | Zero32 d | And8 d _ | Inc d | Imm32 d _ | CopyG d _
- | LeaG d _ | Sub64 d _ | Add32 d _ | Add64 d _ | MoveBelow d _ | Copy32 d _ | Shl32 d _ | Or32 d _ | Shr32 d _ | And32 d _ | ExtendByte d _=>other d
+ | LeaG d _ | Sub64 d _ | Add32 d _ | Add64 d _ | MoveBelow d _ | Copy32 d _ | Dec32 d | Shl32 d _ | Or32 d _ | Shr32 d _ | And32 d _ | ExtendByte d _=>other d
  | OneEax | ShrEax=>other 0%nat
  | SaveG _ | CallRelative _ | Ret=>other 4%nat
  | RestoreG d=>other 4%nat && other d
