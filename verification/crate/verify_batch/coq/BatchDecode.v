@@ -24,6 +24,13 @@ Definition caller_values e scalar decoder:=
  regs(machine decoder) 13%nat=Rows.frame e+768 /\
  regs(machine decoder) 14%nat=regs(machine scalar) 0%nat mod 2^32 /\ regs(machine decoder) 3%nat=scratch e.
 
+Record handoff pol e scalar decoder:Prop:=Handoff {
+ caller_args:caller_values e scalar decoder;
+ kept_rbp:regs(machine decoder) 5%nat=regs(machine scalar) 5%nat;
+ kept_bytes:preserved (fun x=>~span (scratch e) 512 x /\ ~span (common_top pol e-112) 8 x)
+   (mem(machine scalar)) (mem(machine decoder))
+}.
+
 Lemma decode_in pol : In (DecoderBytes.address,DecoderBytes.symbol_bytes) (children pol).
 Proof. apply in_or_app;left;do 5 right;left;reflexivity. Qed.
 
@@ -31,7 +38,7 @@ Theorem from_scalar pol bias pc text e c ks p :
  placement e -> loaded pol bias (mem e) (writable e) -> readable e ->
  BatchScalar.observe pol bias (bias+pc) text e c ks=Some p -> BatchScalar.post pol bias (bias+pc) e p ->
  copy_ready e (machine p) -> regs(machine p) 0%nat mod 2^32<>0 ->
- exists q,observe pol bias pc text e c ks=Some q /\ entry pol bias e q /\ caller_values e p q.
+ exists q,observe pol bias pc text e c ks=Some q /\ entry pol bias e q /\ handoff pol e p q.
 Proof.
  intros Place Image Inputs Prefix [PC [SP [Acc _]]] [Bytes [Ptr [BX [Rows Meta]]]] Live.
  set (frame:=common_top pol e-104) in *;set (dst:=scratch e) in *.
@@ -60,7 +67,14 @@ Proof.
  pose proof (at_segment _ _ _ _ _ _ 65 _ _ Acc PC Map Sep R Safe) as [Next A].
  eexists;split.
  - unfold observe;rewrite Prefix;cbn [bind];rewrite (proj2 (Z.eqb_neq _ _) Live);exact Next.
- - split;[|exact (conj (eq_trans Selected Meta) (conj Mask Scratch))].
+ - split.
+   2:{ constructor.
+       - exact (conj (eq_trans Selected Meta) (conj Mask Scratch)).
+       - exact (PreservedRegister.run_keeps_at 5 _ CommonBytes.symbol_bytes ltac:(vm_compute;reflexivity)
+           88 65 _ _ _ _ ltac:(vm_compute;reflexivity) R).
+       - intros x [Out Above];change (mem(cpu_state t) x=mem(machine p) x).
+         rewrite (steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ R));apply (WriteTrace.frame _ _ Writes).
+         unfold frame,dst,span in *;lia. }
    split;[|split;[exact A|]].
    + cbn [LinkedRun.finish ip];unfold absolute;rewrite IP;unfold PrepareCopies.common,PrepareCopies.decoder,PrepareNative.common;ring.
    + cbn [LinkedRun.finish machine];split;[exact DI|split;[exact SI|split;[exact DX|]]].
