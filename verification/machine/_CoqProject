@@ -8,6 +8,8 @@ isa/Shift.v
 isa/Instructions.v
 isa/ProgramLayout.v
 execution/MaskTrace.v
+execution/MaskStores.v
+execution/MaskReturn.v
 execution/CircuitFacts.v
 execution/LayoutProofs.v
 execution/MachineState.v
@@ -29,6 +31,7 @@ tests/Representation.v
 tests/model/Oracle.v
 tests/Control.v
 tests/Mask.v
+tests/MaskStores.v
 tests/Filter.v
 tests/Mixed.v
 tests/Prologue.v
