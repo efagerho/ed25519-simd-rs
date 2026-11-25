@@ -93,7 +93,7 @@ Proof.
 Qed.
 Lemma invoke_ok k pc s : invariant s -> wrapper_pc<=pc -> pc+5<wrapper_pc+wrapper_size ->
  parameters k s pt cache ->
- exists out,dispatch (slide+double4_pc)(slide+cached_pc) sc pad (word (slide+target k))
+ exists out,checked_call slide sc pad pt (word (slide+target k))
  (push s (slide+(pc+5))) (word (slide+(pc+5))) out /\ invariant out /\
  operation_spec k (mem s)(mem out) pt cache.
 Proof.
@@ -145,7 +145,7 @@ Local Ltac inputs I :=
 
 Definition restored s := pop (pop (pop s 13) 12) 3.
 Lemma finish pc s : invariant s ->
- runs (dispatch (slide+double4_pc)(slide+cached_pc) sc pad) slide pc epilogue s caller
+ runs (checked_call slide sc pad pt) slide pc epilogue s caller
   (returning(restored s)) /\ regs(returning(restored s))4%nat=top+8 /\
  (forall r,In r sysv_saved -> regs(returning(restored s))r=regs initial r).
 Proof.
@@ -187,7 +187,7 @@ Lemma execute :
  cache_bounds true (buffer_words(mem initial)(cache+1280)) ->
  cache_bounds false (buffer_words(mem initial)(cache+2240)) ->
  exists out,
- runs (dispatch (slide+double4_pc)(slide+cached_pc) sc pad)
+ runs (checked_call slide sc pad pt)
    slide wrapper_pc program initial caller out /\
  regs out 4%nat=top+8 /\
  (forall r,In r sysv_saved -> regs out r=regs initial r) /\

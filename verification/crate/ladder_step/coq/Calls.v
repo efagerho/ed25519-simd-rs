@@ -16,6 +16,16 @@ Definition operation_spec k before after pt cache := match k with
  | Plus f a d=>addition_spec (defer_add f a) f a (buffer_words before pt)
     (buffer_words before(cache+d)) (buffer_words after pt) end.
 
+(* Keep the placement established at the actual call. The store-history
+   proof uses it on exactly the CPU returned by the arithmetic execution. *)
+Definition leaf_layout slide sc pad pt ip s :=
+ well_formed s /\ regs s 4%nat=sc+1288+pad /\ word64(regs s 4%nat+8) /\ regs s 7%nat=pt /\
+ exists k,ip=slide+target k /\ match k with
+ | Double=>Double4Memory.valid_placement (call_loc sc (slide+double4_pc) s) dsize pad
+ | Plus f a _=>mode_args f a s /\ CachedAddMemory.valid_placement a (call_loc sc (slide+cached_pc) s) asize pad end.
+Definition checked_call slide sc pad pt ip s ret out :=
+ dispatch (slide+double4_pc)(slide+cached_pc) sc pad ip s ret out /\ leaf_layout slide sc pad pt ip s.
+
 Lemma linked_regions_separate : separate_images.
 Proof. vm_compute;intuition discriminate. Qed.
 
@@ -37,8 +47,7 @@ Lemma call_once k pc s : wrapper_pc<=pc -> pc+5<wrapper_pc+wrapper_size ->
  well_formed s -> regs s 4%nat=sp -> parameters k s pt cache ->
  let ci:=push s (slide+(pc+5)) in
  exists out,
- dispatch (slide+double4_pc)(slide+cached_pc) scratch pad (slide+target k)
-   ci (slide+(pc+5)) out /\ well_formed out /\ regs out 4%nat=sp /\
+ checked_call slide scratch pad pt (slide+target k) ci (slide+(pc+5)) out /\ well_formed out /\ regs out 4%nat=sp /\
  (forall r,In r sysv_saved -> regs out r=regs s r) /\
  preserved protected (mem s)(mem out) /\ operation_spec k (mem s)(mem out) pt cache.
 Proof.
@@ -72,7 +81,9 @@ Proof.
    { unfold Double4Memory.valid_placement,PointFrame.point_placement,call_loc,layout_at;cbn [origin code_base caller_pc PointFrame.scratch PointFrame.point];rewrite PC.
      change(regs ci 7%nat)with(regs s 7%nat);rewrite Pt;repeat apply conj;try assumption;geometry. }
    destruct(mode_double_call _ (slide+cached_pc) _ _ _ Pushed RS End P)as[out [R [F Spec]]].
-   exists out;split;[exact (eq_ind_r (fun ret=>dispatch _ _ _ _ _ ci ret out) R (eq_sym PC))|].
+   exists out;split.
+   { split;[exact (eq_ind_r (fun ret=>dispatch _ _ _ _ _ ci ret out) R (eq_sym PC))|].
+     split;[exact Pushed|split;[exact RS|split;[exact End|split;[exact Pt|]]]];exists Double;auto. }
    destruct(Finish out F)as[W[S[G T]]];split;[exact W|];split;[exact S|];split;[exact G|];split;[exact T|].
    unfold point_words in Spec;change(regs ci 7%nat)with(regs s 7%nat) in Spec;rewrite Pt in Spec.
    eapply double_spec_ext;unfold agrees_words;[intros;symmetry;apply Point;assumption|intros;reflexivity|exact Spec].
@@ -85,8 +96,11 @@ Proof.
    assert (Dist:slide+double4_pc<>add_target (slide+cached_pc) f a).
    { unfold add_target;assert (N:double4_pc<>cached_pc+add_offset f a) by (destruct f,a;vm_compute;discriminate);lia. }
    destruct(mode_add_call (slide+double4_pc) _ _ _ _ f a Dist Pushed RS End Modes P)as[out [R [F Spec]]].
-   exists out;split;[change (caller_pc(call_loc scratch (slide+cached_pc) ci)) with
-     (read_word(mem ci)(regs ci 4%nat)) in R;rewrite PC in R;replace (slide+target (Plus f a d)) with (add_target (slide+cached_pc) f a) by (unfold target,add_target;ring);exact R|].
+   exists out;split.
+   { split.
+     - change (caller_pc(call_loc scratch (slide+cached_pc) ci)) with
+     (read_word(mem ci)(regs ci 4%nat)) in R;rewrite PC in R;replace (slide+target (Plus f a d)) with (add_target (slide+cached_pc) f a) by (unfold target,add_target;ring);exact R.
+     - split;[exact Pushed|split;[exact RS|split;[exact End|split;[exact Pt|]]]];exists (Plus f a d);auto. }
    destruct(Finish out F)as[W[S[G T]]];split;[exact W|];split;[exact S|];split;[exact G|];split;[exact T|].
    unfold point_words in Spec;change(regs ci 7%nat)with(regs s 7%nat) in Spec;
    change(regs ci 6%nat)with(regs s 6%nat) in Spec;rewrite Pt,Cache in Spec.
