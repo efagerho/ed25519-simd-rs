@@ -14,6 +14,7 @@ Definition observed bias score stop:=exists ks k y t bank,
  execute bias t bank=Some stop.
 Record decision bias e stop:Prop:=Decision {
  writes:accounted e (writable e) stop; words:well_formed(machine stop);
+ mask_byte:0<=regs(machine stop) 12%nat<256;
  lane:forall j,(j<8)%nat -> (Z.testbit (regs(machine stop) 12%nat) (Z.of_nat j)=true <-> StrictOrderClear.eligible e j);
  address:if regs(machine stop) 12%nat=?0 then
     ip stop=bias+ScoreSetup.callee Dalek+565 \/ ip stop=bias+ScoreSetup.callee Dalek+554
@@ -30,9 +31,10 @@ Proof.
  destruct(StrictScoreFrame.at_call _ _ _ _ _ _ _ _ _ _ P Start Y C R) as [Saved Outputs].
  pose proof(StrictRCall.branch _ _ _ _ R) as Branch.
  unfold execute;rewrite Step;cbn [bind];destruct(Z.eqb_spec (regs(machine t) 12%nat) 0) as [NoneLeft|Live].
- - split;[eauto|];intros q E;injection E as <-;split;[constructor|exact (StrictScoreFrame.rejected _ _ _ _ _ _ Saved Outputs Branch)].
+ - split;[eauto|];intros q E;injection E as <-;split;[constructor|exact (StrictScoreFrame.rejected _ _ _ _ _ _ Saved Outputs Branch (eq_trans (StrictRCall.mask _ _ _ _ R) NoneLeft))].
    + exact (StrictRCall.writes _ _ _ _ R).
    + exact (StrictRCall.words _ _ _ _ R).
+   + rewrite (StrictRCall.mask _ _ _ _ R),NoneLeft;lia.
    + intros j J;rewrite (StrictRCall.mask _ _ _ _ R),NoneLeft,Z.bits_0;split;[discriminate|].
      intros [On _];pose proof(proj2(StrictRCanonical.lane _ _ _ _ C j J) On) as Enabled.
      now rewrite NoneLeft,Z.bits_0 in Enabled.
@@ -40,9 +42,11 @@ Proof.
  - destruct(StrictOrderReturn.checked _ _ _ _ bank P I (StrictRCall.writes _ _ _ _ R) (StrictRCall.words _ _ _ _ R) Branch)
        as [ret [k [Run End]]].
    destruct(StrictOrderClear.checked _ _ _ _ _ _ I C R End) as [q [Screen Post]].
-   rewrite Run;cbn [bind];split;[eauto|];intros stop S;rewrite Screen in S;injection S as <-;split;[constructor|exact (StrictScoreFrame.screened _ _ _ _ _ _ _ Saved Outputs End Post)].
+   rewrite Run;cbn [bind];split;[eauto|];intros stop S;rewrite Screen in S;injection S as <-;split;[constructor|exact (StrictScoreFrame.screened _ _ _ _ _ _ _ Saved Outputs End Post
+       (StrictCandidateInputs.after_screen _ _ _ _ _ _ _ _ _ _ _ _ P Start Y C Branch End Post))].
    + exact (StrictOrderClear.writes _ _ _ _ Post).
    + exact (StrictOrderClear.words _ _ _ _ Post).
+   + exact (StrictOrderClear.mask_byte _ _ _ _ Post).
    + exact (StrictOrderClear.lane _ _ _ _ Post).
    + pose proof(StrictOrderClear.pc _ _ _ _ Post) as PC;destruct(regs(machine q) 12%nat=?0);auto.
 Qed.

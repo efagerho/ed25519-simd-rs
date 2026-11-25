@@ -2,14 +2,15 @@ From Coq Require Import List ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun memory.FlatMemory memory.ByteMemory memory.WriteTrace abi.SysV.
 From Machine Require abi.FramePointer.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage.
-From Ed25519Simd.VerifyBatch Require ScoreTail StrictOrderClear.
+From Ed25519Simd.VerifyBatch Require ScoreTail StrictCandidateInputs.
 Local Open Scope Z_scope.
 
 Definition outputs e s:=regs s 13%nat=Rows.frame e+856 /\ regs s 14%nat=output e /\ regs s 15%nat=regs e 6%nat.
 Record context bias parent e caller p:Prop:=Context {
  frame:ScoreSaved.frame bias parent e caller (machine p);
  arguments:outputs e (machine p);
- at_tail:ip p=bias+ScoreSetup.callee Dalek+565 -> ScoreTail.arguments e 0 (machine p)
+ at_tail:ip p=bias+ScoreSetup.callee Dalek+565 -> ScoreTail.arguments e 0 (machine p);
+ candidate:regs(machine p) 12%nat<>0 -> StrictCandidateInputs.data e caller p
 }.
 
 Lemma keep_outputs e s u : outputs e s -> (forall g,In g sysv_saved -> regs u g=regs s g) -> outputs e u.
@@ -34,18 +35,19 @@ Proof.
 Qed.
 
 Lemma rejected bias parent e caller t call : ScoreSaved.frame bias parent e caller (machine call) ->
- outputs e (machine call) -> StrictRCall.rejected e bias t call -> context bias parent e caller call.
-Proof. intros F Out [_ [_ [_ [Z [DI [SI [DX _]]]]]]];constructor;[exact F|exact Out|intro PC;repeat split;assumption]. Qed.
+ outputs e (machine call) -> StrictRCall.rejected e bias t call -> regs(machine call) 12%nat=0 -> context bias parent e caller call.
+Proof. intros F Out [_ [_ [_ [Z [DI [SI [DX _]]]]]]] Zero;constructor;[exact F|exact Out|intro PC;repeat split;assumption|contradiction]. Qed.
 
 Lemma screened bias parent e caller child ret q : ScoreSaved.frame bias parent e caller (machine child) ->
  outputs e (machine child) -> StrictOrderReturn.result bias e child ret ->
- StrictOrderClear.result bias e ret q -> context bias parent e caller q.
+ StrictOrderClear.result bias e ret q -> StrictCandidateInputs.data e caller q -> context bias parent e caller q.
 Proof.
- intros F Out R C;pose proof(StrictOrderReturn.gprs _ _ _ _ R) as G;pose proof(StrictOrderClear.gprs _ _ _ _ C) as K.
+ intros F Out R C Inputs;pose proof(StrictOrderReturn.gprs _ _ _ _ R) as G;pose proof(StrictOrderClear.gprs _ _ _ _ C) as K.
  constructor.
  - eapply ScoreSaved.keep with (s:=machine child);[exact F|rewrite K,G by discriminate;reflexivity|].
    intros x X;rewrite (StrictOrderClear.memory _ _ _ _ C);apply (StrictOrderReturn.frame _ _ _ _ R).
    pose proof(Z.mod_pos_bound (ScoreFrame.top e-48) 64 ltac:(lia));unfold ScoreSaved.area,StrictOrderReturn.region,ScoreFrame.buffer,FramePointer.bottom in *;lia.
  - unfold outputs in *;rewrite (K 13%nat),(K 14%nat),(K 15%nat),(G 13%nat),(G 14%nat),(G 15%nat) by discriminate;exact Out.
  - intro PC;pose proof(StrictOrderClear.pc _ _ _ _ C) as At;destruct (_=?0) in At;lia.
+ - intro;exact Inputs.
 Qed.
