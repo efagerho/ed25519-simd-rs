@@ -23,7 +23,7 @@ Proof.
 Qed.
 
 Local Lemma branch_result t a x b y inputs ini :
- t = Branch a x 255 (Exit a x) (Exit b y) ->
+ t = Branch a x 255 (Exit a x Datatypes.tt) (Exit b y Datatypes.tt) ->
  result t inputs ini = Some (if mask_value a x inputs ini =? 255 then
      mask_value a x inputs ini else mask_value b y inputs ini).
 Proof. intros ->;cbn [result];destruct (mask_value a x inputs ini =? 255);reflexivity. Qed.

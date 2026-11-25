@@ -89,7 +89,7 @@ Qed.
 Definition local_access c a x :=
  let addr:=scorer_sp c-(8+16*Z.of_nat (pad c))+MaskTrace.stack_offset a in
  addr<=x<addr+MaskTrace.byte_count a.
-Definition score_writes c tr := forall input registers,
+Definition score_writes c (tr:MaskTrace.trace MaskTrace.exit_registers) := forall input registers,
  Forall (fun a=>forall x, local_access c a x -> nested_writable (entry c) x)
    (MaskTrace.writes_on tr input registers) /\
  exists mask, MaskTrace.result tr input registers=Some mask.

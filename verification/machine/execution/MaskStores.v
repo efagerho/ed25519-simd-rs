@@ -13,9 +13,9 @@ Definition render slide top pad bp input initial site:=
  | ReturnAddress next=>qword ip a (slide+next)
  | VectorLanes gs src=>vector ip a (fun j=>value j (rev gs) (input j) (initial j) src)
  end.
-Definition events slide top pad bp t input initial:=
+Definition events {A} slide top pad bp (t:trace A) input initial:=
  map (render slide top pad bp input initial) (writes_on t input initial).
-Lemma footprint slide top pad bp t depth input initial:
+Lemma footprint {A} slide top pad bp (t:trace A) depth input initial:
  Forall (in_frame (origin pad-depth) (origin pad)) (writes_on t input initial) ->
  confined (fun x=>top-depth<=x<top) (events slide top pad bp t input initial).
 Proof.
