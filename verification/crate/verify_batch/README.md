@@ -50,9 +50,10 @@ Dalek intersects the decoded-R mask with the eight staged
 eligibility bytes. It then compares the five original Y limbs against
 `p = 2²⁵⁵ − 19` with the sign bit removed. The native lane mask retains precisely
 the eligible lanes with Y below p. If that mask is empty, the CPU jumps to the
-scorer’s rejection epilogue.
+scorer’s rejection epilogue and sets EAX to zero. Otherwise it calls the linked
+small-order check with RDI pointing at the decoded R coordinates.
 [SHA call](coq/HashEntry.v) · [Digest and store log](coq/NativeHash.v) ·
-[SHA return interface](coq/HashResume.v) · [Scorer entry](coq/ScoreCall.v) · [Scorer execution](coq/ScoreStart.v) · [Native challenge digits](coq/ReducedDigest.v) · [Ladder call](coq/LadderEntry.v) · [Product on the original bytes](coq/LadderProduct.v) · [First staging return](coq/LadderStage.v) · [Dalek R mask](coq/StrictRStart.v) · [Canonical Y decision](coq/StrictRCanonical.v)
+[SHA return interface](coq/HashResume.v) · [Scorer entry](coq/ScoreCall.v) · [Scorer execution](coq/ScoreStart.v) · [Native challenge digits](coq/ReducedDigest.v) · [Ladder call](coq/LadderEntry.v) · [Product on the original bytes](coq/LadderProduct.v) · [First staging return](coq/LadderStage.v) · [Dalek R mask](coq/StrictRStart.v) · [Canonical Y decision](coq/StrictRCanonical.v) · [Small-order call and rejection](coq/StrictRCall.v)
 
 Both policies require canonical S and decodable R and public-key encodings.
 For a decoded key A, the proof relates every signed cached row from −8 to +8
