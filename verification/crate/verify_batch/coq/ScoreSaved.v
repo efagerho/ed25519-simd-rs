@@ -1,7 +1,7 @@
 From Coq Require Import List ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.WordSemantics execution.WordBounds
  memory.ByteMemory memory.WriteTrace abi.SysV.
-From Machine Require abi.FramePointer abi.FrameRestore.
+From Machine Require abi.FramePointer abi.FrameRestore abi.FrameSlots.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar.
 From Ed25519Simd.VerifyBatch Require ScoreStart.
 Import ListNotations. Local Open Scope Z_scope.
@@ -16,22 +16,6 @@ Record frame bias parent e caller (s:cpu):Prop:=Frame {
  counter:regs(machine caller) 12%nat=Prologue.rows_left (regs e 6%nat)
 }.
 
-Lemma pushed o top rs m : replay m (FramePointer.stores o top rs)=
- Return.spill rs m top [5;3;12;13;14;15]%nat.
-Proof.
- cbn [FramePointer.stores replay fold_left Return.spill];unfold commit,store_word;cbn [qword address size payload].
- replace (top-8-8) with (top-16) by ring;replace (top-16-8) with (top-24) by ring;
- replace (top-24-8) with (top-32) by ring;replace (top-32-8) with (top-40) by ring;
- replace (top-40-8) with (top-48) by ring;reflexivity.
-Qed.
-Lemma recovered o top rs m g : (forall r,word64(rs r)) -> In g sysv_saved ->
- read_word (replay m (FramePointer.stores o top rs)) (top-FrameRestore.slot g)=rs g.
-Proof.
- intros W Member;rewrite pushed;destruct Member as [<-|[<-|[<-|[<-|[<-|[<-|[]]]]]]];
- match goal with |- _=rs ?g =>
-   let i:=eval compute in (match g with 5%nat=>0%nat|3%nat=>1%nat|12%nat=>2%nat|13%nat=>3%nat|14%nat=>4%nat|_=>5%nat end) in
-   exact (spilled_word rs m top [5;3;12;13;14;15]%nat i g W eq_refl) end.
-Qed.
 Lemma read_slot e m n : preserved (area e) m n -> forall g,In g sysv_saved ->
  read_word n (ScoreFrame.top e-FrameRestore.slot g)=read_word m (ScoreFrame.top e-FrameRestore.slot g).
 Proof.
@@ -52,7 +36,7 @@ Proof.
  assert (Above:preserved (fun x=>ScoreFrame.top e<=x) (mem(machine caller)) (mem s)).
  { intros x X;rewrite M by (unfold area;lia);apply (WriteTrace.frame _ _ (FramePointer.confined _ _ _));lia. }
  constructor;[exact BP| | | | |exact RBP|exact Count].
- - intros g G;rewrite (read_slot _ _ _ M _ G);apply recovered;[exact (proj1(ScoreCall.words _ _ _ _ _ _ _ C))|exact G].
+ - intros g G;rewrite (read_slot _ _ _ M _ G);apply FrameSlots.saved_words;[exact (proj1(ScoreCall.words _ _ _ _ _ _ _ C))|exact G].
  - rewrite (above_top _ _ _ Above);exact (proj1(ScoreCall.stack_args _ _ _ _ _ _ _ C)).
  - eapply IndexStores.metadata_preserved;[|exact Meta];intros x X;apply Above;unfold ScoreFrame.top;lia.
  - intros x X;rewrite Above;[apply Spills,X|unfold ScoreFrame.top,Rows.frame,sp in *;lia].
