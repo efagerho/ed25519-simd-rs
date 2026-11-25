@@ -53,7 +53,12 @@ the seed calculation. Every staged word comes from the base or key table
 entry selected by digit pair 31 in that lane. On the same trace, the 160
 qwords written to the accumulator represent the signed odd multiple
 selected by the high challenge digit. XYZ satisfy the first doubling’s
-input bounds, and every T limb is zero. [Native seed](coq/LadderSeed.v)
+input bounds, and every T limb is zero. The first doubling and both cached
+additions then execute from that point buffer. Their combined store log
+covers the three return-address pushes, each child frame, and each update
+to the point. At the return from the even-key addition the original buffer
+holds `[16]Odd + Base + Even` in XYZ with reduced limbs and zero T.
+[Native seed](coq/LadderSeed.v) · [Top digit pair](coq/LadderTop.v)
 Dalek intersects the decoded-R mask with the eight staged
 eligibility bytes. It then compares the five original Y limbs against
 `p = 2²⁵⁵ − 19` with the sign bit removed. The native lane mask retains precisely
