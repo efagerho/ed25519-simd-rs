@@ -6,7 +6,11 @@ projective point P, bit j is set exactly when **[8]P is the identity**.
 This requires a valid XYZ representation with nonzero Z. The routine can
 be called after the ladder omits T. For arbitrary bounded X and Y the
 theorem also specifies the exact four-root field predicate, independently
-of point validity. [Public contract](coq/Audit.v) · [Theorem](coq/Object.v) · [Group interpretation](../../curve25519/group/Cofactor.v)
+of point validity. The `machine_return` corollary starts with a mapped entry
+and a concrete RDI buffer. It returns the caller’s CPU, including EAX, the
+restored stack pointer and the return address read from memory. Its log records
+the selected path’s stack writes. Every prefix preserves both symbol images
+and all ten input rows. [Public contract](coq/Audit.v) · [Theorem](coq/Object.v) · [Group interpretation](../../curve25519/group/Cofactor.v)
 
 ## What to audit
 
