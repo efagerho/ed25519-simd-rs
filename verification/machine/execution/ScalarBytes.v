@@ -125,6 +125,8 @@ Definition decode (bs:list Z) : option (nat*instruction) := match bs with
  | 0x62::0xf1::0xfd::0x48::0xd4::0x46::d::_=>
    Some (7%nat,AddVectorMem 0 0 (Address 6 None (64*signed_value 128 d)))
  | 0x53::_=>Some (1%nat,SaveG 3)
+ | 0x41::0x50::_=>Some (2%nat,SaveG 8)
+ | 0x41::0x51::_=>Some (2%nat,SaveG 9)
  | 0x41::0x54::_=>Some (2%nat,SaveG 12)
  | 0x41::0x55::_=>Some (2%nat,SaveG 13)
  | 0x41::0x56::_=>Some (2%nat,SaveG 14)
