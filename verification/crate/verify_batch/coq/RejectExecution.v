@@ -48,7 +48,7 @@ Theorem final_bytes pol bias pc text e c masks r :
 Proof.
  unfold scalar_rejection;destruct (BatchScalar.observe _ _ _ _ _ _ _) as [s|] eqn:Start;[|discriminate].
  cbn [bind];destruct (_=?0);[|discriminate]. pose proof (BatchScalar.observed_memory _ _ _ _ _ _ _ _ Start) as Mem.
- unfold PrepareUnwind.unwind.
+ unfold PrepareUnwind.unwind,PrepareUnwind.unwind_at;cbn [PrepareUnwind.unwind_length].
  destruct (segment _ _ 9 s) as [common|] eqn:C;[|discriminate];cbn [bind].
  pose proof (segment_memory _ _ _ _ _ _ Mem C) as Common.
  destruct(leave_strict pol bias common) as [caller|] eqn:Strict;[|discriminate];cbn [bind].
