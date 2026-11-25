@@ -13,7 +13,10 @@ Record frame bias parent e caller (s:cpu):Prop:=Frame {
  link:read_word (mem s) (ScoreFrame.top e)=bias+parent+539;
  metadata:StageEntry.metadata e (mem s); spills:CallerSpills.saved e (mem s);
  outer_bp:regs(machine caller) 5%nat=regs e 5%nat;
- counter:regs(machine caller) 12%nat=Prologue.rows_left (regs e 6%nat)
+ counter:regs(machine caller) 12%nat=Prologue.rows_left (regs e 6%nat);
+ globals:Prologue.context_registers e (machine caller);
+ descriptor:StageEntry.next_descriptor e (regs(machine caller) 3%nat);
+ tables:CallerSpills.table_arguments e (mem s)
 }.
 
 Lemma read_slot e m n : preserved (area e) m n -> forall g,In g sysv_saved ->
@@ -35,11 +38,13 @@ Proof.
  intros C BP M;destruct(ScoreCall.wrapper _ _ _ _ _ _ _ C) as [Meta [[Spills RBP] Count]].
  assert (Above:preserved (fun x=>ScoreFrame.top e<=x) (mem(machine caller)) (mem s)).
  { intros x X;rewrite M by (unfold area;lia);apply (WriteTrace.frame _ _ (FramePointer.confined _ _ _));lia. }
- constructor;[exact BP| | | | |exact RBP|exact Count].
+ pose proof(ScoreCall.restart _ _ _ _ _ _ _ C) as [Globals Row T].
+ constructor;[exact BP| | | | |exact RBP|exact Count|exact Globals|exact Row|].
  - intros g G;rewrite (read_slot _ _ _ M _ G);apply FrameSlots.saved_words;[exact (proj1(ScoreCall.words _ _ _ _ _ _ _ C))|exact G].
  - rewrite (above_top _ _ _ Above);exact (proj1(ScoreCall.stack_args _ _ _ _ _ _ _ C)).
  - eapply IndexStores.metadata_preserved;[|exact Meta];intros x X;apply Above;unfold ScoreFrame.top;lia.
  - intros x X;rewrite Above;[apply Spills,X|unfold ScoreFrame.top,Rows.frame,sp in *;lia].
+ - eapply CallerSpills.keep_tables;[|exact T];intros x X;apply Above;unfold ScoreFrame.top;lia.
 Qed.
 Lemma keep bias parent e caller s u : frame bias parent e caller s ->
  regs u 5%nat=regs s 5%nat -> preserved (area e) (mem s) (mem u) -> frame bias parent e caller u.
@@ -52,4 +57,7 @@ Proof.
  - intros x X;rewrite M;[exact (spills _ _ _ _ _ F x X)|unfold area,ScoreFrame.top,Rows.frame,sp in *;lia].
  - exact (outer_bp _ _ _ _ _ F).
  - exact (counter _ _ _ _ _ F).
+ - exact(globals _ _ _ _ _ F).
+ - exact(descriptor _ _ _ _ _ F).
+ - eapply CallerSpills.keep_tables;[|exact(tables _ _ _ _ _ F)];intros x X;apply M;unfold area,ScoreFrame.top;lia.
 Qed.

@@ -10,7 +10,8 @@ Record inputs pol e s:Prop:=Inputs {
  gprs:Prologue.context_registers e s;
  remaining:regs s 12%nat=Prologue.rows_left (regs e 6%nat);
  metadata:StageEntry.metadata e (mem s); saved:StageEntry.saved_caller e s;
- base:read_word (mem s) (Rows.frame e+944)=regs e 9%nat;
+ tables:CallerSpills.table_arguments e (mem s);
+ next_descriptor:StageEntry.next_descriptor e (regs s 3%nat);
  flags:forall j,(j<8)%nat -> let b:=mem s (Rows.frame e+832+Z.of_nat j) in
    (b=0 \/ b=1) /\ (b=1 <-> HashLayout.eligible pol e j);
  buffers:ScoreBuffers.data e s;
@@ -24,7 +25,8 @@ Proof.
  - exact (PreparedReturn.remaining _ _ _ _ _ R).
  - exact Meta.
  - exact Saved.
- - exact (proj2(WrapperInputs.tables _ _ Layout)).
+ - exact (WrapperInputs.tables _ _ Layout).
+ - exact(PreparedReturn.next_descriptor _ _ _ _ _ R eq_refl).
  - intros j J;destruct(PreparedReturn.flags _ _ _ _ _ R j J) as [Bit On];unfold PrepareOutputs.dest in *;
    replace (Rows.frame e+832) with (Rows.frame e+768+64) by ring;split;[exact Bit|rewrite <-HashLayout.candidate;exact On].
  - exact (ScoreBuffers.from_prepare _ _ _ _ _ R).
@@ -37,7 +39,8 @@ Proof.
  - exact (StrictReturn.remaining _ _ _ _ R).
  - exact (StrictReturn.metadata _ _ _ _ R).
  - exact (StrictReturn.saved _ _ _ _ R).
- - exact (proj2(WrapperInputs.tables _ _ (StrictReturn.inputs _ _ _ _ R))).
+ - exact (WrapperInputs.tables _ _ (StrictReturn.inputs _ _ _ _ R)).
+ - exact(StrictReturn.next_descriptor _ _ _ _ R).
  - intros j J;destruct(StrictReturn.filtered _ _ _ _ R j J) as [Bit On];unfold FilterFlags.flag_ptr,PrepareOutputs.dest in *;
    replace (Rows.frame e+832) with (Rows.frame e+768+64) by ring;split;[exact Bit|rewrite On;exact (StrictReturn.strong_lane _ _ _ _ R j J)].
  - exact (StrictReturn.buffers _ _ _ _ R).
@@ -48,13 +51,13 @@ Lemma preserve pol e s u : inputs pol e s -> (forall r,In r sysv_saved -> regs u
  preserved (fun x=>Rows.frame e+768<=x<sp e) (mem s) (mem u) ->
  preserved (ScoreBuffers.region e) (mem s) (mem u) -> inputs pol e u.
 Proof.
- intros [G Rem Meta [Slots BP] Base Flags Buf Valid] Keep M B;destruct G as [Scratch [N Out]];constructor.
+ intros [G Rem Meta [Slots BP] Tab Cursor Flags Buf Valid] Keep M B;destruct G as [Scratch [N Out]];constructor.
  - unfold Prologue.context_registers,Prologue.output_registers;rewrite (Keep 15%nat),(Keep 13%nat),(Keep 14%nat) by (simpl;tauto);auto.
  - rewrite Keep by (simpl;tauto);exact Rem.
  - eapply IndexStores.metadata_preserved;[|exact Meta];intros x X;apply M;unfold Rows.frame,sp in *;lia.
  - split;[intros x X;rewrite M;[apply Slots,X|unfold Rows.frame,sp in *;lia]|rewrite Keep by (simpl;tauto);exact BP].
- - rewrite <-Base;apply preserved_read with (outside:=fun x=>Rows.frame e+768<=x<sp e);[exact M|].
-   intros k K;change (0<=k<8) in K;unfold Rows.frame,sp;lia.
+ - eapply CallerSpills.keep_tables;[|exact Tab];intros x X;apply M;unfold Rows.frame,sp in *;lia.
+ - rewrite Keep by (simpl;tauto);exact Cursor.
  - intros j J;cbv zeta;rewrite M;[exact (Flags j J)|unfold Rows.frame,sp;lia].
  - exact (ScoreBuffers.keep _ _ _ B Buf).
  - intros j J;rewrite M;[exact (Valid j J)|unfold Rows.frame,sp;lia].

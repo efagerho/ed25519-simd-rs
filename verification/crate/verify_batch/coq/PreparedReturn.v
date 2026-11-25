@@ -42,6 +42,7 @@ Record result pol bias entry e q:Prop:=Result {
  flags:forall j,(j<8)%nat -> let v:=mem(machine q)(PrepareOutputs.dest e+64+Z.of_nat j) in
    (v=0 \/ v=1) /\ (v=1 <-> EligibleLanes.candidate e j);
  decoded_r:forall j,(j<8)%nat -> (Z.testbit (mem(machine q)(Rows.frame e+840)) (Z.of_nat j)=true <-> RootDecision.decodes true e j);
+ next_descriptor:pol=Zip215 -> StageEntry.next_descriptor e (regs(machine q) 3%nat);
  key_tables:PreparedTables.table e (machine q)
 }.
 
@@ -85,6 +86,8 @@ Proof.
  - intros j J;cbn [LinkedRun.finish machine];cbv zeta;rewrite M,(PrepareOutputs.eligibility _ _ _ _ _ _ A j J),<-(EligibleLanes.bit _ _ _ _ _ E j J).
    destruct (Z.testbit _ _);cbn;intuition discriminate.
  - intros j J;cbn [LinkedRun.finish machine];rewrite M,(PreparedFrame.sig_byte _ _ _ _ _ _ P A);exact (EligibleLanes.sig_bits _ _ _ _ _ E j J).
+ - intros Eq Long;destruct Outputs as [_ [_ [_ [_ [_ Future]]]]].
+   change (regs(cpu_state last) 3%nat=word(regs e 7%nat+320));rewrite (G 0%nat 3%nat eq_refl);replace (top-8*(1+Z.of_nat 0)) with (top-8) by ring;exact(Future Eq Long).
  - apply (PreparedTables.meaning _ _ _ Points).
    apply (TableContents.preserve _ _ (machine p));[|exact (TableUnwind.contents _ _ _ _ _ (PrepareOutputs.parent _ _ _ _ _ _ A))].
    intros x X;cbn [LinkedRun.finish machine];rewrite M;apply (PrepareOutputs.surrounding _ _ _ _ _ _ A).

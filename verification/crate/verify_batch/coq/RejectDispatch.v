@@ -5,6 +5,8 @@ From Machine Require Import isa.Instructions execution.LinkedCalls execution.Wor
 From Ed25519Simd.Zip215 Require ScatterBytes ScatterTrace ScatterReturn.
 From Ed25519Simd.VerifyBatch Require Import Policy Image Rows Return LoadedImage Prologue BatchScalar PrepareUnwind.
 From Ed25519Simd.VerifyBatch Require RejectOutputs Scattered.
+From Ed25519Simd.VerifyBatch Require ChunkContext.
+From Machine Require Import abi.SysV.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition scatter := Zip215.ScatterBytes.address.
@@ -23,7 +25,8 @@ Lemma dispatch bias pc text s c top : bound pc text -> regs s 0%nat mod 2^32=0 -
  regs(cpu_state last) 6%nat=regs s 14%nat /\ regs(cpu_state last) 2%nat=regs s 13%nat /\
  read_word (mem(cpu_state last)) (top-8)=word(bias+pc+574) /\
  regs(cpu_state last) 12%nat=regs s 12%nat /\ confined (pending top) ws /\
- regs(cpu_state last) 7%nat=top+856 /\ regs(cpu_state last) 0%nat=0 /\ regs(cpu_state last) 5%nat=regs s 5%nat.
+ regs(cpu_state last) 7%nat=top+856 /\ regs(cpu_state last) 0%nat=0 /\ regs(cpu_state last) 5%nat=regs s 5%nat /\
+ forall g,In g sysv_saved -> regs(cpu_state last) g=regs s g.
 Proof.
  intros Bound Zero SP Lo Hi Dest;do 2 eexists;split.
  - apply (checked _ _ _ Bound);cbn [path follow loc cpu_state cf step option_map eval_condition with_zf flag];
@@ -35,7 +38,7 @@ Proof.
        rewrite ?(word_fits _ Dest);ring|].
    split;[reflexivity|]. split;[reflexivity|]. split;[reflexivity|]. split.
    + apply read_word_encoded;intros k K;unfold store_word;rewrite write_at by lia;reflexivity.
-   + split;[reflexivity|]. split;[|split;[f_equal;ring|split;reflexivity]]. apply Forall_cons;[|apply Forall_cons;[|apply Forall_nil]].
+   + split;[reflexivity|]. split;[|split;[f_equal;ring|split;[reflexivity|split;[reflexivity|intros g [<-|[<-|[<-|[<-|[<-|[<-|[]]]]]]];reflexivity]]]]. apply Forall_cons;[|apply Forall_cons;[|apply Forall_nil]].
      * intros x X;right;change (top+0+856<=x<top+0+856+8) in X;lia.
      * intros x X;left;change (top-8<=x<top-8+8) in X;lia.
 Qed.
@@ -55,9 +58,10 @@ Theorem resume pol bias pc text e p :
  regs(machine p) 4%nat=Rows.frame e -> Prologue.output_registers e (machine p) ->
  regs(machine p) 12%nat=Prologue.rows_left (regs e 6%nat) -> regs(machine p) 0%nat mod 2^32=0 ->
  (0<Scatter.count e)%nat -> Scatter.indices e -> StageEntry.metadata e (mem(machine p)) -> StageEntry.saved_caller e (machine p) -> byte_memory(mem(machine p)) ->
- exists q,scatter_stores bias pc text p=Some q /\ continued bias pc e q /\ RejectOutputs.outputs e (machine q) /\ StageEntry.saved_caller e (machine q) /\ byte_memory(mem(machine q)).
+ ChunkContext.bindings e (machine p) ->
+ exists q,scatter_stores bias pc text p=Some q /\ continued bias pc e q /\ RejectOutputs.outputs e (machine q) /\ StageEntry.saved_caller e (machine q) /\ byte_memory(mem(machine q)) /\ ChunkContext.bindings e (machine q).
 Proof.
- intros Code Place Image Range Length Bytes Apart Prev IP SP [Count Out] Left Zero Live Indices Meta [Spills BP] Octets.
+ intros Code Place Image Range Length Bytes Apart Prev IP SP [Count Out] Left Zero Live Indices Meta [Spills BP] Octets Bindings.
  change 574 with (offset Continue) in *.
  assert (R:word64(bias+pc+574) /\ word64(bias+pc+385)) by
    (change (574<Z.of_nat(length text)) in Length;unfold fits64,word64 in *;lia).
@@ -65,7 +69,7 @@ Proof.
  destruct (dispatch bias pc text (machine p) (carry p) (Rows.frame e) Code Zero SP
   ltac:(unfold Rows.frame,sp in *;lia) ltac:(unfold Rows.frame,sp in *;lia)
   (mapped_word _ _ _ Image _ _ (LoadedImage.scatter _) ltac:(vm_compute;reflexivity)))
-   as [s [w [Step [Target [Stack [D [N [Back [CarryLeft [Safe [MetaPtr [Cleared BP0]]]]]]]]]]]].
+   as [s [w [Step [Target [Stack [D [N [Back [CarryLeft [Safe [MetaPtr [Cleared [BP0 GPR]]]]]]]]]]]]].
  assert (W:confined (writable e) w) by (eapply Forall_impl;[|exact Safe];intros z K x X;left;
      specialize(K x X);unfold pending,Rows.frame,sp,span in *;lia).
  change (ip p=word(bias+pc+385)) in IP;rewrite (word_fits _ (proj2 R)) in IP.
@@ -97,7 +101,12 @@ Proof.
      * exact Map.
      * exact Const.
      * exact Returned.
-   + split;[split|exact (Scattered.bytes _ _ _ _ End)].
+   + split;[split|split;[exact (Scattered.bytes _ _ _ _ End)|]].
+     3:{ apply (ChunkContext.preserve e (machine p) (machine q) Bindings).
+         - intros g G;rewrite (Scattered.saved _ _ _ _ End g G);exact(GPR g G).
+         - intros x X;rewrite (Scattered.outside _ _ _ _ End) by (destruct(out_stack _ Place);unfold Scattered.region,Rows.frame,sp,disjoint in *;lia).
+           change (mem(cpu_state s) x=mem(machine p) x);rewrite (steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ Step));
+             apply (WriteTrace.frame _ _ Safe);unfold pending;lia. }
      * intros x X;rewrite (Scattered.outside _ _ _ _ End) by
          (destruct(out_stack _ Place);unfold Scattered.region,disjoint in *;lia).
        change (mem(cpu_state s) x=Return.saved_memory e x).

@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool Lia.
-From Machine Require Import execution.WordSemantics execution.WordBounds execution.LinkedCalls execution.ScalarBytes execution.LinkedRun execution.MappedFetch memory.MemoryGeometry memory.ByteMemory.
+From Machine Require Import execution.WordSemantics execution.WordBounds execution.LinkedCalls execution.ScalarBytes execution.ScalarWords execution.LinkedRun execution.MappedFetch memory.MemoryGeometry memory.ByteMemory.
 From Ed25519Simd.VerifyBatch Require Import Policy Rows Image Return BatchScalar PrepareUnwind RejectDispatch RejectFinish.
 Local Open Scope Z_scope.
 
@@ -18,7 +18,7 @@ Definition post_with (values:FlatMemory.bytes->Prop) entry e r := accounted e (w
  match r with
  | BatchReturned q=>(Scatter.count e<=8)%nat /\ ip q=read_word (mem e) (sp e) /\ regs(machine q) 4%nat=sp e+8 /\ RejectFinish.callee_saved e (machine q)
  | NextChunk q=>(8<Scatter.count e)%nat /\ ip q=entry+offset Choose /\ regs(machine q) 4%nat=Rows.frame e /\
-   regs(machine q) 12%nat=Z.of_nat (Scatter.count e-8) /\ carry q=Some false /\ StageEntry.saved_caller e (machine q)
+   regs(machine q) 12%nat=Z.of_nat (Scatter.count e-8) /\ carry q=Some false /\ StageEntry.saved_caller e (machine q) /\ ChunkContext.bindings e (machine q) /\ well_formed(machine q)
  end.
 Definition zero_results e (m:FlatMemory.bytes):=forall j,(j<Nat.min (Scatter.count e) 8)%nat ->
  m(output e+Z.of_nat(Scatter.position e j))=0.
@@ -29,11 +29,11 @@ Proof. intros F [Paid [[OK Data] Rest]];split;[exact Paid|split;[split;[exact OK
 
 Lemma classified_with (values:FlatMemory.bytes->Prop) entry e p q : placement e ->
  regs(machine p) 12%nat=Prologue.rows_left (regs e 6%nat) ->
- RejectFinish.post entry e p q -> (regs(machine p) 0%nat=1 /\ values(mem(machine p))) -> byte_memory(mem(machine p)) -> post_with values entry e (classify p q).
+ ChunkContext.bindings e (machine p) -> RejectFinish.post entry e p q -> (regs(machine p) 0%nat=1 /\ values(mem(machine p))) -> well_formed(machine p) -> post_with values entry e (classify p q).
 Proof.
- intros Place Left [A [_ [Mem [Status Exit]]]] [OK Zeros] Bytes.
+ intros Place Left Bindings [A [_ [Mem [Status Exit]]]] [OK Zeros] Bytes.
  assert (Outputs:regs(machine q) 0%nat=1 /\ values(mem(machine q))) by (now rewrite Status,Mem).
- assert (Octets:byte_memory(mem(machine q))) by (now rewrite Mem).
+ assert (Octets:byte_memory(mem(machine q))) by (rewrite Mem;exact (proj2(proj2 Bytes))).
  assert (Small:RejectFinish.stopping p=true -> (Scatter.count e<=8)%nat).
  { unfold stopping;rewrite OK,Left;change ((word (Prologue.rows_left (regs e 6%nat))=?0)=true -> (Scatter.count e<=8)%nat).
    pose proof(proj1(initial_cpu _ Place) 6%nat) as Fit;unfold Prologue.rows_left,Scatter.count.
@@ -51,12 +51,12 @@ Proof.
    destruct(Z.eq_dec (regs e 6%nat) 8) as [F|];[rewrite F in More;discriminate|lia]. }
  destruct Exit as [PC [SP [CPU [CF Saved]]]].
  split;[exact A|split;[exact Outputs|split;[exact Octets|split;[lia|split;[exact PC|split;[exact SP|]]]]]].
- split;[|exact(conj CF Saved)];rewrite CPU;change (regs(machine p) 12%nat=Z.of_nat(Scatter.count e-8)).
+ split;[|split;[exact CF|split;[exact Saved|rewrite CPU;split;[destruct Bindings;constructor;assumption|exact Bytes]]]];rewrite CPU;change (regs(machine p) 12%nat=Z.of_nat(Scatter.count e-8)).
  rewrite Left;unfold Prologue.rows_left;rewrite (word_fits _ N),(proj2(Z.ltb_ge (regs e 6%nat) 8) ltac:(lia)),word_fits by (unfold word64 in *;lia);lia.
 Qed.
 Lemma classified entry e p q : placement e ->
  regs(machine p) 12%nat=Prologue.rows_left (regs e 6%nat) ->
- RejectFinish.post entry e p q -> RejectOutputs.outputs e (machine p) -> byte_memory(mem(machine p)) -> post entry e (classify p q).
+ ChunkContext.bindings e (machine p) -> RejectFinish.post entry e p q -> RejectOutputs.outputs e (machine p) -> well_formed(machine p) -> post entry e (classify p q).
 Proof. exact (classified_with (zero_results e) entry e p q). Qed.
 
 Theorem finish_checked pol bias pc text e q :
@@ -66,15 +66,19 @@ Theorem finish_checked pol bias pc text e q :
  (0<Scatter.count e)%nat -> Scatter.indices e -> accounted e (writable e) q ->
  ip q=word(bias+pc+offset Prepared) -> regs(machine q) 4%nat=Rows.frame e -> Prologue.output_registers e (machine q) ->
  regs(machine q) 12%nat=Prologue.rows_left (regs e 6%nat) -> regs(machine q) 0%nat mod 2^32=0 ->
- StageEntry.metadata e (mem(machine q)) -> StageEntry.saved_caller e (machine q) -> byte_memory(mem(machine q)) ->
+ StageEntry.metadata e (mem(machine q)) -> StageEntry.saved_caller e (machine q) -> well_formed(machine q) ->
+ ChunkContext.bindings e (machine q) ->
  exists r,finish_chunk bias pc text q=Some r /\ post (bias+pc) e r.
 Proof.
- intros Code Exit P I Range Len Map Apart N Idx Paid PC SP Args Left Zero Meta Saved Bytes.
- destruct(RejectDispatch.resume pol bias pc text e q Code P I Range Len Map Apart Paid PC SP Args Left Zero N Idx Meta Saved Bytes)
-   as [cont [Dispatch [Continued [Stored [Kept Octets]]]]].
+ intros Code Exit P I Range Len Map Apart N Idx Paid PC SP Args Left Zero Meta Saved Bytes Bindings.
+ destruct(RejectDispatch.resume pol bias pc text e q Code P I Range Len Map Apart Paid PC SP Args Left Zero N Idx Meta Saved (proj2(proj2 Bytes)) Bindings)
+   as [cont [Dispatch [Continued [Stored [Kept [Octets B]]]]]].
+ assert (Words:well_formed(machine cont)).
+ { unfold RejectDispatch.scatter_stores in Dispatch;destruct(segment _ _ _ q) as [child|] eqn:Call;[|discriminate].
+   exact(returning_wf _ _ _ _ _ (segment_wf _ _ _ _ _ Bytes Call) Dispatch). }
  destruct(RejectFinish.next _ _ _ _ _ Exit P Map Apart Continued Kept) as [last [End Result]].
  exists(classify cont last);split;[unfold finish_chunk;rewrite Dispatch;cbn [bind];now rewrite End|].
- apply classified with (p:=cont) (q:=last);[exact P|exact (proj2(proj2(proj2 Continued)))|exact Result|exact Stored|exact Octets].
+ apply classified with (p:=cont) (q:=last);[exact P|exact (proj2(proj2(proj2 Continued)))|exact B|exact Result|exact Stored|exact Words].
 Qed.
 
 Theorem final_bytes pol bias pc text e c masks r :

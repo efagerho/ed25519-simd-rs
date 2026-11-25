@@ -6,7 +6,7 @@ From Ed25519Simd.Sha512Challenge Require Audit ObjectBytes LiteralBytes.
 From Ed25519Simd.Zip215 Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.DalekPostHash Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Arguments Image Control Tables Scatter Loop Return LoadedImage EntryWrites CallWrites NestedRegions StageEntry RejectCall BatchScalar PrepareUnwind RejectDispatch RejectFinish RejectExecution.
-From Ed25519Simd.VerifyBatch Require BatchDecode EligibleLanes EligibilityFrame FirstDispatch RejectedPath ScoreStart ScoreProgress ScorePublish ScoreDecision ScoredChunk.
+From Ed25519Simd.VerifyBatch Require ChunkStaging BatchDecode EligibleLanes EligibilityFrame FirstDispatch RejectedPath ScoreStart ScoreProgress ScorePublish ScoreDecision ScoredChunk.
 Local Open Scope Z_scope.
 
 Definition destination pol t := match t with
@@ -122,24 +122,27 @@ Inductive observation pol bias pc text e carry masks : list WriteTrace.store -> 
  | observe_rejected q : (0<count e)%nat ->
    FirstDispatch.run pol bias pc text e carry masks=Some(FirstDispatch.Completed q) ->
    observation pol bias pc text e carry masks (LinkedRun.log q) (LinkedRun.ip q) (LinkedRun.machine q)
- | observe_next q ip final : (0<count e)%nat ->
+ | observe_next q next ip final : (0<count e)%nat ->
    FirstDispatch.run pol bias pc text e carry masks=Some(FirstDispatch.MoreChunks q) ->
+   ChunkStaging.execute (bias+pc) text (count e-8) q=Some next ->
    execution pol bias pc text (bias+pc) e ip final ->
-   observation pol bias pc text e carry masks (LinkedRun.log q) ip final
+   observation pol bias pc text e carry masks (LinkedRun.log next) ip final
  | observe_scored_return stop q : (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
    ScoreProduct.rejected pol stop=true -> ScorePublish.execute bias pc text stop=Some(RejectExecution.BatchReturned q) ->
    observation pol bias pc text e carry masks (LinkedRun.log q) (LinkedRun.ip q) (LinkedRun.machine q)
- | observe_scored_next stop q ip final : (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
+ | observe_scored_next stop q next ip final : (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
    ScoreProduct.rejected pol stop=true -> ScorePublish.execute bias pc text stop=Some(RejectExecution.NextChunk q) ->
+   ChunkStaging.execute (bias+pc) text (count e-8) q=Some next ->
    execution pol bias pc text (bias+pc) e ip final ->
-   observation pol bias pc text e carry masks (LinkedRun.log q) ip final
+   observation pol bias pc text e carry masks (LinkedRun.log next) ip final
  | observe_published stop staged q : (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
    ScoreProduct.rejected pol stop=false -> ScoreDecision.observed pol bias stop staged -> ScorePublish.scatter bias pc text staged=Some(RejectExecution.BatchReturned q) ->
    observation pol bias pc text e carry masks (LinkedRun.log q) (LinkedRun.ip q) (LinkedRun.machine q)
- | observe_published_next stop staged q ip final : (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
+ | observe_published_next stop staged q next ip final : (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
    ScoreProduct.rejected pol stop=false -> ScoreDecision.observed pol bias stop staged -> ScorePublish.scatter bias pc text staged=Some(RejectExecution.NextChunk q) ->
+   ChunkStaging.execute (bias+pc) text (count e-8) q=Some next ->
    execution pol bias pc text (bias+pc) e ip final ->
-   observation pol bias pc text e carry masks (LinkedRun.log q) ip final.
+   observation pol bias pc text e carry masks (LinkedRun.log next) ip final.
 
 (* Up to eight rows, the verdict CPU and log reach the same outer RET.
    This requires pointwise equality even inside writable scratch and stack. *)

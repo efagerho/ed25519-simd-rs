@@ -19,6 +19,7 @@ Lemma raw bias s c top d : regs s 4%nat=top-16 -> regs s 3%nat=d -> 16<=top<2^64
  exists last,run 5 (ScalarBytes.fetch (bias+PrepareNative.strict) StrictBytes.symbol_bytes) (State(Running 25) s c)=Some(last,[]) /\
  loc last=Returned(word(read_word (mem s) (top-8))) /\ regs(cpu_state last) 4%nat=top /\
  regs(cpu_state last) 0%nat=Z.b2z(negb(read_word (mem s) (d+64)=?0)) /\ mem(cpu_state last)=mem s /\
+ regs(cpu_state last) 3%nat=read_word(mem s)(top-16) /\
  forall r,r<>0%nat -> r<>3%nat -> r<>4%nat -> regs(cpu_state last) r=regs s r.
 Proof.
  intros SP BX T D;eexists;split;[apply (InstructionRoute.checked _ _ _ code);reflexivity|].
@@ -49,6 +50,7 @@ Record result (outer:Z) e p q:Prop:=Result {
  (v=0 \/ v=1) /\ (v=1 <-> EligibleLanes.candidate e j /\ FilterScreen.weak e (machine p) j=false);
  decoded_r:forall j,(j<8)%nat -> (Z.testbit (mem(machine q)(Rows.frame e+840)) (Z.of_nat j)=true <-> RootDecision.decodes true e j);
  buffers:ScoreBuffers.data e (machine q);
+ next_descriptor:StageEntry.next_descriptor e (regs(machine q) 3%nat);
  strong_lane:forall j,(j<8)%nat -> (EligibleLanes.candidate e j /\ FilterScreen.weak e (machine p) j=false <-> FilterMeaning.eligible e j)
 }.
 
@@ -61,7 +63,7 @@ Proof.
  assert (Reg:forall r,r<>1%nat -> r<>4%nat -> r<>7%nat -> r<>6%nat -> regs s r=regs(machine prep) r).
  { intros r C S D SI;unfold s;rewrite (FilterReturned.registers _ _ _ _ F) by assumption;
    apply (StrictFilterCall.caller_registers _ _ _ _ Entry);assumption. }
- pose proof(PreparedReturn.caller _ _ _ _ _ Done) as C;destruct C as [[Link _] _ Meta [Saved BP] Layout].
+ pose proof(PreparedReturn.caller _ _ _ _ _ Done) as C;destruct C as [[Link [Shim Future]] _ Meta [Saved BP] Layout].
  assert (Back:read_word (mem s) (t-8)=word(outer+Ed25519Simd.VerifyBatch.Image.offset Ed25519Simd.VerifyBatch.Image.Prepared)).
  { rewrite <-Link;apply preserved_read with (outside:=unchanged e);[exact M|].
    intros k K;change (0<=k<8) in K;unfold unchanged,FilterScreen.kept,FilterRows.slot,FilterFlags.flag_ptr,StrictFilterCall.slot,common_top,PrepareOutputs.dest,span,t;lia. }
@@ -69,7 +71,7 @@ Proof.
     ltac:(unfold s;rewrite (FilterReturned.rsp _ _ _ _ F);unfold t,StrictFilterCall.slot,common_top;ring)
     ltac:(rewrite Reg by discriminate;exact (PreparedReturn.strict_arg _ _ _ _ _ Done eq_refl))
     ltac:(unfold t,Rows.frame,sp in *;lia) ltac:(unfold d,PrepareOutputs.dest,Rows.frame,sp,word64 in *;lia))
-   as [last [Run [IP [SP [AX [Mem G]]]]]].
+   as [last [Run [IP [SP [AX [Mem [BX G]]]]]]].
  pose proof(FilterReturned.writes _ _ _ _ F) as Acc;destruct(mapped_now _ _ _ I _ _ _ Acc in_strict) as [Map Sep].
  destruct(at_segment _ _ a _ _ 5 25 _ _ Acc (FilterReturned.pc _ _ _ _ F) Map Sep Run (Forall_nil _)) as [End Paid].
  assert (Same:preserved (unchanged e) (mem(machine prep)) (mem(cpu_state last))) by (rewrite Mem;exact M).
@@ -106,6 +108,8 @@ Proof.
  - eapply ScoreBuffers.keep;[|exact (ScoreBuffers.from_prepare _ _ _ _ _ Done)];intros x X;apply Same.
    destruct(scratch_stack _ P);unfold ScoreBuffers.region,unchanged,FilterScreen.kept,FilterRows.slot,FilterFlags.flag_ptr,
     StrictFilterCall.slot,common_top,PrepareOutputs.dest,Rows.frame,sp,span,disjoint in *;lia.
+ - intro Long;rewrite BX,<-(Future Long);apply preserved_read with (outside:=unchanged e);[exact M|].
+   intros k K;change (0<=k<8) in K;unfold unchanged,FilterScreen.kept,FilterRows.slot,FilterFlags.flag_ptr,StrictFilterCall.slot,common_top,PrepareOutputs.dest,span,t;lia.
  - intros j J;exact (FilterMeaning.enabled _ _ _ _ _ _ P Done Entry J).
 Qed.
 

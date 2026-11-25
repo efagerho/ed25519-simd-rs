@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Lia.
-From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.WordSemantics execution.WordBounds
+From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.ScalarWords execution.WordSemantics execution.WordBounds
  execution.MappedFetch memory.ByteMemory memory.FlatMemory memory.WriteTrace memory.MemoryGeometry abi.SysV.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar.
 From Ed25519Simd.VerifyBatch Require ScoreContinue ScoredZero StrictDispatch.
@@ -40,8 +40,11 @@ Proof.
    - intros x X;rewrite (Scattered.outside _ _ _ _ End) by
        (destruct(out_stack _ P);unfold Scattered.region,FlatMemory.disjoint in *;lia);apply Spills,X.
    - rewrite (Scattered.saved _ _ _ _ End) by (simpl;tauto);exact BP. }
+ assert (Bindings:ChunkContext.bindings e (machine q)).
+ { apply (ChunkContext.preserve e (machine p) (machine q) (ScoreTail.restart _ _ _ _ _ _ Tail) (Scattered.saved _ _ _ _ End)).
+   intros x X;apply (Scattered.outside _ _ _ _ End);destruct(out_stack _ P);unfold Scattered.region,Rows.frame,sp,FlatMemory.disjoint in *;lia. }
  destruct(ScoreContinue.checked_with (stored e p mask) _ _ _ _ _ _ Code Exit P Map Sep Back (Scattered.stack _ _ _ _ End)
-   (Scattered.writes _ _ _ _ End) Left Saved O (Scattered.bytes _ _ _ _ End)) as [r [Next Post]].
+   (Scattered.writes _ _ _ _ End) Left Saved Bindings O (ScalarWords.returning_wf _ _ _ _ _ (ScoreTail.words _ _ _ _ _ _ Tail) Run)) as [r [Next Post]].
  exists r;split;[unfold scatter;rewrite Run;exact Next|exact Post].
 Qed.
 Lemma publish pol bias pc dst text e t p : Image.matches pc dst text -> StrictDispatch.bound pc text ->
