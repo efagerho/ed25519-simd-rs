@@ -173,7 +173,7 @@ Proof.
          destruct(BatchScalar.has_masks _ _ _ _ _ _ _ _ Run) as [bank Bank].
          pose proof(NativeWords.decoder_entry _ _ _ _ _ _ _ _ _ (initial_cpu _ P) Run (proj1(proj1(proj2 Data))) Trace) as Words.
          destruct(EligibleLanes.from_decoder _ _ _ stop d bank P (callee_image _ _ _ _ _ Input N)
-            (decoder_aligned _ _ _ _ _ Input N) Entry Words (proj1 Data) CallerRegs) as [r [R Check]].
+            (decoder_aligned _ _ _ _ _ Input N) Entry Words (proj1 Data) (BatchDecode.caller_args _ _ _ _ CallerRegs)) as [r [R Check]].
          exists bank,r;auto. }
      intros j sig J;destruct (Inputs _ (TailCopy.live_row e j N)) as [Key [Sig Msg]].
      unfold ScalarInputs.encoding_ptr;destruct sig;[|exact Key]. destruct Sig as [[Low High] Away].

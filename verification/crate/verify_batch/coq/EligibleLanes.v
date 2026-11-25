@@ -58,6 +58,8 @@ Record post pol bias e p q:Prop:=Post {
  bit:forall j,(j<8)%nat -> (Z.testbit (regs(machine q) 14%nat) (Z.of_nat j)=true <-> candidate e j);
  live_branch:(regs(machine q) 14%nat<>0 <-> exists j,(j<8)%nat /\ candidate e j);
  stored:log q=log p++[store_at (bias+PrepareNative.common) (Rows.frame e+768) (regs(machine q) 0%nat)];
+ memory_after:mem(machine q)=commit (mem(machine p)) (store_at (bias+PrepareNative.common) (Rows.frame e+768) (regs(machine q) 0%nat));
+ kept_rbp:regs(machine q) 5%nat=regs(machine p) 5%nat;
  sig_bits:forall j,(j<8)%nat -> (Z.testbit (mem(machine q)(Rows.frame e+840)) (Z.of_nat j)=true <-> RootDecision.decodes true e j);
  key_bits:forall j,(j<8)%nat -> (Z.testbit (regs(machine q) 15%nat) (Z.of_nat j)=true <-> RootDecision.decodes false e j);
  scratch_base:regs(machine q) 3%nat=scratch e;
@@ -103,6 +105,8 @@ Proof.
  - now rewrite M.
  - rewrite M,(Dispatch.flag_nonzero _ B);split;intros [j [J H]];exists j;split;try exact J;apply (Bits j J);exact H.
  - rewrite Sig;reflexivity.
+ - now rewrite Sig.
+ - apply Regs;discriminate.
  - assert (V:mem v (Rows.frame e+840)=rv).
    { rewrite Mem;unfold w,store_at,commit;cbn [address size payload].
      replace (Rows.frame e+840) with (Rows.frame e+768+72+0) by ring;apply write_at;lia. }
