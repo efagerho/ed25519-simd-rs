@@ -23,15 +23,15 @@ Hypothesis invoke:forall a s r f,entry a s r f -> loaded (mem s) -> exists ws, c
 
 Lemma collect slide code : forall pc s r f,forallb no_push code=true -> loaded(mem s) ->
  runs entry slide pc code s r f ->
- exists ws,complete child slide pc code s r f ws /\ confined region ws.
+ exists ws,complete child slide pc code s r f ws /\ confined region ws /\ mem f=replay (mem s) ws.
 Proof.
  induction code as [|op tail IH];intros pc s r f Free Image Run;[contradiction|].
  cbn [forallb] in Free;apply Bool.andb_true_iff in Free as [Op Tail].
  cbn [runs] in Run;cbn [complete];pose proof(caller_store_memory slide pc op s) as Bytes.
  destruct op;try discriminate.
  all: try solve [cbn [caller_stores] in Bytes;destruct(caller_step _ _ _ _) as [ip u];cbn [snd replay] in Bytes;
-  destruct(IH _ _ _ _ Tail ltac:(now rewrite Bytes) Run) as [ws [R Safe]];
-  exists ws;split;[exists ws;split;[exact R|reflexivity]|exact Safe]].
+  destruct(IH _ _ _ _ Tail ltac:(now rewrite Bytes) Run) as [ws [R [Safe M]]];
+  exists ws;split;[exists ws;split;[exact R|reflexivity]|split;[exact Safe|now rewrite M,Bytes]]].
  - remember (caller_step slide pc (Invoke target) s) as step eqn:E;destruct step as [ip u].
    destruct Run as [back [C Rest]];cbn [snd] in Bytes.
    assert (SP:regs u 4%nat=word(regs s 4%nat-8)).
@@ -40,10 +40,10 @@ Proof.
    { apply call_push_confined;rewrite <-SP;apply (slot _ _ _ _ C). }
    destruct(invoke _ _ _ _ C ltac:(rewrite Bytes;apply keep;assumption)) as [own [Ret [Safe M]]].
    assert (Next:loaded(mem back)) by (rewrite M;apply keep;[rewrite Bytes;apply keep;assumption|exact Safe]).
-   destruct(IH _ _ _ _ Tail Next Rest) as [ws [R S]].
+   destruct(IH _ _ _ _ Tail Next Rest) as [ws [R [S Final]]].
    exists (caller_stores slide pc (Invoke target) s++own++ws);split.
    + exists back,own,ws;auto.
-   + apply Forall_app;split;[exact Push|now apply Forall_app].
- - destruct(caller_step slide pc Return s) as [ip u];exists [];split;[tauto|constructor].
+   + split;[apply Forall_app;split;[exact Push|now apply Forall_app]|now rewrite !replay_app,<-Bytes,<-M].
+ - destruct(caller_step slide pc Return s) as [ip u];exists [];destruct Run as [-> ->];repeat split;try constructor;exact Bytes.
 Qed.
 End History.
