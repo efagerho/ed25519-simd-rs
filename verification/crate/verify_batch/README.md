@@ -48,9 +48,12 @@ modulo L. The next linked call passes those digits, the signed S, the selected t
 pointers and the coordinate flag to the ladder. ZIP-215 requests extended
 coordinates and Dalek requests XYZ. On that actual entry state,
 every point returned by the ladder component represents `[S]B − [k]A` for the
-original lane. The native trace continues through the first staging return.
-It accounts for the ladder prologue and transpose stores. Every staged word
-comes from the base or key table entry selected by digit pair 31 in that lane.
+original lane. The native trace continues through the first staging return and
+the seed calculation. Every staged word comes from the base or key table
+entry selected by digit pair 31 in that lane. On the same trace, the 160
+qwords written to the accumulator represent the signed odd multiple
+selected by the high challenge digit. XYZ satisfy the first doubling’s
+input bounds, and every T limb is zero. [Native seed](coq/LadderSeed.v)
 Dalek intersects the decoded-R mask with the eight staged
 eligibility bytes. It then compares the five original Y limbs against
 `p = 2²⁵⁵ − 19` with the sign bit removed. The native lane mask retains precisely
