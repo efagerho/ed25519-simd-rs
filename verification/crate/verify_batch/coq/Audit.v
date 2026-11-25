@@ -101,6 +101,9 @@ Definition first_chunk pol bias pc text e carry masks :=
                  exists r, RejectExecution.scalar_rejection pol bias pc text e carry masks=Some r /\
                            RejectExecution.post (bias+pc) e r).
 
+Definition staged_product pol bias e stop := exists ladder,LadderStage.observed bias ladder stop /\
+ LadderStage.selected ladder stop /\ LadderProduct.meaning pol bias e ladder.
+
 Definition scoring pol bias pc text e c masks stop := exists q r s cf child score,
    FirstDispatch.run pol bias pc text e c masks=Some(FirstDispatch.HashReturned q r) /\
    HashResume.compatible r s /\ well_formed s /\ ScoreCall.execute bias pc text q r s cf=Some child /\
@@ -159,7 +162,7 @@ Record batch_contract pol pc text : Prop := {
    first_chunk pol bias pc text e carry masks;
  zip_ladder_product : pol=Zip215 -> forall bias e c masks stop,
    admissible pol bias pc text e -> (0<count e)%nat -> scoring pol bias pc text e c masks stop ->
-   LadderProduct.meaning pol bias e stop;
+   staged_product pol bias e stop;
  machine_empty : forall bias e, admissible pol bias pc text e -> count e=0%nat ->
    let '(ip,final):=empty_return e in
    returned pol e ip final /\ empty_mapped (bias+pc) text e
