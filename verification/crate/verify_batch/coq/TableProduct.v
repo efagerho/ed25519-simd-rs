@@ -19,6 +19,7 @@ Record result pol bias e digit p q:Prop:=Result {
  arguments:TableMultiple.pointers pol e digit (machine q);
  registers:forall r,regs(machine q) r=regs(machine p) r;
  outside:preserved (fun x=>~(frame pol e-24<=x<frame pol e)) (mem(machine p)) (mem(machine q));
+ constants:forall j i,(i<4)%nat -> vectors(machine q) j (28+i)%nat=DecoderFrame.constant i;
  limbs:forall j i,(i<5)%nat -> vectors(machine q) j i=two_dt e (machine p) j i
 }.
 Theorem checked pol bias e digit before p : placement e -> loaded pol bias (mem e) (writable e) ->
@@ -43,6 +44,9 @@ Proof.
  - destruct Args;constructor;rewrite Reg,G;assumption.
  - intro r;now rewrite Reg,G.
  - intros x X;rewrite Keep by (rewrite SP;exact X);now rewrite (TableOperands.memory_after _ _ _ Inputs).
+ - intros j i N;rewrite (V j);destruct((proj2 DecoderProduct.multiplication) no_read no_read
+      (vectors(machine s) j) (vectors(machine s) j) ltac:(reflexivity)) as [_ High].
+   rewrite High by lia;exact (TableOperands.field_constants _ _ _ Inputs j i N).
  - intros j i N;rewrite (V j);apply DecoderProduct.lane_product.
    + intros k B;split;[exact (TableOperands.coordinates _ _ _ Inputs j k B)|exact (TableOperands.coefficient _ _ _ Inputs j k B)].
    + intros k B;exact (TableOperands.field_constants _ _ _ Inputs j k B).
