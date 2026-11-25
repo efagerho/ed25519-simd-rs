@@ -83,10 +83,8 @@ Proof.
  - apply set_wf;[exact W|]. pose proof (Z.mod_pos_bound (regs s 0%nat) (2^32) ltac:(lia)).
    change (word64 ((regs s 0%nat mod 2^32)/2));unfold word64;split;[apply Z.div_pos|apply Z.div_lt_upper_bound];lia.
  - destruct a;apply set_wf;[exact W|apply mod64_word].
- - destruct op;injection S as <- <-;cbn [cpu_state].
-   + apply indexed_words,W.
-   + apply commit_words;[exact W|intros;apply word_byte_bound].
-   + apply commit_words;[exact W|intros;apply word_byte_bound].
+ - destruct op;injection S as <- <-;cbn [cpu_state];try solve [apply indexed_words,W].
+   all: apply commit_words;[exact W|intros;apply word_byte_bound].
  - destruct W as [G [V M]];split;[exact G|split;[|exact M]];intros j r J;cbn [vectors].
    match goal with |- context[if ?b then _ else _]=>destruct b end;[unfold word64;lia|apply V,J].
 Qed.

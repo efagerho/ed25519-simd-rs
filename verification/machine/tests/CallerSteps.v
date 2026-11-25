@@ -172,3 +172,15 @@ Example masked_byte_order :
  MaskedResult.abs_qword (MaskedResult.mask_qword bit 7)=0x0100000000000000 /\
  MaskedResult.abs_qword 0x81807fff000102a0=0x7f807f0100010260.
 Proof. repeat split;reflexivity. Qed.
+
+Example store_low_xmm_qword :
+ let s:=CPU (fun r=>if Nat.eqb r 13 then 1000 else 16)
+   (fun j r=>0xfedcba9876543200+16*Z.of_nat r+Z.of_nat j) None (fun _=>91) in
+ match ScalarBytes.fetch 270 [0xc4;0x41;0x79;0xd6;0x55;0xf8]
+   (ScalarBytes.State (ScalarBytes.Running 0) s (Some true)) with
+ | Some(t,[w])=>WriteTrace.pc w=270 /\ WriteTrace.address w=992 /\ WriteTrace.size w=8%nat /\
+   read_word (mem(ScalarBytes.cpu_state t)) 992=0xfedcba98765432a0 /\
+   mem(ScalarBytes.cpu_state t) 991=91 /\ mem(ScalarBytes.cpu_state t) 1000=91 /\
+   ScalarBytes.cf t=Some true
+ | _=>False end.
+Proof. repeat split;reflexivity. Qed.

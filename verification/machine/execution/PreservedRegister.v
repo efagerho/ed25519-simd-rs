@@ -33,7 +33,7 @@ Proof.
      apply_stack result_regs stack_step target_ip];unfold put;rewrite K;reflexivity].
  - apply Bool.andb_true_iff in K as [SP D];apply negb_true_iff in SP,D.
    cbn [pop apply_stack stack_step result_regs set set_regs with_words regs];unfold advance_rsp,put;rewrite D,SP;reflexivity.
- - destruct op;[destruct i;cbn in K;try discriminate| |];injection Run as <- <-;reflexivity.
+ - destruct op;[destruct i;cbn in K;try discriminate| | |];injection Run as <- <-;reflexivity.
  - change (put (regs s) 4 (word (regs s 4%nat+8)) r=regs s r);unfold put;now rewrite K.
 Qed.
 
