@@ -17,7 +17,8 @@ Record ready pol bias e p q bank:Prop:=Ready {
  literals:forall i j,(i<3)%nat -> (j<8)%nat -> vectors(machine q) j (28+i)%nat=List.nth j (TablePackLiterals.words i) 0;
  enabled:forall j,(j<8)%nat -> bank 1%nat j=Z.testbit Pack.mask (Z.of_nat j);
  staged:forall j i,(j<8)%nat -> (i<15)%nat -> ByteMemory.read_word (mem(machine q))
-  (TableProduct.frame pol e+64*Z.of_nat i+8*Z.of_nat j)=TablePackedInputs.column e (machine p) j i
+  (TableProduct.frame pol e+64*Z.of_nat i+8*Z.of_nat j)=TablePackedInputs.column e (machine p) j i;
+ parent:TableParentFrame.retained pol bias e (machine p) (machine q)
 }.
 Lemma aligned bias : (bias+DecoderFrame.origin) mod 64=0 -> TableFrame.base bias mod 64=0.
 Proof.
@@ -42,4 +43,5 @@ Proof.
  - exact (TablePackLiterals.literals _ _ _ _ _ L).
  - exact (TablePackLiterals.enabled _ _ _ _ _ L).
  - intros j i J N;rewrite (TablePackLiterals.memory_after _ _ _ _ _ L);apply (TablePackedInputs.staged _ _ _ _ _ A);assumption.
+ - unfold TableParentFrame.retained;rewrite (TablePackLiterals.memory_after _ _ _ _ _ L);exact (TablePackedInputs.parent _ _ _ _ _ A).
 Qed.
