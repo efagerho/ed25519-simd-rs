@@ -104,8 +104,7 @@ Proof.
 Qed.
 
 Definition torsion c := MaskTrace.program_writes 1500 1032 20 Torsion.Program.code (pad c).
-Definition small_order c := MaskTrace.linked_writes 350 24 SmallOrder.Audit.readable_rows (pad c)
- SmallOrder.EntryBytes.address SmallOrder.Program.code SmallOrder.HelperBytes.address SmallOrder.Program.helper.
+Definition small_order c := SmallOrder.Audit.raw SmallOrder.EntryBytes.address SmallOrder.HelperBytes.address (pad c).
 Record footprint : Prop := {
  digest : forall c flat ip out, digest_output c flat ip out;
  stage : forall c flat n, stage_output c flat n;
