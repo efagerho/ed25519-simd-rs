@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith Lia.
 From Machine Require Import isa.Instructions execution.LinkedCalls execution.LinkedRun execution.WordSemantics execution.WordBounds
- execution.ScalarBytes execution.ScalarWords execution.MappedFetch execution.InstructionRoute memory.FlatMemory memory.ByteMemory memory.WriteTrace.
+ execution.ScalarBytes execution.ScalarWords execution.MappedFetch execution.InstructionRoute abi.SysV memory.FlatMemory memory.ByteMemory memory.WriteTrace.
 From Machine Require abi.FramePointer.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar.
 From Ed25519Simd.VerifyBatch Require StrictRFrame.
@@ -29,9 +29,12 @@ Definition called e bias p q:=ip q=bias+check /\
  PreparedInputs.signature e (machine q).
 Record result e bias p q:Prop:=Result {
  writes:accounted e (writable e) q; words:well_formed(machine q);
- mask:regs(machine q) 12%nat=regs(machine p) 12%nat;
+ saved:forall g,In g sysv_saved -> regs(machine q) g=regs(machine p) g;
  branch:if regs(machine p) 12%nat=?0 then rejected e bias p q else called e bias p q
 }.
+Lemma mask e bias p q : result e bias p q -> regs(machine q) 12%nat=regs(machine p) 12%nat.
+Proof. intro R;apply (saved _ _ _ _ R);simpl;tauto. Qed.
+
 Theorem checked bias parent e child start p : placement e -> loaded Dalek bias (mem e) (writable e) ->
  StrictRFrame.inputs bias parent e child p -> StrictRCanonical.result bias e start p ->
  exists q,execute bias p=Some q /\ result e bias p q.
@@ -43,9 +46,9 @@ Proof.
  unfold execute;destruct(regs(machine p) 12%nat=?0) eqn:Zero.
  - assert (Run:exists u,run 4 (ScalarBytes.fetch o text) (State(Running 554) s (carry p))=
      Some(State(Running 565) u (Some false),[]) /\
-     (regs u 12%nat=regs s 12%nat /\ regs u 0%nat=0 /\ regs u 7%nat=regs s 13%nat /\
+     ((forall g,In g sysv_saved -> regs u g=regs s g) /\ regs u 0%nat=0 /\ regs u 7%nat=regs s 13%nat /\
       regs u 6%nat=regs s 14%nat /\ regs u 2%nat=regs s 15%nat /\ regs u 5%nat=regs s 5%nat /\ mem u=mem s)).
-   { eexists;split;[apply (InstructionRoute.checked _ _ _ (proj2 image));reflexivity|];repeat split;reflexivity. }
+   { eexists;split;[apply (InstructionRoute.checked _ _ _ (proj2 image));reflexivity|];repeat split;try reflexivity;intros g [<-|[<-|[<-|[<-|[<-|[<-|[]]]]]]];reflexivity. }
    destruct Run as [u [Run [K [Z [DI [SI [DX [FP Mem]]]]]]]].
    destruct(at_segment _ _ p o text 4 554 _ _ Prev At Map Sep Run (Forall_nil _)) as [End Paid].
    eexists;split;[exact End|constructor];[exact Paid|exact(segment_wf _ _ _ _ _ (StrictRCanonical.words _ _ _ _ R) End)|exact K|].
@@ -70,7 +73,7 @@ Proof.
    destruct(at_segment _ _ p o text 2 162 _ _ Prev At Map Sep Run Safe) as [End Paid].
    assert (Mem:mem u=commit (mem s) (call_store bias e)).
    { change (store_word (mem s) (word(regs arg 4%nat-8)) (o+170)=commit (mem s) (call_store bias e));now rewrite SP. }
-   eexists;split;[exact End|constructor];[exact Paid|exact(segment_wf _ _ _ _ _ (StrictRCanonical.words _ _ _ _ R) End)|reflexivity|].
+   eexists;split;[exact End|constructor];[exact Paid|exact(segment_wf _ _ _ _ _ (StrictRCanonical.words _ _ _ _ R) End)|intros g [<-|[<-|[<-|[<-|[<-|[<-|[]]]]]]];reflexivity|].
    rewrite Zero;unfold called;cbn [LinkedRun.finish absolute loc ip machine log cpu_state];split;[unfold o;ring|split;[exact SP|split]].
    + exact (StrictRFrame.point _ _ _ _ _ F).
    + split;[rewrite Mem;apply write_read_word;fold o;unfold word64;lia|split;[exact Mem|split;[reflexivity|]]].
