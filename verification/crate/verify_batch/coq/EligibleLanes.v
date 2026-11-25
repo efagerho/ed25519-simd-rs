@@ -63,6 +63,7 @@ Record post pol bias e p q:Prop:=Post {
  sig_bits:forall j,(j<8)%nat -> (Z.testbit (mem(machine q)(Rows.frame e+840)) (Z.of_nat j)=true <-> RootDecision.decodes true e j);
  key_bits:forall j,(j<8)%nat -> (Z.testbit (regs(machine q) 15%nat) (Z.of_nat j)=true <-> RootDecision.decodes false e j);
  scratch_base:regs(machine q) 3%nat=scratch e;
+ prepared_address:regs(machine q) 13%nat=Rows.frame e+768;
  stack:regs(machine q) 4%nat=common_top pol e-104
 }.
 
@@ -113,6 +114,7 @@ Proof.
    now rewrite V.
  - now rewrite Key.
  - rewrite Regs by discriminate;rewrite G by (cbn;tauto);exact Scratch.
+ - rewrite Regs by discriminate;rewrite G by (cbn;tauto);exact Ptr.
  - rewrite Regs by discriminate;exact (DecoderReturn.frame_top _ _ _ _ _ D).
 Qed.
 
