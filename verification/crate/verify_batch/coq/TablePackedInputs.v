@@ -2,7 +2,7 @@ From Coq Require Import List ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.VectorProcedure memory.ByteMemory memory.FlatMemory.
 From Ed25519Simd.KeyTable Require Image Fields.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar.
-From Ed25519Simd.VerifyBatch Require EligibleLanes TableValues TableStage TableTranspose.
+From Ed25519Simd.VerifyBatch Require TableAddLayout EligibleLanes TableValues TableStage TableTranspose.
 Local Open Scope Z_scope.
 Local Opaque TableColumn.value TableProduct.two_dt TableStage.execute TableValues.execute TableTranspose.execute.
 
@@ -46,7 +46,8 @@ Record result pol bias e p q:Prop:=Result {
   (TableProduct.frame pol e+64*Z.of_nat i+8*Z.of_nat j)=column e (machine p) j i;
  pair:forall b key i,(key<8)%nat -> (i<8)%nat -> vectors(machine q) i (TableTranspose.reg b key)=column e (machine p) key (index b i);
  tail:forall key i,(key<8)%nat -> (i<4)%nat -> vectors(machine q) key (1+i)%nat=column e (machine p) key (16+i)%nat;
- parent:TableParentFrame.retained pol bias e (machine p) (machine q)
+ parent:TableParentFrame.retained pol bias e (machine p) (machine q);
+ point_after:preserved (span (TableEntry.point e) 1280) (mem(machine p)) (mem(machine q))
 }.
 
 Theorem checked pol bias e before p : placement e -> loaded pol bias (mem e) (writable e) ->
@@ -80,4 +81,7 @@ Proof.
    apply (original _ _ _ _ _ A);lia.
  - intros x K;rewrite M,(TableStage.outside _ _ _ _ _ _ B);[exact (TableValues.parent _ _ _ _ _ A x K)|].
    destruct K as [Area _];change (~span (TableProduct.frame pol e-1360) 2320 x) in Area;unfold TableStage.buffer,span in *;lia.
+ - intros x X;rewrite M,(TableStage.outside _ _ _ _ _ _ B);[apply (TableValues.point_after _ _ _ _ _ A),X|].
+   pose proof(TableAddLayout.stack pol e) as S;destruct(scratch_stack _ P);unfold TableAddLayout.stage in S;
+   unfold TableStage.buffer,TableEntry.point,span in *;lia.
 Qed.
