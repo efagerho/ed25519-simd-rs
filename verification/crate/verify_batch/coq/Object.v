@@ -104,7 +104,7 @@ Proof.
    + destruct More as [Large|H];[|contradiction];destruct Exit as [Small _];lia.
    + exists q;rewrite Trace;auto.
  - destruct(Checked Positive) as [d [Trace [_ Body]]].
-   destruct Body as [bank [r [Bank [R Body]]]];pose proof(DecoderReturn.writes _ _ _ _ _ Body) as Paid;exists (DecoderReturn.returned r);
+   destruct Body as [bank [r [Bank [R Body]]]];pose proof(EligibleLanes.writes _ _ _ _ _ (proj2 Body)) as Paid;exists (EligibleLanes.stopped r);
      rewrite Trace;cbn [LinkedRun.bind];rewrite Bank;cbn [LinkedRun.bind];rewrite R;auto.
 Qed.
 
@@ -172,8 +172,8 @@ Proof.
      2:{ exists d;split;[exact Trace|split;[exact Entry|]].
          destruct(BatchScalar.has_masks _ _ _ _ _ _ _ _ Run) as [bank Bank].
          pose proof(NativeWords.decoder_entry _ _ _ _ _ _ _ _ _ (initial_cpu _ P) Run (proj1(proj1(proj2 Data))) Trace) as Words.
-         destruct(DecoderReturn.from_decoder _ _ _ _ bank P (callee_image _ _ _ _ _ Input N)
-            (decoder_aligned _ _ _ _ _ Input N) Entry Words) as [r [R Check]].
+         destruct(EligibleLanes.from_decoder _ _ _ stop d bank P (callee_image _ _ _ _ _ Input N)
+            (decoder_aligned _ _ _ _ _ Input N) Entry Words (proj1 Data) CallerRegs) as [r [R Check]].
          exists bank,r;auto. }
      intros j sig J;destruct (Inputs _ (TailCopy.live_row e j N)) as [Key [Sig Msg]].
      unfold ScalarInputs.encoding_ptr;destruct sig;[|exact Key]. destruct Sig as [[Low High] Away].

@@ -6,7 +6,7 @@ From Ed25519Simd.Sha512Challenge Require Audit ObjectBytes LiteralBytes.
 From Ed25519Simd.Zip215 Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.DalekPostHash Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Arguments Image Control Tables Scatter Loop Return LoadedImage EntryWrites CallWrites NestedRegions StageEntry RejectCall BatchScalar PrepareUnwind RejectDispatch RejectFinish RejectExecution.
-From Ed25519Simd.VerifyBatch Require BatchDecode DecoderReturn.
+From Ed25519Simd.VerifyBatch Require BatchDecode EligibleLanes.
 Local Open Scope Z_scope.
 
 Definition destination pol t := match t with
@@ -90,8 +90,8 @@ Definition first_chunk pol bias pc text e carry masks :=
                  exists decoder, BatchDecode.observe pol bias pc text e carry masks=Some decoder /\
                                  BatchDecode.entry pol bias e decoder /\
                                  exists bank r,BatchScalar.masks_after pol bias (bias+pc) text e carry masks=Some bank /\
-                                   DecoderReturn.observe pol bias e decoder bank=Some r /\
-                                   DecoderReturn.post pol bias e decoder r) /\
+                                   EligibleLanes.observe pol bias e decoder bank=Some r /\
+                                   EligibleLanes.checked_trace pol bias e decoder r) /\
                 (regs (LinkedRun.machine stop) 0%nat mod 2^32=0 ->
                  (forall j,(j<8)%nat -> (j<count e)%nat -> ~signature_accepts pol (read_input (mem e) (regs e 7%nat) j)) /\
                  exists r, RejectExecution.scalar_rejection pol bias pc text e carry masks=Some r /\
@@ -105,7 +105,7 @@ Definition continuing_prefix pol bias pc text e carry masks stop :=
      (fun r=>match r with RejectExecution.NextChunk p=>Some p | _=>None end)
  else LinkedRun.bind (BatchDecode.observe pol bias pc text e carry masks)
      (fun d=>LinkedRun.bind (BatchScalar.masks_after pol bias (bias+pc) text e carry masks) (fun bank=>
-       option_map DecoderReturn.returned (DecoderReturn.observe pol bias e d bank))).
+       option_map EligibleLanes.stopped (EligibleLanes.observe pol bias e d bank))).
 
 (* A single rejected chunk reaches the outer RET on the same store log. *)
 Inductive observation pol bias pc text e carry masks : list WriteTrace.store -> Z -> cpu -> Prop :=
