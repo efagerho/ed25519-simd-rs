@@ -26,7 +26,7 @@ Definition memory (damaged:bool) x:=if (point+320<=?x)&&(x<?point+640)
 Definition trial damaged live:=let s:=CPU (fun g=>if Nat.eqb g 3 then point else if Nat.eqb g 12 then live else 0)
  (fun _ _=>2^64-1) None (memory damaged) in
  match StrictRCanonical.execute 0 (Cursor (entry+67) s (Some true) []) (fun _ _=>true) with
- |Some q=>Some (ip q-entry,regs(machine q) 12%nat,length(log q)) |None=>None end.
+ |Some(q,_)=>Some (ip q-entry,regs(machine q) 12%nat,length(log q)) |None=>None end.
 
 Example cutoff_and_high_limbs : trial false 255=Some (162,9,0%nat).
 Proof. vm_compute;reflexivity. Qed.
