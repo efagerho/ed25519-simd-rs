@@ -6,7 +6,7 @@ From Ed25519Simd.Sha512Challenge Require Audit ObjectBytes LiteralBytes.
 From Ed25519Simd.Zip215 Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.DalekPostHash Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Arguments Image Control Tables Scatter Loop Return LoadedImage EntryWrites CallWrites NestedRegions StageEntry RejectCall BatchScalar PrepareUnwind RejectDispatch RejectFinish RejectExecution.
-From Ed25519Simd.VerifyBatch Require BatchDecode EligibleLanes EligibilityFrame FirstDispatch RejectedPath ScoreStart ScoreProgress ScorePublish ScoreProduct.
+From Ed25519Simd.VerifyBatch Require BatchDecode EligibleLanes EligibilityFrame FirstDispatch RejectedPath ScoreStart ScoreProgress ScorePublish ScoreDecision ScoredChunk.
 Local Open Scope Z_scope.
 
 Definition destination pol t := match t with
@@ -101,12 +101,12 @@ Definition first_chunk pol bias pc text e carry masks :=
                  exists r, RejectExecution.scalar_rejection pol bias pc text e carry masks=Some r /\
                            RejectExecution.post (bias+pc) e r).
 
-Definition scorer_result pol bias e screen:=
+Definition scorer_result pol bias pc e screen:=
  (match pol with Dalek=>StrictScreen.decision bias e screen | Zip215=>True end) /\
  (ScoreProduct.rejected pol screen=false ->
-  (exists stop,ScoreProduct.observed pol bias screen stop) /\
-  forall stop,ScoreProduct.observed pol bias screen stop ->
-     LinkedRun.accounted e (writable e) stop /\ ScoreProduct.selected pol bias e stop).
+  (exists stop,ScoreDecision.observed pol bias screen stop) /\
+  forall stop,ScoreDecision.observed pol bias screen stop ->
+     LinkedRun.accounted e (writable e) stop /\ ScoreDecision.selected pol bias pc e stop).
 
 Definition scoring pol bias pc text e c masks stop := exists q r s cf child score,
    FirstDispatch.run pol bias pc text e c masks=Some(FirstDispatch.HashReturned q r) /\
@@ -133,10 +133,22 @@ Inductive observation pol bias pc text e carry masks : list WriteTrace.store -> 
    ScoreProduct.rejected pol stop=true -> ScorePublish.execute bias pc text stop=Some(RejectExecution.NextChunk q) ->
    execution pol bias pc text (bias+pc) e ip final ->
    observation pol bias pc text e carry masks (LinkedRun.log q) ip final
- | observe_scoring stop staged ip final : (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
-   ScoreProduct.rejected pol stop=false -> ScoreProduct.observed pol bias stop staged ->
+ | observe_published stop staged q : pol=Zip215 -> (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
+   ScoreDecision.observed pol bias stop staged -> ScorePublish.scatter bias pc text staged=Some(RejectExecution.BatchReturned q) ->
+   observation pol bias pc text e carry masks (LinkedRun.log q) (LinkedRun.ip q) (LinkedRun.machine q)
+ | observe_published_next stop staged q ip final : pol=Zip215 -> (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
+   ScoreDecision.observed pol bias stop staged -> ScorePublish.scatter bias pc text staged=Some(RejectExecution.NextChunk q) ->
+   execution pol bias pc text (bias+pc) e ip final ->
+   observation pol bias pc text e carry masks (LinkedRun.log q) ip final
+ | observe_scoring stop staged ip final : pol=Dalek -> (0<count e)%nat -> scoring pol bias pc text e carry masks stop ->
+   ScoreProduct.rejected pol stop=false -> ScoreDecision.observed pol bias stop staged ->
    execution pol bias pc text (bias+pc) e ip final ->
    observation pol bias pc text e carry masks (LinkedRun.log staged) ip final.
+
+(* Up to eight rows, the ZIP verdict CPU and log reach the same outer RET.
+   This requires pointwise equality even inside writable scratch and stack. *)
+Definition effects pol e ws final:=WriteTrace.confined (writable e) ws /\
+ (pol=Zip215 -> (Scatter.count e<=8)%nat -> forall x,mem final x=WriteTrace.replay (mem e) ws x).
 
 Definition immutable_after pol bias pc text e ip final :=
  (0<count e)%nat -> execution pol bias pc text (bias+pc) e ip final ->
@@ -162,7 +174,7 @@ Record batch_contract pol pc text : Prop := {
  verify : forall bias e carry masks, admissible pol bias pc text e ->
    (exists ws ip final, observation pol bias pc text e carry masks ws ip final) /\
    (forall ws ip final, observation pol bias pc text e carry masks ws ip final ->
-      returned pol e ip final /\ WriteTrace.confined (writable e) ws);
+      returned pol e ip final /\ effects pol e ws final);
  image_preserved : forall bias e, admissible pol bias pc text e ->
    (forall ip final,immutable_after pol bias pc text e ip final) /\
    ((0<count e)%nat -> physical_scatter pol bias e /\ RejectCall.contract bias pc text e);
@@ -174,7 +186,7 @@ Record batch_contract pol pc text : Prop := {
    first_chunk pol bias pc text e carry masks;
  scorer_verdict : forall bias e c masks stop,
    admissible pol bias pc text e -> (0<count e)%nat -> scoring pol bias pc text e c masks stop ->
-   scorer_result pol bias e stop;
+   scorer_result pol bias pc e stop;
  machine_empty : forall bias e, admissible pol bias pc text e -> count e=0%nat ->
    let '(ip,final):=empty_return e in
    returned pol e ip final /\ empty_mapped (bias+pc) text e

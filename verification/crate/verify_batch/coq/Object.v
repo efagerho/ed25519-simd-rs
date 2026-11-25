@@ -248,16 +248,51 @@ Qed.
 
 Lemma scorer_verdict_checked pol bias pc text e c masks stop : admissible pol bias pc text e -> (0<count e)%nat ->
  StrictDispatch.bound pc text -> ScoreSetup.bound pol pc text -> first_chunk pol bias pc text e c masks ->
- scoring pol bias pc text e c masks stop -> scorer_result pol bias e stop.
+ scoring pol bias pc text e c masks stop -> scorer_result pol bias pc e stop.
 Proof.
  intros A N Hash Scorer Native Scored.
  destruct(scoring_context _ _ _ _ _ _ _ _ A N Hash Scorer Native Scored) as [q [r [child [score [Live [Ready Progress]]]]]].
  destruct(batch_inputs _ _ _ _ _ A N) as [P [_ [_ [Maps _]]]];pose proof(callee_image _ _ _ _ _ A N) as I.
  split.
  - destruct pol;[exact Logic.I|exact (proj2(StrictScreen.checked _ _ _ _ _ _ _ P I Live Ready) _ Progress)].
- - apply (ScoreProduct.checked _ _ _ _ _ _ _ _ _ P I (ladder_geometry _ _ _ _ _ A N)
+ - apply (ScoreDecision.checked _ _ _ _ _ _ _ _ _ P I (ladder_geometry _ _ _ _ _ A N)
       Maps (Tables.loaded _ _ static_tables_correct Maps) Live Ready Progress).
 Qed.
+
+Lemma zip_published bias pc text e c masks screen scatter :
+ matches pc (destination Zip215) text -> admissible Zip215 bias pc text e -> (0<count e)%nat ->
+ StrictDispatch.bound pc text -> ScoreSetup.bound Zip215 pc text -> first_chunk Zip215 bias pc text e c masks ->
+ scoring Zip215 bias pc text e c masks screen -> ScoreDecision.observed Zip215 bias screen scatter ->
+ exists r,ScorePublish.scatter bias pc text scatter=Some r /\
+ RejectExecution.post_with (ScoredChunk.outputs Zip215 e) (bias+pc) e r.
+Proof.
+ intros Code A N Hash Scorer Chunk S Run.
+ destruct(proj2(proj2(scorer_verdict_checked _ _ _ _ _ _ _ _ A N Hash Scorer Chunk S) eq_refl) _ Run)
+   as [_ [product [_ Verdict]]].
+ destruct(ScoredChunk.zip _ _ _ _ Verdict) as [t [m [E V]]].
+ destruct(batch_inputs _ _ _ _ _ A N) as [P [_ [[Range Sep] [_ [Idx _]]]]].
+ eapply ScoredChunk.publish;[exact Code|exact Hash|exact P|exact (callee_image _ _ _ _ _ A N)|exact Range|
+   exact (entry_text _ _ _ _ _ A)|exact Sep|exact N|exact Idx|exact E|exact V].
+Qed.
+
+Lemma published_return pol bias pc text e q : admissible pol bias pc text e -> (0<count e)%nat ->
+ RejectExecution.post_with (ScoredChunk.outputs pol e) (bias+pc) e (RejectExecution.BatchReturned q) ->
+ returned pol e (LinkedRun.ip q) (LinkedRun.machine q).
+Proof.
+ intros A N [Paid [[Status Data] [Bytes [Size [PC [SP Saved]]]]]].
+ destruct(batch_inputs _ _ _ _ _ A N) as [_ [_ [_ [_ [Idx _]]]]].
+ unfold returned;repeat apply conj;try assumption.
+ - intros x Outside;rewrite (proj2 Paid);apply (WriteTrace.frame _ _ (proj1 Paid)),Outside.
+ - intros j J;destruct(indices_cover e Idx j J) as [i [I <-]];destruct(Data i ltac:(lia)) as [[] [V _]];cbn in V;auto.
+ - intros i I;apply Data;lia.
+Qed.
+
+Lemma complete_effects pol e q:LinkedRun.accounted e (writable e) q ->
+ effects pol e (LinkedRun.log q) (LinkedRun.machine q).
+Proof. intros [W Mem];split;[exact W|intros _ _;exact Mem]. Qed.
+Lemma next_effects pol e entry values q final:RejectExecution.post_with values entry e (RejectExecution.NextChunk q) ->
+ effects pol e (LinkedRun.log q) final.
+Proof. intros [Paid [_ [_ [More _]]]];split;[exact (proj1 Paid)|intros _ Short;lia]. Qed.
 
 Lemma observed_correct pol pc text bias e carry masks :
  matches pc (destination pol) text -> StrictDispatch.bound pc text -> ScoreSetup.bound pol pc text -> admissible pol bias pc text e ->
@@ -265,7 +300,7 @@ Lemma observed_correct pol pc text bias e carry masks :
  ((0<count e)%nat -> first_chunk pol bias pc text e carry masks) ->
  (exists ws ip final,observation pol bias pc text e carry masks ws ip final) /\
  (forall ws ip final,observation pol bias pc text e carry masks ws ip final ->
-    returned pol e ip final /\ WriteTrace.confined (writable e) ws).
+    returned pol e ip final /\ effects pol e ws final).
 Proof.
  intros Image Hash Scorer Caller Empty Batch;destruct (grouped _ _ _ Image _ _ Caller) as [Exists Sound].
  assert (Dispatch:forall b,(0<count e)%nat -> FirstDispatch.run pol bias pc text e carry masks=Some b -> at_boundary pol bias pc e b).
@@ -289,20 +324,32 @@ Proof.
           ++ do 3 eexists;eapply observe_scored_return;eassumption.
           ++ destruct Exists as [ip [f R]];do 3 eexists;eapply observe_scored_next;eassumption.
        -- destruct(proj1(proj2(scorer_verdict_checked _ _ _ _ _ _ _ _ Caller N Hash Scorer (Batch N) Scored) Zero)) as [staged Product].
-          destruct Exists as [ip [f R]];do 3 eexists;eapply observe_scoring;eassumption.
+          destruct pol.
+          ++ destruct(zip_published _ _ _ _ _ _ _ _ Image Caller N Hash Scorer (Batch N) Scored Product) as [[last|last] [End _]].
+             ** do 3 eexists;eapply observe_published;try reflexivity;eassumption.
+             ** destruct Exists as [ip [f R]];do 3 eexists;eapply observe_published_next;try reflexivity;eassumption.
+          ++ destruct Exists as [ip [f R]];do 3 eexists;eapply observe_scoring;try reflexivity;eassumption.
  - intros ws ip f O;inversion O as [ws' ip' f' Z Run|q N Run|q ip' f' N Next R|
-     stop q N Scored Zero End|stop q ip' f' N Scored Zero End R|stop staged ip' f' N Scored Pending Product R];subst.
+     stop q N Scored Zero End|stop q ip' f' N Scored Zero End R|
+     stop staged q Mode N Scored Product End|stop staged q ip' f' Mode N Scored Product End R|
+     stop staged ip' f' Mode N Scored Pending Product R];subst.
    + specialize (Empty Z);unfold empty_mapped in Empty;destruct(empty_return e) as [back last] eqn:E.
      destruct (proj2 (Empty carry) _ _ Run) as [-> Same].
      inversion Same as [|s t u own rest Impossible];[|discriminate].
-     subst;split;[apply Sound,empty_path;[exact Image|now rewrite Z|exact E]|constructor].
-   + pose proof(Dispatch _ N Run) as T;split;[exact (rejected_verdict _ _ _ _ _ _ Caller N T)|exact (proj1(proj1(proj1 T)))].
-   + split;[exact (Sound _ _ R)|exact (proj1(proj1(proj1(Dispatch _ N Next))))].
+     subst;split;[apply Sound,empty_path;[exact Image|now rewrite Z|exact E]|split;[constructor|]].
+     intros _ _ x;pose proof(Return.empty e (cpu_words _ _ _ _ _ Caller) (caller_sp _ _ _ _ _ Caller)) as ABI.
+     rewrite E in ABI;now rewrite (proj2(proj2(proj2(proj2 ABI)))).
+   + pose proof(Dispatch _ N Run) as T;split;[exact (rejected_verdict _ _ _ _ _ _ Caller N T)|apply complete_effects;exact (proj1(proj1 T))].
+   + split;[exact (Sound _ _ R)|exact (next_effects _ _ _ _ _ _ (proj1(Dispatch _ N Next)))].
    + destruct(scored_rejection _ _ _ _ _ _ _ _ Image Caller N Hash Scorer (Batch N) Scored Zero) as [v [Done [Post Invalid]]].
-     rewrite End in Done;injection Done as <-;split;[eapply rejected_return;eassumption|exact (proj1(proj1 Post))].
+     rewrite End in Done;injection Done as <-;split;[eapply rejected_return;eassumption|apply complete_effects;exact (proj1 Post)].
    + destruct(scored_rejection _ _ _ _ _ _ _ _ Image Caller N Hash Scorer (Batch N) Scored Zero) as [v [Done [Post Invalid]]].
-     rewrite End in Done;injection Done as <-;split;[exact (Sound _ _ R)|exact (proj1(proj1 Post))].
-   + split;[exact (Sound _ _ R)|].
+     rewrite End in Done;injection Done as <-;split;[exact (Sound _ _ R)|exact(next_effects _ _ _ _ _ _ Post)].
+   + destruct(zip_published _ _ _ _ _ _ _ _ Image Caller N Hash Scorer (Batch N) Scored Product) as [v [Done Post]].
+     rewrite End in Done;injection Done as <-;split;[eapply published_return;eassumption|apply complete_effects;exact (proj1 Post)].
+   + destruct(zip_published _ _ _ _ _ _ _ _ Image Caller N Hash Scorer (Batch N) Scored Product) as [v [Done Post]].
+     rewrite End in Done;injection Done as <-;split;[exact (Sound _ _ R)|exact(next_effects _ _ _ _ _ _ Post)].
+   + split;[exact (Sound _ _ R)|split;[|discriminate]].
      exact (proj1(proj1(proj2(proj2(scorer_verdict_checked _ _ _ _ _ _ _ _ Caller N Hash Scorer (Batch N) Scored) Pending) _ Product))).
 Qed.
 
