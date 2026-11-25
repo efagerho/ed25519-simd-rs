@@ -53,11 +53,12 @@ def check(elf, audit, work):
             (work / path.name).symlink_to(path)
     dest = work / NS
     shutil.copytree(audit / NS, dest)
-    for module in ("RejectedBatch", "DecoderY"):
+    for module in ("RejectedBatch", "DecoderY", "TableIdentityBytes"):
         shutil.copyfile(Path(__file__).with_name("tests") / f"{module}.v", dest / f"{module}.v")
         compile_module(work, FLAGS, NS, module)
     print("Both policy entries returned a confined rejection on the padded single-row control", flush=True)
     print("The decoder preserved the sign mask and noncanonical Y in all eight scratch lanes", flush=True)
+    print("All eight table identities matched and the changed 2Z store was detected", flush=True)
     for description, label, old, new in (*CASES, redirected(elf)):
         damaged = work / "mutated.elf"
         mutate(elf, damaged, ENTRIES[label], old, new)
