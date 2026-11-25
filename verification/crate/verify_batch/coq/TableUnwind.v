@@ -2,7 +2,7 @@ From Coq Require Import List ZArith Lia.
 From Machine Require Import isa.Instructions execution.WordSemantics execution.WordBounds execution.LinkedCalls execution.LinkedRun
  execution.ScalarBytes execution.MappedFetch execution.ScalarWords execution.InstructionRoute memory.WriteTrace memory.ByteMemory memory.FlatMemory abi.SysV.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar.
-From Ed25519Simd.VerifyBatch Require TableRounds TableParentFrame.
+From Ed25519Simd.VerifyBatch Require TableContents TableParentFrame.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition path:list line:=[(1947,4%nat,Compare32 15 8);(1951,2%nat,Branch Equal (1982-1953));
@@ -40,14 +40,16 @@ Record returned pol bias e caller q:Prop:=ReturnedTable {
  words:well_formed(machine q);
  stack:regs(machine q) 4%nat=TableEntry.frame pol e+8;
  registers:forall r,In r sysv_saved -> regs(machine q) r=regs(machine caller) r;
- parent:TableParentFrame.retained pol bias e (machine caller) (machine q)
+ parent:TableParentFrame.retained pol bias e (machine caller) (machine q);
+ contents:TableContents.contents e (TableRowMeaning.point e (machine caller)) (machine q)
 }.
 
 Theorem checked pol bias e caller p : placement e -> loaded pol bias (mem e) (writable e) -> well_formed(machine caller) ->
  TableRounds.at_multiple pol bias e 8 p -> TableParentFrame.retained pol bias e (machine caller) (machine p) ->
+ TableContents.contents e (TableRowMeaning.point e (machine caller)) (machine p) ->
  exists q,execute bias p=Some q /\ returned pol bias e caller q /\ mem(machine q)=mem(machine p) /\ log q=log p.
 Proof.
- intros P I CW [PC Acc W Ptr] K;set (t:=TableEntry.frame pol e) in *.
+ intros P I CW [PC Acc W Ptr] K Rows;set (t:=TableEntry.frame pol e) in *.
  destruct(stack_ok _ P) as [[SL SH] _].
  assert (B:48<=t /\ t+8<2^64) by (unfold t,TableEntry.frame,common_top,Rows.frame,sp in *;destruct pol;lia).
  assert (Fit:word64(back bias)) by (destruct(proj1(symbols _ _ _ _ I _ _ (in_common pol))) as [L H];
@@ -65,6 +67,7 @@ Proof.
  - exact SP.
  - exact SysV.
  - unfold TableParentFrame.retained;cbn [LinkedRun.finish machine];now rewrite Mem.
+ - apply (TableContents.preserve _ _ (machine p));[intros x X;cbn [LinkedRun.finish machine];now rewrite Mem|exact Rows].
 Qed.
 
 Definition observe pol bias e p ks:=bind (TableRounds.observe pol bias e p ks) (fun '(a,bank)=>
@@ -73,7 +76,7 @@ Theorem from_eligible pol bias e before p ks:placement e -> loaded pol bias (mem
  (bias+DecoderFrame.origin) mod 64=0 -> EligibleLanes.post pol bias e before p -> regs(machine p) 14%nat<>0 ->
  exists q bank,observe pol bias e p ks=Some(q,bank) /\ returned pol bias e p q.
 Proof.
- intros P I Al E Live;destruct(TableRounds.from_eligible _ _ _ _ _ ks P I Al E Live) as [z [bank [a [Round [Z [_ [_ Kept]]]]]]].
- destruct(checked _ _ _ _ _ P I (EligibleLanes.words _ _ _ _ _ E) Z Kept) as [q [Run [Q _]]].
+ intros P I Al E Live;destruct(TableContents.checked _ _ _ _ _ ks P I Al E Live) as [z [bank [Round [Z [Kept Rows]]]]].
+ destruct(checked _ _ _ _ _ P I (EligibleLanes.words _ _ _ _ _ E) Z Kept Rows) as [q [Run [Q _]]].
  exists q,bank;split;[unfold observe;rewrite Round;cbn [bind];now rewrite Run|exact Q].
 Qed.
