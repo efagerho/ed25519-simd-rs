@@ -349,3 +349,15 @@ Example clear_projective_argument :
     flag(ScalarBytes.cpu_state t)=Some true /\ ScalarBytes.cf t=Some false
  | _=>False end.
 Proof. repeat split;reflexivity. Qed.
+
+Example ladder_frame_reloads_and_counter :
+ let code:=[0x4c;0x8b;0x45;0xd0;0x8b;0x55;0xc8;0x41;0xff;0xcf] in
+ let s:=CPU (fun r=>if (r=?5)%nat then 64 else 0x100000001) (fun _ _=>0) (Some false)
+    (fun x=>if x=?8 then 7 else if x=?11 then 0xa1 else if x=?12 then 0xff else if x=?23 then 0xc4 else 0) in
+ ScalarBytes.decode [0x8b;0x55]=None /\ ScalarBytes.decode [0x4c;0x8b;0x45]=None /\
+ match MappedFetch.run 3 (ScalarBytes.fetch 0 code) (ScalarBytes.State (ScalarBytes.Running 0) s (Some true)) with
+ | Some(t,[])=>let v:=ScalarBytes.cpu_state t in regs v 8%nat=0xc400000000000000 /\
+   regs v 2%nat=0xa1000007 /\ regs v 15%nat=0 /\ flag v=Some true /\ ScalarBytes.cf t=Some true /\
+   ScalarBytes.loc t=ScalarBytes.Running 10
+ | _=>False end.
+Proof. vm_compute;repeat split;reflexivity. Qed.

@@ -74,6 +74,8 @@ Proof.
    all: apply commit_words;[exact W|intros;apply word_byte_bound].
  - destruct W as [G [V M]];split;[exact G|split;[|exact M]];intros j r J;cbn [vectors].
    match goal with |- context[if ?b then _ else _]=>destruct b end;[unfold word64;lia|apply V,J].
+ - apply set_wf;[exact W|]. pose proof(read_le_bound 4 (mem s) (effective s a) (proj2(proj2 W))) as H.
+   exact (conj (proj1 H) (Z.lt_trans _ 4294967296 (2^64) (proj2 H) ltac:(vm_compute;reflexivity))).
 Qed.
 
 Lemma fetched_wf o text s t ws : well_formed(cpu_state s) -> ScalarBytes.fetch o text s=Some(t,ws) ->
