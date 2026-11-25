@@ -27,7 +27,7 @@ Definition full_path := firstn 4 listing.
 Lemma full_active ip text s c frame : bound text -> 8<=word(regs s 12%nat) ->
  regs s 4%nat=frame -> fits64 frame 960 ->
  exists t cf ws,MappedFetch.run 4 (ScalarBytes.fetch ip text) (State (Running 56) s c)=Some(State (Running 82) t cf,ws) /\
- read_word (mem t) (frame+928)=8 /\ forall x,frame+960<=x -> mem t x=mem s x.
+ read_word (mem t) (frame+928)=8 /\ forall x,frame+936<=x -> mem t x=mem s x.
 Proof.
  intros B Full SP Fit;assert (Code:InstructionRoute.linked text full_path).
  { unfold bound,listing in B;do 4 (let H:=fresh in apply Forall_cons_iff in B as [H B];cbv beta iota in H).
@@ -126,7 +126,9 @@ Definition handoff ip (text:list Z) delta e carry n child :=
  StageWrites.entered ip delta e child /\
  (forall j f k,(j<8)%nat -> (f<4)%nat -> 0<=k<8 ->
    mem (cpu_state child) (bank (Rows.frame e) f+8*Z.of_nat j+k)=
-   mem e (regs e 7%nat+40*Z.of_nat (TailCopy.row_index e j)+8*Z.of_nat f+k)) /\ metadata e (mem(cpu_state child)) /\ saved_caller e (cpu_state child) /\ exists stage writes,
+   mem e (regs e 7%nat+40*Z.of_nat (TailCopy.row_index e j)+8*Z.of_nat f+k)) /\ metadata e (mem(cpu_state child)) /\ saved_caller e (cpu_state child) /\
+ (regs(cpu_state child) 2%nat=regs e 8%nat /\ regs(cpu_state child) 15%nat=Return.scratch e /\
+   CallerSpills.table_arguments e (mem(cpu_state child))) /\ exists stage writes,
  MappedFetch.run (n-42) (MappedFetch.fetch ip (length text)) (State (Running 0) e carry)=Some(stage,writes) /\
  StageWrites.matrix (Rows.frame e) (cpu_state stage) (mem (cpu_state child)).
 
@@ -149,7 +151,7 @@ Proof.
  cbn [loc cpu_state] in End,SP,BX,Count;subst l.
  destruct (choose ip text e s c Select Tail P (conj SP Scratch)) as [[l t cf] [pad [Pad [Safe [[PC Frame] [Full Left]]]]]].
  cbn [loc cpu_state] in PC,Frame,Full,Left;rewrite Count in Left;subst l.
- destruct (StageWrites.instructions ip text delta e t cf Transfer P (proj1 Frame) (proj2 Frame) Left) as [child [stores [Body [Bounds [ABI Matrix]]]]].
+ destruct (StageWrites.instructions ip text delta e t cf Transfer P (proj1 Frame) (proj2 Frame) Left) as [child [stores [Body [Bounds [ABI [Matrix [Identity ChildScratch]]]]]]].
  set (short:=(word (regs s 12%nat) <? 8)) in *.
  set (n:=(15+(if short then 90 else 4)+42)%nat).
  exists n;split;[unfold n;destruct short;auto|].
@@ -171,7 +173,7 @@ Proof.
      exfalso;apply (RowsApart (Z.max (Rows.frame e) rows) ltac:(lia));left;unfold span,Rows.frame,sp in *;lia. }
    assert (Source:fits64 base 320 /\ IndexStores.allowed_inputs (Rows.frame e) base /\
        read_word (mem t) (Rows.frame e+928)=active e /\
-       (forall x,Rows.frame e+960<=x -> mem t x=mem s x) /\ forall j k,(j<8)%nat -> 0<=k<40 -> mem t (base+40*Z.of_nat j+k)=mem e (rows+40*Z.of_nat(TailCopy.row_index e j)+k)).
+       (forall x,Rows.frame e+936<=x -> mem t x=mem s x) /\ forall j k,(j<8)%nat -> 0<=k<40 -> mem t (base+40*Z.of_nat j+k)=mem e (rows+40*Z.of_nat(TailCopy.row_index e j)+k)).
    { unfold short in Pad. destruct (word (regs s 12%nat) <? 8) eqn:Small.
      - assert (Size:1<=regs e 6%nat<8).
        { apply Z.ltb_lt in Small;rewrite Count,(word_fits _ (proj1(initial_cpu _ P) _)) in Small;lia. }
@@ -209,7 +211,7 @@ Proof.
    { intros j f k J H K;rewrite Matrix by assumption;unfold value;fold base.
      rewrite word_fits by (destruct FitBase;unfold word64;lia).
      rewrite Fields,read_word_byte by (try exact J;try lia;exact (proj2(proj2(initial_cpu _ P))));reflexivity. }
-   assert (Kept:metadata e (mem(cpu_state child)) /\ forall x,Rows.frame e+960<=x -> mem(cpu_state child) x=mem t x).
+   assert (Kept:metadata e (mem(cpu_state child)) /\ forall x,Rows.frame e+936<=x -> mem(cpu_state child) x=mem t x).
    { apply (IndexStores.transfer ip text delta e t cf child stores base (index_value e) (active e)).
      - exact Transfer.
      - exact P.
@@ -221,13 +223,16 @@ Proof.
      - exact Body. }
    split;[exact (proj1 Kept)|]. split.
    { split.
-     - intros x X;assert (H:Rows.frame e+960<=x) by (unfold Rows.frame,sp in *;lia).
-       rewrite (proj2 Kept _ H),(High _ H);exact (CallerSpills.from_entry ip text e carry _ _ Intro P N F x X).
+     - intros x X;assert (H:Rows.frame e+936<=x) by (unfold Rows.frame,sp in *;lia).
+       rewrite (proj2 Kept _ H),(High _ H);exact (proj1(CallerSpills.from_entry ip text e carry _ _ Intro P N F) x X).
      - unfold preserves_bp in RBP;apply Bool.andb_true_iff in RBP as [FirstCheck ShortBudget];
        apply Bool.andb_true_iff in FirstCheck as [Size FullBudget];apply Z.ltb_lt in Size.
        assert (K:PreservedRegister.checks_at 5 text 0 n=true) by (unfold n;destruct short;[exact ShortBudget|exact FullBudget]).
        exact (PreservedRegister.run_keeps_at 5 ip text Size n 0 e carry child ((front++pad)++stores) K
                  (MappedFetch.run_append _ _ _ _ _ First _ _ _ Body)). }
+   assert (Tab:CallerSpills.table_arguments e (mem t)) by
+     (eapply CallerSpills.keep_tables;[intros x X;apply High;lia|exact (proj2(CallerSpills.from_entry ip text e carry _ _ Intro P N F))]).
+   split;[split;[exact (eq_trans Identity (proj1 Tab))|split;[exact ChildScratch|eapply CallerSpills.keep_tables;[intros x X;apply (proj2 Kept);lia|exact Tab]]]|].
    exists (State (Running (offset Stage)) t cf),(front++pad);split;[|exact Matrix].
    replace (n-42)%nat with (15+(if short then 90 else 4))%nat by (unfold n;destruct short;reflexivity).
    eapply MappedFetch.run_lift;[exact First|apply Forall_app;split;[exact W|exact Safe]|exact Image|exact Apart].
