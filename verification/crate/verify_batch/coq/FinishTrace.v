@@ -23,6 +23,10 @@ Record post sig pol bias e p t : Prop:=Post {
  mask_bit:forall j,(j<8)%nat -> Z.testbit (regs(machine(returned t)) 0%nat) (Z.of_nat j)=RootAccept.bits sig e (machine(test t)) j /\
     test_masks t 4%nat j=Limbs.high_test (vectors(machine(test t)) j) (-1);
  callee_registers:forall r,r<>0%nat -> r<>4%nat -> r<>8%nat -> r<>10%nat -> regs(machine(returned t)) r=regs(machine p) r;
+ factor_pointer:regs(machine(validity t)) 6%nat=regs(machine(test t)) 6%nat;
+ validity_memory:mem(machine(validity t))=mem(machine(test t));
+ sign_register:regs(machine(chosen t)) 9%nat=regs(machine p) 9%nat;
+ y_memory:preserved (span (point e sig+320) 320) (mem(machine(test t))) (mem(machine(signed t)));
  frame:preserved (ExtendedPoint.protected sig pol e) (mem(machine p)) (mem(machine(returned t)))
 }.
 
@@ -78,5 +82,11 @@ Proof.
    + now rewrite Mask.
    + intros j J;rewrite Mask;apply Bits,J.
    + intros n Z Four Eight Ten;rewrite (ReturnedPoint.preserved_regs _ _ _ _ _ _ Out),GSV,R0 by assumption;reflexivity.
+   + apply Reg;discriminate.
+   + exact Memory.
+   + rewrite (RootAdjusted.gprs _ _ _ _ _ _ _ Adjust),RX,R0 by discriminate;reflexivity.
+   + intros z Y;assert (Apart:~(st-24<=z<st)).
+     { pose proof(depth pol e);destruct(scratch_stack _ P);unfold st,span,point,point_offset,disjoint in *;destruct sig;lia. }
+     rewrite (M0 z),Keep;[reflexivity|exact Apart|split;[exact Apart|unfold a,span in *;lia]].
    + intros z Protected;rewrite (ReturnedPoint.untouched _ _ _ _ _ _ Out z Protected);apply M0;unfold ExtendedPoint.protected in Protected;fold a st in Protected;lia.
 Qed.
