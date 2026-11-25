@@ -104,14 +104,18 @@ Fixpoint little bs := match bs with []=>0 | b::t=>b+256*little t end.
 Definition read_literal image a := if (0<=?a)&&(a+8<=?Z.of_nat(length image))
  then Some(little(firstn 8(skipn (Z.to_nat a) image))) else None.
 
+Inductive last_flags := IncomingFlags | MaskTest (a:arg) | EaxCompare (a:arg) (imm:Z)
+ | AlignedStack (new:Z) | SubtractedStack (old imm:Z).
 Record data := Data { regs:nat->arg; masks:nat->option arg; eax:option arg;
-                      cmp:option (arg*Z); count:nat; reversed:circuit }.
-Definition initial_data := Data Initial (fun _=>None) None None O [].
-Definition assign s r a := Data (put (regs s) r a) (masks s) (eax s) (cmp s) (count s) (reversed s).
-Definition emit s r g := Data (put (regs s) r (Wire (count s))) (masks s) (eax s) (cmp s)
+                      flags:last_flags; count:nat; reversed:circuit }.
+Definition cmp s:=match flags s with
+ | MaskTest a=>Some(a,0) | EaxCompare a imm=>Some(a,imm) | _=>None end.
+Definition initial_data := Data Initial (fun _=>None) None IncomingFlags O [].
+Definition assign s r a := Data (put (regs s) r a) (masks s) (eax s) (flags s) (count s) (reversed s).
+Definition emit s r g := Data (put (regs s) r (Wire (count s))) (masks s) (eax s) (flags s)
                          (S(count s)) (g::reversed s).
 Definition emit_mask s k g := Data (regs s) (put (masks s) k (Some(Wire (count s))))
-                         (eax s) (cmp s) (S(count s)) (g::reversed s).
+                         (eax s) (flags s) (S(count s)) (g::reversed s).
 (* A lifted vector write either copies an existing word or appends a gate.
    CircuitFacts.lower_vector_correct checks this translation against bits. *)
 Inductive rhs := Existing (a : arg) | Compute (g : gate).
@@ -144,11 +148,16 @@ Inductive stored_value := IncomingBP | ReturnAddress (next:Z)
  | VectorLanes (reversed_gates:circuit) (source:arg).
 Record access := Access { instruction_pc:Z; base_register:nat; stack_offset:Z; stored:stored_value }.
 Definition byte_count a:Z:=match stored a with VectorLanes _ _=>64 | _=>8 end.
-Inductive tree :=
+Record exit_registers := ExitRegisters { final_vectors:nat->arg; final_masks:nat->option arg; final_flags:last_flags }.
+Inductive trace (A:Type) :=
 | Fault
-| Exit (gs : circuit) (result : arg)
-| Branch (gs : circuit) (mask : arg) (imm : Z) (taken fallthrough : tree)
-| Written (at_site:access) (rest:tree).
+| Exit (gs:circuit) (result:arg) (registers:A)
+| Branch (gs:circuit) (mask:arg) (imm:Z) (taken fallthrough:trace A)
+| Written (at_site:access) (rest:trace A).
+Arguments Fault {A}.
+Arguments Exit {A}.
+Arguments Branch {A}.
+Arguments Written {A}.
 
 (* Translate both sides of a conditional jump before choosing a path. Only
    result below inspects lane values. Fetching literal data, accessing an
@@ -180,14 +189,14 @@ Fixpoint walk fuel rows code literal_at bottom entry pc f s :=
         | MinUnsigned dst a b => go next f (emit s dst (MinUQ (regs s a) (regs s b)))
         | TestMask k =>
           match masks s k with
-          | Some a => go next f (Data (regs s) (masks s) (eax s) (Some (a,0)) (count s) (reversed s))
+          | Some a => go next f (Data (regs s) (masks s) (eax s) (MaskTest a) (count s) (reversed s))
           | None => Fault end
         | Jne8 disp =>
           match cmp s with
           | Some (a,imm) => Branch (rev (reversed s)) a imm (go next f s) (go (next+disp) f s)
           | None => Fault end
         | Jump disp => go (next+disp) f s
-        | ZeroEax => go next f (Data (regs s) (masks s) (Some (Lit 0)) (Some (Lit 0,0)) (count s) (reversed s))
+        | ZeroEax => go next f (Data (regs s) (masks s) (Some (Lit 0)) (MaskTest (Lit 0)) (count s) (reversed s))
         | Store src base disp =>
           let addr := sp f + disp in
           Written (Access pc base addr (VectorLanes (reversed s) (regs s src))) (if Nat.eqb base 4 && (sp f <=? addr) && (addr+64 <=? entry) && (addr mod 8 =? 0)
@@ -199,11 +208,11 @@ Fixpoint walk fuel rows code literal_at bottom entry pc f s :=
           | _, _ => Fault end
         | KmovEax k =>
           match masks s k with
-          | Some a => go next f (Data (regs s) (masks s) (Some a) (cmp s) (count s) (reversed s))
+          | Some a => go next f (Data (regs s) (masks s) (Some a) (flags s) (count s) (reversed s))
           | None => Fault end
         | CmpEax imm =>
           match eax s with
-          | Some a => go next f (Data (regs s) (masks s) (eax s) (Some (a,imm)) (count s) (reversed s))
+          | Some a => go next f (Data (regs s) (masks s) (eax s) (EaxCompare a imm) (count s) (reversed s))
           | None => Fault end
         | Je disp =>
           match cmp s with
@@ -215,7 +224,7 @@ Fixpoint walk fuel rows code literal_at bottom entry pc f s :=
         | AlignSP | SubSP _ =>
           let addr := match i with SubSP k => sp f-k | _ => sp f-sp f mod 64 end in
           go next (Frame addr (bp f) (stack f))
-            (Data (regs s) (masks s) (eax s) None (count s) (reversed s))
+            (Data (regs s) (masks s) (eax s) (match i with SubSP k=>SubtractedStack (sp f) k | _=>AlignedStack addr end) (count s) (reversed s))
         | RestoreSP =>
           match bp f with Some addr => go next (Frame addr (bp f) (stack f)) s | None => Fault end
         | PopBP =>
@@ -227,12 +236,12 @@ Fixpoint walk fuel rows code literal_at bottom entry pc f s :=
           | Some (CodePC target) => go target (pop f) s
           | Some CallerPC =>
             match bp f, eax s with
-            | None, Some a => if sp f =? entry then Exit (rev (reversed s)) a else Fault
+            | None, Some a => if sp f =? entry then Exit (rev (reversed s)) a (ExitRegisters (regs s) (masks s) (flags s)) else Fault
             | _, _ => Fault end
           | _ => Fault end
         | VZeroUpper => go next f (Data (fun r =>
             if Nat.ltb r 16 then UpperCleared (regs s r) else regs s r)
-            (masks s) (eax s) (cmp s) (count s) (reversed s))
+            (masks s) (eax s) (flags s) (count s) (reversed s))
         end
       end
     else Fault
@@ -254,10 +263,10 @@ Definition linked_writes fuel depth rows pad start code other helper :=
   walk fuel rows (layout code start ++ layout helper other) read
        (entry-depth) entry start (initial_frame entry) initial_data.
 
-Fixpoint erase_writes t := match t with
+Fixpoint erase_writes {A} (t:trace A) : trace unit := match t with
  | Written _ rest=>erase_writes rest
  | Branch gs a imm yes no=>Branch gs a imm (erase_writes yes) (erase_writes no)
- | _=>t end.
+ | Exit gs a _=>Exit gs a tt | Fault=>Fault end.
 Definition program_tree fuel depth rows p pad := erase_writes (program_writes fuel depth rows p pad).
 Definition linked_tree fuel depth rows pad start code other helper :=
  erase_writes (linked_writes fuel depth rows pad start code other helper).
@@ -265,33 +274,33 @@ Definition linked_tree fuel depth rows pad start code other helper :=
 Definition mask_value gs a (input : nat -> nat -> nat -> Z) (initial : nat -> nat -> Z) :=
   mask_word 8 (fun j => value j gs (input j) (initial j) a).
 
-Fixpoint result t input initial := match t with
+Fixpoint result {A} (t:trace A) input initial := match t with
   | Fault => None
   | Written _ rest=>result rest input initial
-  | Exit gs a => Some (mask_value gs a input initial)
+  | Exit gs a _ => Some (mask_value gs a input initial)
   | Branch gs a imm yes no =>
     result (if mask_value gs a input initial =? imm then yes else no) input initial
   end.
 
-Lemma erase_result t input initial : result (erase_writes t) input initial=result t input initial.
+Lemma erase_result {A} (t:trace A) input initial : result (erase_writes t) input initial=result t input initial.
 Proof.
  induction t;cbn [erase_writes result];try reflexivity;try assumption.
  destruct (_=?_);assumption.
 Qed.
 
-Fixpoint writes_on t input initial := match t with
+Fixpoint writes_on {A} (t:trace A) input initial := match t with
  | Written a rest=>a::writes_on rest input initial
  | Branch gs a imm yes no=>writes_on (if mask_value gs a input initial=?imm then yes else no) input initial
  | _=>[] end.
 Definition in_frame bottom top a := base_register a=4%nat /\
  bottom<=stack_offset a /\ stack_offset a+byte_count a<=top.
-Fixpoint check_writes bottom top t := match t with
- | Fault=>false | Exit _ _=>true
+Fixpoint check_writes {A} bottom top (t:trace A) := match t with
+ | Fault=>false | Exit _ _ _=>true
  | Branch _ _ _ yes no=>check_writes bottom top yes && check_writes bottom top no
  | Written a rest=> Nat.eqb (base_register a) 4 && (bottom<=?stack_offset a) &&
    (stack_offset a+byte_count a<=?top) && check_writes bottom top rest end.
 
-Lemma all_branch_writes bottom top t : check_writes bottom top t=true ->
+Lemma all_branch_writes {A} bottom top (t:trace A) : check_writes bottom top t=true ->
  forall input initial, Forall (in_frame bottom top) (writes_on t input initial) /\
  exists mask,result t input initial=Some mask.
 Proof.
@@ -304,6 +313,6 @@ Proof.
    unfold in_frame;apply Nat.eqb_eq in B;apply Z.leb_le in L,U;auto.
 Qed.
 
-Definition stack_writes depth pad t := forall input initial,
+Definition stack_writes {A} depth pad (t:trace A) := forall input initial,
  let top:=8+16*Z.of_nat pad in Forall (in_frame (top-depth) top) (writes_on t input initial) /\
  exists mask,result t input initial=Some mask.

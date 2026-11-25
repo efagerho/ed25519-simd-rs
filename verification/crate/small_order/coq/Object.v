@@ -20,7 +20,7 @@ Local Lemma group_meaning mask j q :
 Proof. intro Bits. split; [exact Bits|]. intros P Q. rewrite Bits. now apply projective_small_order. Qed.
 
 Local Lemma exits gs a full b input initial :
- result (Branch gs a 0 (Exit gs (Lit 0)) (Exit full b)) input initial =
+ result (Branch gs a 0 (Exit gs (Lit 0) Datatypes.tt) (Exit full b Datatypes.tt)) input initial =
  Some (if mask_value gs a input initial =? 0 then 0 else mask_value full b input initial).
 Proof. cbn [result]. destruct (mask_value gs a input initial =? 0); reflexivity. Qed.
 

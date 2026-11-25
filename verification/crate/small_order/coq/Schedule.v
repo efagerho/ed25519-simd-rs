@@ -9,10 +9,10 @@ Import ListNotations. Local Open Scope Z_scope.
 Local Notation run := (run_at EntryBytes.address HelperBytes.address).
 Definition paths := Eval vm_compute in run 0.
 Definition short := Eval vm_compute in match paths with Branch gs _ _ _ _ => gs | _ => [] end.
-Definition long := Eval vm_compute in match paths with Branch _ _ _ _ (Exit gs _) => gs | _ => [] end.
+Definition long := Eval vm_compute in match paths with Branch _ _ _ _ (Exit gs _ _) => gs | _ => [] end.
 
 Lemma paths_checked pad : (pad<4)%nat ->
- run pad = Branch short (Wire 17) 0 (Exit short (Lit 0)) (Exit long (Wire 201)).
+ run pad = Branch short (Wire 17) 0 (Exit short (Lit 0) Datatypes.tt) (Exit long (Wire 201) Datatypes.tt).
 Proof. intro H; destruct pad as [|[|[|[|pad]]]]; try lia; vm_compute; reflexivity. Qed.
 
 Definition used b row := Nat.eqb b 7 && Nat.ltb row 10.
