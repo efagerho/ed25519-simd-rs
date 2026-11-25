@@ -29,7 +29,13 @@ The log includes the call to SHA-512, its internal stores and its return.
 Replaying the log from the Rust entry gives every byte of memory at that
 return. For each eligible lane the 64 digest bytes on the stack are SHA-512 of
 the original R, public key and message, in that order.
-[SHA call](coq/HashEntry.v) · [Digest and store log](coq/NativeHash.v)
+The caller resumes with the returned memory and stack pointer. For every
+well-formed assignment to volatile registers and flags, its next 15 instructions
+pass the decoded R mask, eligibility bytes, scalar and digest pointers, output
+pointer, and batch length to the policy scorer. Replaying the four argument
+stores and the return-address push preserves every digest byte.
+[SHA call](coq/HashEntry.v) · [Digest and store log](coq/NativeHash.v) ·
+[SHA return interface](coq/HashResume.v) · [Scorer entry](coq/ScoreCall.v)
 
 Both policies require canonical S and decodable R and public-key encodings.
 For a decoded key A, the proof relates every signed cached row from −8 to +8
@@ -223,8 +229,8 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    final contents in private storage and restores the wrapper's saved slots.
    For such an entry CPU and the same prefix log, it permits both
    0 and 1 as the final value of the first scratch byte.
-   The first eligible chunk reaches the SHA return. The physical continuation
-   through scoring and the loop over subsequent chunks still need to be
+   The first eligible chunk reaches its policy scorer with the original
+   digest and the staged arguments. The scorer body and later chunks still need to be
    connected to the final verdict and its complete store log. The current theorem
    preserves every final byte outside the output, 25,344-byte scratch and
    16 KiB below entry RSP. [Call composition](coq/Loop.v) · [Frame model](coq/Return.v) ·

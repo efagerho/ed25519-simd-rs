@@ -12,9 +12,6 @@ Definition after_filter bias v:=match v with StrictDispatch.Zero r=>Some(after_r
 Definition continue pol bias pc text (q:cursor) ks:=match pol with
  | Zip215=>hash_return bias q
  | Dalek=>bind (StrictReturn.observe bias q ks) (fun '(a,k)=>bind (StrictDispatch.execute bias pc text a k) (after_filter bias)) end.
-Definition pending_history bias b:=match b with
- | Completed _=>None | MoreChunks q=>Some(log q)
- | HashReturned q _=>Some(NativeHash.history bias q) end.
 Definition run pol bias pc text e c ks:=
  bind (BatchScalar.observe pol bias (bias+pc) text e c ks) (fun scalar=>
  if regs(machine scalar) 0%nat mod 2^32=?0 then option_map after_reject (RejectedPath.execute false pol bias pc text scalar)

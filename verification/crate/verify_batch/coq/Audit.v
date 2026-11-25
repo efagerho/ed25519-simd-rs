@@ -6,7 +6,7 @@ From Ed25519Simd.Sha512Challenge Require Audit ObjectBytes LiteralBytes.
 From Ed25519Simd.Zip215 Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.DalekPostHash Require Audit DecodedBytes ScatterBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Arguments Image Control Tables Scatter Loop Return LoadedImage EntryWrites CallWrites NestedRegions StageEntry RejectCall BatchScalar PrepareUnwind RejectDispatch RejectFinish RejectExecution.
-From Ed25519Simd.VerifyBatch Require BatchDecode EligibleLanes EligibilityFrame FirstDispatch RejectedPath.
+From Ed25519Simd.VerifyBatch Require BatchDecode EligibleLanes EligibilityFrame FirstDispatch RejectedPath ScoreCall.
 Local Open Scope Z_scope.
 
 Definition destination pol t := match t with
@@ -110,10 +110,16 @@ Inductive observation pol bias pc text e carry masks : list WriteTrace.store -> 
  | observe_rejected q : (0<count e)%nat ->
    FirstDispatch.run pol bias pc text e carry masks=Some(FirstDispatch.Completed q) ->
    observation pol bias pc text e carry masks (LinkedRun.log q) (LinkedRun.ip q) (LinkedRun.machine q)
- | observe_batch b ws ip final : (0<count e)%nat ->
-   FirstDispatch.run pol bias pc text e carry masks=Some b -> FirstDispatch.pending_history bias b=Some ws ->
+ | observe_next q ip final : (0<count e)%nat ->
+   FirstDispatch.run pol bias pc text e carry masks=Some(FirstDispatch.MoreChunks q) ->
    execution pol bias pc text (bias+pc) e ip final ->
-   observation pol bias pc text e carry masks ws ip final.
+   observation pol bias pc text e carry masks (LinkedRun.log q) ip final
+ | observe_scoring q r s c child ip final : (0<count e)%nat ->
+   FirstDispatch.run pol bias pc text e carry masks=Some(FirstDispatch.HashReturned q r) ->
+   HashResume.compatible r s -> well_formed s ->
+   ScoreCall.execute bias pc text q r s c=Some child ->
+   execution pol bias pc text (bias+pc) e ip final ->
+   observation pol bias pc text e carry masks (LinkedRun.log child) ip final.
 
 Definition immutable_after pol bias pc text e ip final :=
  (0<count e)%nat -> execution pol bias pc text (bias+pc) e ip final ->
@@ -144,6 +150,7 @@ Record batch_contract pol pc text : Prop := {
    (forall ip final,immutable_after pol bias pc text e ip final) /\
    ((0<count e)%nat -> physical_scatter pol bias e /\ RejectCall.contract bias pc text e);
  dispatch_code : StrictDispatch.bound pc text;
+ scorer_code : ScoreSetup.bound pol pc text;
  machine_prepare_entry : forall bias e, admissible pol bias pc text e -> (0<count e)%nat ->
    StageEntry.physical (bias+pc) text (destination pol Prepare-pc) e;
  machine_scalar_return : forall bias e carry masks, admissible pol bias pc text e -> (0<count e)%nat ->
