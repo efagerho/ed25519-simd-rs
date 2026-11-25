@@ -37,10 +37,13 @@ stores and the return-address push preserves every digest byte. Those bytes
 reach the scorer alongside the signed S digits, the decoded Edwards point R,
 and all 17 signed multiples of each decoded public key. The log covers the
 scorer’s six register saves and its aligned 1,280-byte point buffer. ZIP-215
-then calls its candidate routine. Dalek saves the candidate-input pointer
+then calls its candidate and follows its digest reducer, including the nested
+Montgomery reduction and the stores that pack each lane’s 64 signed digits.
+For every eligible lane these digits reconstruct the original SHA digest
+modulo L. Dalek saves the candidate-input pointer
 before starting its R checks.
 [SHA call](coq/HashEntry.v) · [Digest and store log](coq/NativeHash.v) ·
-[SHA return interface](coq/HashResume.v) · [Scorer entry](coq/ScoreCall.v) · [Scorer execution](coq/ScoreStart.v)
+[SHA return interface](coq/HashResume.v) · [Scorer entry](coq/ScoreCall.v) · [Scorer execution](coq/ScoreStart.v) · [Native challenge digits](coq/ReducedDigest.v)
 
 Both policies require canonical S and decodable R and public-key encodings.
 For a decoded key A, the proof relates every signed cached row from −8 to +8
@@ -235,7 +238,8 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    For such an entry CPU and the same prefix log, it permits both
    0 and 1 as the final value of the first scratch byte.
    The first eligible chunk reaches its policy scorer with the original
-   digest and the staged arguments. The scorer body and later chunks still need to be
+   digest and the staged arguments. ZIP-215 reaches the return from digest reduction,
+   and Dalek reaches its R checks. The remaining scorer instructions and later chunks still need to be
    connected to the final verdict and its complete store log. The current theorem
    preserves every final byte outside the output, 25,344-byte scratch and
    16 KiB below entry RSP. [Call composition](coq/Loop.v) · [Frame model](coq/Return.v) ·
