@@ -308,3 +308,12 @@ Example save_ladder_arguments :
    (WriteTrace.pc v,WriteTrace.address v,WriteTrace.payload v 0)=(82,16,9)
  | _=>False end.
 Proof. repeat split;reflexivity. Qed.
+
+Example complement_register32_preserves_flags :
+ let s:=CPU (fun _=>0xdeadbeefff000030) (fun _ _=>0) (Some true) (fun _=>0) in
+ ScalarBytes.decode [0xf7;0xc0]=None /\
+ match MappedFetch.run 1 (ScalarBytes.fetch 32 [0xf7;0xd0]) (ScalarBytes.State(ScalarBytes.Running 0) s (Some true)) with
+ | Some(t,[])=>regs(ScalarBytes.cpu_state t) 0%nat=0x00ffffcf /\ regs(ScalarBytes.cpu_state t) 1%nat=0xdeadbeefff000030 /\
+     flag(ScalarBytes.cpu_state t)=Some true /\ ScalarBytes.cf t=Some true /\ ScalarBytes.loc t=ScalarBytes.Running 2
+ | _=>False end.
+Proof. repeat split;reflexivity. Qed.
