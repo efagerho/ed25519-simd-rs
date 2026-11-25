@@ -28,7 +28,13 @@ return in the model and covers every permitted return.
    [Public theorem](coq/Audit.v) · [Table and digit ABI](coq/Operands.v) ·
    [Candidate call](../../../src/wide/avx512ifma/post_hash.inc) ·
    [Central audit surface](../../README.md#shared-audit-surface)
-2. Check the projection at call boundaries. `Program.walk` follows the
+2. For the first call to staging, `first_stage_call` fetches the 18 caller
+   instructions from the ladder's mapped text. Check the stage arguments,
+   including digit pair 31, the saved return address, and the nine qword
+   writes confined to the ladder's stack frame. The stage receives the CPU
+   and byte memory produced by those instructions. [First call](coq/StageEntry.v)
+
+   Check the projection at later call boundaries. `Program.walk` follows the
    linked relative targets and both conditional branches. It models the
    stack relative to entry RSP for each SysV alignment, checks the
    continuation, saved registers and return slot, and invalidates

@@ -15,6 +15,12 @@ Proof.
    all: unfold disjoint;vm_compute;intuition discriminate.
  - exact SO.assembled_stage_round_correct.
  - exact LO.assembled_ladder_step_correct.
+ - intros slide s c P W M;destruct(loaded_images _ _ P _ _ (or_introl eq_refl)) as [Img [_ Apart]].
+   destruct(loaded_images _ _ P _ _ (or_intror (or_introl eq_refl))) as [Stage _].
+   pose proof(frame_range _ _ P) as Stack.
+   assert (Code:54<Z.of_nat(length symbol_bytes)) by (vm_compute;reflexivity).
+   assert (Target:0<Z.of_nat(length Ed25519Simd.StageRound.ObjectBytes.symbol_bytes)) by (vm_compute;reflexivity).
+   eapply StageEntry.checked;try eassumption;unfold fits64,word64 in *;lia.
  - intros slide s full B A P Mode V Tables.
    pose proof (checked_path full _ (entry_alignment _ _ P)) as Trace.
    assert (IPs:forall e,direct e -> word64(slide+continuation e)).
