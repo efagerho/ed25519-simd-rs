@@ -51,9 +51,12 @@ eligibility bytes. It then compares the five original Y limbs against
 `p = 2²⁵⁵ − 19` with the sign bit removed. The native lane mask retains precisely
 the eligible lanes with Y below p. If that mask is empty, the CPU jumps to the
 scorer’s rejection epilogue and sets EAX to zero. Otherwise it calls the linked
-small-order check with RDI pointing at the decoded R coordinates.
+small-order check with RDI pointing at the decoded R coordinates. The call
+returns to the scorer through its saved address. The scorer clears each lane
+whose decoded R satisfies `[8]R = identity`. Its surviving mask specifies the
+original eligibility, canonical Y and non-small-order R together.
 [SHA call](coq/HashEntry.v) · [Digest and store log](coq/NativeHash.v) ·
-[SHA return interface](coq/HashResume.v) · [Scorer entry](coq/ScoreCall.v) · [Scorer execution](coq/ScoreStart.v) · [Native challenge digits](coq/ReducedDigest.v) · [Ladder call](coq/LadderEntry.v) · [Product on the original bytes](coq/LadderProduct.v) · [First staging return](coq/LadderStage.v) · [Dalek R mask](coq/StrictRStart.v) · [Canonical Y decision](coq/StrictRCanonical.v) · [Small-order call and rejection](coq/StrictRCall.v)
+[SHA return interface](coq/HashResume.v) · [Scorer entry](coq/ScoreCall.v) · [Scorer execution](coq/ScoreStart.v) · [Native challenge digits](coq/ReducedDigest.v) · [Ladder call](coq/LadderEntry.v) · [Product on the original bytes](coq/LadderProduct.v) · [First staging return](coq/LadderStage.v) · [Dalek R mask](coq/StrictRStart.v) · [Canonical Y decision](coq/StrictRCanonical.v) · [Small-order call and rejection](coq/StrictRCall.v) · [Native return](coq/StrictOrderReturn.v) · [Strict lane decision](coq/StrictScreen.v)
 
 Both policies require canonical S and decodable R and public-key encodings.
 For a decoded key A, the proof relates every signed cached row from −8 to +8
@@ -249,7 +252,7 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    0 and 1 as the final value of the first scratch byte.
    The first eligible chunk reaches its policy scorer with the original
    digest and the staged arguments. ZIP-215 reaches the scalar-multiplication entry,
-   and Dalek branches on the original R encodings’ canonical Y values. The ladder component returns a point buffer.
+   and Dalek completes its canonical and small-order checks on the original R encodings. The ladder component returns a point buffer.
    Its wrapper and nested stores still need a common trace through its return. The remaining scorer instructions and later chunks still need to be
    connected to the final verdict and its complete store log. The current theorem
    preserves every final byte outside the output, 25,344-byte scratch and

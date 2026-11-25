@@ -265,11 +265,7 @@ Proof.
    destruct(proj2(ScoreProgress.zip _ _ _ _ _ _ _ P I G Ready) _ Progress) as [mid [ladder [L Stage]]].
    exists ladder;split;[exact Stage|split;[exact (proj2(proj2(proj2(LadderStage.checked _ _ _ _ _ I G L) _ Stage)))|]].
    eapply LadderProduct.checked;[exact I|exact Maps|exact (Tables.loaded _ _ static_tables_correct Maps)|exact G|exact L].
- - destruct(proj2(ScoreProgress.dalek _ _ _ _ _ _ _ P I (proj1 B) Ready) _ Progress) as [p [t [Cmp Decision]]].
-   unfold scorer_result;rewrite (StrictRCall.mask _ _ _ _ Decision);split;[exact (StrictRCanonical.lane _ _ _ _ Cmp)|].
-   pose proof(StrictRCall.branch _ _ _ _ Decision) as Choice;destruct(regs(LinkedRun.machine t) 12%nat=?0).
-   + destruct Choice as [At [_ [_ [AX _]]]];auto.
-   + destruct Choice as [At [_ [Ptr [_ [_ [_ Rows]]]]]];auto.
+ - exact (proj2(StrictScreen.checked _ _ _ _ _ _ _ P I (proj1 B) Ready) _ Progress).
 Qed.
 
 Lemma verified pol pc text : matches pc (destination pol) text -> empty_image text -> Prologue.bound text -> StageEntry.bound text -> TailWrites.bound text -> StageWrites.bound text (destination pol Prepare-pc) -> RejectCall.bound pc text -> RejectDispatch.bound pc text -> RejectFinish.bound text -> StageEntry.preserves_bp text=true -> HashEntry.bound pc text -> ScoreSetup.bound pol pc text ->
