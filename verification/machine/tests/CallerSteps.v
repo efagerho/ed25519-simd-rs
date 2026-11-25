@@ -244,3 +244,15 @@ Example xmm_filter_forms :
     vectors t 1%nat 0%nat=0 /\ vectors t 2%nat 0%nat=0 /\ k 1%nat 0%nat=true /\ k 1%nat 1%nat=false /\ k 2%nat 1%nat=true
  | _=>False end.
 Proof. repeat split;reflexivity. Qed.
+
+Example strict_status_uses_the_whole_qword :
+ let s:=CPU (fun r=>if Nat.eqb r 3 then 1024 else 0x12345678ff) (fun _ _=>0) (Some true)
+      (fun x=>if x=?1023 then 1 else 0) in
+ let code:=[0x48;0x83;0x7b;0xf8;0;0x0f;0x95;0xc0] in
+ match MappedFetch.run 2 (ScalarBytes.fetch 100 code) (ScalarBytes.State(ScalarBytes.Running 0) s (Some true)) with
+ | Some(t,[])=>regs(ScalarBytes.cpu_state t) 0%nat=0x1234567801 /\
+     flag(ScalarBytes.cpu_state t)=Some false /\ ScalarBytes.cf t=Some false
+ | _=>False end /\
+ ScalarBytes.decode [0x48;0x83;0x7b;0xfe;0xff]=Some(5%nat,ScalarBytes.CompareMemImm(ScalarBytes.Address 3 None (-2)) (-1)) /\
+ ScalarBytes.decode [0x0f;0x95;0xc4]=None /\ ScalarBytes.decode [0x48;0x83;0x7b;0x40]=None.
+Proof. repeat split;reflexivity. Qed.
