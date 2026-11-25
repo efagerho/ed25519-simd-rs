@@ -93,17 +93,16 @@ Proof.
  intros Place Loaded Al [s [Scalar [_ [_ [Checked Rejected]]]]];destruct(Z.eqb_spec (regs(LinkedRun.machine s) 0%nat mod 2^32) 0) as [Z|Live].
  - destruct(Rejected Z) as [Invalid [r [End Post]]];exists(FirstDispatch.after_reject r);split;
    [eapply FirstDispatch.scalar_path;[exact Scalar|exact Z|exact End]|now apply after_reject].
- - destruct(Checked Live) as [d [Run [_ [bank [t [Bank [Trace [Check Reject]]]]]]]].
+ - destruct(Checked Live) as [d [Run [_ [bank [t [Bank [Trace [Check [Frame Reject]]]]]]]]].
    unfold FirstDispatch.run,BatchDecode.observe in *;rewrite Scalar in Run|-*;cbn [LinkedRun.bind] in Run|-*;
    rewrite (proj2(Z.eqb_neq _ _) Live) in Run|-*;rewrite Run;cbn [LinkedRun.bind];rewrite Bank;cbn [LinkedRun.bind];rewrite Trace;cbn [LinkedRun.bind].
    destruct(Z.eqb_spec (regs(LinkedRun.machine(EligibleLanes.stopped t)) 14%nat) 0) as [Zero|Yes].
    + destruct(Reject Zero) as [r [End Post]];rewrite End;exists(FirstDispatch.after_reject r);split;[reflexivity|].
      apply after_reject;[exact (EligibleLanes.zero_rejects _ _ _ _ _ (proj2 Check) Zero)|exact Post].
-   + destruct(PrepareOutputs.from_eligible _ _ _ _ _ (TableMask.masks t) Place Loaded Al (proj2 Check) Yes) as [q [bank1 [a [Call Done]]]];rewrite Call.
-     eexists;split;[reflexivity|split;[exact (PrepareOutputs.writes _ _ _ _ _ _ Done)|]].
+   + destruct(PreparedReturn.from_eligible _ _ _ _ _ _ (TableMask.masks t) Place Loaded Al (proj2 Check) Frame Yes) as [q [bank1 [Call Done]]];rewrite Call.
+     eexists;split;[reflexivity|split;[exact (PreparedReturn.writes _ _ _ _ _ Done)|]].
      split;[exact (proj1(EligibleLanes.live_branch _ _ _ _ _ (proj2 Check)) Yes)|].
-     intros j J;cbn [fst];cbv zeta;rewrite (PrepareOutputs.eligibility _ _ _ _ _ _ Done j J).
-     rewrite <-(EligibleLanes.bit _ _ _ _ _ (proj2 Check) j J);destruct (Z.testbit _ _);cbn;intuition discriminate.
+     exact (PreparedReturn.flags _ _ _ _ _ Done).
 Qed.
 
 Lemma rejected_verdict pol bias pc text e q : admissible pol bias pc text e -> (0<count e)%nat ->
@@ -203,8 +202,9 @@ Proof.
          destruct(EligibleLanes.from_decoder _ _ _ stop d bank P (callee_image _ _ _ _ _ Input N)
             (decoder_aligned _ _ _ _ _ Input N) Entry Words (proj1 Data) (BatchDecode.caller_args _ _ _ _ CallerRegs)) as [r [R Check]].
          exists bank,r;split;[exact Bank|split;[exact R|split;[exact Check|]]].
-         intro Zero;apply Exit.
-         - exact (EligibilityFrame.restore _ _ _ _ _ _ _ P Post CallerRegs (proj1(proj2(proj2 Data))) (proj2(proj2(proj2 Data))) Check).
+         pose proof(EligibilityFrame.restore _ _ _ _ _ _ _ P Post CallerRegs (proj1(proj2(proj2 Data))) (proj2(proj2(proj2 Data))) Check) as Frame.
+         split;[exact Frame|intro Zero;apply Exit].
+         - exact Frame.
          - exact (EligibleLanes.writes _ _ _ _ _ (proj2 Check)).
          - exact (proj2(proj2(EligibleLanes.words _ _ _ _ _ (proj2 Check)))).
          - exact (EligibleLanes.stack _ _ _ _ _ (proj2 Check)).
