@@ -26,7 +26,7 @@ Theorem with_history pol bias e prev ladder staged : loaded pol bias (mem e) (wr
  (forall g,g<>0%nat -> regs(machine q) g=regs(machine staged) g) /\
  StoreHistory.extends (FullLadder.SeedPath.region (regs(machine ladder) 7%nat)) staged q.
 Proof.
- intros I G L S;destruct(proj2(LadderStage.with_cpu _ _ _ _ _ I G L) _ S) as [Acc [At [Rows [W [Pt Stack]]]]].
+ intros I G L S;destruct(proj2(LadderStage.with_cpu _ _ _ _ _ I G L) _ S) as [Acc [At [Rows [W [Pt [Stack _]]]]]].
  destruct(mapped_now _ _ _ I _ _ _ Acc (LadderEntry.child_image pol)) as [Code Sep].
  destruct(LadderLayout.checked _ _ _ _ _ G L) as [P _].
  destruct(F.seed_execution FullLadder.Object.assembled_full_ladder_correct bias (machine ladder) (machine staged) (carry staged)

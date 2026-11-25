@@ -64,8 +64,11 @@ return in the model and covers every permitted return.
    call executes the linked callee with the accumulator and staged words
    from the preceding boundary, arbitrary well-formed temporaries, and the
    checked return address. The caller stack is tracked symbolically.
-   There is no single flat-byte trace of the wrapper and all callees or
-   guarantee about the final contents of private stack bytes.
+   The production proof also follows the mapped caller and its nested calls
+   through all 31 lower digit pairs and the final return. Each round reads the
+   table and digit bytes from its incoming memory. The ordered store log
+   determines the returned accumulator and private stack bytes.
+   [Native round induction](coq/LoopRounds.v) · [Returned scalar product](coq/LoopProduct.v)
    Check the concrete-to-buffer views, frame separation and the four
    imported callee bindings. [Native calls](coq/Native.v) ·
    [Buffer projection](coq/Composition.v) · [Staging](../stage_round/README.md) ·
