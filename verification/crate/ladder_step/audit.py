@@ -18,7 +18,7 @@ from proof_build import (GROUP_PROJECTS, check_object, compile_libraries, compon
                          compile_object, write_symbol_bytes)
 
 CALLEES = [("double4", "double4", "Double4"), ("cached_add", "add_cached", "CachedAdd")]
-MODULES = ["LinkedBytes", "PointMode", "Modes", "Callees", "PointTrace", "Schedule", "Audit", "Calls", "Execution", "Object"]
+MODULES = ["LinkedBytes", "PointMode", "Modes", "Callees", "PointTrace", "Schedule", "Audit", "Calls", "LeafHistory", "Execution", "History", "Object"]
 
 
 def read_symbol(elf, name):
