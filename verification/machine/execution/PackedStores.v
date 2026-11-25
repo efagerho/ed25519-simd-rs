@@ -128,3 +128,18 @@ Proof.
    cbn [simulate];rewrite <-Effect;destruct(simulate o _ tail (machine q) ks) as [last ws];destruct M as [T F].
    split;[exact T|now rewrite F,Log,app_assoc].
 Qed.
+
+Definition count_stores ops:=length(filter (fun v=>match v with Write _=>true | _=>false end) ops).
+Lemma trace_effects o ops allowed : forall off s ks t ws,
+ Forall (safe allowed s) ops -> simulate o off ops s ks=(t,ws) ->
+ confined allowed ws /\ length ws=count_stores ops /\ mem t=replay (mem s) ws.
+Proof.
+ induction ops as [|v tail IH];intros off s ks t ws S E.
+ - injection E as <- <-;repeat split;constructor.
+ - apply Forall_cons_iff in S as [V Rest];cbn [simulate] in E.
+   set (m:=apply_op o off s ks v) in *;destruct(simulate o _ tail m ks) as [u trace] eqn:T.
+   injection E as <- <-;destruct(IH _ m _ _ _ ltac:(eapply Forall_impl;[intros a;apply same_safe,gprs|exact Rest]) T) as [F [N M]].
+   split;[apply Forall_app;split;[apply store_safe,V|exact F]|split].
+   + rewrite length_app,N;destruct v;reflexivity.
+   + rewrite M,replay_app;reflexivity.
+Qed.
