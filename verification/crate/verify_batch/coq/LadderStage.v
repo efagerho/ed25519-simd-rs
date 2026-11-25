@@ -3,7 +3,7 @@ From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.
  memory.WriteTrace memory.ByteMemory.
 From Machine Require abi.FramePointer.
 From Ed25519Simd.FullLadder Require Import Operands.
-From Ed25519Simd.FullLadder Require StageEntry Object.
+From Ed25519Simd.FullLadder Require StageEntry Object LoopFrame.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar.
 From Ed25519Simd.VerifyBatch Require LadderLayout.
 Import ListNotations. Local Open Scope Z_scope.
@@ -36,13 +36,13 @@ Definition selected ladder stop := forall k i j,(i<SA.columns k)%nat -> (j<8)%na
  read_word (mem(machine stop)) (F.base_of (machine ladder)+64*Z.of_nat(SA.first_row k+i)+8*Z.of_nat j)=
  table_row (machine ladder) j (affine k) (weight (machine ladder) j 31 k) i.
 
-Definition ready ladder stop:=well_formed(machine stop) /\ regs(machine stop) 3%nat=regs(machine ladder) 7%nat /\
- regs(machine stop) 4%nat=F.base_of(machine ladder).
+Definition ready bias ladder stop:=well_formed(machine stop) /\ regs(machine stop) 3%nat=regs(machine ladder) 7%nat /\
+ regs(machine stop) 4%nat=F.base_of(machine ladder) /\ FullLadder.LoopFrame.intact bias (machine ladder) (machine stop).
 
 Theorem with_cpu pol bias e p t : loaded pol bias (mem e) (writable e) ->
  ProductRun.geometry (HashLayout.chunk pol e bias) -> LadderEntry.entry pol bias e p t ->
  (exists stop,observed bias t stop) /\ (forall stop,observed bias t stop ->
- accounted e (writable e) stop /\ ip stop=bias+pc+54 /\ selected t stop /\ ready t stop).
+ accounted e (writable e) stop /\ ip stop=bias+pc+54 /\ selected t stop /\ ready bias t stop).
 Proof.
  intros I Geo L;pose proof(LadderEntry.writes _ _ _ _ _ L) as Prev.
  destruct(LadderLayout.checked _ _ _ _ _ Geo L) as [Place Valid].
@@ -61,7 +61,8 @@ Proof.
    intro x;now rewrite (Entry.stage_memory _ _ _ E). }
  destruct(mapped_now _ _ _ I _ _ _ At (in_image pol)) as [Code _].
  pose proof(F.first_stage_return FullLadder.Object.assembled_full_ladder_correct _ _ _ Place Valid E) as Done.
- destruct(S.run (bias+stage) u) as [back v] eqn:Ret in Done.
+ pose proof(FullLadder.LoopFrame.first _ _ _ Place Valid E) as Frame.
+ destruct(S.run (bias+stage) u) as [back v] eqn:Ret in Done,Frame.
  assert (Return:forall c,resume q c=Cursor back v c (log q++SA.writes (bias+stage) u)).
  { intro c;unfold resume;change (ip q) with (bias+stage);change (machine q) with u;now rewrite Ret. }
  split.
@@ -71,7 +72,7 @@ Proof.
    + unfold q;cbn [log];rewrite <-app_assoc;apply append_accounted;[exact Prev| |].
      * apply Safe,(F.writes _ _ _ _ _ Done).
      * exact (F.account _ _ _ _ _ Done).
-   + split;[exact (F.at_continuation _ _ _ _ _ Done)|split;[exact (F.rows _ _ _ _ _ Done)|exact (conj (F.returned_words _ _ _ _ _ Done) (conj (F.point_pointer _ _ _ _ _ Done) (F.restored_rsp _ _ _ _ _ Done)))]].
+   + split;[exact (F.at_continuation _ _ _ _ _ Done)|split;[exact (F.rows _ _ _ _ _ Done)|exact (conj (F.returned_words _ _ _ _ _ Done) (conj (F.point_pointer _ _ _ _ _ Done) (conj (F.restored_rsp _ _ _ _ _ Done) Frame)))]].
 Qed.
 
 Theorem checked pol bias e p t : loaded pol bias (mem e) (writable e) ->

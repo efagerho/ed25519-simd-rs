@@ -27,7 +27,7 @@ Theorem checked pol bias e prev ladder staged seed :
 Proof.
  intros I Map T G L Stage Seed;destruct(LadderSeed.with_history _ _ _ _ _ _ I G L Stage)
    as [v [R [Paid [PC [Rows [W [Regs H]]]]]]];rewrite Seed in R;injection R as Eq;subst v.
- destruct(proj2(LadderStage.with_cpu _ _ _ _ _ I G L) _ Stage) as [_ [_ [Staged [_ [Pt SP]]]]].
+ destruct(proj2(LadderStage.with_cpu _ _ _ _ _ I G L) _ Stage) as [_ [_ [Staged [_ [Pt [SP _]]]]]].
  destruct(LadderLayout.checked _ _ _ _ _ G L) as [P V];pose proof(LadderTables.supplied _ _ _ _ _ I Map T L) as Tables.
  pose proof(LadderSeed.represents _ _ _ _ _ _ _ I Map T G L Staged Rows) as [Bound [Odd _]].
  assert (Ready:TopPair.ready bias (machine ladder) seed).
