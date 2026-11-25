@@ -24,8 +24,10 @@ to chunk preparation through the return address read from memory. Preparation re
 eight 16-bit offsets from the linked image and stores the selected table pointers.
 A second store writes exactly eight bytes. The proof reads each one back as 0 or 1
 and identifies which original input made it 1. The common preparation routine
-restores its frame and returns 1. ZIP-215 resumes in the batch wrapper and Dalek
-resumes in its key-screening wrapper. [Pointer selection and flags](coq/PrepareOutputs.v) · [Preparation return](coq/PreparedReturn.v)
+restores its frame and returns 1. The ZIP-215 wrapper clears the message lengths
+of ineligible lanes, passes the original message pointers to SHA-512, and pushes its
+return address. The Dalek wrapper passes the selected table pointers and the eight
+eligibility bytes to its key filter. [Pointer selection and flags](coq/PrepareOutputs.v) · [Preparation return](coq/PreparedReturn.v) · [SHA call](coq/HashEntry.v) · [Dalek filter call](coq/StrictFilterCall.v)
 
 The proof reads back
 all 20 words per identity entry and relates the four cached coordinates
