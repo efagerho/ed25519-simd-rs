@@ -1,7 +1,7 @@
 From Coq Require Import ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun.
 From Ed25519Simd.VerifyBatch Require Import Policy Return BatchScalar BatchDecode.
-From Ed25519Simd.VerifyBatch Require RejectExecution RejectedPath EligibleLanes ReadyDispatch NativeHash FilterReturned.
+From Ed25519Simd.VerifyBatch Require RejectExecution RejectedPath EligibleLanes ReadyDispatch NativeHash StrictReturn.
 Local Open Scope Z_scope.
 
 Inductive boundary:=Completed (q:cursor) | MoreChunks (q:cursor) | Filtered (entry q:cursor)
@@ -9,7 +9,7 @@ Inductive boundary:=Completed (q:cursor) | MoreChunks (q:cursor) | Filtered (ent
 Definition after_reject r:=match r with RejectExecution.BatchReturned q=>Completed q | RejectExecution.NextChunk q=>MoreChunks q end.
 Definition continue pol bias (q:cursor) ks:=match pol with
  | Zip215=>option_map (HashReturned q) (NativeHash.execute bias q)
- | Dalek=>option_map (fun v=>Filtered q (fst v)) (FilterReturned.execute bias q ks) end.
+ | Dalek=>option_map (fun v=>Filtered q (fst v)) (StrictReturn.observe bias q ks) end.
 Definition pending_history bias b:=match b with
  | Completed _=>None | MoreChunks q | Filtered _ q=>Some(log q)
  | HashReturned q _=>Some(NativeHash.history bias q) end.
