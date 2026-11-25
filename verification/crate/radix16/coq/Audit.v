@@ -104,7 +104,7 @@ Record digest_contract pc bs target callee_bytes : Prop := {
       regs out 4%nat = sp + 8 /\
       (forall r, In r sysv_saved -> regs out r = regs entry r) /\
       preserved (fun x => ~ writable sp dst x) (mem entry) (mem out) /\
-      byte_memory (mem out) /\
+      well_formed out /\
       (forall lane, (lane < 8)%nat ->
         let ds := signed_digits (mem out) dst lane in
         Forall (fun d => -8 <= d < 8) ds /\
