@@ -5,13 +5,13 @@ From Machine Require Import isa.Instructions isa.QwordRegister execution.WordSem
 From Ed25519Simd.KeyTable Require Frame ObjectBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar.
 From Ed25519Simd.VerifyBatch Require TableEntry.
+From Machine Require abi.FramePointer.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition text:=KeyTable.ObjectBytes.symbol_bytes.
 Definition base bias:=bias+TableEntry.origin.
 Definition saved_regs:=5%nat::KeyTable.Frame.saves.
-Definition saves:list line:=[(0,1%nat,SaveG 5);(1,3%nat,CopyG 5 4);
- (4,1%nat,SaveG 3);(5,2%nat,SaveG 12);(7,2%nat,SaveG 13);(9,2%nat,SaveG 14);(11,2%nat,SaveG 15)].
+Definition saves:=FramePointer.pushes.
 Definition allocate:list line:=[(13,4%nat,AndImmediate 4 (-64));(17,7%nat,Sub64 4 960);
  (24,3%nat,CopyG 12 7);(27,7%nat,LeaG 13 (Address 6 None 1280));(34,3%nat,CopyG 14 13);
  (37,2%nat,Copy32 3 2);(39,3%nat,CopyG 0 13);(42,2%nat,Copy32 1 2);
@@ -26,14 +26,15 @@ Lemma save o s c sp : regs s 4%nat=sp -> 1200<=sp<2^64 ->
  regs t 4%nat=sp-48 /\ regs t 5%nat=sp-8 /\ regs t 7%nat=regs s 7%nat /\
  regs t 6%nat=regs s 6%nat /\ regs t 2%nat=regs s 2%nat.
 Proof.
- intros SP Fit;do 2 eexists;split;[apply (InstructionRoute.checked _ _ _ (proj1 image));reflexivity|].
- cbn [saves follow loc cf cpu_state step option_map app snd caller_stores caller_step apply_stack stack_step
-   result_regs result_mem target_ip with_words push push_words set set_regs regs mem put Nat.eqb
-   spill saved_regs KeyTable.Frame.saves];rewrite SP.
- repeat match goal with |-context[word ?x]=>rewrite (word_fits x ltac:(unfold word64 in *;lia)) end.
- split;[repeat apply Forall_cons;try apply Forall_nil;intros x X;unfold save_area,touches in *;
-    cbn [qword WriteTrace.address WriteTrace.size] in X;lia|].
- repeat split;reflexivity || lia.
+ intros SP Fit;destruct(FramePointer.save text o s c sp (proj1 image) SP ltac:(lia)) as [t [R [Stack [BP G]]]].
+ exists t,(FramePointer.stores o sp (regs s));split;[exact R|split;[apply FramePointer.confined|]].
+ split.
+ - etransitivity;[exact (steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ R))|].
+   cbn [FramePointer.stores replay fold_left spill saved_regs KeyTable.Frame.saves];
+   replace (sp-8-8) with (sp-16) by ring;replace (sp-16-8) with (sp-24) by ring;
+   replace (sp-24-8) with (sp-32) by ring;replace (sp-32-8) with (sp-40) by ring;
+   replace (sp-40-8) with (sp-48) by ring;reflexivity.
+ - split;[exact Stack|split;[exact BP|repeat apply conj;apply G;discriminate]].
 Qed.
 
 Record ready sp pt dst s:Prop:=Ready {
