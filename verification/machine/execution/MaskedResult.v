@@ -13,7 +13,8 @@ Inductive op :=
  | BroadcastGpr (d r:nat) | WidenWords (d:nat) (target:Z)
  | AddQ (d k a b:nat) | MaskBytes (d k:nat) | AbsBytes (d a:nat)
  | WidenBytes (d base:nat) (disp:Z) | TestQ (k a b:nat) | ZeroRow (d k base:nat) (disp:Z)
- | XnorWord (d a b:nat) | GatherQ (d k index:nat) (disp:Z).
+ | XnorWord (d a b:nat) | GatherQ (d k index:nat) (disp:Z)
+ | AndWord (d a b:nat) | LoadLowQ (d base:nat) (disp:Z) | AndNotXmm (d a b:nat).
 
 (* Absolute VSIB addressing, scale one and disp32. X' and V' carry
    bits three and four of the vector index. SIB.base=5 omits the GPR. *)
@@ -63,6 +64,10 @@ Definition encode pc op:=match op with
  | TestQ k a b=>rr 2 1 0x27 k a b
  (* EVEX.z is bit 7 of the same prefix byte as EVEX.aaa. *)
  | XnorWord d a b=>[0xc5;0x84+8*(15-Z.of_nat a);0x46;modrm 3 (Z.of_nat d) (Z.of_nat b)]
+ | AndWord d a b=>[0xc5;0x84+8*(15-Z.of_nat a);0x41;modrm 3 (Z.of_nat d) (Z.of_nat b)]
+ | LoadLowQ d b disp=>[0xc5;128*invbit (Z.of_nat d) 3+0x7a;0x7e]++
+    IndexedLoad.addressing 1 (Z.of_nat d) (IndexedLoad.Addr b false disp)
+ | AndNotXmm d a b=>[0xc5;128*invbit (Z.of_nat d) 3+8*(15-Z.of_nat a)+1;0xdf;modrm 3 (Z.of_nat d) (Z.of_nat b)]
  | GatherQ d k i disp=>gather_encoding d k i disp
  | ZeroRow d k b disp=>MaskedWords.writemask (128+k)%nat (Move.encode_load d (Z.of_nat b) disp)
  end.
@@ -77,7 +82,9 @@ Definition valid pc op:=let kr k:=(k<?8)%nat in let vr r:=(r<?32)%nat in match o
  | MaskBytes d k=>vr d && kr k | AbsBytes d a=>vr d && vr a
  | WidenBytes d b disp=>vr d && (b<?16)%nat && signed 32 disp
  | TestQ k a b=>kr k && vr a && vr b
- | XnorWord d a b=>kr d && kr a && kr b
+ | LoadLowQ d b disp=>(d<?16)%nat && (b<?8)%nat && signed 32 disp
+ | AndNotXmm d a b=>(d<?16)%nat && (a<?16)%nat && (b<?8)%nat
+ | AndWord d a b | XnorWord d a b=>kr d && kr a && kr b
  | GatherQ d k i disp=>vr d && vr i && negb (Nat.eqb d i) && (0<?k)%nat && kr k && signed 32 disp
  | ZeroRow d k b disp=>vr d && (0<?k)%nat && kr k && (b<?16)%nat && signed 32 disp end.
 
@@ -109,6 +116,10 @@ Definition step origin s (ks:MaskTransfer.bank) op : option (cpu*MaskTransfer.ba
  | AbsBytes d a=>Some(ScalarBytes.vector_dest s d (fun j=>abs_qword (vectors s j a)),ks)
  | WidenBytes d b disp=>Some(ScalarBytes.vector_dest s d (fun j=>mem s (word(regs s b+disp)+Z.of_nat j)),ks)
  | TestQ k a b=>Some(s,set_mask ks k 8 (fun j=>negb (Z.land (vectors s j a) (vectors s j b)=?0)))
+ | LoadLowQ d b disp=>Some(ScalarBytes.vector_dest s d (fun j=>if (j=?0)%nat then read_word (mem s) (word(regs s b+disp)) else 0),ks)
+ | AndNotXmm d a b=>Some(ScalarBytes.vector_dest s d (fun j=>if (j<?2)%nat then
+    word(Z.land (Z.lnot(vectors s j a)) (vectors s j b)) else 0),ks)
+ | AndWord d a b=>Some(s,set_mask ks d 16 (fun j=>ks a j && ks b j))
  | XnorWord d a b=>Some(s,set_mask ks d 16 (fun j=>Bool.eqb (ks a j) (ks b j)))
  | GatherQ d k i disp=>
    Some(merge s ks d k (fun j=>read_word (mem s) (word (vectors s j i+disp))),put ks k (fun _=>false))
@@ -136,7 +147,7 @@ Proof.
  induction ops as [|op tail IH];intros s ks v k Exec;[injection Exec as <- <-;auto|].
  cbn [evaluate] in Exec;destruct(step origin s ks op) as [[u bank]|] eqn:S;[|discriminate].
  cbn [bind] in Exec;destruct(IH _ _ _ _ Exec) as [G [M [F W]]];rewrite G,M,F.
- destruct op as [d a|d a b|d r|d a target|d mask base off|d mask a b|d r|d target|d mask a b|d mask|d a|d reg disp|mask a b|d mask reg disp|d a b|d mask idx disp];cbn [step] in S;try (destruct (_=?0) eqn:A;[|discriminate]);
+ destruct op as [d a|d a b|d r|d a target|d mask base off|d mask a b|d r|d target|d mask a b|d mask|d a|d reg disp|mask a b|d mask reg disp|d a b|d mask idx disp|d a b|d reg disp|d a b];cbn [step] in S;try (destruct (_=?0) eqn:A;[|discriminate]);
  injection S as <- <-.
  all: split;[reflexivity|split;[reflexivity|split;[reflexivity|]]];auto.
  - intro H;apply W;destruct H as [R [Vec Bytes]];split;[exact R|split;[|exact Bytes]].
@@ -155,6 +166,8 @@ Proof.
    pose proof(proj2(proj2 H) (word(regs s reg+disp)+Z.of_nat j)) as B;cbv beta;unfold word64;lia.
  - intro H;apply W,ScalarWords.set_vector_words;[exact H|intros j J];cbv beta;destruct (ks mask j);[apply read_word_bound,H|unfold word64;lia].
  - intro H;apply W,ScalarWords.set_vector_words;[exact H|intros j J];cbv beta;destruct ((mask=?0)%nat || ks mask j);[apply read_word_bound,H|apply H,J].
+ - intro H;apply W,ScalarWords.set_vector_words;[exact H|intros j J];cbv beta;destruct (j=?0)%nat;[apply read_word_bound,H|unfold word64;lia].
+ - intro H;apply W,ScalarWords.set_vector_words;[exact H|intros j J];cbv beta;destruct (j<?2)%nat;[unfold word64,word;apply Z.mod_pos_bound;lia|unfold word64;lia].
 Qed.
 
 Record unchanged entry allowed p q:Prop:=Unchanged {
