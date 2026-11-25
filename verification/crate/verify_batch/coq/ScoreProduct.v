@@ -40,7 +40,7 @@ Proof.
  - change ((regs(machine screen) 12%nat=?0)=false) in On;apply Z.eqb_neq in On.
    destruct(proj2(StrictScreen.with_frame _ _ _ _ _ _ _ P I Live Start) _ Screen) as [D F].
    destruct(StrictCandidateCall.checked _ _ _ _ _ _ _ P I (ScoreStart.caller _ _ _ _ _ _ _ _ Start) D F On)
-      as [candidate [Call [E [_ Link]]]].
+      as [candidate [Call [E [_ [Link _]]]]].
    destruct(ScoreProgress.product_checked _ _ _ _ P I G E) as [[stop Product] Sound].
    split;[exists stop,candidate;auto|].
    intros q [p [Run Staged]];rewrite Call in Run;injection Run as <-.

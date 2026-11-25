@@ -22,7 +22,7 @@ Record called bias parent e caller q:Prop:=Called {
  decoded:regs(machine q) 6%nat=BatchDecode.point e true;
  link:read_word (mem(machine q)) (ScoreFrame.buffer e-8)=bias+pc+62;
  frame:ScoreSaved.frame bias parent e caller (machine q); outputs:StrictScoreFrame.outputs e (machine q);
- mask:ZipResume.live e (machine q); eligibility:ZipResume.flags e (machine q); operands:ZipResume.points e (machine q)
+ mask:ZipResume.live e (machine q); eligibility:ZipResume.flags e (machine q); operands:ScorePoint.points Zip215 e (machine q)
 }.
 
 Theorem checked bias parent e caller p : placement e -> loaded Zip215 bias (mem e) (writable e) ->
@@ -64,7 +64,7 @@ Proof.
  - exact (ZipResume.mask _ _ _ _ _ Before).
  - intros j J;cbv zeta;rewrite Preserve;[exact (ZipResume.eligibility _ _ _ _ _ Before j J)|].
    unfold slot,ScoreFrame.buffer,FramePointer.bottom,ScoreFrame.top in *;lia.
- - eapply ZipResume.keep_points;[|exact (ZipResume.operands _ _ _ _ _ Before)].
+ - eapply ScorePoint.keep_points;[|exact (ZipResume.operands _ _ _ _ _ Before)].
    intros x X;apply Preserve;destruct(scratch_stack _ P);unfold FlatMemory.disjoint,slot,span,
      BatchDecode.point,BatchDecode.point_offset,ScoreFrame.buffer,FramePointer.bottom,ScoreFrame.top,Rows.frame,sp in *;lia.
 Qed.

@@ -8,14 +8,11 @@ initial contents of the output array and any batch length, including zero.
 [Theorems](coq/Object.v) · [Contract, execution and caller premises](coq/Audit.v) ·
 [Rust entry points](../../../src/verifier/driver.rs)
 
-For an admissible call the master theorem provides a return and the store log
-of its instruction-level entry prefix. The zero-length call executes through the
-outer `ret`, as does a single chunk with no eligible lane under the selected policy.
-Dalek also returns through that instruction when its canonical and small-order
-R checks reject every surviving lane in a single chunk. For other nonempty
-batches the same log reaches the next chunk after a rejection, or follows an
-eligible lane into the key-table builder. On that path the log includes its
-six register saves, the 48 stores that initialize the eight identity entries,
+For both policies, a batch of zero to eight descriptors has one instruction-level
+store log through its return to Rust. Replaying that log on entry memory recovers
+every final byte. For a longer batch the native log reaches the loop back edge
+after publishing the first eight verdicts. When preparation builds the public-key
+tables, the log includes its six register saves, the 48 stores that initialize the eight identity entries,
 the nested arithmetic calls for all eight multiples, and the 15 stores staging
 the affine operand. The proof checks the eight-key transpose and the loaded
 permutation indices, negation biases and opmask. It follows the eight-key branch
@@ -92,16 +89,16 @@ the batch caller scatters zeros, even when the key and R decoded successfully.
 [Decoded public keys](coq/DecodedKey.v) · [Signed table rows](coq/PreparedTables.v) ·
 [Weak-key decision](coq/FilterMeaning.v) · [Dalek dispatch](coq/StrictDispatch.v)
 
-For ZIP-215 batches with one to eight descriptors, the final verdict and
-store log come from the same execution. Replaying the log on entry memory
-recovers every final byte, including stack and scratch. The scorer passes the product and
-decoded R to the torsion check. It intersects the returned bits with R
-validity, scatters a byte at each original index and returns to Rust.
-[ZIP torsion return](coq/ZipTorsion.v) · [Mask at scatter](coq/ZipVerdict.v) · [Published verdicts](coq/ScoredChunk.v)
+ZIP-215 passes the product and decoded R to the torsion check. It intersects the
+returned bits with R validity. Dalek tests each surviving lane by comparing
+`R.y × Q.Z` with `Q.Y`, then `R.x × Q.Z` with `Q.X`. If the first
+intersection clears all lanes, it skips the X comparison and publishes zeros.
+Both paths pass the resulting mask to scatter, which writes each verdict byte
+at its original descriptor index.
+[ZIP torsion return](coq/ZipTorsion.v) · [ZIP mask](coq/ZipVerdict.v) · [Dalek coordinate test](coq/StrictCoordinate.v) · [Dalek verdict](coq/StrictVerdict.v) · [Published verdicts](coq/ScoredChunk.v)
 
-For longer batches and Dalek chunks that reach the coordinate comparison,
-the final verdict still uses grouped execution on the original inputs. Every such return has
-status 1, resumes at the caller's return address with RSP advanced by eight,
+For batches longer than eight rows, the final verdict still uses grouped
+execution on the original inputs. Every such return has status 1, resumes at the caller's return address with RSP advanced by eight,
 restores the SysV callee-saved integer registers and leaves byte-valued memory.
 Each output byte is 0 or 1. The byte at a descriptor's original output index
 is 1 exactly when its signature verifies under the selected policy. Full
@@ -277,11 +274,8 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    [Scorer alignment](coq/Score.v) · [Mapped image](coq/LoadedImage.v)
 6. **The remaining boundary.** Batches with more than eight descriptors reach the next
    chunk on the native trace. The final verdict and final memory for those batches still
-   use grouped execution. The same boundary applies to a Dalek chunk whose strict R
-   mask survives and reaches the coordinate comparison. The grouped execution permits
-   arbitrary private bytes and restores the wrapper's saved slots. The first chunk's
-   product and its return to the scorer use the actual nested store histories for both
-   policies. ZIP-215 also follows the scorer and scatter through the end of the chunk.
+   use grouped execution. Both policies follow the first chunk through the
+   scorer, scatter and wrapper branch with its actual nested store log.
    The current theorem
    preserves every final byte outside the output, 25,344-byte scratch and
    16 KiB below entry RSP. [Call composition](coq/Loop.v) · [Frame model](coq/Return.v) ·

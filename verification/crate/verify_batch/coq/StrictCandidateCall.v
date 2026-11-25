@@ -20,7 +20,9 @@ Theorem checked bias parent e h r caller stop :
  placement e -> loaded Dalek bias (mem e) (writable e) -> ScoreCall.entered Dalek bias parent e h r caller ->
  StrictScreen.decision bias e stop -> StrictScoreFrame.context bias parent e caller stop ->
  regs(machine stop) 12%nat<>0 -> exists p,execute bias stop=Some p /\ CandidateEntry.entry Dalek bias e p /\
- log p=log stop++[event bias e] /\ read_word(mem(machine p))(ScoreFrame.buffer e-8)=bias+pc+193.
+ log p=log stop++[event bias e] /\ read_word(mem(machine p))(ScoreFrame.buffer e-8)=bias+pc+193 /\
+ (forall g,In g SysV.sysv_saved -> regs(machine p) g=regs(machine stop) g) /\
+ preserved (fun x=>~(ScoreFrame.buffer e-8<=x<ScoreFrame.buffer e)) (mem(machine stop)) (mem(machine p)).
 Proof.
  intros P I Call D F On;pose proof(StrictScoreFrame.candidate _ _ _ _ _ F On) as A.
  set (s:=machine stop) in *;set (o:=bias+pc);set (base:=ScoreFrame.buffer e).
@@ -50,6 +52,9 @@ Proof.
    + change (word(regs s 4%nat-8)=base-8);rewrite SP;apply word_fits;unfold word64;lia.
    + reflexivity.
    + exact (StrictCandidateInputs.slot _ _ _ A).
- - split;[reflexivity|change (read_word (mem u) (base-8)=bias+pc+193);rewrite M;apply write_read_word].
-   destruct(proj1(symbols _ _ _ _ I _ _ (ScoreSetup.image Dalek))) as [Lo Hi];change (bias+pc+584<=2^64) in Hi;unfold word64;lia.
+ - split;[reflexivity|split].
+   + change (read_word (mem u) (base-8)=bias+pc+193);rewrite M;apply write_read_word.
+     destruct(proj1(symbols _ _ _ _ I _ _ (ScoreSetup.image Dalek))) as [Lo Hi];change (bias+pc+584<=2^64) in Hi;unfold word64;lia.
+   + split;[intros g [<-|[<-|[<-|[<-|[<-|[<-|[]]]]]]];reflexivity|].
+     intros x X;change (mem u x=mem s x);rewrite M;apply write_outside;change (~(base-8<=x<base-8+8));fold base in X;lia.
 Qed.

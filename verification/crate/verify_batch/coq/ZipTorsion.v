@@ -57,8 +57,8 @@ Theorem checked bias parent e caller p bank:placement e -> loaded Zip215 bias (m
  N.prefix_inputs (bias+target) image 3 p /\ result bias parent e caller q.
 Proof.
  intros P I Call;destruct(layout _ _ _ _ _ P I Call) as [Place Loan].
- assert (DI:N.point p 7%nat=ZipResume.accumulator e (machine p)) by
-  (unfold N.point,ZipResume.accumulator;now rewrite (ZipTorsionCall.point _ _ _ _ _ Call)).
+ assert (DI:N.point p 7%nat=ScorePoint.accumulator e (machine p)) by
+  (unfold N.point,ScorePoint.accumulator;now rewrite (ZipTorsionCall.point _ _ _ _ _ Call)).
  assert (SI:N.point p 6%nat=DecodedRows.buffer true e (machine p)) by
   (unfold N.point,DecodedRows.buffer;now rewrite (ZipTorsionCall.decoded _ _ _ _ _ Call)).
  destruct(ZipTorsionCall.operands _ _ _ _ _ Call) as [Bound Group [Bounds [Ys Geo]]].
@@ -94,7 +94,7 @@ Proof.
    destruct On as [S [[R DR] [A [DA _]]]].
    assert (On:HashLayout.eligible Zip215 e j) by (split;[exact S|split;[now exists R|exists A;split;[exact DA|discriminate]]]).
    destruct(Geo j R J DR) as [Rep Z1].
-   pose proof(proj2(Bits j J) (ZipResume.product e j A) R) as Law;rewrite DI,SI in Law.
+   pose proof(proj2(Bits j J) (ScorePoint.product e j A) R) as Law;rewrite DI,SI in Law.
    specialize(Law (Group j A J On DA) Rep Z1).
    split.
    + intro B;split;[exact S|exists A;split;[exact DA|exists R;split;[exact DR|exact(proj1 Law B)]]].
