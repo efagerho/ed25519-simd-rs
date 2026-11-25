@@ -5,7 +5,7 @@ From Curve25519.group Require Import Representation.
 From Ed25519Simd Require Import Wide51.
 From Ed25519Simd.FullLadder Require Import Operands.
 From Ed25519Simd.FullLadder Require SeedPoint.
-From Machine Require abi.FramePointer.
+From Machine Require abi.FramePointer execution.StoreHistory.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar.
 From Ed25519Simd.VerifyBatch Require LadderStage.
 Local Open Scope Z_scope.
@@ -18,12 +18,13 @@ Definition seeded ladder staged stop:=forall j i,(j<8)%nat -> (i<20)%nat ->
  FullLadder.SeedProjection.cell (mem(machine stop)) (regs(machine ladder) 7%nat) i j=
  FullLadder.Seed.out (Seed.lane (machine staged) (regs(machine ladder) 7%nat) (F.base_of(machine ladder)) j) i.
 
-Theorem checked pol bias e prev ladder staged : loaded pol bias (mem e) (writable e) ->
+Theorem with_history pol bias e prev ladder staged : loaded pol bias (mem e) (writable e) ->
  ProductRun.geometry (HashLayout.chunk pol e bias) -> LadderEntry.entry pol bias e prev ladder ->
  LadderStage.observed bias ladder staged ->
  exists q,execute bias staged=Some q /\ accounted e (writable e) q /\ ip q=bias+pc+768 /\
  seeded ladder staged q /\ well_formed(machine q) /\
- (forall g,g<>0%nat -> regs(machine q) g=regs(machine staged) g).
+ (forall g,g<>0%nat -> regs(machine q) g=regs(machine staged) g) /\
+ StoreHistory.extends (FullLadder.SeedPath.region (regs(machine ladder) 7%nat)) staged q.
 Proof.
  intros I G L S;destruct(proj2(LadderStage.with_cpu _ _ _ _ _ I G L) _ S) as [Acc [At [Rows [W [Pt Stack]]]]].
  destruct(mapped_now _ _ _ I _ _ _ Acc (LadderEntry.child_image pol)) as [Code Sep].
@@ -39,7 +40,19 @@ Proof.
  - split.
    + apply append_accounted with (p:=staged);[exact Acc| |intros x;rewrite (Seed.memory _ _ _ _ _ R);reflexivity].
      eapply Forall_impl;[|exact (Seed.stores _ _ _ _ _ R)];intros w Allow x X;apply Loan,(Allow x X).
-   + split;[reflexivity|split;[exact (Seed.rows _ _ _ _ _ R)|split;[exact (Seed.words _ _ _ _ _ R)|exact (Seed.kept _ _ _ _ _ R)]]].
+   + split;[reflexivity|split;[exact (Seed.rows _ _ _ _ _ R)|split;[exact (Seed.words _ _ _ _ _ R)|split;[exact (Seed.kept _ _ _ _ _ R)|]]]].
+     exists ws;split;[reflexivity|split;[exact (Seed.stores _ _ _ _ _ R)|exact (Seed.memory _ _ _ _ _ R)]].
+Qed.
+
+Theorem checked pol bias e prev ladder staged : loaded pol bias (mem e) (writable e) ->
+ ProductRun.geometry (HashLayout.chunk pol e bias) -> LadderEntry.entry pol bias e prev ladder ->
+ LadderStage.observed bias ladder staged ->
+ exists q,execute bias staged=Some q /\ accounted e (writable e) q /\ ip q=bias+pc+768 /\
+ seeded ladder staged q /\ well_formed(machine q) /\
+ (forall g,g<>0%nat -> regs(machine q) g=regs(machine staged) g).
+Proof.
+ intros I G E S;destruct(with_history _ _ _ _ _ _ I G E S) as [q [Run [Paid [PC [Rows [W [Saved H]]]]]]].
+ exists q;auto 7.
 Qed.
 
 Definition odd_point e ladder stop:=

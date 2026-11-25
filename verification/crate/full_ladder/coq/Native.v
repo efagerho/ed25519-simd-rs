@@ -48,6 +48,36 @@ Record arena slide pt base : Prop := {
      match e with DoubleFour=>dsize|_=>asize end)
 }.
 
+(* Placement also applies to a CPU reached by fetching the caller's CALL.
+   Only the argument registers and pushed return word enter these checks. *)
+Lemma direct_double_layout slide pt base s : arena slide pt base ->
+ regs s 7%nat=pt -> regs s 4%nat=base-8 -> read_word (mem s) (base-8)=slide+continuation DoubleFour ->
+ Double4Memory.valid_placement (call_loc (base-1344) (slide+L.double4_pc) s) dsize 48.
+Proof.
+ intros [Place Direct] Pt SP Ret;destruct Place as [_ SA PA CA SF PF CF PS CS CP Code].
+ destruct(Direct DoubleFour (or_introl eq_refl)) as [RW Away].
+ destruct(Code _ _ (or_intror(or_introl eq_refl))) as [Fit [PD [_ SD]]].
+ unfold Double4Memory.valid_placement,PointFrame.point_placement,call_loc,layout_at;
+ cbn [origin code_base caller_pc PointFrame.point PointFrame.scratch];rewrite Pt,SP,Ret.
+ repeat apply conj;try assumption;try (unfold fits64,disjoint,WordBounds.word64 in *;lia);
+ cbv [PointFrame.permitted_padding In];auto.
+Qed.
+Lemma direct_add_layout slide pt base s f a row : arena slide pt base ->
+ regs s 7%nat=pt -> regs s 4%nat=base-8 -> regs s 6%nat=base+64*Z.of_nat row ->
+ read_word (mem s) (base-8)=slide+continuation (Cached f a row) ->
+ 64*Z.of_nat row+CachedAddABI.cache_length a<=3520 ->
+ CachedAddMemory.valid_placement a (call_loc (base-1344) (slide+L.cached_pc) s) asize 48.
+Proof.
+ intros [Place Direct] Pt SP Src Ret Len;destruct Place as [_ SA PA CA SF PF CF PS CS CP Code].
+ destruct(Direct (Cached f a row) ltac:(right;eauto)) as [RW Away].
+ destruct(Code _ _ (or_intror(or_intror(or_introl eq_refl)))) as [Fit [PD [CD SD]]].
+ assert (Al:(base+64*Z.of_nat row) mod 64=0) by (rewrite Z.mul_comm,Z.mod_add by lia;exact CA).
+ unfold CachedAddMemory.valid_placement,PointFrame.point_placement,call_loc,layout_at;
+ cbn [origin code_base caller_pc PointFrame.point PointFrame.scratch CachedAddABI.cached];rewrite Pt,Src,SP,Ret.
+ repeat apply conj;try assumption;try (unfold fits64,disjoint,WordBounds.word64 in *;lia);
+ cbv [PointFrame.permitted_padding In];auto.
+Qed.
+
 Definition pre e (w t:buffer) := match e with
  | DoubleFour=>loose_xyz w
  | Cached _ a row=>cached_point_bounds w /\ cache_bounds a (slice t row) /\
@@ -81,7 +111,8 @@ Theorem child_correct slide pt base e rs vs flags m :
  post e w t (buffer_words (mem out) pt) /\
  (forall ip other,child_run slide base e entry ip other -> ip=slide+continuation e /\ other=out).
 Proof.
- intros w t entry [Place Direct] WF Ret P.
+ intros w t entry Arena WF Ret P.
+ pose proof(ladder_placement _ _ _ Arena) as Place.
  pose proof Place as Layout.
  destruct Layout as [Pad SA PA CA SF PF CF PS CS CP Code].
  assert (End:WordBounds.word64(base-8+8)) by (unfold fits64,WordBounds.word64 in *;lia).
@@ -91,33 +122,18 @@ Proof.
  Local Ltac finish_direct FU R := split;[exact R|];split;[|intros ip other H;
    exact (FU _ _ _ _ _ _ H R)].
  destruct e as [n| | |f a row|f];try contradiction.
- - destruct(Direct DoubleFour ltac:(auto)) as [RW Away].
-   destruct(Code _ _ (or_intror(or_introl eq_refl))) as [Fits [PD [_ SD]]].
-   assert (Loc:Double4Memory.valid_placement (call_loc (base-1344) (slide+L.double4_pc) entry) dsize 48).
-   { unfold Double4Memory.valid_placement,PointFrame.point_placement,call_loc,layout_at;
-     cbn [origin code_base caller_pc PointFrame.point PointFrame.scratch].
-     change (regs entry 7%nat) with pt;change (regs entry 4%nat) with (base-8);change (mem entry) with m.
-     rewrite Ret;repeat apply conj;try assumption;try geometry;cbv [PointFrame.permitted_padding In];auto. }
+ - pose proof(direct_double_layout slide pt base entry Arena eq_refl eq_refl Ret) as Loc.
    destruct(mode_double_call (slide+L.double4_pc) (slide+L.cached_pc) (base-1344) 48 entry WF
     ltac:(change (base-8=base-1344+1288+48);lia) End Loc) as [out [R [_ Spec]]].
    change (caller_pc(call_loc _ _ entry)) with (read_word m (base-8)) in R;rewrite Ret in R.
    exists out;finish_direct FU R;exact Spec.
  - destruct P as [B [C Len]].
-   destruct(Direct (Cached f a row) ltac:(right;eauto)) as [RW Away].
-   destruct(Code _ _ (or_intror(or_intror(or_introl eq_refl)))) as [Fits [PD [CD SD]]].
    assert (Size:64*Z.of_nat row+CachedAddABI.cache_length a<=3520)
      by (destruct a;cbn [footprint CachedAddABI.cache_length] in *;lia).
-   assert (Al:(base+64*Z.of_nat row) mod 64=0) by
-    (rewrite Z.mul_comm,Z.mod_add by lia;exact CA).
    assert (SP0:regs entry 4%nat=base-8) by (unfold entry,child_regs;destruct(defer_add f a);reflexivity).
-   assert (Loc:CachedAddMemory.valid_placement a (call_loc (base-1344) (slide+L.cached_pc) entry) asize 48).
-   { unfold CachedAddMemory.valid_placement,PointFrame.point_placement,call_loc,layout_at;
-     cbn [origin code_base caller_pc PointFrame.point PointFrame.scratch CachedAddABI.cached].
-     assert (Ptr:regs entry 7%nat=pt) by (unfold entry,child_regs;destruct(defer_add f a);reflexivity).
-     rewrite Ptr.
-     assert (Pointer:regs entry 6%nat=base+64*Z.of_nat row) by (unfold entry,child_regs;destruct (defer_add f a);reflexivity).
-     rewrite Pointer,SP0;change (mem entry) with m.
-     rewrite Ret;repeat apply conj;try assumption;try geometry;cbv [PointFrame.permitted_padding In];auto. }
+   assert (Pt:regs entry 7%nat=pt) by (unfold entry,child_regs;destruct(defer_add f a);reflexivity).
+   assert (Cache:regs entry 6%nat=base+64*Z.of_nat row) by (unfold entry,child_regs;destruct(defer_add f a);reflexivity).
+   pose proof(direct_add_layout slide pt base entry f a row Arena Pt SP0 Cache Ret Size) as Loc.
    assert (D:slide+L.double4_pc<>add_target (slide+L.cached_pc) f a) by
      (unfold add_target;assert (N:L.double4_pc<>L.cached_pc+add_offset f a) by (destruct f,a;vm_compute;discriminate);lia).
    assert (Args:mode_args f a entry) by (unfold mode_args,entry,child_regs;destruct(defer_add f a);auto;split;reflexivity).
@@ -125,8 +141,6 @@ Proof.
     ltac:(rewrite SP0;lia) ltac:(now rewrite SP0) Args Loc) as [out [R [_ Spec]]].
    change (caller_pc(call_loc _ _ entry)) with (read_word m (regs entry 4%nat)) in R;rewrite SP0,Ret in R.
    replace (add_target (slide+L.cached_pc) f a) with (slide+child_pc (Cached f a row)) in R by (unfold child_pc,add_target;ring).
-   assert (Pt:regs entry 7%nat=pt) by (unfold entry,child_regs;destruct(defer_add f a);reflexivity).
-   assert (Cache:regs entry 6%nat=base+64*Z.of_nat row) by (unfold entry,child_regs;destruct(defer_add f a);reflexivity).
    unfold point_words in Spec;rewrite Pt,Cache in Spec.
    exists out;finish_direct FU R;eapply addition_spec_ext;unfold agrees_words;[intros;reflexivity| |intros;reflexivity|exact Spec].
    intros;symmetry;apply offset_words.

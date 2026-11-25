@@ -43,6 +43,13 @@ return in the model and covers every permitted return.
    [First call](coq/StageEntry.v) · [Staging return](coq/FirstStage.v) ·
    [Seed execution and store log](coq/NativeSeed.v)
 
+   The native top-pair proof follows the first doubling and both cached
+   additions. All three receive memory from the preceding return. Check
+   the stage offsets for the affine base and projective even operands and
+   the output mode selected at each call. Every store stays in the point
+   or the private stack below staging. At the loop entry, the point
+   represents `[16]Odd + Base + Even`. [Top digit pair](coq/TopPair.v)
+
    Check the projection at later call boundaries. `Program.walk` follows the
    linked relative targets and both conditional branches. It models the
    stack relative to entry RSP for each SysV alignment, checks the
