@@ -10,6 +10,7 @@ Definition common_reject : list line :=
  [(65,2%nat,Test32 0);(67,6%nat,Branch Equal 187);(260,4%nat,Add64 4 64);
   (264,2%nat,RestoreG 15);(266,2%nat,RestoreG 14);(268,2%nat,RestoreG 13);
   (270,2%nat,RestoreG 12);(272,1%nat,RestoreG 3);(273,1%nat,ScalarBytes.Ret)].
+Definition decoded_reject : list line := (258,2%nat,Zero32 0)::skipn 2 common_reject.
 Definition strict_reject : list line :=
  [(9,2%nat,Test32 0);(11,2%nat,Branch Equal 22);(35,1%nat,RestoreG 3);(36,1%nat,ScalarBytes.Ret)].
 
@@ -41,6 +42,25 @@ Lemma common_returns slide s c top : 112<=top -> top+8<2^64 ->
  regs (cpu_state last) 12%nat=read_word (mem s) (top-16).
 Proof. intros L H SP Zero. unwind common_bytes common_reject SP Zero;f_equal;ring. Qed.
 
+Lemma decoded_returns slide s c top : 112<=top -> top+8<2^64 ->
+ regs s 4%nat=top-104 ->
+ exists last,run 8 (ScalarBytes.fetch (slide+common) CommonBytes.symbol_bytes) (at_pc 258 s c)=Some(last,[]) /\
+ loc last=Returned(word(read_word (mem s) top)) /\ regs(cpu_state last) 4%nat=top+8 /\
+ regs(cpu_state last) 0%nat=0 /\ mem(cpu_state last)=mem s /\
+ regs(cpu_state last) 13%nat=read_word (mem s) (top-24) /\ regs(cpu_state last) 14%nat=read_word (mem s) (top-32) /\
+ regs(cpu_state last) 12%nat=read_word (mem s) (top-16).
+Proof.
+ intros L H SP;assert (Code:linked CommonBytes.symbol_bytes decoded_reject) by
+    (repeat constructor;vm_compute;discriminate || reflexivity).
+ eexists;split;[apply (checked _ _ _ Code);reflexivity|].
+ cbn [decoded_reject common_reject skipn at_pc follow step loc cpu_state cf option_map
+    with_zf set set_regs regs mem pop caller_step stack_step result_regs result_mem target_ip with_words apply_stack advance_rsp stack_top put Nat.eqb].
+ unfold stack_top,advance_rsp,put;cbn [Nat.eqb];rewrite SP;
+ repeat match goal with |-context[word ?a]=>rewrite (word_fits a ltac:(unfold word64 in *;lia)) end.
+ repeat split;try reflexivity;try (repeat f_equal;ring);try lia.
+ all: f_equal;ring.
+Qed.
+
 Lemma strict_returns slide s c top : 8<=top -> top+8<2^64 ->
  regs s 4%nat=top-8 -> regs s 0%nat mod 2^32=0 ->
  exists last,run 4 (ScalarBytes.fetch (slide+strict) StrictBytes.symbol_bytes) (at_pc 9 s c)=Some(last,[]) /\
@@ -54,36 +74,53 @@ From Ed25519Simd.VerifyBatch Require Import Policy Rows Image Return LoadedImage
 
 Definition leave_strict pol bias (p:cursor) := match pol with
  | Zip215=>Some p | Dalek=>segment (bias+PrepareNative.strict) StrictBytes.symbol_bytes 4 p end.
-Definition unwind pol bias p :=
- bind (segment (bias+PrepareNative.common) CommonBytes.symbol_bytes 9 p) (leave_strict pol bias).
-Definition prepared_again entry e p q := ip q=word(entry+offset Prepared) /\
- regs(machine q) 4%nat=Rows.frame e /\ regs(machine q) 0%nat=regs(machine p) 0%nat /\
+Definition unwind_length (decoded:bool):=if decoded then 8%nat else 9%nat.
+Definition unwind_offset (decoded:bool):=if decoded then 258 else 65.
+Definition return_value (decoded:bool) s:=if decoded then 0 else regs s 0%nat.
+Definition unwind_at decoded pol bias p :=
+ bind (segment (bias+PrepareNative.common) CommonBytes.symbol_bytes (unwind_length decoded) p) (leave_strict pol bias).
+Definition unwind:=unwind_at false.
+Definition prepared_result entry e p q v := ip q=word(entry+offset Prepared) /\
+ regs(machine q) 4%nat=Rows.frame e /\ regs(machine q) 0%nat=v /\
  mem(machine q)=mem(machine p) /\ log q=log p /\ Prologue.output_registers e (machine q) /\
  regs(machine q) 12%nat=Prologue.rows_left (regs e 6%nat) /\ regs(machine q) 5%nat=regs(machine p) 5%nat.
 
-Theorem rejected pol bias entry e p :
- Return.placement e -> loaded pol bias (mem e) (writable e) ->
- BatchScalar.post pol bias entry e p -> regs(machine p) 0%nat mod 2^32=0 ->
- exists q,unwind pol bias p=Some q /\ prepared_again entry e p q.
+Definition prepared_again entry e p q:=prepared_result entry e p q (regs(machine p) 0%nat).
+
+Theorem rejected_at decoded pol bias entry e p :
+ Return.placement e -> loaded pol bias (mem e) (writable e) -> ip p=bias+PrepareNative.common+unwind_offset decoded ->
+ regs(machine p) 4%nat=common_top pol e-104 -> accounted e (writable e) p ->
+ return_slots pol bias entry e (mem(machine p)) -> saved_outputs pol e (mem(machine p)) ->
+ return_value decoded (machine p) mod 2^32=0 ->
+ exists q,unwind_at decoded pol bias p=Some q /\ prepared_result entry e p q (return_value decoded (machine p)).
 Proof.
- intros Place Image [IP [SP [Acc [[Root Shim] [[Count [Out Left]] _]]]]] Zero.
+ intros Place Image IP SP Acc [Root Shim] [Count [Out Left]] Zero.
  destruct (stack_ok _ Place) as [[Low High] _].
  set (top:=common_top pol e) in *.
  assert (Limits:112<=top /\ top+8<2^64) by
    (unfold top,common_top,Rows.frame,sp in *;destruct pol;lia).
- destruct(common_returns bias (machine p) (carry p) top (proj1 Limits) (proj2 Limits) SP Zero)
-   as [last [Run [[Ret [Stack [Eax Flat]]] [C [O R12]]]]].
+ assert (RunCase:exists last,run (unwind_length decoded) (ScalarBytes.fetch (bias+PrepareNative.common) CommonBytes.symbol_bytes)
+   (at_pc (unwind_offset decoded) (machine p) (carry p))=Some(last,[]) /\
+   loc last=Returned(word(read_word (mem(machine p)) top)) /\ regs(cpu_state last) 4%nat=top+8 /\
+   regs(cpu_state last) 0%nat=return_value decoded (machine p) /\ mem(cpu_state last)=mem(machine p) /\
+   regs(cpu_state last) 13%nat=read_word (mem(machine p)) (top-24) /\
+   regs(cpu_state last) 14%nat=read_word (mem(machine p)) (top-32) /\ regs(cpu_state last) 12%nat=read_word (mem(machine p)) (top-16)).
+ { destruct decoded.
+   - exact (decoded_returns _ _ _ _ (proj1 Limits) (proj2 Limits) SP).
+   - destruct(common_returns bias (machine p) (carry p) top (proj1 Limits) (proj2 Limits) SP Zero)
+       as [t [Run [[PC [Stack [AX M]]] Saved]]];exists t;exact (conj Run (conj PC (conj Stack (conj AX (conj M Saved))))). }
+ destruct RunCase as [last [Run [Ret [Stack [Eax [Flat [C [O R12]]]]]]]].
  destruct (mapped_now _ _ _ Image _ _ _ Acc (in_common _)) as [Map Sep].
- destruct (at_segment _ _ _ _ _ _ 65 _ _ Acc IP Map Sep Run (Forall_nil _)) as [Next Paid].
+ destruct (at_segment _ _ _ _ _ _ (unwind_offset decoded) _ _ Acc IP Map Sep Run (Forall_nil _)) as [Next Paid].
  set (q:=LinkedRun.finish (bias+PrepareNative.common) p (last,[])) in *.
  assert (PC:ip q=word (read_word (mem(machine p)) top)).
  { unfold q;cbn [LinkedRun.finish ip];unfold absolute;rewrite Ret;reflexivity. }
  assert (Log:log q=log p) by (unfold q;cbn [LinkedRun.finish log];apply app_nil_r).
  assert (Outputs:Prologue.output_registers e (machine q)) by
    (split;[exact (eq_trans C Count)|exact (eq_trans O Out)]).
- pose proof(PreservedRegister.run_keeps_at 5 _ CommonBytes.symbol_bytes ltac:(vm_compute;reflexivity) 9 65 _ _ _ _ ltac:(vm_compute;reflexivity) Run) as BP.
- unfold unwind;rewrite Next;cbn [bind]. fold q. destruct pol.
- - exists q;split;[reflexivity|]. unfold prepared_again;split;[|split;[|exact (conj Eax (conj Flat (conj Log (conj Outputs (conj (eq_trans R12 Left) BP)))))]].
+ pose proof(PreservedRegister.run_keeps_at 5 _ CommonBytes.symbol_bytes ltac:(vm_compute;reflexivity) (unwind_length decoded) (unwind_offset decoded) _ _ _ _ ltac:(destruct decoded;vm_compute;reflexivity) Run) as BP.
+ unfold unwind_at;rewrite Next;cbn [bind]. fold q. destruct pol.
+ - exists q;split;[reflexivity|]. unfold prepared_result;split;[|split;[|exact (conj Eax (conj Flat (conj Log (conj Outputs (conj (eq_trans R12 Left) BP)))))]].
    + unfold top,common_top in PC;rewrite Z.sub_0_r,Root,ScalarRefinement.word_idempotent in PC;exact PC.
    + change (regs(cpu_state last) 4%nat=Rows.frame e);rewrite Stack;unfold top,common_top;ring.
  - assert (Strict:ip q=bias+PrepareNative.strict+9).
@@ -98,7 +135,17 @@ Proof.
    destruct(mapped_now _ _ _ Image _ _ _ Paid in_strict) as [Mapped Apart].
    destruct(at_segment _ _ _ _ _ _ 9 _ _ Paid Strict Mapped Apart End (Forall_nil _)) as [After _].
    exists (LinkedRun.finish (bias+PrepareNative.strict) q (endst,[]));split;[exact After|].
-   unfold prepared_again;cbn [LinkedRun.finish ip machine log];unfold absolute;rewrite Back.
+   unfold prepared_result;cbn [LinkedRun.finish ip machine log];unfold absolute;rewrite Back.
    change (mem(machine q)=mem(machine p)) in Flat;unfold outer;rewrite Flat,Root,ScalarRefinement.word_idempotent.
    repeat split;[rewrite Top;unfold outer;ring|rewrite AX;exact Eax|now rewrite M|now rewrite app_nil_r,Log|rewrite N;exact (proj1 Outputs)|rewrite D;exact (proj2 Outputs)|rewrite L12;exact (eq_trans R12 Left)|exact (eq_trans (PreservedRegister.run_keeps 5 _ StrictBytes.symbol_bytes _ _ _ _ ltac:(vm_compute;reflexivity) End) BP)].
+Qed.
+
+
+Theorem rejected pol bias entry e p :
+ Return.placement e -> loaded pol bias (mem e) (writable e) ->
+ BatchScalar.post pol bias entry e p -> regs(machine p) 0%nat mod 2^32=0 ->
+ exists q,unwind pol bias p=Some q /\ prepared_again entry e p q.
+Proof.
+ intros P Image [PC [SP [Acc [Links [G _]]]]] Zero.
+ exact (rejected_at false _ _ _ _ _ P Image PC SP Acc Links G Zero).
 Qed.
