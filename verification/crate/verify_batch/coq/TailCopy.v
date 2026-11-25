@@ -168,7 +168,7 @@ Theorem staged o text frame base n original s c :
  exists t cf ws,run 90 (ScalarBytes.fetch o text) (State (Running 56) s c)=Some(State (Running 82) t cf,ws) /\
  regs t 3%nat=frame /\ (forall i k,(i<8)%nat -> 0<=k<40 ->
  mem t (frame+40*Z.of_nat i+k)=original (source base n i+k)) /\ read_word (mem t) (frame+928)=n /\
- (forall x,frame+960<=x -> mem t x=mem s x).
+ (forall x,frame+936<=x -> mem t x=mem s x).
 Proof.
  intros Start Jump Body N Fit Frame Sep SP BX Left Bytes Borrow.
  destruct (started o text frame base n s c Start N Fit Frame SP BX Left) as [u [w [R [Held Store]]]].

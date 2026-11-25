@@ -42,7 +42,7 @@ Lemma copied o text frame base idx active :
  (forall i,(i<j)%nat -> read_word (mem s) (index_slot frame i)=idx i) ->
  exists t ws,run (2*n) (ScalarBytes.fetch o text) (State (Running off) s c)=
  Some(State (Running (off+FrameInstructions.width (flat_map pair (seq j n)))) t c,ws) /\ args frame base t /\ metadata frame active idx (mem t) /\
- (forall x,frame+960<=x -> mem t x=mem s x).
+ (forall x,frame+936<=x -> mem t x=mem s x).
 Proof.
  intros Base Frame Sep Words n;induction n as [|n IH];intros j off s c Count O Code G Source Active Old.
  - replace j with 8%nat in * by lia. cbn [seq flat_map FrameInstructions.width fold_right];rewrite Z.add_0_r.
@@ -75,7 +75,7 @@ Theorem transfer o text delta e s c child ws base idx active :
  read_word (mem s) (Rows.frame e+928)=active ->
  run 42 (ScalarBytes.fetch o text) (State (Running (offset Stage)) s c)=Some(child,ws) ->
  metadata (Rows.frame e) active idx (mem(cpu_state child)) /\
- (forall x,Rows.frame e+960<=x -> mem(cpu_state child) x=mem s x).
+ (forall x,Rows.frame e+936<=x -> mem(cpu_state child) x=mem s x).
 Proof.
  intros [Code Invoke] P [SP BX] Base Sep Rows Count Run.
  set (frame:=Rows.frame e) in *.

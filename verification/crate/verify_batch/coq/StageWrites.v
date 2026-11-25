@@ -75,14 +75,16 @@ Proof.
 Qed.
 
 Theorem instructions ip text delta e s c : bound text delta -> placement e ->
- regs s 4%nat=Rows.frame e -> Prologue.context_registers e s -> regs s 12%nat=Prologue.rows_left (regs e 6%nat) -> Prologue.segment ip text e 42 (offset Stage) s c (fun child=>entered ip delta e child /\ matrix (Rows.frame e) s (mem (cpu_state child))).
+ regs s 4%nat=Rows.frame e -> Prologue.context_registers e s -> regs s 12%nat=Prologue.rows_left (regs e 6%nat) -> Prologue.segment ip text e 42 (offset Stage) s c (fun child=>entered ip delta e child /\
+ matrix (Rows.frame e) s (mem (cpu_state child)) /\ regs(cpu_state child) 2%nat=read_word (mem s) (Rows.frame e+936) /\
+ regs(cpu_state child) 15%nat=Return.scratch e).
 Proof.
  intros [Bytes Call] P SP [Scratch [Count Out]] Left. pose proof Bytes as Code.
  change (decoded text (offset Stage) (body_prefix++setup)) in Bytes.
  destruct (prefix_decoded _ _ _ _ Bytes) as [Front Args].
  assert (Frame:fits64 (Rows.frame e) 960) by
    (destruct (stack_ok _ P) as [[Lo Hi] _];unfold fits64,Rows.frame,sp in *;lia).
- destruct (sequence ip text 0 960 (Rows.frame e) body_prefix ltac:(lia) Frame ltac:(reflexivity)
+ destruct (sequence ip text 0 928 (Rows.frame e) body_prefix ltac:(lia) ltac:(unfold fits64 in *;lia) ltac:(reflexivity)
    (offset Stage) s c ltac:(change (0<=82);lia) Front SP) as [mid [cf [head [F [R W]]]]].
  change (offset Stage+FrameInstructions.width body_prefix) with (offset PrepareArgs) in F,Args.
  destruct (setup_args ip text (offset PrepareArgs) mid cf e Args ltac:(change (0<=353);lia) P R) as [args [A [SP' [RSI [RCX [RDI Table]]]]]].
@@ -113,9 +115,18 @@ Proof.
    + eapply Forall_impl;[|exact W];intros v V x X;left;specialize (V x X);unfold Rows.frame,sp,span in *;lia.
    + constructor;[|constructor]. intros x X;left;change (word(regs args 4%nat-8)<=x<word(regs args 4%nat-8)+8) in X.
      rewrite SP',Slot in X;unfold Rows.frame,sp,span in *;lia.
- - split;[|intros j f k J H K;change (store_word (mem args) (word(regs args 4%nat-8)) ret (bank (Rows.frame e) f+8*Z.of_nat j+k)=word_byte (value s j f) k);
+ - split.
+   2:{ split.
+     - intros j f k J H K;change (store_word (mem args) (word(regs args 4%nat-8)) ret (bank (Rows.frame e) f+8*Z.of_nat j+k)=word_byte (value s j f) k);
      rewrite SP',Slot;unfold store_word;rewrite write_outside by (unfold bank;lia);
-     exact (transferred _ _ _ _ _ _ _ _ Code Frame SP Prefix j f k J H K)].
+     exact (transferred _ _ _ _ _ _ _ _ Code Frame SP Prefix j f k J H K).
+     - split.
+       + change (regs args 2%nat=read_word (mem s) (Rows.frame e+936));rewrite Table.
+         pose proof(steps_memory _ _ _ _ _ (MappedFetch.run_steps _ _ _ _ _ _ F)) as M;cbn [cpu_state] in M;rewrite M.
+         apply preserved_read with (outside:=fun x=>~(Rows.frame e+0<=x<Rows.frame e+928));
+           [exact (WriteTrace.frame _ _ W _)|intros k K;change (0<=k<8) in K;lia].
+       + change (regs args 15%nat=Return.scratch e).
+         exact (eq_trans (kept_sequence ip text 15 setup (offset PrepareArgs) mid cf _ _ ltac:(change (0<=353);lia) Args eq_refl A) (eq_trans Keep Scratch)). }
    unfold entered. cbn [loc cpu_state]. split;[reflexivity|].
    assert (ChildSP:regs child 4%nat=Rows.frame e-8) by (change (word(regs args 4%nat-8)=Rows.frame e-8);rewrite SP';exact Slot).
    split;[exact ChildSP|]. split;[|exact (conj RSI (conj RCX (conj (eq_trans RDI (eq_trans Keep Scratch)) (conj (conj (eq_trans (Live 13%nat (or_intror (or_introl eq_refl))) Count) (eq_trans (Live 14%nat (or_intror (or_intror eq_refl))) Out)) (eq_trans (Live 12%nat (or_introl eq_refl)) Left)))) )].
