@@ -9,12 +9,11 @@ Definition staging pol bias screen stop:=match pol with
  | Zip215=>stop=screen
  | Dalek=>exists candidate,StrictCandidateCall.execute bias screen=Some candidate /\
     ScoreProgress.product Dalek bias candidate stop end.
-Definition observed pol bias screen stop:=exists staged seed,staging pol bias screen staged /\
- LadderSeed.execute bias staged=Some seed /\ LadderTop.execute bias seed=Some stop.
-Definition selected pol bias e stop:=exists ladder staged seed,LadderStage.observed bias ladder staged /\
- LadderStage.selected ladder staged /\ LadderProduct.meaning pol bias e ladder /\
- LadderSeed.execute bias staged=Some seed /\ LadderSeed.seeded ladder staged seed /\ LadderSeed.odd_point e ladder seed /\
- LadderTop.result bias e ladder seed stop.
+Definition observed pol bias screen stop:=exists staged seed high,staging pol bias screen staged /\
+ LadderSeed.execute bias staged=Some seed /\ LadderTop.execute bias seed=Some high /\
+ LadderProduct.execute bias high=Some stop.
+Definition selected pol bias e stop:=exists prev ladder,LadderEntry.entry pol bias e prev ladder /\
+ LadderProduct.meaning pol bias e ladder stop.
 
 Lemma stage_checked pol bias pc e h r caller score screen :
  placement e -> loaded pol bias (mem e) (writable e) -> ProductRun.geometry (HashLayout.chunk pol e bias) ->
@@ -52,13 +51,9 @@ Proof.
  - destruct(Sound _ Stage) as [mid [ladder [E End]]].
    destruct(LadderSeed.checked _ _ _ _ _ _ I G E End) as [seed [Run _]].
    destruct(LadderTop.checked _ _ _ _ _ _ _ I M Tables G E End Run) as [stop [Top _]].
-   exists stop,staged,seed;auto.
- - intros stop [v [seed [S [Seed Top]]]];destruct(Sound _ S) as [mid [ladder [E End]]].
-   destruct(LadderTop.checked _ _ _ _ _ _ _ I M Tables G E End Seed) as [q [Run [Paid Pair]]].
-   rewrite Top in Run;injection Run as Eq;subst q.
-   destruct(LadderSeed.checked _ _ _ _ _ _ I G E End) as [q [SR [_ [_ [Actual _]]]]];rewrite Seed in SR;injection SR as Eq;subst q.
-   pose proof(proj2(proj2(proj2(LadderStage.checked _ _ _ _ _ I G E) _ End))) as Selected.
-   split;[exact Paid|exists ladder,v,seed;split;[exact End|split;[exact Selected|]]].
-   split;[eapply LadderProduct.checked;eassumption|split;[exact Seed|split;[exact Actual|split;[|exact Pair]]]].
-   eapply LadderSeed.represents;eassumption.
+   destruct(LadderProduct.checked _ _ _ _ _ _ _ _ I M Tables G E End Run Top) as [q [Ret _]].
+   exists q,staged,seed,stop;auto.
+ - intros stop [v [seed [top [Observed [Seed [High Ret]]]]]];destruct(Sound _ Observed) as [mid [ladder [E End]]].
+   destruct(LadderProduct.checked _ _ _ _ _ _ _ _ I M Tables G E End Seed High) as [q [R [Paid Product]]].
+   rewrite Ret in R;injection R as Eq;subst q;split;[exact Paid|exists mid,ladder;auto].
 Qed.

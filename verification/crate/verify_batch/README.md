@@ -58,6 +58,10 @@ additions then execute from that point buffer. Their combined store log
 covers the three return-address pushes, each child frame, and each update
 to the point. At the return from the even-key addition the original buffer
 holds `[16]Odd + Base + Even` in XYZ with reduced limbs and zero T.
+The 31 remaining rounds each stage the next digit pair and call the ladder
+step on that same point. The returned CPU reads its continuation from the
+original stack word. Its point buffer represents `[S]B − [k]A` for each
+eligible lane, and replaying its store log gives the returned memory.
 [Native seed](coq/LadderSeed.v) · [Top digit pair](coq/LadderTop.v)
 Dalek intersects the decoded-R mask with the eight staged
 eligibility bytes. It then compares the five original Y limbs against
@@ -270,8 +274,8 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    0 and 1 as the final value of the first scratch byte.
    The first eligible chunk reaches its policy scorer with the original
    digest and the staged arguments. ZIP-215 reaches the scalar-multiplication entry,
-   and Dalek completes its canonical and small-order checks on the original R encodings. The ladder component returns a point buffer.
-   Its wrapper and nested stores still need a common trace through its return. The remaining scorer instructions and later chunks still need to be
+   and Dalek completes its canonical and small-order checks on the original R encodings. Both scorers now reach the candidate continuation with the scalar product in
+   the same memory used by every nested ladder call. The remaining scorer instructions and later chunks still need to be
    connected to the final verdict and its complete store log. The current theorem
    preserves every final byte outside the output, 25,344-byte scratch and
    16 KiB below entry RSP. [Call composition](coq/Loop.v) · [Frame model](coq/Return.v) ·
