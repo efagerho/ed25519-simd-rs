@@ -16,7 +16,7 @@ sys.path.append(str(HERE.parent / "pow2"))
 from generate_listing import assemble
 
 SOURCE = HERE.parents[2] / "src/wide/avx512ifma/torsion.S"
-MODULES = ("Schedule", "Masks", "Audit", "Lane")
+MODULES = ("Schedule", "Masks", "Audit", "Native", "Lane")
 
 
 def matches_source(raw, work):

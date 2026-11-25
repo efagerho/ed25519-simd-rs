@@ -361,3 +361,13 @@ Example ladder_frame_reloads_and_counter :
    ScalarBytes.loc t=ScalarBytes.Running 10
  | _=>False end.
 Proof. vm_compute;repeat split;reflexivity. Qed.
+
+Example intersect_returned_lane_mask :
+ let s:=CPU (fun g=>if (g=?0)%nat then 0x80000001e3 else 0xff000000a6)
+            (fun _ _=>0) (Some true) (fun _=>0) in
+ ScalarBytes.decode [0x44;0x21]=None /\
+ match ScalarBytes.fetch 0 [0x44;0x21;0xe0] (ScalarBytes.State (ScalarBytes.Running 0) s (Some true)) with
+ | Some(t,[])=>let v:=ScalarBytes.cpu_state t in regs v 0%nat=0xa2 /\ regs v 12%nat=0xff000000a6 /\
+     flag v=Some false /\ ScalarBytes.cf t=Some false /\ ScalarBytes.loc t=ScalarBytes.Running 3
+ | _=>False end.
+Proof. vm_compute;repeat split;reflexivity. Qed.

@@ -14,18 +14,24 @@ Definition scalar_rejection pol bias pc text e c masks :=
  if regs(machine scalar) 0%nat mod 2^32=?0 then
  bind (PrepareUnwind.unwind pol bias scalar) (finish_chunk bias pc text)
  else None).
-Definition post entry e r := accounted e (writable e) (at_end r) /\ RejectOutputs.outputs e (machine(at_end r)) /\ byte_memory(mem(machine(at_end r))) /\
+Definition post_with (values:FlatMemory.bytes->Prop) entry e r := accounted e (writable e) (at_end r) /\ (regs(machine(at_end r)) 0%nat=1 /\ values (mem(machine(at_end r)))) /\ byte_memory(mem(machine(at_end r))) /\
  match r with
  | BatchReturned q=>(Scatter.count e<=8)%nat /\ ip q=read_word (mem e) (sp e) /\ regs(machine q) 4%nat=sp e+8 /\ RejectFinish.callee_saved e (machine q)
  | NextChunk q=>(8<Scatter.count e)%nat /\ ip q=entry+offset Choose /\ regs(machine q) 4%nat=Rows.frame e
  end.
-Lemma classified entry e p q : placement e ->
+Definition zero_results e (m:FlatMemory.bytes):=forall j,(j<Nat.min (Scatter.count e) 8)%nat ->
+ m(output e+Z.of_nat(Scatter.position e j))=0.
+Definition post entry e r:=post_with (zero_results e) entry e r.
+Lemma post_map (before after:FlatMemory.bytes->Prop) entry e r : (forall m,before m -> after m) ->
+ post_with before entry e r -> post_with after entry e r.
+Proof. intros F [Paid [[OK Data] Rest]];split;[exact Paid|split;[split;[exact OK|now apply F]|exact Rest]]. Qed.
+
+Lemma classified_with (values:FlatMemory.bytes->Prop) entry e p q : placement e ->
  regs(machine p) 12%nat=Prologue.rows_left (regs e 6%nat) ->
- RejectFinish.post entry e p q -> RejectOutputs.outputs e (machine p) -> byte_memory(mem(machine p)) -> post entry e (classify p q).
+ RejectFinish.post entry e p q -> (regs(machine p) 0%nat=1 /\ values(mem(machine p))) -> byte_memory(mem(machine p)) -> post_with values entry e (classify p q).
 Proof.
  intros Place Left [A [_ [Mem [Status Exit]]]] [OK Zeros] Bytes.
- assert (Outputs:RejectOutputs.outputs e (machine q)) by
-   (split;[now rewrite Status|intros j J;rewrite Mem;apply Zeros,J]).
+ assert (Outputs:regs(machine q) 0%nat=1 /\ values(mem(machine q))) by (now rewrite Status,Mem).
  assert (Octets:byte_memory(mem(machine q))) by (now rewrite Mem).
  assert (Small:RejectFinish.stopping p=true -> (Scatter.count e<=8)%nat).
  { unfold stopping;rewrite OK,Left;change ((word (Prologue.rows_left (regs e 6%nat))=?0)=true -> (Scatter.count e<=8)%nat).
@@ -42,6 +48,10 @@ Proof.
  apply Z.ltb_ge in Less;unfold Scatter.count;destruct (Z.eq_dec (regs e 6%nat) 8) as [Full|NotFull];
    [rewrite Full in More;discriminate|lia].
 Qed.
+Lemma classified entry e p q : placement e ->
+ regs(machine p) 12%nat=Prologue.rows_left (regs e 6%nat) ->
+ RejectFinish.post entry e p q -> RejectOutputs.outputs e (machine p) -> byte_memory(mem(machine p)) -> post entry e (classify p q).
+Proof. exact (classified_with (zero_results e) entry e p q). Qed.
 
 Theorem finish_checked pol bias pc text e q :
  RejectDispatch.bound pc text -> RejectFinish.bound text -> placement e -> LoadedImage.loaded pol bias (mem e) (writable e) ->

@@ -92,9 +92,15 @@ the batch caller scatters zeros, even when the key and R decoded successfully.
 [Decoded public keys](coq/DecodedKey.v) · [Signed table rows](coq/PreparedTables.v) ·
 [Weak-key decision](coq/FilterMeaning.v) · [Dalek dispatch](coq/StrictDispatch.v)
 
-The final signature
-verdict on these continuing paths comes from grouped execution on the original
-inputs. Every such return has
+For ZIP-215 batches with one to eight descriptors, the final verdict and
+store log come from the same execution. Replaying the log on entry memory
+recovers every final byte, including stack and scratch. The scorer passes the product and
+decoded R to the torsion check. It intersects the returned bits with R
+validity, scatters a byte at each original index and returns to Rust.
+[ZIP torsion return](coq/ZipTorsion.v) · [Mask at scatter](coq/ZipVerdict.v) · [Published verdicts](coq/ScoredChunk.v)
+
+For longer batches and Dalek chunks that reach the coordinate comparison,
+the final verdict still uses grouped execution on the original inputs. Every such return has
 status 1, resumes at the caller's return address with RSP advanced by eight,
 restores the SysV callee-saved integer registers and leaves byte-valued memory.
 Each output byte is 0 or 1. The byte at a descriptor's original output index
@@ -269,16 +275,14 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    exclude the wrapper's five saved GPRs and its caller's return word.
    [Rejection call and return](coq/RejectedPath.v) · [Native dispatch](coq/FirstDispatch.v) · [Key-table initialization](coq/TableStart.v) · [Native cached coordinates](coq/TableValues.v) · [Table staging and transpose](coq/TablePackedInputs.v) · [Signed row contents](coq/TableSignedWords.v) · [Eight-multiple loop](coq/TableRounds.v) · [Builder return](coq/TableUnwind.v) · [Caller regions](coq/CallWrites.v) · [Nested regions](coq/NestedRegions.v) ·
    [Scorer alignment](coq/Score.v) · [Mapped image](coq/LoadedImage.v)
-6. **The remaining boundary.** For batches longer than eight or with an eligible lane in the first
-   chunk, the verdict and final-memory guarantee still use grouped execution. It permits arbitrary
-   final contents in private storage and restores the wrapper's saved slots.
-   For such an entry CPU and the same prefix log, it permits both
-   0 and 1 as the final value of the first scratch byte.
-   The first eligible chunk reaches its policy scorer with the original
-   digest and the staged arguments. ZIP-215 reaches the scalar-multiplication entry,
-   and Dalek completes its canonical and small-order checks on the original R encodings. Both scorers now reach the candidate continuation with the scalar product in
-   the same memory used by every nested ladder call. The remaining scorer instructions and later chunks still need to be
-   connected to the final verdict and its complete store log. The current theorem
+6. **The remaining boundary.** Batches with more than eight descriptors reach the next
+   chunk on the native trace. The final verdict and final memory for those batches still
+   use grouped execution. The same boundary applies to a Dalek chunk whose strict R
+   mask survives and reaches the coordinate comparison. The grouped execution permits
+   arbitrary private bytes and restores the wrapper's saved slots. The first chunk's
+   product and its return to the scorer use the actual nested store histories for both
+   policies. ZIP-215 also follows the scorer and scatter through the end of the chunk.
+   The current theorem
    preserves every final byte outside the output, 25,344-byte scratch and
    16 KiB below entry RSP. [Call composition](coq/Loop.v) · [Frame model](coq/Return.v) ·
    [Shared trust surface](../../README.md#shared-audit-surface)

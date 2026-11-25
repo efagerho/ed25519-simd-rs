@@ -29,8 +29,10 @@ early return and batches in which only some lanes pass. [Public contract and lan
    stack. Both paths return through the incoming caller slot after restoring
    RBP. Reads of RIP-relative constants come from the certified image.
    The functional theorem uses read-only input qwords and a tagged stack.
-   Mapping those regions into the caller’s flat byte memory, disjoint from
-   the stack, is part of the native interpretation. The model and its
+   The native return theorem reads both operands from the caller’s byte memory.
+   It derives the return PC, EAX, and final memory from the selected path and
+   proves that every store prefix preserves both inputs and the linked symbol.
+   [Native return](coq/Native.v) The model and its
    remaining refinement obligations are documented centrally. [Shared trust boundary](../../README.md#shared-audit-surface) · [Machine](../../machine/execution/MaskTrace.v)
 4. Check the ELF identity, symbol extent and retained bytes. Coq checks
    every instruction encoding and every literal byte, including alignment
