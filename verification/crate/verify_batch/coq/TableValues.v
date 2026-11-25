@@ -17,7 +17,8 @@ Record result pol bias e p q:Prop:=Result {
   vectors(machine q) j (16+i)%nat=TableColumn.value Fields.Difference e (machine p) j i /\
   vectors(machine q) j (21+i)%nat=TableColumn.value Fields.Sum e (machine p) j i /\
   vectors(machine q) j i=TableColumn.value Fields.Twice e (machine p) j i;
- parent:TableParentFrame.retained pol bias e (machine p) (machine q)
+ parent:TableParentFrame.retained pol bias e (machine p) (machine q);
+ point_after:preserved (span (TableEntry.point e) 1280) (mem(machine p)) (mem(machine q))
 }.
 Theorem checked pol bias e before p : placement e -> loaded pol bias (mem e) (writable e) ->
  EligibleLanes.post pol bias e before p -> regs(machine p) 14%nat<>0 ->
@@ -41,4 +42,6 @@ Proof.
    + rewrite (TableCoordinates.twice _ _ _ C j i J N);apply TableCoordinates.point_value;assumption.
  - intros x K;rewrite M;[exact (TableStart.parent _ _ _ _ _ A x K)|].
    destruct K as [Area _];change (~span (TableProduct.frame pol e-1360) 2320 x) in Area;unfold TableCoordinates.frame,span in *;lia.
+ - intros x X;rewrite M;[apply (TableStart.point_after _ _ _ _ _ A),X|].
+   apply TableCoordinates.apart;[exact P|unfold span,TableEntry.point in *;lia].
 Qed.
