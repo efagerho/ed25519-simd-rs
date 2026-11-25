@@ -19,12 +19,7 @@ Proof. vm_compute;reflexivity. Qed.
 Lemma literal j : (j<8)%nat -> read_le 2 (fun x=>nth (Z.to_nat x) text 0) (274+2*Z.of_nat j)=Caller.table_offset j.
 Proof. intros J;destruct j as [|[|[|[|[|[|[|[|j]]]]]]]];try lia;reflexivity. Qed.
 
-Record unchanged e p q:Prop:=Unchanged {
- writes:accounted e (writable e) q; words:well_formed(machine q);
- registers:regs(machine q)=regs(machine p); memory_after:mem(machine q)=mem(machine p);
- history:log q=log p; carry_after:LinkedRun.carry q=LinkedRun.carry p
-}.
-
+Definition unchanged e:=MaskedResult.unchanged e (writable e).
 Lemma block pol bias e p ks off n ops v k :
  loaded pol bias (mem e) (writable e) -> ip p=origin bias+Z.of_nat off ->
  accounted e (writable e) p -> well_formed(machine p) -> (off+n<length text)%nat ->
@@ -34,21 +29,8 @@ Lemma block pol bias e p ks off n ops v k :
  ip q=origin bias+Z.of_nat(off+n) /\ machine q=v /\ unchanged e p q.
 Proof.
  intros I PC Acc W N Enc Eval.
- destruct(mapped_now _ _ _ I _ _ _ Acc (in_common pol)) as [Map Sep].
- assert (Len:length(fragment off n)=n) by (unfold fragment;rewrite firstn_length,skipn_length,Nat.min_l;lia).
- assert (Slice:mapped (mem(machine p)) (ip p) (fragment off n)).
- { rewrite PC;apply subimage with (text:=text);[exact Map|rewrite Len;lia|now rewrite Len]. }
- destruct(stable _ _ _ _ _ _ Eval) as [G [M [_ V]]].
- pose proof(mapped_block _ _ _ _ _ _ _ _ PC Enc Slice Eval) as B.
- eexists;split;[exact B|split;[|split;[reflexivity|constructor]]].
- - cbn [ip];rewrite PC,Len;rewrite Nat2Z.inj_add,Z.add_assoc;apply word_fits.
-   destruct(proj1(symbols _ _ _ _ I _ _ (in_common pol))) as [L H];change (origin bias+Z.of_nat(length text)<=2^64) in H;unfold word64,origin in *;lia.
- - split;[exact (proj1 Acc)|];cbn [machine log];rewrite M;exact (proj2 Acc).
- - exact (V W).
- - exact G.
- - exact M.
- - reflexivity.
- - reflexivity.
+ destruct(proj1(symbols _ _ _ _ I _ _ (in_common pol))) as [L H].
+ exact (mapped_slice _ text e (writable e) _ _ _ _ _ _ _ L H (proj1(mapped_now _ _ _ I _ _ _ Acc (in_common pol))) PC Acc W N Enc Eval).
 Qed.
 
 Definition bank_from s ks r:=set_mask ks 1 16 (fun j=>Z.testbit (regs s r) (Z.of_nat j)).
