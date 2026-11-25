@@ -61,7 +61,7 @@ Record returned pol bias e q t:Prop:=Returned {
  stack:regs(machine t) 4%nat=d e;
  saved:forall r,In r sysv_saved -> regs(machine t) r=regs(machine q) r;
  outside:preserved (fun x=>~D.writable (d e-8) (d e) x) (mem(machine q)) (mem(machine t));
- bytes:byte_memory(mem(machine t));
+ words:well_formed(machine t);
  digits:forall j,(j<8)%nat ->
    let ds:=D.signed_digits (mem(machine t)) (d e) j in
    Forall (fun v=> -8<=v<8) ds /\ (HashLayout.eligible pol e j ->
@@ -82,7 +82,7 @@ Proof.
  assert (Pl:D.placement (regs s 4%nat) (regs s 7%nat) (regs s 6%nat) (bias+pc) n (bias+helper) (D.size code))
   by (rewrite SP,DI,SI;exact (layout _ _ _ P I)).
  pose proof Radix16.Object.assembled_digest_to_radix16_correct as Verified.
- destruct(D.run_correct _ _ _ _ Verified bias s Pl W) as [out [Run [Unique [Stack [Saved [M [Bytes Digits]]]]]]].
+ destruct(D.run_correct _ _ _ _ Verified bias s Pl W) as [out [Run [Unique [Stack [Saved [M [Words Digits]]]]]]].
  fold ret in Run,Unique.
  destruct(D.write_footprint _ _ _ _ Verified bias s ret out Pl W Run) as [ws [Trace [Replay Conf]]].
  specialize(Conf ws [] (eq_sym(app_nil_r ws)));rewrite SP,DI in Conf,M.
@@ -103,7 +103,7 @@ Proof.
    + cbn [machine];rewrite Stack,SP;ring.
    + exact Saved.
    + exact M.
-   + exact Bytes.
+   + exact Words.
    + intros j J;specialize(Digits j J);cbv zeta in Digits;rewrite DI,SI in Digits.
      split;[exact (proj1 Digits)|intro On];cbn [machine];rewrite (proj2 Digits),<-(CandidateEntry.digest _ _ _ _ E j J On);f_equal.
      unfold Scalar.ScalarSpec.lane_input;f_equal;apply map_ext_in;intros k K;unfold buffer_words.

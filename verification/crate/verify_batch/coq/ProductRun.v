@@ -82,7 +82,7 @@ Proof.
  intros P On G Tables Keys Space Bytes.
  destruct (reducer_layout _ Space flat Bytes) as [DP W].
  destruct (D.run_correct _ _ _ _ Radix16.Object.assembled_digest_to_radix16_correct
-   (slide c) (reducer c flat) DP W) as [mid [Run [_ [_ [_ [_ [M Dg]]]]]]].
+   (slide c) (reducer c flat) DP W) as [mid [Run [_ [_ [_ [_ [[_ [_ M]] Dg]]]]]]].
  set (l:=ladder c mid).
  assert (B:bounded_digits l).
  { intros r j k Which J K.
