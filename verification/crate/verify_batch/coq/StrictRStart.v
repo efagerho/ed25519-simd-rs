@@ -64,6 +64,7 @@ Qed.
 Record reached bias e score t:Prop:=Reached {
  address:ip t=bias+pc+67; writes:accounted e (writable e) t; words:well_formed(machine t);
  memory:mem(machine t)=mem(machine score); store_log:log t=log score;
+ mask_byte:0<=regs(machine t) 12%nat<256;
  eligible:forall j,(j<8)%nat -> Z.testbit (regs(machine t) 12%nat) (Z.of_nat j)=true <-> HashLayout.eligible Dalek e j;
  unchanged_regs:forall g,g<>0%nat -> g<>12%nat -> regs(machine t) g=regs(machine score) g
 }.
@@ -105,6 +106,10 @@ Proof.
  - exact (segment_wf _ _ _ _ _ WB Step).
  - exact M.
  - change (log a++[]=log score);rewrite app_nil_r;apply (history _ _ _ _ U).
+ - change (0<=mask<256);unfold mask,keep;rewrite Z.land_comm.
+   assert (B:0<=regs s 12%nat<256) by
+    (unfold s;rewrite (proj1(proj2(ScoreStart.arguments _ _ _ _ _ S)));apply Z.mod_pos_bound;lia).
+   pose proof(EligibleLanes.masked_byte (MaskTransfer.mask16 (k 1%nat)) _ B);rewrite Z.mod_small by lia;assumption.
  - intros j J;exact (keep_bits _ _ ks _ Inputs W J).
  - intros g A0 A12;change (put (put (regs(machine a)) 0 m) 12 mask g=regs(machine score) g).
    unfold put;rewrite G;destruct(Nat.eqb_spec 12 g), (Nat.eqb_spec 0 g);congruence.
