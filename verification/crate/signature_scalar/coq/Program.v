@@ -15,14 +15,14 @@ Definition inputs := pair 0 0 2 ++ pair 1 1 3 ++ pair 2 4 6 ++ pair 3 5 7 ++
   ShuffleWords 10 4 5 221; ShuffleWords 11 6 7 221].
 
 Definition compare_order (t:Z) :=
- [Compare true 1 0 8 (Rip t); Compare false 1 1 9 (Rip (t+8));
-  Compare true 2 0 9 (Rip (t+8)); Union 1 1 2; MaskedWords.Xor 4 4 4;
-  Compare false 1 1 10 (Reg 4); Compare false 1 1 11 (Rip (t+24));
-  Compare true 2 0 11 (Rip (t+24)); Union 1 1 2].
+ [Compare BelowU 1 0 8 (Rip t); Compare EqualQ 1 1 9 (Rip (t+8));
+  Compare BelowU 2 0 9 (Rip (t+8)); Union 1 1 2; MaskedWords.Xor 4 4 4;
+  Compare EqualQ 1 1 10 (Reg 4); Compare EqualQ 1 1 11 (Rip (t+24));
+  Compare BelowU 2 0 11 (Rip (t+24)); Union 1 1 2].
 Definition bias_words :=
  [MoveImm true 0x8888888888888888; Splat 4; MoveImm false 1; Splat 5] ++
  map (fun i=>MaskedWords.Add i 0 (8+i) 4) (seq 0 4) ++
- flat_map (fun i=>[Compare true 2 0 i (Reg (8+i)); MaskedWords.Add (S i) 2 (S i) 5]) (seq 0 3) ++
+ flat_map (fun i=>[Compare BelowU 2 0 i (Reg (8+i)); MaskedWords.Add (S i) 2 (S i) 5]) (seq 0 3) ++
  map (fun i=>Blend i 1 4 i) (seq 0 4).
 Definition result_mask := 1.
 Definition load_bytes := flat_map IndexedLoad.encode inputs.

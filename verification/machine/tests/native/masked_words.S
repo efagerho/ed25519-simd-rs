@@ -9,10 +9,12 @@ probe:
     vpcmpeqq k2, zmm0, qword ptr [rip+.Lthreshold]{1to8}
     korw k1, k1, k2
     vpcmpeqq k2{k1}, zmm0, zmm0
+    vpcmpuq k4, zmm0, qword ptr [rip+.Lthreshold]{1to8}, 5
     mov eax, 1
     vpbroadcastq zmm1, rax
     vpaddq zmm0{k3}, zmm0, zmm1
     vpblendmq zmm4{k2}, zmm1, zmm0
+    vpcmpuq k2{k4}, zmm0, qword ptr [rip+.Lthreshold]{1to8}, 5
     vmovdqu64 [rdi], zmm4
     kmovw eax, k2
     ret

@@ -13,8 +13,8 @@ Definition start (first:bool):=if first then 952 else 1030.
 Definition compares (first:bool):=if first then 970 else 1048.
 Definition stop (first:bool):=if first then 996 else 1072.
 Definition conjunction:=map Arithmetic [(10%nat,And 1 2);(11%nat,And 3 4);(10%nat,And 10 11)].
-Definition mask1:=MB.Compare false 1 0 10 (MB.Reg 29).
-Definition low k off:=MB.Compare false k 1 0 (MB.Rip off).
+Definition mask1:=MB.Compare MB.EqualQ 1 0 10 (MB.Reg 29).
+Definition low k off:=MB.Compare MB.EqualQ k 1 0 (MB.Rip off).
 Definition ops (first:bool):=mask1::(if first then [low 3 0xb90;low 4 0xb98] else
  [low 2 0xb88;MB.Union 3 3 2;MB.Union 2 3 4]).
 Definition fragment first:=firstn (Z.to_nat(stop first-compares first)) (skipn (Z.to_nat(compares first)) text).
@@ -50,8 +50,8 @@ Lemma compared origin s v bank :
  cmp origin v bank' k addr k j=passed j (vectors s j) (literal addr-(radix-19)).
 Proof.
  intros H M Zero Lit bank' k addr j G A;unfold cmp,low;rewrite PredicateBlock.compare.
- cbn [PredicateBlock.operand Nat.eqb];rewrite Lit by exact A;rewrite Zero;change ((1=?0)%nat) with false.
- cbn [orb];rewrite G;unfold gate,mask1;rewrite PredicateBlock.compare;cbn [PredicateBlock.operand Nat.eqb];rewrite H,M.
+ cbn [MB.holds PredicateBlock.operand Nat.eqb];rewrite Lit by exact A;rewrite Zero;change ((1=?0)%nat) with false.
+ cbn [orb];rewrite G;unfold gate,mask1;rewrite PredicateBlock.compare;cbn [MB.holds PredicateBlock.operand Nat.eqb];rewrite H,M.
  unfold passed,high_test,high;replace (radix-19+(literal addr-(radix-19))) with (literal addr) by ring.
  destruct (j<?8)%nat;cbn;repeat match goal with |- context[Z.eqb ?a ?b]=>destruct (a=?b) end;reflexivity.
 Qed.

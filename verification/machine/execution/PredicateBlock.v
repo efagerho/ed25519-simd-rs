@@ -32,10 +32,10 @@ Qed.
 
 Definition operand origin s j v:=match v with MaskedWords.Reg r=>vectors s j r
  | MaskedWords.Rip target=>read_word (mem s) (word(origin+target)) end.
-Lemma compare origin s ks less d gate src rhs j :
- update origin s ks d (MaskedWords.Compare less d gate src rhs) d j=
+Lemma compare origin s ks pred d gate src rhs j :
+ update origin s ks d (MaskedWords.Compare pred d gate src rhs) d j=
  ((j<?8)%nat && ((gate=?0)%nat || ks gate j) &&
-   (if less then vectors s j src <? operand origin s j rhs else vectors s j src =? operand origin s j rhs))%bool.
+   MaskedWords.holds pred (vectors s j src) (operand origin s j rhs))%bool.
 Proof.
  unfold update,put;rewrite Nat.eqb_refl;cbn [MaskedWords.step MaskedWords.zmm MaskedWords.mask MaskedWords.rax].
  unfold Packed.update;rewrite Nat.eqb_refl;destruct(Nat.ltb_spec j 16);[destruct rhs;reflexivity|].
