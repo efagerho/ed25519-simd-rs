@@ -9,12 +9,12 @@ Import ListNotations. Local Open Scope Z_scope.
 Definition input_used b i := (Nat.eqb b 7 || (Nat.eqb b 6 && (Nat.ltb i 10 || Nat.leb 15 i))) && Nat.ltb i 20.
 
 Definition paths := Eval vm_compute in program_tree 1500 1032 20 code 0.
-Definition long := Eval vm_compute in match paths with Branch _ _ _ _ (Exit gs _)=>gs | _=>[] end.
+Definition long := Eval vm_compute in match paths with Branch _ _ _ _ (Exit gs _ _)=>gs | _=>[] end.
 Definition short := Eval vm_compute in firstn 166 long.
 
 Lemma paths_checked pad : (pad<4)%nat ->
  program_tree 1500 1032 20 code pad =
- Branch short (Wire 165) 255 (Exit short (Wire 165)) (Exit long (Wire 822)).
+ Branch short (Wire 165) 255 (Exit short (Wire 165) Datatypes.tt) (Exit long (Wire 822) Datatypes.tt).
 Proof. intros H; destruct pad as [|[|[|[|pad]]]]; try lia; vm_compute; reflexivity. Qed.
 
 (* Each cut names the five output wires after a parallel carry. The first

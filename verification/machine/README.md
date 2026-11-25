@@ -104,9 +104,11 @@ chooses the branch using the eight lane bits tested in an opmask or copied to EA
 memory operands read immutable input vectors or symbol bytes and spill to
 a private qword stack. Each stack store records the relocated return address,
 incoming RBP, or vector lanes computed at that instruction. The selected
-branch determines both EAX and the chronological byte log. A fetch into padding, an invalid stack reload, and
+branch determines both EAX and the chronological byte log. At RET the
+interpreter evaluates the surviving vector and predicate registers, ZF and CF.
+It reads the return address from the byte memory produced by that log. A fetch into padding, an invalid stack reload, and
 an exhausted instruction budget all reject the path. The shared audit guide
-describes how this execution relates to the native caller. [Mask-dependent execution](execution/MaskTrace.v) · [Stack-store values](execution/MaskStores.v) · [Shared trust boundary](../README.md#shared-audit-surface)
+describes how this execution relates to the native caller. [Mask-dependent execution](execution/MaskTrace.v) · [Stack-store values](execution/MaskStores.v) · [Register and memory return](execution/MaskReturn.v) · [Shared trust boundary](../README.md#shared-audit-surface)
 
 ## Basic blocks and machine state
 
