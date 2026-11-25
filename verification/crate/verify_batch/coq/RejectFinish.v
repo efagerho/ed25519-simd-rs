@@ -68,7 +68,8 @@ Definition leave entry text p := if stopping p
 Definition post entry e p q := accounted e (writable e) q /\ log q=log p /\
  mem(machine q)=mem(machine p) /\ regs(machine q) 0%nat=regs(machine p) 0%nat /\
  if stopping p then ip q=read_word (mem e) (sp e) /\ regs(machine q) 4%nat=sp e+8 /\ callee_saved e (machine q)
- else ip q=entry+offset Choose /\ regs(machine q) 4%nat=Rows.frame e.
+ else ip q=entry+offset Choose /\ regs(machine q) 4%nat=Rows.frame e /\
+   machine q=with_zf (machine p) false /\ carry q=Some false /\ StageEntry.saved_caller e (machine q).
 
 Lemma saved_return e p : placement e -> accounted e (writable e) p ->
  word(read_word (mem(machine p)) (sp e))=read_word (mem e) (sp e).
@@ -118,5 +119,6 @@ Proof.
    + exact (Done 4%nat (with_zf (with_zf (machine p) false) true) (Some false) ltac:(lia) SP eq_refl eq_refl Saved Both).
    + destruct(at_segment _ _ _ _ _ _ 574 _ _ Acc PC Mapped Apart Both (Forall_nil _)) as [Reach Paid].
      eexists;split;[exact Reach|split;[exact Paid|]]. cbn [LinkedRun.finish log ip machine loc cpu_state with_zf regs mem absolute].
-     rewrite app_nil_r;repeat split;try reflexivity;exact SP.
+     rewrite app_nil_r;split;[reflexivity|split;[reflexivity|split;[reflexivity|split;[reflexivity|split;[exact SP|]]]]].
+     split;[reflexivity|split;[reflexivity|exact Saved]].
 Qed.

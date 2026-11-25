@@ -67,7 +67,7 @@ Proof.
  eexists;split;[exact Next|split;[constructor|split;[exact M|apply app_nil_r]]].
  - cbn [LinkedRun.finish ip];unfold absolute;rewrite Back;destruct Link as [Root Shim];destruct pol.
    + unfold top,common_top;rewrite Z.sub_0_r,Root;apply ScalarRefinement.word_idempotent.
-   + unfold top;rewrite Shim,ScalarRefinement.word_idempotent;apply word_fits.
+   + unfold top;rewrite (proj1 Shim),ScalarRefinement.word_idempotent;apply word_fits.
      destruct(proj1(symbols _ _ _ _ I _ _ in_strict)) as [Low High];change (Z.of_nat(length PrepareChunk.StrictBytes.symbol_bytes)) with 37 in High;change (0<=bias+PrepareNative.strict+9<2^64);lia.
  - exact Stack.
  - exact AX.
@@ -76,7 +76,7 @@ Proof.
  - eapply PreparedInputs.keep;[|exact Enc]. intros x X;cbn [LinkedRun.finish machine];rewrite M;apply (PreparedInputs.through_tables _ _ _ _ _ _ P A),X.
  - constructor;cbn [LinkedRun.finish machine];[now rewrite M|now rewrite M|now rewrite M|split;[now rewrite M|now rewrite RBP]|now rewrite M].
  - destruct Outputs as [_ [_ [_ [S _]]]];cbn [LinkedRun.finish machine];rewrite (G 4%nat 15%nat eq_refl),<-S;f_equal;ring.
- - destruct Outputs as [_ [_ [_ [_ D]]]];intros Eq;cbn [LinkedRun.finish machine];unfold PrepareOutputs.dest;rewrite (G 0%nat 3%nat eq_refl),<-(D Eq);f_equal;ring.
+ - destruct Outputs as [_ [_ [_ [_ [D _]]]]];intros Eq;cbn [LinkedRun.finish machine];unfold PrepareOutputs.dest;rewrite (G 0%nat 3%nat eq_refl),<-(D Eq);f_equal;ring.
  - intros j J;cbn [LinkedRun.finish machine];cbv zeta;rewrite M,(PrepareOutputs.table_ptr _ _ _ _ _ _ A j J),(EligibleLanes.identity_address _ _ _ _ _ E).
    pose proof(EligibleLanes.key_bits _ _ _ _ _ E j J) as K;destruct(Z.testbit _ _);intuition discriminate.
  - destruct Outputs as [Count [Out [Left _]]];split;cbn [LinkedRun.finish machine];

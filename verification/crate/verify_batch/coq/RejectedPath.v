@@ -18,7 +18,7 @@ Theorem checked decoded pol bias pc text e p :
 Proof.
  intros ScatterCode ExitCode P I Range Len Map Apart N Idx [Links Outputs Meta [Slots BP] _] Acc Bytes SP Start Zero.
  destruct(rejected_at decoded pol bias (bias+pc) e p P I Start SP Acc Links Outputs Zero) as [q [Unwind Again]].
- destruct Again as [At [Stack [AX [Memory [Log [Args [Left Kept]]]]]]].
+ destruct Again as [At [Stack [AX [Memory [Log [Args [Left [Kept [Scratch NextRow]]]]]]]]].
  assert (Paid:accounted e (writable e) q) by
    (split;[rewrite Log;apply Acc|intros x;rewrite Memory,Log;apply Acc]).
  destruct(finish_checked pol bias pc text e q ScatterCode ExitCode P I Range Len Map Apart N Idx Paid At Stack Args Left

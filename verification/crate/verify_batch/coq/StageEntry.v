@@ -2,7 +2,7 @@ From Coq Require Import Bool List ZArith Lia.
 From Machine Require Import isa.Instructions execution.ScalarBytes execution.LinkedCalls execution.WordSemantics
  execution.WordBounds memory.WriteTrace memory.MemoryGeometry memory.FlatMemory memory.ByteMemory.
 From Machine Require execution.MappedFetch execution.ScalarWords execution.InstructionRoute.
-From Ed25519Simd.VerifyBatch Require TailCopy IndexStores CallerSpills.
+From Ed25519Simd.VerifyBatch Require TailCopy IndexStores CallerSpills StageCursor.
 From Machine Require execution.PreservedRegister.
 From Ed25519Simd.VerifyBatch Require Import Image Rows Scatter Return EntryWrites Prologue TailWrites StageWrites DescriptorStores.
 Import ListNotations. Local Open Scope Z_scope.
@@ -122,13 +122,15 @@ Definition observe ip (text:list Z) e carry :=
  | None=>None | Some n=>MappedFetch.run n (MappedFetch.fetch ip (length text)) (State (Running 0) e carry) end.
 Definition saved_caller e s := CallerSpills.saved e (mem s) /\ regs s 5%nat=regs e 5%nat.
 
+Definition next_descriptor e value:=(8<count e)%nat -> value=word(regs e 7%nat+320).
+
 Definition handoff ip (text:list Z) delta e carry n child :=
  StageWrites.entered ip delta e child /\
  (forall j f k,(j<8)%nat -> (f<4)%nat -> 0<=k<8 ->
    mem (cpu_state child) (bank (Rows.frame e) f+8*Z.of_nat j+k)=
    mem e (regs e 7%nat+40*Z.of_nat (TailCopy.row_index e j)+8*Z.of_nat f+k)) /\ metadata e (mem(cpu_state child)) /\ saved_caller e (cpu_state child) /\
  (regs(cpu_state child) 2%nat=regs e 8%nat /\ regs(cpu_state child) 15%nat=Return.scratch e /\
-   CallerSpills.table_arguments e (mem(cpu_state child))) /\ exists stage writes,
+   CallerSpills.table_arguments e (mem(cpu_state child))) /\ next_descriptor e (regs(cpu_state child) 3%nat) /\ exists stage writes,
  MappedFetch.run (n-42) (MappedFetch.fetch ip (length text)) (State (Running 0) e carry)=Some(stage,writes) /\
  StageWrites.matrix (Rows.frame e) (cpu_state stage) (mem (cpu_state child)).
 
@@ -233,6 +235,9 @@ Proof.
    assert (Tab:CallerSpills.table_arguments e (mem t)) by
      (eapply CallerSpills.keep_tables;[intros x X;apply High;lia|exact (proj2(CallerSpills.from_entry ip text e carry _ _ Intro P N F))]).
    split;[split;[exact (eq_trans Identity (proj1 Tab))|split;[exact ChildScratch|eapply CallerSpills.keep_tables;[intros x X;apply (proj2 Kept);lia|exact Tab]]]|].
+   split.
+   { intro Long;rewrite (proj1(StageCursor.advanced ip text delta e t cf child stores Transfer P (proj1 Frame) Body)).
+     rewrite Full,BX;[reflexivity|rewrite Count,(word_fits _ (proj1(initial_cpu _ P) 6%nat));lia]. }
    exists (State (Running (offset Stage)) t cf),(front++pad);split;[|exact Matrix].
    replace (n-42)%nat with (15+(if short then 90 else 4))%nat by (unfold n;destruct short;reflexivity).
    eapply MappedFetch.run_lift;[exact First|apply Forall_app;split;[exact W|exact Safe]|exact Image|exact Apart].

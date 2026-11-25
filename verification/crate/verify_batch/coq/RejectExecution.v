@@ -17,7 +17,8 @@ Definition scalar_rejection pol bias pc text e c masks :=
 Definition post_with (values:FlatMemory.bytes->Prop) entry e r := accounted e (writable e) (at_end r) /\ (regs(machine(at_end r)) 0%nat=1 /\ values (mem(machine(at_end r)))) /\ byte_memory(mem(machine(at_end r))) /\
  match r with
  | BatchReturned q=>(Scatter.count e<=8)%nat /\ ip q=read_word (mem e) (sp e) /\ regs(machine q) 4%nat=sp e+8 /\ RejectFinish.callee_saved e (machine q)
- | NextChunk q=>(8<Scatter.count e)%nat /\ ip q=entry+offset Choose /\ regs(machine q) 4%nat=Rows.frame e
+ | NextChunk q=>(8<Scatter.count e)%nat /\ ip q=entry+offset Choose /\ regs(machine q) 4%nat=Rows.frame e /\
+   regs(machine q) 12%nat=Z.of_nat (Scatter.count e-8) /\ carry q=Some false /\ StageEntry.saved_caller e (machine q)
  end.
 Definition zero_results e (m:FlatMemory.bytes):=forall j,(j<Nat.min (Scatter.count e) 8)%nat ->
  m(output e+Z.of_nat(Scatter.position e j))=0.
@@ -40,13 +41,18 @@ Proof.
    rewrite (word_fits (regs e 6%nat-8)),(word_fits (regs e 6%nat-8)) by (unfold word64 in *;lia).
    intro Z;apply Z.eqb_eq in Z;lia. }
  unfold classify;destruct(RejectFinish.stopping p) eqn:Stop;
-   [exact (conj A (conj Outputs (conj Octets (conj (Small eq_refl) Exit))))|split;[exact A|split;[exact Outputs|split;[exact Octets|split;[|exact Exit]]]]].
+   [exact (conj A (conj Outputs (conj Octets (conj (Small eq_refl) Exit))))|].
  unfold stopping in Stop;apply Bool.orb_false_iff in Stop as [_ More].
- rewrite Left in More;unfold Prologue.rows_left in More.
- pose proof(proj1(initial_cpu _ Place) 6%nat) as N.
- rewrite (word_fits _ N) in More;destruct(regs e 6%nat <? 8) eqn:Less;[discriminate|].
- apply Z.ltb_ge in Less;unfold Scatter.count;destruct (Z.eq_dec (regs e 6%nat) 8) as [Full|NotFull];
-   [rewrite Full in More;discriminate|lia].
+ rewrite Left in More;pose proof(proj1(initial_cpu _ Place) 6%nat) as N.
+ assert (Count:Z.of_nat(Scatter.count e)=regs e 6%nat) by (unfold Scatter.count;apply Z2Nat.id,N).
+ assert (Long:8<regs e 6%nat).
+ { unfold Prologue.rows_left in More;rewrite (word_fits _ N) in More.
+   destruct(Z.ltb_spec (regs e 6%nat) 8);[discriminate|].
+   destruct(Z.eq_dec (regs e 6%nat) 8) as [F|];[rewrite F in More;discriminate|lia]. }
+ destruct Exit as [PC [SP [CPU [CF Saved]]]].
+ split;[exact A|split;[exact Outputs|split;[exact Octets|split;[lia|split;[exact PC|split;[exact SP|]]]]]].
+ split;[|exact(conj CF Saved)];rewrite CPU;change (regs(machine p) 12%nat=Z.of_nat(Scatter.count e-8)).
+ rewrite Left;unfold Prologue.rows_left;rewrite (word_fits _ N),(proj2(Z.ltb_ge (regs e 6%nat) 8) ltac:(lia)),word_fits by (unfold word64 in *;lia);lia.
 Qed.
 Lemma classified entry e p q : placement e ->
  regs(machine p) 12%nat=Prologue.rows_left (regs e 6%nat) ->
