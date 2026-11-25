@@ -23,7 +23,9 @@ restores the six saved registers and its caller’s stack pointer, then returns
 to chunk preparation through the return address read from memory. Preparation reads
 eight 16-bit offsets from the linked image and stores the selected table pointers.
 A second store writes exactly eight bytes. The proof reads each one back as 0 or 1
-and identifies which original input made it 1. [Pointer selection and flags](coq/PrepareOutputs.v)
+and identifies which original input made it 1. The common preparation routine
+restores its frame and returns 1. ZIP-215 resumes in the batch wrapper and Dalek
+resumes in its key-screening wrapper. [Pointer selection and flags](coq/PrepareOutputs.v) · [Preparation return](coq/PreparedReturn.v)
 
 The proof reads back
 all 20 words per identity entry and relates the four cached coordinates
