@@ -43,11 +43,14 @@ For every eligible lane these digits reconstruct the original SHA digest
 modulo L. The next linked call passes those digits, the signed S, the selected table
 pointers and the full-coordinate flag to the ladder. On that actual entry state,
 every point returned by the ladder component represents `[S]B − [k]A` for the
-original lane. Dalek intersects the decoded-R mask with the eight staged
+original lane. The native trace continues through the first staging return.
+It accounts for the ladder prologue and transpose stores. Every staged word
+comes from the base or key table entry selected by digit pair 31 in that lane.
+Dalek intersects the decoded-R mask with the eight staged
 eligibility bytes. Its first rejection branch falls through exactly as the
 nonempty set of eligible lanes requires.
 [SHA call](coq/HashEntry.v) · [Digest and store log](coq/NativeHash.v) ·
-[SHA return interface](coq/HashResume.v) · [Scorer entry](coq/ScoreCall.v) · [Scorer execution](coq/ScoreStart.v) · [Native challenge digits](coq/ReducedDigest.v) · [Ladder call](coq/LadderEntry.v) · [Product on the original bytes](coq/LadderProduct.v) · [Dalek R mask](coq/StrictRStart.v)
+[SHA return interface](coq/HashResume.v) · [Scorer entry](coq/ScoreCall.v) · [Scorer execution](coq/ScoreStart.v) · [Native challenge digits](coq/ReducedDigest.v) · [Ladder call](coq/LadderEntry.v) · [Product on the original bytes](coq/LadderProduct.v) · [First staging return](coq/LadderStage.v) · [Dalek R mask](coq/StrictRStart.v)
 
 Both policies require canonical S and decodable R and public-key encodings.
 For a decoded key A, the proof relates every signed cached row from −8 to +8
