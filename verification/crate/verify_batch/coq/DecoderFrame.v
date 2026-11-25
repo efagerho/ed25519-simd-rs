@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith Lia.
 From Machine Require Import isa.Instructions execution.WordSemantics execution.LinkedCalls execution.WordBounds
- execution.ScalarBytes execution.InstructionRoute execution.MappedFetch execution.StoreInstructions
+ execution.ScalarBytes execution.RipBroadcasts execution.InstructionRoute execution.MappedFetch execution.StoreInstructions
  memory.ByteMemory memory.WriteTrace memory.Alignment.
 From Ed25519Simd.Decode Require DecoderBytes HelperBytes.
 Import ListNotations. Local Open Scope Z_scope.
@@ -61,13 +61,12 @@ Lemma load_constants (again:bool) o s c : let pc:=constants_pc again in
  regs v=regs s /\ mem v=mem s /\ forall i j,(i<4)%nat ->
  vectors v j (28+i)%nat=splat_value o (mem s) i.
 Proof.
- assert (Image:linked code (constants (constants_pc again))) by
-   (destruct again;repeat constructor;vm_compute;discriminate || reflexivity).
- destruct again;cbn [constants_pc] in *.
- all: eexists;split;[apply (checked _ _ _ Image);reflexivity|].
- all: split;[reflexivity|split;[reflexivity|]];intros [|[|[|[|i]]]] j I;try lia;unfold splat_value;
- cbn [constants map seq literal follow loc cf cpu_state step option_map regs mem vectors put Nat.eqb];
- unfold put;cbn [Nat.eqb Nat.add];unfold at_literal;apply f_equal;apply f_equal;ring.
+ set (pc:=constants_pc again).
+ assert (Image:linked code (RipBroadcasts.route 4 pc 28 (helper+0xde0-origin))) by
+   (unfold pc;destruct again;repeat constructor;vm_compute;discriminate || reflexivity).
+ destruct(RipBroadcasts.load o _ _ _ _ _ s c Image) as [v [R [G [M [_ [V _]]]]]].
+ exists v;split;[exact R|split;[exact G|split;[exact M|]]].
+ intros i j N;rewrite V by exact N;unfold splat_value,at_literal;do 2 f_equal;ring.
 Qed.
 
 Definition ready a sp s := regs s 4%nat=top sp-8 /\ regs s 5%nat=sp-8 /\
