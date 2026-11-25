@@ -66,7 +66,7 @@ Proof.
  assert (Same:forall i,(i<5)%nat -> cell buf i j=product v i).
  { intros i I;unfold buf,argument;rewrite limb_word.
    rewrite (keep_row _ _ (point e sig+960) _ Keep ltac:(intros x X;unfold point_bytes,span;lia) j i J I).
-   exact (proj2(proj2(Fields j i J I))). }
+   exact (proj1(proj2(proj2(Fields j i J I)))). }
  split.
  - intros i I. rewrite (Same i I). specialize(UV i I).
    change (0<=product v i<=radix+2^16) in UV.

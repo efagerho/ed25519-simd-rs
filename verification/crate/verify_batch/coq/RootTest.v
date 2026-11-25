@@ -104,7 +104,7 @@ Record post pol bias e t : Prop:=Post {
  finish_arguments:DecoderFinish.entry false pol bias e (finish_entry t);
  root_product:FinishProduct.post false pol bias e (finish_entry t) (at_test t);
  root_test:math false e (at_test t);
- signature_operands:operands true pol e (finish_entry t);
+ initial_operands:forall sig,operands sig pol e (finish_entry t);
  signature_signs:forall j,(j<8)%nat -> Z.testbit (regs(machine(finish_entry t)) 14%nat) (Z.of_nat j)=Z.testbit (original_encoding true e j) 255;
  setup_fields_live:forall sig,fields sig e
    (SetupTail.after_square(PowerInputs.half (PowerWrites.before_power(power t)) sig)) (at_test t)
@@ -126,7 +126,7 @@ Proof.
  pose proof(PowerInputs.from_decoder _ _ _ _ _ _ P I Al E W Link) as Inputs.
  constructor;[exact (conj D (conj R Powers))|exact Arguments|exact Post| | |exact Signs|].
  - eapply at_comparison;[eapply from_bytes;[exact P|exact D|exact Inputs|exact Powers|exact After|exact Enter]|exact Post].
- - eapply from_bytes;[exact P|exact D|exact Inputs|exact Powers|exact After|exact Enter].
+ - intro sig;eapply from_bytes;[exact P|exact D|exact Inputs|exact Powers|exact After|exact Enter].
  - intro sig;destruct(Inputs sig) as [Fields Keep].
    set (s:=machine(SetupTail.in_decoder(PowerInputs.half (PowerWrites.before_power r) sig))).
    assert (Stayed:preserved (PowerInputs.point_bytes e sig) (mem s) (mem(machine q))).
@@ -139,9 +139,9 @@ Proof.
    assert (Same:forall off j i,0<=off<=960 -> (j<8)%nat -> (i<5)%nat ->
      row (machine q) (point e sig+off) j i=row s (point e sig+off) j i).
    { intros off j i O;apply keep_row with (protect:=PowerInputs.point_bytes e sig);[exact Stayed|unfold PowerInputs.point_bytes,span;lia]. }
-   intros j i J K;cbn [at_test power];destruct(Fields j i J K) as [U [V UV]];fold s in U,V,UV.
+   intros j i J K;cbn [at_test power];destruct(Fields j i J K) as [U [V [UV Y]]];fold s in U,V,UV,Y.
    split;[replace (point e sig) with (point e sig+0) at 1 by ring;rewrite Same by lia;now rewrite Z.add_0_r|
-    split;rewrite Same by lia;assumption].
+    repeat split;rewrite Same by lia;assumption].
 Qed.
 
 Lemma accounted_at_test pol bias e t : post pol bias e t -> accounted e (writable e) (at_test t).
