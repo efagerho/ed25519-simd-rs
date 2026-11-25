@@ -256,3 +256,14 @@ Example strict_status_uses_the_whole_qword :
  ScalarBytes.decode [0x48;0x83;0x7b;0xfe;0xff]=Some(5%nat,ScalarBytes.CompareMemImm(ScalarBytes.Address 3 None (-2)) (-1)) /\
  ScalarBytes.decode [0x0f;0x95;0xc4]=None /\ ScalarBytes.decode [0x48;0x83;0x7b;0x40]=None.
 Proof. repeat split;reflexivity. Qed.
+
+Example scorer_memory_operands :
+ let code:=[0x48;0x8b;0x84;0x24;0;1;0;0;0x48;0x89;0x47;0xf8;
+            0x0f;0xb6;0x57;0xf9;0x48;0x8b;0x47;0xf8] in
+ let s:=CPU (fun r=>if Nat.eqb r 4 then 256 else if Nat.eqb r 7 then 72 else 2^64-1)
+            (fun _ _=>0) None (fun x=>if x=?513 then 255 else 0) in
+ match MappedFetch.run 4 (ScalarBytes.fetch 1000 code) (ScalarBytes.State(ScalarBytes.Running 0) s None) with
+ | Some(t,[w])=>ScalarBytes.loc t=ScalarBytes.Running 20 /\ regs(ScalarBytes.cpu_state t) 2%nat=255 /\
+   regs(ScalarBytes.cpu_state t) 0%nat=65280 /\ WriteTrace.address w=64 /\ WriteTrace.size w=8%nat
+ | _=>False end.
+Proof. repeat split;reflexivity. Qed.
