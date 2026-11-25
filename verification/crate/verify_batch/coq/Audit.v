@@ -108,7 +108,10 @@ Definition scorer_result pol bias e stop:=match pol with
  | Zip215=>staged_product Zip215 bias e stop
  | Dalek=>(forall j,(j<8)%nat -> Z.testbit (regs(LinkedRun.machine stop) 12%nat) (Z.of_nat j)=true <->
                        StrictRCanonical.eligible e j) /\
-          LinkedRun.ip stop=bias+ScoreSetup.callee Dalek+(if regs(LinkedRun.machine stop) 12%nat=?0 then 554 else 162)
+          (if regs(LinkedRun.machine stop) 12%nat=?0 then
+             LinkedRun.ip stop=bias+ScoreSetup.callee Dalek+565 /\ regs(LinkedRun.machine stop) 0%nat=0
+           else LinkedRun.ip stop=bias+SmallOrder.EntryBytes.address /\
+                regs(LinkedRun.machine stop) 7%nat=BatchDecode.point e true /\ PreparedInputs.signature e (LinkedRun.machine stop))
  end.
 
 Definition scoring pol bias pc text e c masks stop := exists q r s cf child score,
