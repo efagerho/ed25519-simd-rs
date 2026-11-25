@@ -162,3 +162,13 @@ Example cached_add_affine_argument :
     ScalarBytes.loc t=ScalarBytes.Running 5 /\ flag v=Some true /\ ScalarBytes.cf t=Some false
  | _=>False end.
 Proof. repeat split;reflexivity. Qed.
+
+From Machine Require execution.MaskedResult.
+
+Example masked_byte_order :
+ let bit:=fun j=>orb (orb (Nat.eqb j 0) (Nat.eqb j 7)) (orb (Nat.eqb j 9) (Nat.eqb j 63)) in
+ MaskedResult.mask_qword bit 0=0xff000000000000ff /\
+ MaskedResult.abs_qword (MaskedResult.mask_qword bit 1)=0x100 /\
+ MaskedResult.abs_qword (MaskedResult.mask_qword bit 7)=0x0100000000000000 /\
+ MaskedResult.abs_qword 0x81807fff000102a0=0x7f807f0100010260.
+Proof. repeat split;reflexivity. Qed.
