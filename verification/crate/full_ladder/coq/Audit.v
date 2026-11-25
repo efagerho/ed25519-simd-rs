@@ -4,6 +4,8 @@ From Curve25519.group Require Import Affine Representation.
 From ProofArithmetic Require Import Radix.
 From Ed25519Simd Require Import Wide51.
 From Ed25519Simd.FullLadder Require Import LinkedBytes Program Operands ScalarAction Execution Native Composition.
+From Ed25519Simd.FullLadder Require StageEntry.
+From Machine Require execution.MappedFetch.
 From Ed25519Simd.LadderStep Require Audit LinkedBytes.
 Import ListNotations. Local Open Scope Z_scope.
 
@@ -38,6 +40,9 @@ Record full_ladder_contract : Prop := {
  wrapper_binding : image=symbol_bytes /\ valid=true /\ separate images;
  staging_certificate : SA.stage_contract Ed25519Simd.StageRound.ObjectBytes.symbol_bytes;
  step_certificate : LA.ladder_contract;
+ first_stage_call : forall slide s c, placement slide s -> well_formed s ->
+   MappedFetch.mapped (mem s) (slide+entry_pc) symbol_bytes ->
+   exists u k,StageEntry.entered slide s c u k /\ StageEntry.entry_state slide s u;
  full_product : forall slide s full B A, placement slide s ->
    regs s 9%nat=bits full -> valid_inputs (slide+stage_pc) (pad_of s) s ->
    valid_tables s B A ->
