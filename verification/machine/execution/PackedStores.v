@@ -143,3 +143,13 @@ Proof.
    + rewrite length_app,N;destruct v;reflexivity.
    + rewrite M,replay_app;reflexivity.
 Qed.
+
+Lemma apply_words o off s ks v : well_formed s -> well_formed (apply_op o off s ks v).
+Proof.
+ intro W;destruct v as [p|d a|d i b|d k a b|w].
+ - destruct p;apply indexed_words,W.
+ - exact (qword_wf 0 s (Alu(d,Instructions.Copy a)) _ W eq_refl).
+ - exact (qword_wf 0 s (Permute2 d i b) _ W eq_refl).
+ - exact ((proj2(proj2(proj2(MaskedResult.stable o [MaskedResult.Subtract d k a b] s ks _ _ eq_refl)))) W).
+ - apply commit_words;[exact W|intros;apply ByteMemory.word_byte_bound].
+Qed.

@@ -1,4 +1,4 @@
-From Coq Require Import List ZArith Lia.
+From Coq Require Import List Bool ZArith Lia.
 From Machine Require Import isa.VectorMoves execution.WordSemantics execution.WordBounds execution.LinkedCalls execution.ScalarBytes
  execution.MappedFetch execution.InstructionRoute memory.FlatMemory memory.ByteMemory memory.WriteTrace.
 Import ListNotations. Local Open Scope Z_scope.
@@ -41,4 +41,23 @@ Proof.
  replace (address s w+8*Z.of_nat j+k) with (address s w+(8*Z.of_nat j+k)) by ring.
  rewrite write_at;[rewrite vector_byte_lane by exact K;reflexivity|].
  destruct (piece w) eqn:E;unfold size in *;rewrite E in *;lia.
+Qed.
+
+Definition lanes w:=match piece w with Full=>8%nat | Half _=>4%nat end.
+Lemma word_at o pc s w m a first x : address s w=a+8*first -> well_formed s ->
+ read_word (commit m (event o pc s w)) (a+8*x)=
+ if (0<=?x-first)&&(x-first<?Z.of_nat(lanes w)) then
+   vectors s (shift w+Z.to_nat(x-first))%nat (source w)
+ else read_word m (a+8*x).
+Proof.
+ intros Base [_ [Words _]].
+ assert (Size:Z.of_nat(size w)=8*Z.of_nat(lanes w)) by (unfold size,lanes;destruct(piece w);reflexivity).
+ destruct((0<=?x-first)&&(x-first<?Z.of_nat(lanes w)))%bool eqn:E.
+ - apply Bool.andb_true_iff in E as [L H];apply Z.leb_le in L;apply Z.ltb_lt in H.
+   replace (a+8*x) with (address s w+8*Z.of_nat(Z.to_nat(x-first))) by (rewrite Base,Z2Nat.id by lia;ring).
+   apply read_back;[lia|apply Words;unfold shift,lanes in *;destruct(piece w) as [|[]];lia].
+ - apply Bool.andb_false_iff in E;apply preserved_read with (outside:=fun b=>~touches (event o pc s w) b).
+   + intros b B;apply write_outside,B.
+   + intros k K;change (0<=k<8) in K;unfold touches,event;cbn [WriteTrace.size WriteTrace.address];rewrite Base,Size.
+     destruct E as [L|H];[apply Z.leb_gt in L|apply Z.ltb_ge in H];lia.
 Qed.
