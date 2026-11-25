@@ -138,7 +138,12 @@ Definition vector_step rows f s (i : instruction) :=
     | Compute g => emit s dst g
     end) (lower_vector (load rows f) (regs s) dst op).
 
-Record access := Access { instruction_pc:Z; base_register:nat; stack_offset:Z; byte_count:Z }.
+(* A stored vector refers to the lanes at the instant of the store. Its
+   reversed circuit shares the same gate prefix as the executing state. *)
+Inductive stored_value := IncomingBP | ReturnAddress (next:Z)
+ | VectorLanes (reversed_gates:circuit) (source:arg).
+Record access := Access { instruction_pc:Z; base_register:nat; stack_offset:Z; stored:stored_value }.
+Definition byte_count a:Z:=match stored a with VectorLanes _ _=>64 | _=>8 end.
 Inductive tree :=
 | Fault
 | Exit (gs : circuit) (result : arg)
@@ -185,7 +190,7 @@ Fixpoint walk fuel rows code literal_at bottom entry pc f s :=
         | ZeroEax => go next f (Data (regs s) (masks s) (Some (Lit 0)) (Some (Lit 0,0)) (count s) (reversed s))
         | Store src base disp =>
           let addr := sp f + disp in
-          Written (Access pc base addr 64) (if Nat.eqb base 4 && (sp f <=? addr) && (addr+64 <=? entry) && (addr mod 8 =? 0)
+          Written (Access pc base addr (VectorLanes (reversed s) (regs s src))) (if Nat.eqb base 4 && (sp f <=? addr) && (addr+64 <=? entry) && (addr mod 8 =? 0)
           then go next (write_vec f addr (regs s src)) s else Fault)
         | CompareQ dst a b => go next f (emit_mask s dst (EqQ (regs s a) (regs s b)))
         | OrMask dst a b =>
@@ -204,7 +209,7 @@ Fixpoint walk fuel rows code literal_at bottom entry pc f s :=
           match cmp s with
           | Some (a,imm) => Branch (rev (reversed s)) a imm (go (next+disp) f s) (go next f s)
           | None => Fault end
-        | PushBP => Written (Access pc 4 (sp f-8) 8)
+        | PushBP => Written (Access pc 4 (sp f-8) IncomingBP)
             (match bp f with None => go next (push f SavedBP) s | _ => Fault end)
         | SetBP => go next (Frame (sp f) (Some (sp f)) (stack f)) s
         | AlignSP | SubSP _ =>
@@ -216,7 +221,7 @@ Fixpoint walk fuel rows code literal_at bottom entry pc f s :=
         | PopBP =>
           match stack f (sp f) with
           | Some SavedBP => go next (Frame (sp f+8) None (stack f)) s | _ => Fault end
-        | Call disp => Written (Access pc 4 (sp f-8) 8) (go (next+disp) (push f (CodePC next)) s)
+        | Call disp => Written (Access pc 4 (sp f-8) (ReturnAddress next)) (go (next+disp) (push f (CodePC next)) s)
         | Return =>
           match stack f (sp f) with
           | Some (CodePC target) => go target (pop f) s
