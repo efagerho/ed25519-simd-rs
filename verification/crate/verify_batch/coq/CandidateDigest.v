@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith Lia.
 From Machine Require Import isa.Instructions execution.LinkedCalls execution.LinkedRun execution.StoreInstructions execution.WordSemantics
- execution.WordBounds execution.ScalarBytes execution.ScalarWords execution.MappedFetch execution.InstructionRoute
+ abi.SysV execution.PreservedRegister execution.WordBounds execution.ScalarBytes execution.ScalarWords execution.MappedFetch execution.InstructionRoute
  memory.Alignment memory.FlatMemory memory.ByteMemory memory.WriteTrace.
 From Machine Require abi.FramePointer.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar.
@@ -56,6 +56,8 @@ Record entry pol bias e p q:Prop:=Entry {
  point:regs(machine q) 3%nat=ScoreFrame.buffer e; pointers:regs(machine q) 12%nat=Rows.frame e+768;
  link:read_word (mem(machine q)) (dst e-8)=origin pol bias+29;
  parent:preserved (CandidateEntry.retained e) (mem(machine p)) (mem(machine q));
+ saved:forall g,In g sysv_saved -> g<>3%nat -> g<>12%nat -> regs(machine q) g=regs(machine p) g;
+ memory:mem(machine q)=replay (mem(machine p)) (spills (origin pol bias) (top e) (machine p)++[call_store (origin pol bias) (dst e)]);
  store_log:log q=log p++(spills (origin pol bias) (top e) (machine p)++[call_store (origin pol bias) (dst e)])
 }.
 
@@ -99,5 +101,8 @@ Proof.
    assert (Len:29<Z.of_nat(length(ScoreStart.candidate_code pol))) by (destruct pol;vm_compute;reflexivity).
    unfold o,origin,word64;lia.
  - intros x X;cbn [LinkedRun.finish machine cpu_state];rewrite Mem;apply (WriteTrace.frame _ _ Private);unfold CandidateEntry.retained in X;lia.
+ - intros g K A3 A12;eapply (run_keeps_at g o (ScoreStart.candidate_code pol));[destruct pol;vm_compute;reflexivity| |exact Run].
+   destruct K as [<-|[<-|[<-|[<-|[<-|[<-|[]]]]]]];try contradiction;destruct pol;vm_compute;reflexivity.
+ - exact Mem.
  - reflexivity.
 Qed.

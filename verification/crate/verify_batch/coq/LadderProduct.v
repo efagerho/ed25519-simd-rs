@@ -9,11 +9,12 @@ From Ed25519Simd.VerifyBatch Require LadderTop.
 Local Open Scope Z_scope.
 
 Definition execute:=LoopProduct.execute.
+Definition region ladder x:=LadderStage.private_stack ladder x \/ regs(machine ladder) 7%nat<=x<regs(machine ladder) 7%nat+1280.
 Record meaning pol bias e ladder stop : Prop:=Meaning {
  next:ip stop=CandidateDigest.origin pol bias+LadderEntry.next pol;
  stack:regs(machine stop) 4%nat=CandidateDigest.dst e;
  saved:forall g,List.In g SysV.sysv_saved -> regs(machine stop) g=regs(machine ladder) g;
- words:well_formed(machine stop);
+ words:well_formed(machine stop); history:StoreHistory.extends (region ladder) ladder stop;
  bound:strict(buffer_words (mem(machine stop)) (ScoreFrame.buffer e));
  value:forall j A,(j<8)%nat -> HashLayout.eligible pol e j ->
  Policy.decodes (little_endian(key_bytes(HashLayout.row e j))) A ->
@@ -30,7 +31,7 @@ Proof.
  intros I M T G L Stage Seed Top.
  destruct(LadderTop.checked _ _ _ _ _ _ _ I M T G L Stage Seed) as [v [Run [Paid Pair]]];rewrite Top in Run;injection Run as Eq;subst v.
  destruct(LadderLayout.checked _ _ _ _ _ G L) as [P V].
- destruct(proj2(LadderStage.with_cpu _ _ _ _ _ I G L) _ Stage) as [_ [_ [_ [_ [_ [_ F]]]]]].
+ destruct(proj2(LadderStage.with_cpu _ _ _ _ _ I G L) _ Stage) as [_ [_ [_ [_ [_ [_ [F StageLog]]]]]]].
  destruct(LadderSeed.with_history _ _ _ _ _ _ I G L Stage) as [v [R [_ [_ [_ [_ [Regs H]]]]]]];rewrite Seed in R;injection R as Eq;subst v.
  assert (SF:LoopFrame.intact bias (machine ladder) (machine seed)).
  { apply (LoopFrame.after _ _ staged seed P F);[intros g K;apply Regs;cbv [LoopFrame.live In] in K;intuition congruence|].
@@ -54,6 +55,12 @@ Proof.
    + rewrite (LoopProduct.stack _ _ _ _ _ _ Done);unfold LoopFrame.top;rewrite SP;ring.
    + exact (LoopProduct.saved _ _ _ _ _ _ Done).
    + exact (LoopProduct.wf _ _ _ _ _ _ Done).
+   + assert (Loan:forall x,LoopFrame.writable (machine ladder) x -> region ladder x)
+       by (unfold LoopFrame.writable,LoopFrame.top,region,LadderStage.private_stack;intros;lia).
+     eapply StoreHistory.compose;[eapply StoreHistory.lend;[intros x X;left;exact X|exact StageLog]|].
+     eapply StoreHistory.compose;[eapply StoreHistory.lend;[intros x X;right;exact X|exact H]|].
+     eapply StoreHistory.compose;[eapply StoreHistory.lend;[intros x X;apply Loan,LoopFrame.top_region,X|exact (TopPair.history _ _ _ _ _ _ Pair)]|].
+     exact (StoreHistory.lend _ _ _ _ Loan (LoopProduct.stores _ _ _ _ _ _ Done)).
    + rewrite <-Pt;exact (LoopProduct.reduced _ _ _ _ _ _ Done).
    + intros j A J On Key;pose proof(LoopProduct.value _ _ _ _ _ _ Done j J) as Q.
      unfold LoopReady.point in Q;rewrite Pt in Q;destruct(LadderLayout.signature_digits _ _ _ _ _ _ L J) as [_ S].
