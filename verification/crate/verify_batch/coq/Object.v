@@ -224,9 +224,10 @@ Proof.
      * pose proof(proj1(batch_inputs _ _ _ _ _ Caller N)) as P.
        destruct(HashResume.complete_ok _ _ _ _ _ _ e P (proj2(proj2(proj2 Post))) (initial_cpu _ P) (proj1(proj2 Post))) as [C W].
        destruct(score_handoff _ _ _ _ _ _ _ _ carry Caller N Scorer Post C W) as [child [Call Enter]].
-       destruct(ScoreStart.from_entry _ _ _ _ _ _ _ P (callee_image _ _ _ _ _ Caller N) Enter) as [score [Start _]].
-       destruct Exists as [ip [f R]];do 3 eexists;eapply observe_scoring;[exact N|exact Run|exact C|exact W|exact Call|exact Start|exact R].
- - intros ws ip f O;inversion O as [ws' ip' f' Z Run|q N Run|q ip' f' N Next R|q r s c child score ip' f' N Next C W Call Start R];subst.
+       destruct(ScoreStart.from_entry _ _ _ _ _ _ _ P (callee_image _ _ _ _ _ Caller N) Enter) as [score [Start Ready]].
+       destruct (proj1 (ScoreProgress.checked _ _ _ _ _ _ _ _ P (callee_image _ _ _ _ _ Caller N) Ready)) as [stop Progress].
+       destruct Exists as [ip [f R]];do 3 eexists;eapply observe_scoring;[exact N|exact Run|exact C|exact W|exact Call|exact Start|exact Progress|exact R].
+ - intros ws ip f O;inversion O as [ws' ip' f' Z Run|q N Run|q ip' f' N Next R|q r s c child score stop ip' f' N Next C W Call Start Progress R];subst.
    + specialize (Empty Z);unfold empty_mapped in Empty;destruct(empty_return e) as [back last] eqn:E.
      destruct (proj2 (Empty carry) _ _ Run) as [-> Same].
      inversion Same as [|s t u own rest Impossible];[|discriminate].
@@ -236,7 +237,9 @@ Proof.
    + split;[exact (Sound _ _ R)|]. destruct(score_handoff _ _ _ _ _ _ _ _ c Caller N Scorer (Dispatch _ N Next) C W) as [q' [H Post]].
      rewrite Call in H;injection H as <-.
      destruct(ScoreStart.from_entry _ _ _ _ _ _ _ (proj1(batch_inputs _ _ _ _ _ Caller N)) (callee_image _ _ _ _ _ Caller N) Post) as [v [V Q]].
-     rewrite Start in V;injection V as <-;exact (proj1(ScoreStart.accounted _ _ _ _ _ _ _ _ Q)).
+     rewrite Start in V;injection V as <-.
+     exact (proj1 (proj2 (ScoreProgress.checked _ _ _ _ _ _ _ _ (proj1(batch_inputs _ _ _ _ _ Caller N))
+       (callee_image _ _ _ _ _ Caller N) Q) _ Progress)).
 Qed.
 
 Lemma verified pol pc text : matches pc (destination pol) text -> empty_image text -> Prologue.bound text -> StageEntry.bound text -> TailWrites.bound text -> StageWrites.bound text (destination pol Prepare-pc) -> RejectCall.bound pc text -> RejectDispatch.bound pc text -> RejectFinish.bound text -> StageEntry.preserves_bp text=true -> HashEntry.bound pc text -> ScoreSetup.bound pol pc text ->
