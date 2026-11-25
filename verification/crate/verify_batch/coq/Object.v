@@ -93,13 +93,16 @@ Proof.
  pose proof(decoder_aligned _ _ _ _ _ Input N) as Al;intros [s [Scalar [_ [_ [Checked Rejected]]]]];destruct(Z.eqb_spec (regs(LinkedRun.machine s) 0%nat mod 2^32) 0) as [Z|Live].
  - destruct(Rejected Z) as [Invalid [r [End Post]]];exists(FirstDispatch.after_reject r);split;
    [eapply FirstDispatch.scalar_path;[exact Scalar|exact Z|exact End]|now apply after_reject].
- - destruct(Checked Live) as [d [Run [_ [bank [t [Bank [Trace [Check [Frame Reject]]]]]]]]].
+ - destruct(Checked Live) as [d [Run [Decoder [bank [t [Bank [Trace [Check [Frame Reject]]]]]]]]].
    unfold FirstDispatch.run,BatchDecode.observe in *;rewrite Scalar in Run|-*;cbn [LinkedRun.bind] in Run|-*;
    rewrite (proj2(Z.eqb_neq _ _) Live) in Run|-*;rewrite Run;cbn [LinkedRun.bind];rewrite Bank;cbn [LinkedRun.bind];rewrite Trace;cbn [LinkedRun.bind].
    destruct(Z.eqb_spec (regs(LinkedRun.machine(EligibleLanes.stopped t)) 14%nat) 0) as [Zero|Yes].
    + destruct(Reject Zero) as [r [End Post]];rewrite End;exists(FirstDispatch.after_reject r);split;[reflexivity|].
      apply after_reject;[exact (EligibleLanes.zero_rejects _ _ _ _ _ (proj2 Check) Zero)|exact Post].
-   + destruct(PreparedReturn.from_eligible _ _ _ _ _ _ (TableMask.masks t) Place Loaded Al (proj2 Check) Frame Yes) as [q [bank1 [Call Done]]].
+   + assert (Enc:PreparedInputs.encodings e (LinkedRun.machine(EligibleLanes.stopped t))).
+     { eapply PreparedInputs.keep_encodings;[exact (PreparedInputs.through_decoder _ _ _ _ _ Place Check)|].
+       destruct Decoder as [_ [_ [_ [_ [_ [_ [_ Data]]]]]]];exact Data. }
+     destruct(PreparedReturn.from_eligible _ _ _ _ _ _ (TableMask.masks t) Place Loaded Al (proj2 Check) Frame Enc Yes) as [q [bank1 [Call Done]]].
      destruct(ReadyDispatch.checked pol bias pc text e q bank1 Hash Place Loaded (entry_range _ _ _ _ _ Input) (entry_text _ _ _ _ _ Input) Sep Done)
         as [v [kv [RunCall Reached]]];unfold ReadyDispatch.observe;rewrite Call;cbn [LinkedRun.bind];rewrite RunCall.
      eexists;split;[reflexivity|split;[exact (ReadyDispatch.writes _ _ _ _ Reached)|]].
