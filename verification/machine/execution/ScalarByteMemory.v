@@ -18,7 +18,8 @@ Proof.
  all: try exact B.
  all: try solve [apply write_bytes_well_formed;[exact B|intros;apply word_byte_bound]|
    apply write_bytes_well_formed;[exact B|intros;apply Z.mod_pos_bound;lia]].
- destruct op;injection R as <- <-;[exact B|apply write_bytes_well_formed;[exact B|intros;apply word_byte_bound]].
+ destruct op;injection R as <- <-;try exact B.
+ all: apply write_bytes_well_formed;[exact B|intros;apply word_byte_bound].
 Qed.
 
 Lemma fetched_bytes o text s t ws : byte_memory(mem(cpu_state s)) ->

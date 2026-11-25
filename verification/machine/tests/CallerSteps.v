@@ -143,3 +143,14 @@ Example memory_source_add_sub :
      vectors(ScalarBytes.cpu_state t) 0%nat 1%nat=0 /\ ScalarBytes.cf t=Some true
   | _=>False end in test 0xfb (2^64-7) /\ test 0xd4 7.
 Proof. vm_compute;auto. Qed.
+
+Example extended_shuffle_and_extract :
+ let s:=CPU (fun r=>if Nat.eqb r 13 then 192 else 0) (fun j r=>100*Z.of_nat r+Z.of_nat j) None (fun _=>255) in
+ ScalarBytes.decode [0x62;0x31;0xfd;0x40;0x6d;0xd9]=
+ Some(6%nat,ScalarBytes.VectorMove(VectorMoves.Input (IndexedLoad.UnpackWords true 11 16 17))) /\
+ match ScalarBytes.fetch 700 [0x62;0x53;0xfd;0x48;0x3b;0x55;4;1] (ScalarBytes.State(ScalarBytes.Running 0) s None) with
+ | Some(t,[w])=>WriteTrace.pc w=700 /\ WriteTrace.address w=320 /\ WriteTrace.size w=32%nat /\
+    read_word (mem(ScalarBytes.cpu_state t)) 320=1004 /\ read_word (mem(ScalarBytes.cpu_state t)) 344=1007 /\
+    mem(ScalarBytes.cpu_state t) 352=255
+ | _=>False end.
+Proof. vm_compute;auto 7. Qed.

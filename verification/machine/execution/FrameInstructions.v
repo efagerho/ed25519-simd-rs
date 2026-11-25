@@ -46,7 +46,7 @@ Proof.
    constructor;[|constructor]. intros x X;apply Bounds.
    change (word (regs s 4%nat+0+d)<=x<word (regs s 4%nat+0+d)+8) in X.
    now rewrite SP,Z.add_0_r,Addr in X.
- - destruct op as [i|r b d].
+ - destruct op as [i|r b d|r b d h];try discriminate.
    + destruct i;try discriminate. all: do 3 eexists;split;[reflexivity|split;[exact SP|constructor]].
    + apply Bool.andb_true_iff in Valid as [B V];apply Nat.eqb_eq in B;subst b.
      destruct (inside _ _ _ d 64 Low Fit ltac:(lia) V) as [Addr Bounds].
@@ -100,7 +100,7 @@ Proof.
  try solve [injection S as <- <-;reflexivity];
  try solve [apply Bool.negb_true_iff in K;injection S as <- <-;
    cbn [cpu_state with_zf set set_regs regs];unfold Instructions.put;now rewrite K].
- destruct op;[destruct i;try discriminate|];injection S as <- <-;reflexivity.
+ destruct op;[destruct i;try discriminate| |];injection S as <- <-;reflexivity.
 Qed.
 
 Lemma kept_sequence origin text r ops : forall off s c t ws, 0<=off -> decoded text off ops ->
