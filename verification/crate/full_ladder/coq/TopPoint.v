@@ -1,6 +1,7 @@
 From Coq Require Import List ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.MappedFetch execution.WordSemantics execution.WordBounds
  memory.FlatMemory memory.ByteMemory memory.MemoryGeometry memory.WriteTrace abi.SysV abi.CallFrame.
+From Machine Require execution.StoreHistory.
 From Ed25519Simd Require Import Wide51 PointResults.
 From Ed25519Simd.LadderStep Require Import Callees.
 From Ed25519Simd.LadderStep Require PointTrace Calls.
@@ -21,7 +22,7 @@ Record result slide k pt base p q:Prop:=Result {
  at_next:ip q=slide+entry_pc+TopCall.next k;
  words:well_formed(machine q); stack:regs(machine q) 4%nat=base;
  saved:forall r,In r sysv_saved -> regs(machine q) r=regs(machine p) r;
- writes:exists ws,log q=log p++ws /\ confined (region pt base) ws /\ mem(machine q)=WriteTrace.replay (mem(machine p)) ws;
+ writes:StoreHistory.extends (region pt base) p q;
  point:Calls.operation_spec (kernel k) (mem(machine p)) (mem(machine q)) pt base
 }.
 

@@ -84,6 +84,7 @@ execution/PackedStores.v
 execution/VectorWindow.v
 execution/VectorSpills.v
 execution/LinkedRun.v
+execution/StoreHistory.v
 execution/LocatedReturn.v
 execution/MaskTransfer.v
 execution/PredicateFlags.v
