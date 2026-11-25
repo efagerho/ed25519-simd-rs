@@ -33,9 +33,14 @@ The caller resumes with the returned memory and stack pointer. For every
 well-formed assignment to volatile registers and flags, its next 15 instructions
 pass the decoded R mask, eligibility bytes, scalar and digest pointers, output
 pointer, and batch length to the policy scorer. Replaying the four argument
-stores and the return-address push preserves every digest byte.
+stores and the return-address push preserves every digest byte. Those bytes
+reach the scorer alongside the signed S digits, the decoded Edwards point R,
+and all 17 signed multiples of each decoded public key. The log covers the
+scorer’s six register saves and its aligned 1,280-byte point buffer. ZIP-215
+then calls its candidate routine. Dalek saves the candidate-input pointer
+before starting its R checks.
 [SHA call](coq/HashEntry.v) · [Digest and store log](coq/NativeHash.v) ·
-[SHA return interface](coq/HashResume.v) · [Scorer entry](coq/ScoreCall.v)
+[SHA return interface](coq/HashResume.v) · [Scorer entry](coq/ScoreCall.v) · [Scorer execution](coq/ScoreStart.v)
 
 Both policies require canonical S and decodable R and public-key encodings.
 For a decoded key A, the proof relates every signed cached row from −8 to +8
