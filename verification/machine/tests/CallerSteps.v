@@ -287,3 +287,14 @@ Example clear_ladder_mode :
    flag(ScalarBytes.cpu_state t)=Some true /\ ScalarBytes.cf t=Some false /\ ScalarBytes.loc t=ScalarBytes.Running 3
  | _=>False end.
 Proof. repeat split;reflexivity. Qed.
+
+Example test_bytes_across_zmm :
+ let s:=CPU (fun _=>0) (fun j r=>if (j=?7)%nat then 2^63 else
+     if (r=?0)%nat then 0x800100ff else 0x80feff01) None (fun _=>0) in
+ let ks:=fun _ _:nat=>true in
+ MaskedResult.assemble 0 [MaskedResult.TestBytes 1 0 1]=Some [0x62;0xf2;0x7d;0x48;0x26;0xc9] /\
+ match MaskedResult.evaluate 0 s ks [MaskedResult.TestBytes 1 0 1] with
+ | Some(_,k)=>MaskTrace.mask_word 64 (fun j=>Z.b2z(k 1%nat j))=0x8009090909090909 /\
+     k 1%nat 64%nat=false /\ k 2%nat 64%nat=true
+ | _=>False end.
+Proof. vm_compute;repeat split;reflexivity. Qed.
