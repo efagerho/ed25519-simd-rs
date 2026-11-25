@@ -25,7 +25,7 @@ Lemma next o off n op b lo hi a s c : accepts b lo hi op=true ->
  regs t=regs s /\ confined (interval a lo hi) ws.
 Proof.
  intros Check Base Al L H;destruct op;cbn [accepts] in Check;try discriminate.
- - destruct i as [[d op]| | | |];try discriminate;do 2 eexists;repeat split;constructor.
+ - destruct i as [[d op]| | | | |];try discriminate;do 2 eexists;repeat split;constructor.
  - do 2 eexists;repeat split;constructor.
  - destruct i as [store r reg disp];cbn [gpr offset] in Check.
    repeat rewrite andb_true_iff in Check;destruct Check as [[[Reg A] Low] High].
@@ -58,7 +58,7 @@ Qed.
    preserve the entire register file even when their source is a high ZMM. *)
 Definition writes_below (first:nat) op := match op with
  | BroadcastRip d _ | QwordOp (Alu (d,_)) | QwordOp (Or d _ _)
- | QwordOp (Permute2 d _ _) | QwordOp (AlignedRip d _) | QwordOp (SubRip d _ _) => (d<?first)%nat
+ | QwordOp (Permute2 d _ _) | QwordOp (AlignedRip d _) | QwordOp (SubRip d _ _) | QwordOp (MemoryArithmetic _ d _ _ _) => (d<?first)%nat
  | AlignedRow i=>writing i || (zmm i<?first)%nat
  | _=>false end.
 Fixpoint check_registers text first off n := match n with O=>true | S k=>
@@ -70,7 +70,7 @@ Lemma upper_step first o off n op s c t ws : writes_below first op=true -> step 
  loc t=Running(off+Z.of_nat n) /\ forall j r,(first<=r)%nat -> vectors(cpu_state t) j r=vectors s j r.
 Proof.
  destruct op;cbn [writes_below];try discriminate.
- - destruct i as [[dst op]| | | |];cbn [step qword_op option_map];
+ - destruct i as [[dst op]| | | | |];cbn [step qword_op option_map];
      try destruct (_ mod 64=?0);try discriminate;
      intros D R;injection R as <- <-;split;try reflexivity;intros j high H;
      cbn [cpu_state vectors vector_dest];unfold Instructions.put;
