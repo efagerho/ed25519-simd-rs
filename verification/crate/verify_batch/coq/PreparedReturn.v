@@ -3,7 +3,7 @@ From Machine Require Import isa.Instructions execution.WordSemantics execution.W
  execution.ScalarBytes execution.ScalarWords execution.MappedFetch execution.InstructionRoute memory.FlatMemory memory.ByteMemory memory.WriteTrace.
 From Machine Require execution.ScalarRefinement.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar.
-From Ed25519Simd.VerifyBatch Require PreparedFrame PrepareUnwind.
+From Ed25519Simd.VerifyBatch Require PreparedInputs PrepareUnwind.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition suffix:list line:=[(248,3%nat,ZeroUpper);(251,5%nat,OneEax);(256,2%nat,Jump 2)]++skipn 2 PrepareUnwind.common_reject.
@@ -30,6 +30,7 @@ Qed.
 Record result pol bias entry e q:Prop:=Result {
  pc:ip q=destination pol bias entry; stack:regs(machine q) 4%nat=common_top pol e+8;
  success:regs(machine q) 0%nat=1; writes:accounted e (writable e) q; words:well_formed(machine q);
+ encodings:PreparedInputs.encodings e (machine q);
  caller:EligibilityFrame.context pol bias entry e q;
  scratch_reg:regs(machine q) 15%nat=Return.scratch e;
  strict_arg:pol=Dalek -> regs(machine q) 3%nat=PrepareOutputs.dest e;
@@ -45,10 +46,10 @@ Record result pol bias entry e q:Prop:=Result {
 
 Theorem checked pol bias entry e before caller p a : placement e -> loaded pol bias (mem e) (writable e) ->
  EligibleLanes.post pol bias e before caller -> EligibilityFrame.context pol bias entry e caller ->
- PrepareOutputs.result pol bias e caller p a -> exists q,execute bias a=Some q /\ result pol bias entry e q /\
+ PreparedInputs.encodings e (machine caller) -> PrepareOutputs.result pol bias e caller p a -> exists q,execute bias a=Some q /\ result pol bias entry e q /\
  mem(machine q)=mem(machine a) /\ log q=log a.
 Proof.
- intros P I E C A;pose proof(PreparedFrame.context _ _ _ _ _ _ _ P A C) as Frame.
+ intros P I E C Enc A;pose proof(PreparedFrame.context _ _ _ _ _ _ _ P A C) as Frame.
  destruct Frame as [Link Outputs Meta [Slots BP] Layout].
  destruct(stack_ok _ P) as [[L H] Al];set (top:=common_top pol e) in *.
  assert (SP:regs(machine a) 4%nat=top-104).
@@ -67,6 +68,7 @@ Proof.
  - exact AX.
  - exact Paid.
  - exact (segment_wf _ _ _ _ _ (PrepareOutputs.words _ _ _ _ _ _ A) Next).
+ - eapply PreparedInputs.keep_encodings;[|exact Enc]. intros x X;cbn [LinkedRun.finish machine];rewrite M;apply (PreparedInputs.through_tables _ _ _ _ _ _ P A),X.
  - constructor;cbn [LinkedRun.finish machine];[now rewrite M|now rewrite M|now rewrite M|split;[now rewrite M|now rewrite RBP]|now rewrite M].
  - destruct Outputs as [_ [_ [_ [S _]]]];cbn [LinkedRun.finish machine];rewrite (G 4%nat 15%nat eq_refl),<-S;f_equal;ring.
  - destruct Outputs as [_ [_ [_ [_ D]]]];intros Eq;cbn [LinkedRun.finish machine];unfold PrepareOutputs.dest;rewrite (G 0%nat 3%nat eq_refl),<-(D Eq);f_equal;ring.
@@ -83,8 +85,8 @@ Qed.
 Definition observe pol bias e p ks:=bind (PrepareOutputs.observe pol bias e p ks) (fun '(a,ak)=>option_map (fun q=>(q,ak)) (execute bias a)).
 Theorem from_eligible pol bias entry e before p ks : placement e -> loaded pol bias (mem e) (writable e) ->
  (bias+DecoderFrame.origin) mod 64=0 -> EligibleLanes.post pol bias e before p -> EligibilityFrame.context pol bias entry e p ->
- regs(machine p) 14%nat<>0 -> exists q bank,observe pol bias e p ks=Some(q,bank) /\ result pol bias entry e q.
+ PreparedInputs.encodings e (machine p) -> regs(machine p) 14%nat<>0 -> exists q bank,observe pol bias e p ks=Some(q,bank) /\ result pol bias entry e q.
 Proof.
- intros P I Al E C Live;destruct(PrepareOutputs.from_eligible _ _ _ _ _ ks P I Al E Live) as [a [ak [r [Run A]]]].
- destruct(checked _ _ _ _ _ _ _ _ P I E C A) as [q [End [Q _]]];exists q,ak;split;[unfold observe;rewrite Run;cbn [bind];now rewrite End|exact Q].
+ intros P I Al E C Enc Live;destruct(PrepareOutputs.from_eligible _ _ _ _ _ ks P I Al E Live) as [a [ak [r [Run A]]]].
+ destruct(checked _ _ _ _ _ _ _ _ P I E C Enc A) as [q [End [Q _]]];exists q,ak;split;[unfold observe;rewrite Run;cbn [bind];now rewrite End|exact Q].
 Qed.
