@@ -21,11 +21,9 @@ Proof.
  destruct Again as [At [Stack [AX [Memory [Log [Args [Left Kept]]]]]]].
  assert (Paid:accounted e (writable e) q) by
    (split;[rewrite Log;apply Acc|intros x;rewrite Memory,Log;apply Acc]).
- destruct(RejectDispatch.resume pol bias pc text e q ScatterCode P I Range Len Map Apart Paid At Stack Args Left
-    ltac:(now rewrite AX) N Idx ltac:(now rewrite Memory)
+ destruct(finish_checked pol bias pc text e q ScatterCode ExitCode P I Range Len Map Apart N Idx Paid At Stack Args Left
+    ltac:(now rewrite AX) ltac:(now rewrite Memory)
     ltac:(split;[now rewrite Memory|now rewrite Kept]) ltac:(now rewrite Memory))
-   as [cont [Dispatch [Continued [Stored [Saved Octets]]]]].
- destruct(RejectFinish.next _ _ _ _ _ ExitCode P Map Apart Continued Saved) as [last [Exit Result]].
- exists(classify cont last);split;[unfold execute,finish_chunk;rewrite Unwind;cbn [bind];rewrite Dispatch;cbn [bind];now rewrite Exit|].
- apply classified with (p:=cont) (q:=last);[exact P|exact (proj2(proj2(proj2 Continued)))|exact Result|exact Stored|exact Octets].
+   as [r [Finish Post]].
+ exists r;split;[unfold execute;now rewrite Unwind|exact Post].
 Qed.

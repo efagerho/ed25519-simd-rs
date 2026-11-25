@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool Lia.
-From Machine Require Import execution.WordSemantics execution.WordBounds execution.LinkedCalls execution.ScalarBytes execution.LinkedRun memory.ByteMemory.
+From Machine Require Import execution.WordSemantics execution.WordBounds execution.LinkedCalls execution.ScalarBytes execution.LinkedRun execution.MappedFetch memory.MemoryGeometry memory.ByteMemory.
 From Ed25519Simd.VerifyBatch Require Import Policy Rows Image Return BatchScalar PrepareUnwind RejectDispatch RejectFinish.
 Local Open Scope Z_scope.
 
@@ -41,6 +41,24 @@ Proof.
  rewrite (word_fits _ N) in More;destruct(regs e 6%nat <? 8) eqn:Less;[discriminate|].
  apply Z.ltb_ge in Less;unfold Scatter.count;destruct (Z.eq_dec (regs e 6%nat) 8) as [Full|NotFull];
    [rewrite Full in More;discriminate|lia].
+Qed.
+
+Theorem finish_checked pol bias pc text e q :
+ RejectDispatch.bound pc text -> RejectFinish.bound text -> placement e -> LoadedImage.loaded pol bias (mem e) (writable e) ->
+ fits64 (bias+pc) (Z.of_nat(length text)) -> offset Continue<Z.of_nat(length text) ->
+ mapped (mem e) (bias+pc) text -> (forall x,bias+pc<=x<bias+pc+Z.of_nat(length text)->~writable e x) ->
+ (0<Scatter.count e)%nat -> Scatter.indices e -> accounted e (writable e) q ->
+ ip q=word(bias+pc+offset Prepared) -> regs(machine q) 4%nat=Rows.frame e -> Prologue.output_registers e (machine q) ->
+ regs(machine q) 12%nat=Prologue.rows_left (regs e 6%nat) -> regs(machine q) 0%nat mod 2^32=0 ->
+ StageEntry.metadata e (mem(machine q)) -> StageEntry.saved_caller e (machine q) -> byte_memory(mem(machine q)) ->
+ exists r,finish_chunk bias pc text q=Some r /\ post (bias+pc) e r.
+Proof.
+ intros Code Exit P I Range Len Map Apart N Idx Paid PC SP Args Left Zero Meta Saved Bytes.
+ destruct(RejectDispatch.resume pol bias pc text e q Code P I Range Len Map Apart Paid PC SP Args Left Zero N Idx Meta Saved Bytes)
+   as [cont [Dispatch [Continued [Stored [Kept Octets]]]]].
+ destruct(RejectFinish.next _ _ _ _ _ Exit P Map Apart Continued Kept) as [last [End Result]].
+ exists(classify cont last);split;[unfold finish_chunk;rewrite Dispatch;cbn [bind];now rewrite End|].
+ apply classified with (p:=cont) (q:=last);[exact P|exact (proj2(proj2(proj2 Continued)))|exact Result|exact Stored|exact Octets].
 Qed.
 
 Theorem final_bytes pol bias pc text e c masks r :
