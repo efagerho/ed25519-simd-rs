@@ -9,20 +9,22 @@ Local Open Scope Z_scope.
 
 (* Apply the linked full-product theorem to the CPU actually invoked by the
    candidate. This component exposes the returned point as a word buffer. *)
-Theorem checked pol bias e p t : loaded pol bias (mem e) (writable e) -> Tables.mapped e bias ->
- ProductRun.geometry (HashLayout.chunk pol e bias) -> LadderEntry.entry pol bias e p t ->
- let run:=FullLadder.Audit.execution bias (machine t) (LadderEntry.full pol) in
+Definition meaning pol bias e t:Prop:= let run:=FullLadder.Audit.execution bias (machine t) (LadderEntry.full pol) in
  (exists out,run out) /\ forall out,run out -> strict out /\
  forall j A,(j<8)%nat -> HashLayout.eligible pol e j ->
  Policy.decodes (little_endian(key_bytes(HashLayout.row e j))) A ->
  represents_point (LadderEntry.full pol) (point_values out j)
    (plus (scale (little_endian(s_bytes(HashLayout.row e j))) generator)
          (scale (-Policy.challenge(HashLayout.row e j)) A)).
+
+Theorem checked pol bias e p t : loaded pol bias (mem e) (writable e) -> Tables.mapped e bias -> Candidate.constants e ->
+ ProductRun.geometry (HashLayout.chunk pol e bias) -> LadderEntry.entry pol bias e p t ->
+ meaning pol bias e t.
 Proof.
- intros I Map G E run;destruct(LadderLayout.checked _ _ _ _ _ G E) as [P V].
+ intros I Map Const G E;unfold meaning;cbv zeta;destruct(LadderLayout.checked _ _ _ _ _ G E) as [P V].
  destruct(LadderEntry.arguments _ _ _ _ _ E) as [_ [_ [_ [_ [_ [_ Mode]]]]]].
  destruct(FullLadder.Audit.full_product FullLadder.Object.assembled_full_ladder_correct bias (machine t)
-   (LadderEntry.full pol) generator (LadderTables.key e) P Mode V (LadderTables.supplied _ _ _ _ _ I Map E))
+   (LadderEntry.full pol) generator (LadderTables.key e) P Mode V (LadderTables.supplied _ _ _ _ _ I Map Const E))
    as [Live Result];split;[exact Live|].
  intros out R;destruct(Result out R) as [Bounds [Points _]];split;[exact Bounds|].
  intros j A J On Key;specialize(Points j J).

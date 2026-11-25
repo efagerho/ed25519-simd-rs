@@ -3,7 +3,7 @@ From Machine Require Import execution.LinkedCalls execution.LinkedRun memory.Wri
 From Curve25519.group Require Import Affine PrimeField Decompression.
 From Ed25519Simd.FullLadder Require Import Operands.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage.
-From Ed25519Simd.VerifyBatch Require LadderEntry TableCertificate.
+From Ed25519Simd.VerifyBatch Require LadderEntry Tables.
 Local Open Scope Z_scope.
 
 (* Invalid lanes select the read-only identity table. For every decodable
@@ -31,10 +31,10 @@ Proof.
  - intros k K;change (0<=k<8) in K;unfold extent;lia.
 Qed.
 
-Theorem supplied pol bias e p t : loaded pol bias (mem e) (writable e) -> Tables.mapped e bias ->
+Theorem supplied pol bias e p t : loaded pol bias (mem e) (writable e) -> Tables.mapped e bias -> Candidate.constants e ->
  LadderEntry.entry pol bias e p t -> valid_tables (machine t) generator (key e).
 Proof.
- intros I Map E;destruct(Tables.loaded _ _ TableCertificate.static_tables_correct Map) as [Base Id].
+ intros I Map [Base Id] E.
  destruct Map as [[Bptr _] [Iptr _]];pose proof(LadderEntry.writes _ _ _ _ _ E) as Paid.
  destruct(LadderEntry.arguments _ _ _ _ _ E) as [_ [_ [Ptr [Barg _]]]].
  pose proof(LadderEntry.operands _ _ _ _ _ E) as Data.
