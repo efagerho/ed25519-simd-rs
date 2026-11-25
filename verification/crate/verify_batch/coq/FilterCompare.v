@@ -50,8 +50,8 @@ Proof.
    destruct(mapped_now _ _ _ I _ _ _ Acc (BatchDecode.decode_in Dalek)) as [D _].
    apply NativeScale.read_literal with (bs:=DecoderFrame.code);[exact D|apply (proj1(symbols _ _ _ _ I _ _ (BatchDecode.decode_in Dalek)))|
       lia|change (0xb88+8<=2984);lia|vm_compute;reflexivity]. }
- intro j;unfold k,RootMasks.cmp,RootMasks.low;rewrite PredicateBlock.compare;cbn [PredicateBlock.operand Nat.eqb orb].
- unfold RootMasks.gate,RootMasks.mask1;rewrite PredicateBlock.compare;cbn [PredicateBlock.operand Nat.eqb orb].
+ intro j;unfold k,RootMasks.cmp,RootMasks.low;rewrite PredicateBlock.compare;cbn [MaskedWords.holds PredicateBlock.operand Nat.eqb orb].
+ unfold RootMasks.gate,RootMasks.mask1;rewrite PredicateBlock.compare;cbn [MaskedWords.holds PredicateBlock.operand Nat.eqb orb].
  rewrite Lit,(Other j 29%nat ltac:(discriminate) ltac:(discriminate)),C,(Other j 0%nat ltac:(discriminate) ltac:(discriminate)).
  assert (V:vectors v j 10%nat=RootMasks.high (vectors s j)) by (rewrite Vec;reflexivity).
  rewrite V;unfold RootMasks.high,Limbs.high_test;rewrite Z.add_0_r;destruct(j<?8)%nat;cbn;now rewrite ?andb_true_r.
