@@ -9,16 +9,16 @@ initial contents of the output array and any batch length, including zero.
 [Rust entry points](../../../src/verifier/driver.rs)
 
 For an admissible call the master theorem provides a return and the store log
-of its instruction-level entry prefix. The zero-length call executes through the outer `ret`, as does a single chunk
-with no lane passing the scalar and paired-decoding checks. For other nonempty
+of its instruction-level entry prefix. The zero-length call executes through the
+outer `ret`, as does a single chunk with no lane passing the scalar and paired-decoding checks. For other nonempty
 batches the same log reaches the next chunk after a rejection, or follows an
 eligible lane into the key-table builder. On that path the log includes its
 six register saves, the 48 stores that initialize the eight identity entries,
-and the nested calls for the first cached coordinate. The proof reads back
-all 20 words per identity entry and relates each lane’s first product, 2dT,
-to the T limbs in the decoded point supplied by the caller. A lane is eligible
-here exactly when S is canonical and
-both encoded Y coordinates admit an Edwards X coordinate. The final signature
+and the nested arithmetic calls for the first multiple. The proof reads back
+all 20 words per identity entry and relates the four cached coordinates
+(Y−X, Y+X, 2dT, 2Z) to the limbs of the decoded point supplied by the caller.
+A lane is eligible here exactly when S is canonical and both encoded Y
+coordinates admit an Edwards X coordinate. The final signature
 verdict on these continuing paths comes from grouped execution on the original
 inputs. Every such return has
 status 1, resumes at the caller's return address with RSP advanced by eight,
@@ -193,7 +193,7 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    offsets used to apply each component result. The decoded scorer's entry
    RSP is eight bytes below its aligned point buffer. The nested write regions
    exclude the wrapper's five saved GPRs and its caller's return word.
-   [Rejection call and return](coq/RejectedPath.v) · [Native dispatch](coq/FirstDispatch.v) · [Key-table initialization and first coordinate](coq/TableStart.v) · [Caller regions](coq/CallWrites.v) · [Nested regions](coq/NestedRegions.v) ·
+   [Rejection call and return](coq/RejectedPath.v) · [Native dispatch](coq/FirstDispatch.v) · [Key-table initialization](coq/TableStart.v) · [Native cached coordinates](coq/TableValues.v) · [Caller regions](coq/CallWrites.v) · [Nested regions](coq/NestedRegions.v) ·
    [Scorer alignment](coq/Score.v) · [Mapped image](coq/LoadedImage.v)
 6. **The remaining boundary.** For batches longer than eight or with an eligible lane in the first
    chunk, the verdict and final-memory guarantee still use grouped execution. It permits arbitrary
