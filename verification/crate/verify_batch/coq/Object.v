@@ -84,10 +84,11 @@ Lemma after_reject pol entry e r : rejected_inputs pol e -> RejectExecution.post
  at_boundary pol entry e (FirstDispatch.after_reject r).
 Proof. destruct r;cbn;auto. Qed.
 
-Lemma dispatch_correct pol bias pc text e c ks : first_chunk pol bias pc text e c ks ->
+Lemma dispatch_correct pol bias pc text e c ks : placement e -> LoadedImage.loaded pol bias (mem e) (writable e) ->
+ first_chunk pol bias pc text e c ks ->
  exists b,FirstDispatch.run pol bias pc text e c ks=Some b /\ at_boundary pol (bias+pc) e b.
 Proof.
- intros [s [Scalar [_ [_ [Checked Rejected]]]]];destruct(Z.eqb_spec (regs(LinkedRun.machine s) 0%nat mod 2^32) 0) as [Z|Live].
+ intros Place Loaded [s [Scalar [_ [_ [Checked Rejected]]]]];destruct(Z.eqb_spec (regs(LinkedRun.machine s) 0%nat mod 2^32) 0) as [Z|Live].
  - destruct(Rejected Z) as [Invalid [r [End Post]]];exists(FirstDispatch.after_reject r);split;
    [eapply FirstDispatch.scalar_path;[exact Scalar|exact Z|exact End]|now apply after_reject].
  - destruct(Checked Live) as [d [Run [_ [bank [t [Bank [Trace [Check Reject]]]]]]]].
@@ -96,7 +97,8 @@ Proof.
    destruct(Z.eqb_spec (regs(LinkedRun.machine(EligibleLanes.stopped t)) 14%nat) 0) as [Zero|Yes].
    + destruct(Reject Zero) as [r [End Post]];rewrite End;exists(FirstDispatch.after_reject r);split;[reflexivity|].
      apply after_reject;[exact (EligibleLanes.zero_rejects _ _ _ _ _ (proj2 Check) Zero)|exact Post].
-   + eexists;split;[reflexivity|exact (conj (EligibleLanes.writes _ _ _ _ _ (proj2 Check)) (proj1(EligibleLanes.live_branch _ _ _ _ _ (proj2 Check)) Yes))].
+   + destruct(TableEntry.checked _ _ _ _ _ Place Loaded (proj2 Check) Yes) as [q [Call Args]];rewrite Call.
+     eexists;split;[reflexivity|exact (conj (TableEntry.writes _ _ _ _ _ Args) (proj1(EligibleLanes.live_branch _ _ _ _ _ (proj2 Check)) Yes))].
 Qed.
 
 Lemma rejected_verdict pol bias pc text e q : admissible pol bias pc text e -> (0<count e)%nat ->
@@ -118,7 +120,7 @@ Corollary single_ineligible_return pol pc text : batch_contract pol pc text ->
  forall i,(i<count e)%nat -> mem(LinkedRun.machine q)(output e+Z.of_nat(position e i))=0.
 Proof.
  intros Main bias e cf masks A [N Size] Bad.
- destruct(dispatch_correct _ _ _ _ _ _ _ (machine_scalar_return _ _ _ Main _ _ cf masks A N))
+ destruct(dispatch_correct _ _ _ _ _ _ _ (proj1(batch_inputs _ _ _ _ _ A N)) (callee_image _ _ _ _ _ A N) (machine_scalar_return _ _ _ Main _ _ cf masks A N))
     as [[q|q|q] [Run Done]].
  - exists q;split;[exact Run|split;[exact (rejected_verdict _ _ _ _ _ _ A N Done)|]].
    destruct Done as [[Paid [[_ Zeros] _]] _];split;[exact Paid|intros i I;apply Zeros;lia].
@@ -136,12 +138,12 @@ Lemma observed_correct pol pc text bias e carry masks :
 Proof.
  intros Image Caller Empty Batch;destruct (grouped _ _ _ Image _ _ Caller) as [Exists Sound].
  assert (Dispatch:forall b,(0<count e)%nat -> FirstDispatch.run pol bias pc text e carry masks=Some b -> at_boundary pol (bias+pc) e b).
- { intros b N Run;destruct(dispatch_correct _ _ _ _ _ _ _ (Batch N)) as [v [Eq Post]];rewrite Run in Eq;now injection Eq as <-. }
+ { intros b N Run;destruct(dispatch_correct _ _ _ _ _ _ _ (proj1(batch_inputs _ _ _ _ _ Caller N)) (callee_image _ _ _ _ _ Caller N) (Batch N)) as [v [Eq Post]];rewrite Run in Eq;now injection Eq as <-. }
  split.
  - destruct (Nat.eqb_spec (count e) 0) as [Z|Live].
    + specialize (Empty Z);unfold empty_mapped in Empty;destruct(empty_return e) as [ip f].
      exists nil,ip,f;apply observe_empty;[exact Z|exact (proj1 (Empty carry))].
-   + assert (N:(0<count e)%nat) by lia. destruct(dispatch_correct _ _ _ _ _ _ _ (Batch N)) as [[q|q|q] [Run _]].
+   + assert (N:(0<count e)%nat) by lia. destruct(dispatch_correct _ _ _ _ _ _ _ (proj1(batch_inputs _ _ _ _ _ Caller N)) (callee_image _ _ _ _ _ Caller N) (Batch N)) as [[q|q|q] [Run _]].
      * do 3 eexists;exact (observe_rejected _ _ _ _ _ _ _ q N Run).
      * destruct Exists as [ip [f R]];do 3 eexists;exact (observe_batch _ _ _ _ _ _ _ q _ _ N (or_introl Run) R).
      * destruct Exists as [ip [f R]];do 3 eexists;exact (observe_batch _ _ _ _ _ _ _ q _ _ N (or_intror Run) R).

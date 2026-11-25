@@ -9,11 +9,13 @@ initial contents of the output array and any batch length, including zero.
 [Rust entry points](../../../src/verifier/driver.rs)
 
 For an admissible call the master theorem provides a return and the store log
-of its instruction-level entry prefix. The zero-length call and every single-chunk preparation rejection execute
-through the outer `ret`. This includes a canonical S whose public key or R
-fails decoding. For other nonempty batches the same log reaches the next
-chunk after a rejection, or reaches the key-table preparation code when an
-eligible lane exists. A lane is eligible here exactly when S is canonical and
+of its instruction-level entry prefix. The zero-length call executes through the outer `ret`, as does a single chunk
+with no lane passing the scalar and paired-decoding checks. For other nonempty
+batches the same log reaches the next chunk after a rejection, or follows the
+call into the key-table builder when an eligible lane exists. The builder
+receives the decoded public-key point and the destination for eight tables.
+Its return address is read back from the actual stack. A lane is eligible
+here exactly when S is canonical and
 both encoded Y coordinates admit an Edwards X coordinate. The final signature
 verdict on these continuing paths comes from grouped execution on the original
 inputs. Every such return has
@@ -189,7 +191,7 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    offsets used to apply each component result. The decoded scorer's entry
    RSP is eight bytes below its aligned point buffer. The nested write regions
    exclude the wrapper's five saved GPRs and its caller's return word.
-   [Rejection call and return](coq/RejectedPath.v) · [Native dispatch](coq/FirstDispatch.v) · [Caller regions](coq/CallWrites.v) · [Nested regions](coq/NestedRegions.v) ·
+   [Rejection call and return](coq/RejectedPath.v) · [Native dispatch](coq/FirstDispatch.v) · [Key-table call](coq/TableEntry.v) · [Caller regions](coq/CallWrites.v) · [Nested regions](coq/NestedRegions.v) ·
    [Scorer alignment](coq/Score.v) · [Mapped image](coq/LoadedImage.v)
 6. **The remaining boundary.** For batches longer than eight or with an eligible lane in the first
    chunk, the verdict and final-memory guarantee still use grouped execution. It permits arbitrary
