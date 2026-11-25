@@ -26,7 +26,8 @@ Inductive instruction :=
 | AndImmediate (r:nat) (mask:Z) | BroadcastRip (r:nat) (disp:Z)
 | AlignedRow (i:VectorMoves.aligned_row)
 | Shl32 (r:nat) (imm:Z) | Or32 (dst src:nat) | ZeroUpper
-| Shr32 (r:nat) (imm:Z) | And32 (dst src:nat) | ExtendByte (dst src:nat) | StoreByte (r:nat) (a:addr) | Dec32 (r:nat) | Inc32 (r:nat).
+| Shr32 (r:nat) (imm:Z) | And32 (dst src:nat) | ExtendByte (dst src:nat) | StoreByte (r:nat) (a:addr) | Dec32 (r:nat) | Inc32 (r:nat)
+| CompareMemImm (a:addr) (imm:Z) | SetNotEqual (d:nat).
 
 Definition little32 bs := read_le 4 (fun i=>nth (Z.to_nat i) bs 0) 0.
 (* REX-prefixed opcode 89 /r with a register destination. REX.R extends the source
@@ -56,6 +57,8 @@ Definition base_lea rex m tail :=
  then Some(length code,LeaG r (Address b None d)) else None.
 
 Definition decode (bs:list Z) : option (nat*instruction) := match bs with
+ | 0x48::0x83::0x7b::disp::imm::_=>Some(5%nat,CompareMemImm (Address 3 None (signed_value 128 disp)) (signed_value 128 imm))
+ | 0x0f::0x95::m::_=>if (0xc0<=?m)&&(m<?0xc4) then Some(3%nat,SetNotEqual (Z.to_nat(m-0xc0))) else None
  | 0xc1::m::imm::_=>if (0xe0<=?m)&&(m<?0xe8) then Some(3%nat,Shl32 (Z.to_nat(m-0xe0)) imm) else
     if (0xe8<=?m)&&(m<?0xf0) then Some(3%nat,Shr32 (Z.to_nat(m-0xe8)) imm) else None
  | 0x44::0x0f::0xb6::0xf8::_=>Some(4%nat,ExtendByte 15 0)
@@ -223,6 +226,8 @@ Definition step origin off n op s carry : option (state*list store) :=
  | Store8 i=>let '(out,ws):=byte_step (word (origin+off)) i s in
       Some (State (Running next) out carry,ws)
  | CompareImm r k=>cmp (word (regs s r)) k
+ | CompareMemImm a imm=>cmp (read_word (mem s) (effective s a)) (word imm)
+ | SetNotEqual d=>option_map (fun z=>(State(Running next) (low_byte s d (Z.b2z(negb z))) carry,[])) (flag s)
  | Compare l r=>cmp (word (regs s l)) (word (regs s r))
  | Test r=>go (with_zf s (word(regs s r)=?0)) (Some false)
  | OneEax=>go (set s 0 1) carry
@@ -342,6 +347,7 @@ Proof.
  - destruct (_=?0), (VectorMoves.writing i);intro E;try discriminate;injection E as <- <-;reflexivity.
  - destruct (_=?0);intro E;injection E as <- <-;reflexivity.
  - destruct (_=?0);intro E;injection E as <- <-;reflexivity.
+ - destruct (flag s);intro E;try discriminate;injection E as <- <-;reflexivity.
 Qed.
 Theorem steps_memory o text s ws t : steps o text s ws t ->
  mem (cpu_state t)=WriteTrace.replay (mem (cpu_state s)) ws.
