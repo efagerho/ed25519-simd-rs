@@ -36,7 +36,12 @@ return in the model and covers every permitted return.
    follows that invocation through its return. It proves every staged word
    equals the limb selected by the original signed digits and that replaying
    the frame and transpose stores gives the returned memory byte for byte.
-   [First call](coq/StageEntry.v) · [Staging return](coq/FirstStage.v)
+   Starting at the return address, `seed_execution` fetches the seed from
+   the same memory. It confines every store to the 1,280-byte point and
+   recovers all 160 output limbs, including the carry added to the low
+   limbs that the seed stored earlier.
+   [First call](coq/StageEntry.v) · [Staging return](coq/FirstStage.v) ·
+   [Seed execution and store log](coq/NativeSeed.v)
 
    Check the projection at later call boundaries. `Program.walk` follows the
    linked relative targets and both conditional branches. It models the

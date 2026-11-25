@@ -4,7 +4,7 @@ From Curve25519.group Require Import Affine Representation.
 From ProofArithmetic Require Import Radix.
 From Ed25519Simd Require Import Wide51.
 From Ed25519Simd.FullLadder Require Import LinkedBytes Program Operands ScalarAction Execution Native Composition.
-From Ed25519Simd.FullLadder Require StageEntry.
+From Ed25519Simd.FullLadder Require StageEntry NativeSeed.
 From Machine Require Import memory.ByteMemory memory.WriteTrace.
 From Machine Require abi.SysV execution.MappedFetch.
 From Ed25519Simd.LadderStep Require Audit LinkedBytes.
@@ -46,7 +46,8 @@ Record first_stage_result slide s u (ip:Z) v : Prop := {
  at_continuation : ip=slide+entry_pc+54;
  restored_rsp : regs v 4%nat=base_of s;
  saved : forall r,In r SysV.sysv_saved -> regs v r=regs u r;
- bytes : byte_memory (mem v);
+ point_pointer : regs v 3%nat=regs s 7%nat;
+ returned_words : well_formed v;
  account : forall x,mem v x=WriteTrace.replay (mem s) (stage_stores slide s u) x;
  writes : confined (fun x=>regs s 4%nat-5032<=x<regs s 4%nat) (stage_stores slide s u);
  rows : forall k i j,(i<SA.columns k)%nat -> (j<8)%nat ->
@@ -64,6 +65,10 @@ Record full_ladder_contract : Prop := {
  first_stage_return : forall slide s u, placement slide s -> valid_inputs (slide+stage_pc) (pad_of s) s ->
    StageEntry.entry_state slide s u ->
    let '(ip,v):=S.run (slide+stage_pc) u in first_stage_result slide s u ip v;
+ seed_execution : forall slide s v c,placement slide s -> well_formed v ->
+   regs v 3%nat=regs s 7%nat -> regs v 4%nat=base_of s ->
+   MappedFetch.mapped (mem v) (slide+entry_pc) symbol_bytes ->
+   exists u ws,NativeSeed.run (slide+entry_pc) v c u ws /\ NativeSeed.result (regs s 7%nat) (base_of s) v u ws;
  full_product : forall slide s full B A, placement slide s ->
    regs s 9%nat=bits full -> valid_inputs (slide+stage_pc) (pad_of s) s ->
    valid_tables s B A ->

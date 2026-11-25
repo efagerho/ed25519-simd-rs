@@ -1,16 +1,41 @@
 From Coq Require Import ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage.
-From Ed25519Simd.VerifyBatch Require ScoreProgress StrictCandidateCall.
+From Ed25519Simd.VerifyBatch Require ScoreProgress StrictCandidateCall LadderSeed.
 Local Open Scope Z_scope.
 
 Definition rejected pol screen:=match pol with Dalek=>regs(machine screen) 12%nat=?0 | Zip215=>false end.
-Definition observed pol bias screen stop:=match pol with
+Definition staging pol bias screen stop:=match pol with
  | Zip215=>stop=screen
  | Dalek=>exists candidate,StrictCandidateCall.execute bias screen=Some candidate /\
     ScoreProgress.product Dalek bias candidate stop end.
-Definition selected pol bias e stop:=exists ladder,LadderStage.observed bias ladder stop /\
- LadderStage.selected ladder stop /\ LadderProduct.meaning pol bias e ladder.
+Definition observed pol bias screen stop:=exists staged,staging pol bias screen staged /\
+ LadderSeed.execute bias staged=Some stop.
+Definition selected pol bias e stop:=exists ladder staged,LadderStage.observed bias ladder staged /\
+ LadderStage.selected ladder staged /\ LadderProduct.meaning pol bias e ladder /\
+ LadderSeed.execute bias staged=Some stop /\ LadderSeed.seeded ladder staged stop /\ LadderSeed.odd_point e ladder stop.
+
+Lemma stage_checked pol bias pc e h r caller score screen :
+ placement e -> loaded pol bias (mem e) (writable e) -> ProductRun.geometry (HashLayout.chunk pol e bias) ->
+ HashLayout.active pol e -> ScoreStart.reached pol bias pc e h r caller score -> ScoreProgress.observed pol bias score screen ->
+ rejected pol screen=false ->
+ (exists staged,staging pol bias screen staged) /\
+ (forall staged,staging pol bias screen staged -> exists mid ladder,
+    LadderEntry.entry pol bias e mid ladder /\ LadderStage.observed bias ladder staged).
+Proof.
+ intros P I G Live Start Screen On.
+ destruct pol.
+ - split;[exists screen;reflexivity|intros stop ->].
+   exact (proj2(ScoreProgress.zip _ _ _ _ _ _ _ P I G Start) _ Screen).
+ - change ((regs(machine screen) 12%nat=?0)=false) in On;apply Z.eqb_neq in On.
+   destruct(proj2(StrictScreen.with_frame _ _ _ _ _ _ _ P I Live Start) _ Screen) as [D F].
+   destruct(StrictCandidateCall.checked _ _ _ _ _ _ _ P I (ScoreStart.caller _ _ _ _ _ _ _ _ Start) D F On)
+      as [candidate [Call [E _]]].
+   destruct(ScoreProgress.product_checked _ _ _ _ P I G E) as [[stop Product] Sound].
+   split;[exists stop,candidate;auto|].
+   intros q [p [Run Staged]];rewrite Call in Run;injection Run as <-.
+   exact (Sound _ Staged).
+Qed.
 
 Theorem checked pol bias pc e h r caller score screen :
  placement e -> loaded pol bias (mem e) (writable e) -> ProductRun.geometry (HashLayout.chunk pol e bias) ->
@@ -21,21 +46,15 @@ Theorem checked pol bias pc e h r caller score screen :
  (forall stop,observed pol bias screen stop -> accounted e (writable e) stop /\ selected pol bias e stop).
 Proof.
  intros P I G M Tables Live Start Screen On.
- assert (Finish:forall stop mid ladder,LadderEntry.entry pol bias e mid ladder -> LadderStage.observed bias ladder stop ->
-      accounted e (writable e) stop /\ selected pol bias e stop).
- { intros stop mid ladder E End;destruct(proj2(LadderStage.checked _ _ _ _ _ I G E) _ End) as [Paid [_ Rows]].
-   split;[exact Paid|exists ladder;split;[exact End|split;[exact Rows|]]].
-   eapply LadderProduct.checked;[exact I|exact M|exact Tables|exact G|exact E]. }
- destruct pol.
- - split;[exists screen;reflexivity|intros stop ->].
-   destruct(proj2(ScoreProgress.zip _ _ _ _ _ _ _ P I G Start) _ Screen) as [mid [ladder [E End]]].
-   exact (Finish _ _ _ E End).
- - change ((regs(machine screen) 12%nat=?0)=false) in On;apply Z.eqb_neq in On.
-   destruct(proj2(StrictScreen.with_frame _ _ _ _ _ _ _ P I Live Start) _ Screen) as [D F].
-   destruct(StrictCandidateCall.checked _ _ _ _ _ _ _ P I (ScoreStart.caller _ _ _ _ _ _ _ _ Start) D F On)
-      as [candidate [Call [E _]]].
-   destruct(ScoreProgress.product_checked _ _ _ _ P I G E) as [[stop Product] Sound].
-   split;[exists stop,candidate;auto|].
-   intros q [p [Run Staged]];rewrite Call in Run;injection Run as <-.
-   destruct(Sound _ Staged) as [mid [ladder [Entry End]]];exact (Finish _ _ _ Entry End).
+ destruct(stage_checked _ _ _ _ _ _ _ _ _ P I G Live Start Screen On) as [[staged Stage] Sound].
+ split.
+ - destruct(Sound _ Stage) as [mid [ladder [E End]]].
+   destruct(LadderSeed.checked _ _ _ _ _ _ I G E End) as [q [Run _]];exists q,staged;auto.
+ - intros stop [v [S Seed]];destruct(Sound _ S) as [mid [ladder [E End]]].
+   destruct(LadderSeed.checked _ _ _ _ _ _ I G E End) as [q [Run [Paid [_ [Actual _]]]]].
+   rewrite Seed in Run;injection Run as <-;split;[exact Paid|exists ladder,v;split;[exact End|split]].
+   + exact (proj2(proj2(proj2(LadderStage.checked _ _ _ _ _ I G E) _ End))).
+   + split;[eapply LadderProduct.checked;eassumption|split;[exact Seed|split;[exact Actual|]]].
+     eapply LadderSeed.represents;try eassumption.
+     exact (proj2(proj2(proj2(LadderStage.checked _ _ _ _ _ I G E) _ End))).
 Qed.

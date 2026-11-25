@@ -328,3 +328,15 @@ Example reload_stack_pointer_argument :
      flag(ScalarBytes.cpu_state t)=Some false /\ ScalarBytes.cf t=Some true /\ ScalarBytes.loc t=ScalarBytes.Running 4
  | _=>False end.
 Proof. repeat split;reflexivity. Qed.
+
+Example immediate64_broadcast_to_extended_register :
+ let code:=[0x48;0xb8;1;2;3;4;5;6;7;0xff;0x62;0x62;0xfd;0x48;0x7c;0xd0] in
+ let s:=CPU (fun _=>9) (fun _ _=>7) (Some true) (fun _=>0) in
+ ScalarBytes.decode [0x48;0xb8;1;2;3;4;5;6;7]=None /\
+ ScalarBytes.decode [0x62;0x62;0xfd;0x48;0x7c;0xd1]=None /\
+ match MappedFetch.run 2 (ScalarBytes.fetch 0 code) (ScalarBytes.State (ScalarBytes.Running 0) s (Some false)) with
+ | Some(t,[])=>let v:=ScalarBytes.cpu_state t in regs v 0%nat=0xff07060504030201 /\
+   vectors v 7%nat 26%nat=0xff07060504030201 /\ vectors v 0%nat 10%nat=7 /\
+   flag v=Some true /\ ScalarBytes.cf t=Some false /\ ScalarBytes.loc t=ScalarBytes.Running 16
+ | _=>False end.
+Proof. repeat split;reflexivity. Qed.
