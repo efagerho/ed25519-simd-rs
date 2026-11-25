@@ -18,7 +18,9 @@ the nested arithmetic calls for all eight multiples, and the 15 stores staging
 the affine operand. The proof checks the eight-key transpose and the loaded
 permutation indices, negation biases and opmask. It follows the eight-key branch
 and all seven cached additions through their returns. For each multiple the 48
-packing stores write the 320 expected qwords to its 16 signed rows. It reads back
+packing stores write the 320 expected qwords to its 16 signed rows. The builder
+restores the six saved registers and its caller’s stack pointer, then returns
+to chunk preparation through the return address read from memory. The proof reads back
 all 20 words per identity entry and relates the four cached coordinates
 (Y−X, Y+X, 2dT, 2Z) to the limbs of the decoded point supplied by the caller.
 A lane is eligible here exactly when S is canonical and both encoded Y
@@ -197,7 +199,7 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    offsets used to apply each component result. The decoded scorer's entry
    RSP is eight bytes below its aligned point buffer. The nested write regions
    exclude the wrapper's five saved GPRs and its caller's return word.
-   [Rejection call and return](coq/RejectedPath.v) · [Native dispatch](coq/FirstDispatch.v) · [Key-table initialization](coq/TableStart.v) · [Native cached coordinates](coq/TableValues.v) · [Table staging and transpose](coq/TablePackedInputs.v) · [Signed row contents](coq/TableSignedWords.v) · [Eight-multiple loop](coq/TableRounds.v) · [Caller regions](coq/CallWrites.v) · [Nested regions](coq/NestedRegions.v) ·
+   [Rejection call and return](coq/RejectedPath.v) · [Native dispatch](coq/FirstDispatch.v) · [Key-table initialization](coq/TableStart.v) · [Native cached coordinates](coq/TableValues.v) · [Table staging and transpose](coq/TablePackedInputs.v) · [Signed row contents](coq/TableSignedWords.v) · [Eight-multiple loop](coq/TableRounds.v) · [Builder return](coq/TableUnwind.v) · [Caller regions](coq/CallWrites.v) · [Nested regions](coq/NestedRegions.v) ·
    [Scorer alignment](coq/Score.v) · [Mapped image](coq/LoadedImage.v)
 6. **The remaining boundary.** For batches longer than eight or with an eligible lane in the first
    chunk, the verdict and final-memory guarantee still use grouped execution. It permits arbitrary
