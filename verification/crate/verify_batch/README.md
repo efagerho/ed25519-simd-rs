@@ -39,11 +39,14 @@ stores and the return-address push preserves every digest byte. Those bytes
 reach the scorer alongside the signed S digits, the decoded Edwards point R,
 and all 17 signed multiples of each decoded public key. The log covers the
 scorer’s six register saves and its aligned 1,280-byte point buffer. ZIP-215
-then calls its candidate and follows its digest reducer, including the nested
+calls its candidate immediately. Dalek calls its candidate for a nonempty
+strict R mask, after reloading the saved argument pointer from the stack.
+Both scorers follow the digest reducer, including the nested
 Montgomery reduction and the stores that pack each lane’s 64 signed digits.
 For every eligible lane these digits reconstruct the original SHA digest
 modulo L. The next linked call passes those digits, the signed S, the selected table
-pointers and the full-coordinate flag to the ladder. On that actual entry state,
+pointers and the coordinate flag to the ladder. ZIP-215 requests extended
+coordinates and Dalek requests XYZ. On that actual entry state,
 every point returned by the ladder component represents `[S]B − [k]A` for the
 original lane. The native trace continues through the first staging return.
 It accounts for the ladder prologue and transpose stores. Every staged word
@@ -61,7 +64,7 @@ is cleared, the scorer restores its six saved registers from the stack and
 jumps to scatter with a zero mask. Scatter publishes a zero byte at each live
 descriptor’s output index. The same log follows its return to the batch loop
 for more rows or through the outer `ret` for the final chunk.
-[Scorer frame](coq/ScoreSaved.v) · [Scatter and batch return](coq/ScorePublish.v)
+[Scorer frame](coq/ScoreSaved.v) · [Scatter and batch return](coq/ScorePublish.v) · [Dalek candidate call](coq/StrictCandidateCall.v)
 [SHA call](coq/HashEntry.v) · [Digest and store log](coq/NativeHash.v) ·
 [SHA return interface](coq/HashResume.v) · [Scorer entry](coq/ScoreCall.v) · [Scorer execution](coq/ScoreStart.v) · [Native challenge digits](coq/ReducedDigest.v) · [Ladder call](coq/LadderEntry.v) · [Product on the original bytes](coq/LadderProduct.v) · [First staging return](coq/LadderStage.v) · [Dalek R mask](coq/StrictRStart.v) · [Canonical Y decision](coq/StrictRCanonical.v) · [Small-order call and rejection](coq/StrictRCall.v) · [Native return](coq/StrictOrderReturn.v) · [Strict lane decision](coq/StrictScreen.v)
 

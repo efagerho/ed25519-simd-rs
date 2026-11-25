@@ -63,6 +63,7 @@ Definition decode (bs:list Z) : option (nat*instruction) := match bs with
     if (0xe8<=?m)&&(m<?0xf0) then Some(3%nat,Shr32 (Z.to_nat(m-0xe8)) imm) else None
  | 0x44::0x0f::0xb6::0xe2::_=>Some(4%nat,ExtendByte 12 2)
  | 0x48::0x89::0x3c::0x24::_=>Some(4%nat,Store64 7 (Address 4 None 0))
+ | 0x48::0x8b::0x34::0x24::_=>Some(4%nat,Load64 6 (Address 4 None 0))
  | 0xf7::m::_=>if (0xd0<=?m)&&(m<?0xd8) then Some(2%nat,Not32 (Z.to_nat(m-0xd0))) else None
  | 0x41::0x21::0xc4::_=>Some(3%nat,And32 12 0)
  | 0x49::0x8b::0x74::0x24::d::_=>Some(5%nat,Load64 6 (Address 12 None (signed_value 128 d)))

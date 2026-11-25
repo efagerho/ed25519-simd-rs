@@ -95,3 +95,5 @@ abi/FramePointer.v
 abi/FrameRestore.v
 execution/ScalarByteMemory.v
 execution/PreservedRegister.v
+execution/IndexedRegisterWords.v
+execution/PackedRegisterWords.v
