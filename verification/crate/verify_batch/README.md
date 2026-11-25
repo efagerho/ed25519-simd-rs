@@ -10,7 +10,7 @@ initial contents of the output array and any batch length, including zero.
 
 For an admissible call the master theorem provides a return and the store log
 of its instruction-level entry prefix. The zero-length call executes through the
-outer `ret`, as does a single chunk with no lane passing the scalar and paired-decoding checks. For other nonempty
+outer `ret`, as does a single chunk with no eligible lane under the selected policy. For other nonempty
 batches the same log reaches the next chunk after a rejection, or follows an
 eligible lane into the key-table builder. On that path the log includes its
 six register saves, the 48 stores that initialize the eight identity entries,
@@ -24,23 +24,24 @@ to chunk preparation through the return address read from memory. Preparation re
 eight 16-bit offsets from the linked image and stores the selected table pointers.
 A second store writes exactly eight bytes. The proof reads each one back as 0 or 1
 and identifies which original input made it 1. The common preparation routine
-restores its frame and returns 1. The ZIP-215 wrapper clears the message lengths
-of ineligible lanes, passes the original message pointers to SHA-512, and pushes its
-return address. The log then includes SHA-512's internal stores and return.
-Replaying it from the original Rust call gives every byte of memory at that
-return. For each eligible lane the 64 digest bytes in the caller's stack are
-SHA-512 of the original R, public key and message, in that order. The Dalek wrapper passes the selected table pointers and the eight
-eligibility bytes to its key filter. Its log covers the filter through its
-return, including each carry-helper call and the conditional write to those
-bytes. Dalek first compares the two cached Y±X coordinates in the selected +8
-row. If any lane ties, it compares twice Y−X with 2Z and clears exactly the
-lanes where both comparisons agree. [Pointer selection and flags](coq/PrepareOutputs.v) · [Preparation return](coq/PreparedReturn.v) · [SHA call](coq/HashEntry.v) · [SHA result and stores](coq/NativeHash.v) · [Dalek filter execution and return](coq/FilterReturned.v)
+restores its frame and returns 1. Both wrappers clear the message lengths of ineligible lanes before hashing.
+The log includes the call to SHA-512, its internal stores and its return.
+Replaying the log from the Rust entry gives every byte of memory at that
+return. For each eligible lane the 64 digest bytes on the stack are SHA-512 of
+the original R, public key and message, in that order.
+[SHA call](coq/HashEntry.v) · [Digest and store log](coq/NativeHash.v)
 
-The proof reads back
-all 20 words per identity entry and relates the four cached coordinates
-(Y−X, Y+X, 2dT, 2Z) to the limbs of the decoded point supplied by the caller.
-A lane is eligible here exactly when S is canonical and both encoded Y
-coordinates admit an Edwards X coordinate. The final signature
+Both policies require canonical S and decodable R and public-key encodings.
+For a decoded key A, the proof relates every signed cached row from −8 to +8
+to its Edwards multiple of A. Dalek reads the +8 row of each selected table
+and excludes the lane exactly when [8]A is the identity. The proof follows the
+filter through its carry-helper calls, conditional flag store and return. The
+strict wrapper tests all eight resulting eligibility bytes. If all are zero,
+the batch caller scatters zeros, even when the key and R decoded successfully.
+[Decoded public keys](coq/DecodedKey.v) · [Signed table rows](coq/PreparedTables.v) ·
+[Weak-key decision](coq/FilterMeaning.v) · [Dalek dispatch](coq/StrictDispatch.v)
+
+The final signature
 verdict on these continuing paths comes from grouped execution on the original
 inputs. Every such return has
 status 1, resumes at the caller's return address with RSP advanced by eight,
@@ -222,9 +223,9 @@ without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest b
    final contents in private storage and restores the wrapper's saved slots.
    For such an entry CPU and the same prefix log, it permits both
    0 and 1 as the final value of the first scratch byte.
-   A continuous byte-memory execution through preparation, decoding, table
-   construction, the ladder and the scoring wrappers is still needed to
-   cover every intermediate store of a complete call. The current theorem
+   The first eligible chunk reaches the SHA return. The physical continuation
+   through scoring and the loop over subsequent chunks still need to be
+   connected to the final verdict and its complete store log. The current theorem
    preserves every final byte outside the output, 25,344-byte scratch and
    16 KiB below entry RSP. [Call composition](coq/Loop.v) · [Frame model](coq/Return.v) ·
    [Shared trust surface](../../README.md#shared-audit-surface)
