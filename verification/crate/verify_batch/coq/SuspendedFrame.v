@@ -11,13 +11,21 @@ Proof.
  pose proof(Z.mod_pos_bound (common_top pol e-112-40) 64 ltac:(lia)).
  unfold common_top,Rows.frame,sp in *;destruct pol;lia.
 Qed.
-Lemma off_point sig pol e x : placement e -> DecoderSpills.area pol e x -> ~span (point e sig) 1280 x.
-Proof. intros P X;destruct(above _ _ _ X);destruct(scratch_stack _ P);
+Lemma away_stack pol e x : DecoderSpills.protected pol e x ->
+ x<link_slot pol e-1936 \/ link_slot pol e+648<=x.
+Proof.
+ intros [A|[S _]];[right;exact(proj1(above _ _ _ A))|].
+ unfold DecoderSpills.top,link_slot,DecoderFrame.top in *.
+ pose proof(Z.mod_pos_bound (common_top pol e-112-40) 64 ltac:(lia)).
+ unfold common_top,Rows.frame,sp in *;destruct pol;lia.
+Qed.
+Lemma off_point sig pol e x : placement e -> DecoderSpills.protected pol e x -> ~span (point e sig) 1280 x.
+Proof. intros P [X|[_ F]];[|apply F];destruct(above _ _ _ X);destruct(scratch_stack _ P);
  unfold span,disjoint,point,point_offset in *;destruct sig;lia. Qed.
 
 Lemma at_power pol bias e p bank t : placement e -> loaded pol bias (mem e) (writable e) ->
  (bias+DecoderFrame.origin) mod 64=0 -> BatchDecode.entry pol bias e p -> well_formed(machine p) ->
- DecoderPower.observe bias p bank=Some t -> DecoderSpills.saved pol e (machine p) (mem(machine(exponent_entry t))).
+ DecoderPower.observe bias p bank=Some t -> DecoderSpills.retained pol e (machine p) (mem(machine(exponent_entry t))).
 Proof.
  intros P I Al E W;destruct(BatchDecode.from_decoder _ _ _ _ P I E) as [a [A SA]].
  pose proof(DecoderSpills.at_setup _ _ _ _ _ P I E A) as Saved.
@@ -31,7 +39,7 @@ Proof.
  destruct(DecoderPower.from_setup _ _ _ _ P I CR) as [v [F [_ Enter]]].
  unfold DecoderPower.observe,observe_pair,SetupTail.observe;rewrite A;cbn [bind];rewrite B;cbn [bind];
  rewrite C;cbn [bind];rewrite D;cbn [bind option_map signature_r];rewrite F;intro Eq;injection Eq as <-.
- intros x X;change (mem(machine v) x=spill (regs(machine p)) (mem(machine p)) (DecoderSpills.top pol e) DecoderSpills.registers x);destruct(above _ _ _ X) as [Hi _].
+ intros x X;change (mem(machine v) x=spill (regs(machine p)) (mem(machine p)) (DecoderSpills.top pol e) DecoderSpills.registers x);pose proof(away_stack _ _ _ X) as Away.
  rewrite Enter by (unfold span;lia).
  rewrite AR;[|split;[fold (link_slot pol e);lia|apply (off_point true pol e x P X)]].
  rewrite More by (unfold span;lia).
@@ -41,7 +49,7 @@ Qed.
 Theorem at_finish pol bias e p bank t : placement e -> loaded pol bias (mem e) (writable e) ->
  (bias+DecoderFrame.origin) mod 64=0 -> BatchDecode.entry pol bias e p -> well_formed(machine p) ->
  RootTest.observe pol bias e p bank=Some t -> RootTest.post pol bias e t ->
- DecoderSpills.saved pol e (machine p) (mem(machine(RootTest.finish_entry t))).
+ DecoderSpills.retained pol e (machine p) (mem(machine(RootTest.finish_entry t))).
 Proof.
  intros P I Al E W Run T;unfold RootTest.observe,PowerWrites.observe in Run.
  destruct(DecoderPower.observe bias p bank) as [inputs|] eqn:A;[|discriminate];cbn [bind] in Run.
@@ -52,7 +60,7 @@ Proof.
  destruct(DecoderResume.after_return _ _ _ _ _ P (proj1(proj2 D)) (NativeWords.pow2_entry_words _ _ _ _ W A) R) as [Ready F].
  destruct(DecoderFinish.from_power _ _ _ _ P I Ready) as [q [C' [_ [G _]]]];change (DecoderFinish.enter bias (LocatedReturn.resumed back)=Some q) in C';rewrite C in C';injection C' as <-.
  pose proof(at_power _ _ _ _ _ _ P I Al E W A) as Saved.
- intros x X;change (mem(machine begin) x=spill (regs(machine p)) (mem(machine p)) (DecoderSpills.top pol e) DecoderSpills.registers x);destruct(above _ _ _ X) as [Hi _].
+ intros x X;change (mem(machine begin) x=spill (regs(machine p)) (mem(machine p)) (DecoderSpills.top pol e) DecoderSpills.registers x);pose proof(away_stack _ _ _ X) as Away.
  rewrite G by (unfold span;lia);rewrite F;[exact (Saved x X)|].
  change (~(link_slot pol e+8<=x<link_slot pol e+8+640 \/
    link_slot pol e-1928+1928-1936<=x<link_slot pol e-1928+1928-8));lia.
@@ -77,13 +85,13 @@ Qed.
 Theorem after_both pol bias e p bank t : placement e -> loaded pol bias (mem e) (writable e) ->
  (bias+DecoderFrame.origin) mod 64=0 -> BatchDecode.entry pol bias e p -> well_formed(machine p) ->
  PairReturn.observe pol bias e p bank=Some t -> PairReturn.post pol bias e t ->
- DecoderSpills.saved pol e (machine p) (mem(machine(PairReturn.returned t))).
+ DecoderSpills.retained pol e (machine p) (mem(machine(PairReturn.returned t))).
 Proof.
  intros P I Al E W Run T;pose proof(PairReturn.key_result _ _ _ _ T) as Key.
  pose proof(Selection.test_result _ _ _ _ (RootCandidate.selection _ _ _ _ (SignedRoot.raw _ _ _ _
    (KeyReturn.signed_result _ _ _ _ Key)))) as Test.
  pose proof(at_finish _ _ _ _ _ _ P I Al E W (observed_test _ _ _ _ _ _ Run) Test) as Saved.
- intros x X;destruct(above _ _ _ X) as [Hi _].
+ intros x X;pose proof(away_stack _ _ _ X) as Away.
  assert (Protected:forall sig,ExtendedPoint.protected sig pol e x).
  { intro sig;pose proof(off_point sig pol e x P X);unfold ExtendedPoint.protected,span in *;lia. }
  unfold PairReturn.returned.

@@ -19,6 +19,7 @@ Record post pol bias e p t : Prop:=Post {
  frame_top:regs(machine(returned t)) 4%nat=common_top pol e-104;
  restores:forall r,In r DecoderSpills.registers -> regs(machine(returned t)) r=regs(machine p) r;
  memory_after:mem(machine(returned t))=mem(machine(PairReturn.returned(points t)));
+ caller_memory:preserved (DecoderSpills.caller_byte pol e) (mem(machine p)) (mem(machine(returned t)));
  mask_word:regs(machine(returned t)) 0%nat=
   256*regs(machine(PairReturn.returned(points t))) 0%nat+regs(machine(PairReturn.returned(points t))) 13%nat;
  key_bit:forall j,(j<8)%nat -> (Z.testbit (regs(machine(returned t)) 0%nat) (Z.of_nat j)=true <-> RootDecision.decodable e j);
@@ -43,7 +44,7 @@ Proof.
  assert (U:regs u 5%nat=DecoderSpills.top pol e-8).
  { rewrite G by discriminate;unfold s,d,PairReturn.returned;rewrite (FinishTrace.callee_registers _ _ _ _ _ _ Sig) by discriminate;
    rewrite BP;unfold DecoderSpills.top;ring. }
- destruct(DecoderEpilogue.returns pol e o (machine p) u (Some false) P W U ltac:(rewrite M;exact Saved)) as
+ destruct(DecoderEpilogue.returns pol e o (machine p) u (Some false) P W U ltac:(rewrite M;exact (DecoderSpills.saved_part _ _ _ _ Saved))) as
    [last [Ret [PC [SP [Memory [EAX Regs]]]]]].
  pose proof(run_append _ 2 _ _ _ Pack 8 _ _ Ret) as All.
  pose proof(PairReturn.writes _ _ _ _ T) as Acc;fold d in Acc.
@@ -65,6 +66,7 @@ Proof.
  - rewrite State,SP;unfold DecoderSpills.top;ring.
  - now rewrite State.
  - rewrite State,Memory;exact M.
+ - rewrite State,Memory,M;exact (DecoderSpills.caller_part _ _ _ _ Saved).
  - rewrite Result;apply DecoderEpilogue.packed_value;assumption.
  - intros j J;rewrite Result,(proj1(DecoderEpilogue.bits _ _ (Z.of_nat j) A ltac:(lia)));exact (PairReturn.key_accepts _ _ _ _ T j J).
  - intros j J;rewrite Result,(proj2(DecoderEpilogue.bits _ _ (Z.of_nat j) A ltac:(lia)));exact (SignatureDecision.bits _ _ _ _ P T j J).
