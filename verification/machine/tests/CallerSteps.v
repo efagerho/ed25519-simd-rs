@@ -200,3 +200,23 @@ Example base_lea_forms :
  ScalarBytes.decode [0x48;0x8d;0x73;0xc0]=Some(4%nat,ScalarBytes.LeaG 6 (ScalarBytes.Address 3 None (-64))) /\
  ScalarBytes.decode [0x48;0x8d;0x73]=None.
 Proof. repeat split;reflexivity. Qed.
+
+Example gather_encodings :
+ MaskedResult.assemble 0 [MaskedResult.GatherQ 15 3 20 (-32);MaskedResult.GatherQ 27 7 14 0x1234;MaskedResult.XnorWord 6 2 7]=
+ Some [0x62;0x72;0xfd;0x43;0x91;0x3c;0x25;0xe0;0xff;0xff;0xff;
+       0x62;0x22;0xfd;0x4f;0x91;0x1c;0x35;0x34;0x12;0;0;0xc5;0xec;0x46;0xf7] /\
+ MaskedResult.assemble 0 [MaskedResult.GatherQ 20 3 20 0]=None /\
+ MaskedResult.assemble 0 [MaskedResult.GatherQ 0 0 20 0]=None /\
+ MaskedResult.assemble 0 [MaskedResult.GatherQ 1 3 20 (2^31)]=None.
+Proof. repeat split;reflexivity. Qed.
+
+Example gather_merges_inactive_lanes_and_clears_mask :
+ let s:=CPU (fun _=>0) (fun j r=>if Nat.eqb r 20 then 32+16*Z.of_nat j else 77) None
+    (fun x=>if x=?0 then 17 else if x=?33 then 1 else 0) in
+ let k:=fun r j=>if Nat.eqb r 3 then Nat.even j else true in
+ match MaskedResult.evaluate 0 s k [MaskedResult.GatherQ 15 3 20 (-32);MaskedResult.XnorWord 6 3 2] with
+ | Some(t,b)=>vectors t 0%nat 15%nat=17 /\ vectors t 1%nat 15%nat=77 /\ vectors t 2%nat 15%nat=256 /\
+   vectors t 2%nat 20%nat=64 /\ b 3%nat 0%nat=false /\ b 3%nat 15%nat=false /\
+   b 6%nat 0%nat=false /\ b 2%nat 8%nat=true
+ | _=>False end.
+Proof. repeat split;reflexivity. Qed.
