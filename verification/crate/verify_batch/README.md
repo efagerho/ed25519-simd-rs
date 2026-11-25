@@ -61,8 +61,10 @@ holds `[16]Odd + Base + Even` in XYZ with reduced limbs and zero T.
 The 31 remaining rounds each stage the next digit pair and call the ladder
 step on that same point. The returned CPU reads its continuation from the
 original stack word. Its point buffer represents `[S]B − [k]A` for each
-eligible lane, and replaying its store log gives the returned memory.
-[Native seed](coq/LadderSeed.v) · [Top digit pair](coq/LadderTop.v)
+eligible lane, and replaying its store log gives the returned memory. The
+candidate releases its frame, restores RBX and R12 from their saved bytes,
+and returns to its policy scorer with RSP pointing at that same point.
+[Native seed](coq/LadderSeed.v) · [Top digit pair](coq/LadderTop.v) · [Candidate return](coq/CandidateReturn.v)
 Dalek intersects the decoded-R mask with the eight staged
 eligibility bytes. It then compares the five original Y limbs against
 `p = 2²⁵⁵ − 19` with the sign bit removed. The native lane mask retains precisely

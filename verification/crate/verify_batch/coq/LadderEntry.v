@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith Lia.
 From Machine Require Import isa.Instructions execution.LinkedCalls execution.LinkedRun execution.WordSemantics
- execution.WordBounds execution.ScalarBytes execution.ScalarWords execution.InstructionRoute execution.MappedFetch
+ execution.PreservedRegister execution.WordBounds execution.ScalarBytes execution.ScalarWords execution.InstructionRoute execution.MappedFetch
  memory.ByteMemory memory.FlatMemory memory.WriteTrace abi.SysV.
 From Curve25519 Require Import Scalar.
 From ProofArithmetic Require Import Radix.
@@ -57,6 +57,7 @@ Record entry pol bias e p t:Prop:=Entry {
  arguments:args pol e (machine t);
  return_word:read_word (mem(machine t)) (d e-8)=o pol bias+next pol;
  memory:mem(machine t)=commit (mem(machine p)) (push_return pol bias e);
+ saved:forall g,In g sysv_saved -> regs(machine t) g=regs(machine p) g;
  store_log:log t=log p++[push_return pol bias e];
  operands:ScoreBuffers.data e (machine t);
  challenge:forall j,(j<8)%nat -> let ds:=FullLadder.Operands.digit_list (machine t) 8 j in
@@ -98,6 +99,8 @@ Proof.
    assert (Size:0<=next pol<Z.of_nat(length(ScoreStart.candidate_code pol))) by (destruct pol;vm_compute;split;discriminate || reflexivity).
    unfold o,word64;lia.
  - exact Mem.
+ - intros g K;eapply (run_keeps_at g (o pol bias) (ScoreStart.candidate_code pol));[destruct pol;vm_compute;reflexivity| |exact Run].
+   destruct K as [<-|[<-|[<-|[<-|[<-|[<-|[]]]]]]];destruct pol;vm_compute;reflexivity.
  - reflexivity.
  - eapply ScoreBuffers.keep;[|exact (ReducedDigest.buffers _ _ _ _ _ R)];intros x X;cbn [LinkedRun.finish machine cpu_state];rewrite Mem.
    apply write_outside;intro T;specialize(Slot x T);destruct(scratch_stack _ P);unfold ScoreBuffers.region,span,Rows.frame,sp in *;lia.

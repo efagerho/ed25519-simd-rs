@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Lia.
-From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.MappedFetch execution.ScalarBytes
+From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.MappedFetch execution.ScalarBytes execution.StoreHistory
  memory.WriteTrace memory.ByteMemory.
 From Machine Require abi.FramePointer.
 From Ed25519Simd.FullLadder Require Import Operands.
@@ -36,8 +36,10 @@ Definition selected ladder stop := forall k i j,(i<SA.columns k)%nat -> (j<8)%na
  read_word (mem(machine stop)) (F.base_of (machine ladder)+64*Z.of_nat(SA.first_row k+i)+8*Z.of_nat j)=
  table_row (machine ladder) j (affine k) (weight (machine ladder) j 31 k) i.
 
+Definition private_stack ladder x:=regs(machine ladder) 4%nat-5032<=x<regs(machine ladder) 4%nat.
 Definition ready bias ladder stop:=well_formed(machine stop) /\ regs(machine stop) 3%nat=regs(machine ladder) 7%nat /\
- regs(machine stop) 4%nat=F.base_of(machine ladder) /\ FullLadder.LoopFrame.intact bias (machine ladder) (machine stop).
+ regs(machine stop) 4%nat=F.base_of(machine ladder) /\ FullLadder.LoopFrame.intact bias (machine ladder) (machine stop) /\
+ StoreHistory.extends (private_stack ladder) ladder stop.
 
 Theorem with_cpu pol bias e p t : loaded pol bias (mem e) (writable e) ->
  ProductRun.geometry (HashLayout.chunk pol e bias) -> LadderEntry.entry pol bias e p t ->
@@ -72,7 +74,12 @@ Proof.
    + unfold q;cbn [log];rewrite <-app_assoc;apply append_accounted;[exact Prev| |].
      * apply Safe,(F.writes _ _ _ _ _ Done).
      * exact (F.account _ _ _ _ _ Done).
-   + split;[exact (F.at_continuation _ _ _ _ _ Done)|split;[exact (F.rows _ _ _ _ _ Done)|exact (conj (F.returned_words _ _ _ _ _ Done) (conj (F.point_pointer _ _ _ _ _ Done) (conj (F.restored_rsp _ _ _ _ _ Done) Frame)))]].
+   + split;[exact (F.at_continuation _ _ _ _ _ Done)|split;[exact (F.rows _ _ _ _ _ Done)|]].
+     split;[exact (F.returned_words _ _ _ _ _ Done)|split;[exact (F.point_pointer _ _ _ _ _ Done)|]].
+     split;[exact (F.restored_rsp _ _ _ _ _ Done)|split;[exact Frame|]].
+     exists (F.stage_stores bias (machine t) u);split.
+     * unfold F.stage_stores,q;cbn [log];symmetry;apply app_assoc.
+     * split;[exact (F.writes _ _ _ _ _ Done)|exact (F.account _ _ _ _ _ Done)].
 Qed.
 
 Theorem checked pol bias e p t : loaded pol bias (mem e) (writable e) ->
