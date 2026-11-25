@@ -2,7 +2,7 @@ From Ed25519Simd Require Import PointResults.
 From Ed25519Simd Require Import Wide51.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions execution.Blocks memory.FlatMemory memory.ByteMemory execution.WordBounds
- memory.MemoryGeometry execution.ScalarRefinement abi.SysV execution.LinkedCalls.
+ memory.MemoryGeometry execution.ScalarWords execution.ScalarRefinement abi.SysV execution.LinkedCalls.
 From Ed25519Simd.Double4 Require Double4Spec Double4ABI.
 From Ed25519Simd.CachedAdd Require CachedAddSpec CachedAddABI.
 From Ed25519Simd.LadderStep Require Import LinkedBytes Callees Schedule Audit Calls.
@@ -186,7 +186,7 @@ Lemma execute :
  cache_bounds false (buffer_words(mem initial)cache) ->
  cache_bounds true (buffer_words(mem initial)(cache+1280)) ->
  cache_bounds false (buffer_words(mem initial)(cache+2240)) ->
- exists out,
+ exists out, well_formed out /\
  runs (checked_call slide sc pad pt)
    slide wrapper_pc program initial caller out /\
  regs out 4%nat=top+8 /\
@@ -231,6 +231,9 @@ Proof.
    V4 (handoff_bounds _ _ B4) Even A5)as[B5 V5].
  destruct(finish (wrapper_pc+(88+setup_length)) s5 I5)as[Ret [Stack Saved]].
  exists(returning(restored s5));split.
+ { change (well_formed(set (restored s5) 4 (word(regs (restored s5) 4%nat+8)))).
+   apply set_wf;[unfold restored;repeat apply pop_words;exact(inv_wf _ I5)|apply mod64_word]. }
+ split.
  - exists s1;split;[exact R1|];exists s2;split;[exact R2|];exists s3;split;[exact R3|];
    exists s4;split;[exact R4|];exists s5;split;[exact R5|exact Ret].
  - exact(conj Stack (conj Saved (conj (inv_frame _ I5) (conj B5 (conj V5 (proj1 A5)))))).

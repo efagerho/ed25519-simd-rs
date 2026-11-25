@@ -12,7 +12,7 @@ Proof.
  - exact linked_regions_separate.
  - intros slide scratch pad point cache full s Place W SP Pt Cache Mode B Odd Base Even.
    destruct (execute _ _ _ _ _ _ _ Place W SP Pt Cache Mode B Odd Base Even)
-     as [out [Run [Stack [Saved [Frame [Bounds [Values T]]]]]]].
+     as [out [_ [Run [Stack [Saved [Frame [Bounds [Values T]]]]]]]].
    pose proof(CallHistory.project _ _ (fun a e r f (H:checked_call slide scratch pad point a e r f)=>proj1 H)
      _ _ _ _ _ _ Run) as Plain.
    cbv zeta; exists out; rewrite SP; constructor.
