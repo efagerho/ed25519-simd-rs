@@ -14,6 +14,7 @@ Record entered pol bias pc e q r child:Prop:=Entered {
    read_word m (t-8)=bias+pc+539 /\ read_word m (t+832)=regs e 9%nat /\ read_word m (t+840)=scratch e+512 /\ read_word m (t+848)=t;
  lanes:forall j,(j<8)%nat -> let b:=mem(machine child)(Rows.frame e+856+Z.of_nat j) in
    (b=0 \/ b=1) /\ (b=1 <-> HashLayout.eligible pol e j);
+ buffers:ScoreBuffers.data e (machine child);
  validity:forall j,(j<8)%nat -> (Z.testbit (regs(machine child) 2%nat) (Z.of_nat j)=true <-> RootDecision.decodes true e j);
  digest:forall j,(j<8)%nat -> HashLayout.eligible pol e j ->
    Scalar.ScalarSpec.lane_input (buffer_words (mem(machine child)) (Rows.frame e)) j=
@@ -29,7 +30,7 @@ Theorem checked pol bias pc text e q r s c : ScoreSetup.bound pol pc text -> pla
  exists child,execute bias pc text q r s c=Some child /\ entered pol bias pc e q r child.
 Proof.
  intros Code P I Fit Map Sep Before R C W;set (p:=HashResume.resume bias q r s c).
- pose proof(ScoreInputs.after_hash _ _ _ _ _ _ _ Before R C) as Data.
+ pose proof(ScoreInputs.after_hash _ _ _ _ _ _ _ P Before R C) as Data.
  destruct(ScoreInputs.gprs _ _ _ Data) as [DS [N Out]].
  destruct(ScoreSetup.checked pol bias pc text e p Code P I Map Sep (NativeHash.back _ _ _ _ _ _ R)
    (eq_trans (proj1(proj2 C)) (NativeHash.stack _ _ _ _ _ _ R)) DS (HashResume.accounted _ _ _ _ _ _ _ c R C) W)
@@ -51,6 +52,8 @@ Proof.
  - exact (conj Back (conj (eq_trans Base (ScoreInputs.base _ _ _ Data)) (conj Digits Digest))).
  - intros j J;cbv zeta;fold t;rewrite <-(read_word_byte _ (t+856) (Z.of_nat j) (proj2(proj2 LastW)) ltac:(lia)),Flags.
    rewrite read_word_byte by (apply W || lia);exact (ScoreInputs.flags _ _ _ Data j J).
+ - eapply ScoreBuffers.keep;[|exact (ScoreInputs.buffers _ _ _ Data)];intros x X;apply Kept.
+   destruct(scratch_stack _ P);unfold ScoreBuffers.region,ScoreSetup.slots,span,disjoint,t,Rows.frame,sp in *;lia.
  - intros j J;destruct Args as [_ [_ [_ [DX _]]]];rewrite DX;exact (ScoreInputs.r_valid _ _ _ Data j J).
  - intros j J On;etransitivity;[|exact (NativeHash.digest _ _ _ _ _ _ R j J On)];unfold Scalar.ScalarSpec.lane_input;f_equal.
    apply map_ext_in;intros k K;apply in_seq in K;unfold buffer_words;rewrite <-(proj1 C).

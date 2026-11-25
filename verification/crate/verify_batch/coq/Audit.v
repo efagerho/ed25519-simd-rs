@@ -88,7 +88,7 @@ Definition first_chunk pol bias pc text e carry masks :=
                 ScalarInputs.recoded e (LinkedRun.machine stop) /\
                 (regs (LinkedRun.machine stop) 0%nat mod 2^32<>0 ->
                  exists decoder, BatchDecode.observe pol bias pc text e carry masks=Some decoder /\
-                                 BatchDecode.entry pol bias e decoder /\
+                                 BatchDecode.entry pol bias e decoder /\ BatchDecode.handoff pol e stop decoder /\
                                  exists bank r,BatchScalar.masks_after pol bias (bias+pc) text e carry masks=Some bank /\
                                    EligibleLanes.observe pol bias e decoder bank=Some r /\
                                    EligibleLanes.checked_trace pol bias e decoder r /\

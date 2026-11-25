@@ -96,14 +96,14 @@ Proof.
    [eapply FirstDispatch.scalar_path;[exact Scalar|exact Z|exact End]|apply after_reject;[exact Invalid| |exact Post]].
    intros [j [J On]];destruct (HashLayout.candidate_of _ _ _ On) as [Canon _];destruct Digits as [Bound Bits];specialize(Bits j J).
    apply (proj2(proj1 Bits)) in Canon;rewrite Z.mod_small in Z by lia;rewrite Z,Z.bits_0 in Canon;discriminate.
- - destruct(Checked Live) as [d [Run [Decoder [bank [t [Bank [Trace [Check [Frame Reject]]]]]]]]].
+ - destruct(Checked Live) as [d [Run [Decoder [Handoff Calls]]]];destruct Calls as [bank [t [Bank [Trace [Check [Frame Reject]]]]]].
    unfold FirstDispatch.run,BatchDecode.observe in *;rewrite Scalar in Run|-*;cbn [LinkedRun.bind] in Run|-*;
    rewrite (proj2(Z.eqb_neq _ _) Live) in Run|-*;rewrite Run;cbn [LinkedRun.bind];rewrite Bank;cbn [LinkedRun.bind];rewrite Trace;cbn [LinkedRun.bind].
    destruct(Z.eqb_spec (regs(LinkedRun.machine(EligibleLanes.stopped t)) 14%nat) 0) as [Zero|Yes].
    + destruct(Reject Zero) as [r [End Post]];rewrite End;exists(FirstDispatch.after_reject r);split;[reflexivity|].
      apply after_reject;[exact (EligibleLanes.zero_rejects _ _ _ _ _ (proj2 Check) Zero)|intros [j [J On]];apply (proj2(EligibleLanes.live_branch _ _ _ _ _ (proj2 Check)) ltac:(exists j;split;[exact J|apply (HashLayout.candidate_of _ _ _ On)])),Zero|exact Post].
-   + assert (Enc:PreparedInputs.encodings e (LinkedRun.machine(EligibleLanes.stopped t))).
-     { eapply PreparedInputs.keep_encodings;[exact (PreparedInputs.through_decoder _ _ _ _ _ Place Check)|].
+   + assert (Enc:PreparedInputs.operands e (LinkedRun.machine(EligibleLanes.stopped t))).
+     { eapply PreparedInputs.from_decoder;[exact Place|exact Digits|exact Handoff| |exact Check].
        destruct Decoder as [_ [_ [_ [_ [_ [_ [_ Data]]]]]]];exact Data. }
      destruct(PreparedReturn.from_eligible _ _ _ _ _ _ (TableMask.masks t) Place Loaded Al (proj2 Check) Frame (PreparedTables.input _ _ _ _ _ Place Check) Enc Yes) as [q [bank1 [Call Done]]].
      destruct(ReadyDispatch.checked pol bias pc text e q bank1 (proj1 Hash) Place Loaded (entry_range _ _ _ _ _ Input) (entry_text _ _ _ _ _ Input) Sep Done)
@@ -117,7 +117,7 @@ Proof.
      * destruct Active as [j [J On]];assert (LiveZip:HashLayout.active Zip215 e) by (exists j;split;[exact J|now apply HashLayout.candidate]).
        destruct(NativeHash.checked Zip215 _ _ _ _ _ Place Loaded N Entries Borrow LiveZip (HashLayout.zip_flags _ _ _ _ Done)
          (PreparedReturn.encodings _ _ _ _ _ Done) Child) as [r [HashRun HashPost]].
-       eexists;split;[cbn [LinkedRun.bind fst snd FirstDispatch.continue FirstDispatch.hash_return];unfold FirstDispatch.hash_return;now rewrite HashRun|exact (conj LiveZip (conj HashPost (conj (ScoreInputs.at_hash _ _ _ _ _ _ (ScoreInputs.zip _ _ _ _ Done) Child) (HashEntry.words _ _ _ _ _ Child))))].
+       eexists;split;[cbn [LinkedRun.bind fst snd FirstDispatch.continue FirstDispatch.hash_return];unfold FirstDispatch.hash_return;now rewrite HashRun|exact (conj LiveZip (conj HashPost (conj (ScoreInputs.at_hash _ _ _ _ _ _ Place (ScoreInputs.zip _ _ _ _ Done) Child) (HashEntry.words _ _ _ _ _ Child))))].
      * destruct(StrictReturn.from_entry _ _ _ _ _ kv Place Loaded Tables Done Child) as [out [k [FilterRun Post]]].
        destruct(StrictDispatch.checked bias pc text e v out k Hash Place Loaded (entry_range _ _ _ _ _ Input) (entry_text _ _ _ _ _ Input)
          Sep N Idx Post) as [exit [Path [_ Branch]]].
@@ -132,7 +132,7 @@ Proof.
        -- assert (LiveDalek:=proj1 Eq Survives).
           destruct(NativeHash.checked Dalek _ _ _ _ _ Place Loaded N Entries Borrow LiveDalek (HashLayout.strict_flags _ _ _ _ Post)
             (StrictReturn.encodings _ _ _ _ Post) ChildRun) as [r [HashRun HashPost]].
-          eexists;split;[unfold FirstDispatch.hash_return;now rewrite HashRun|exact (conj LiveDalek (conj HashPost (conj (ScoreInputs.at_hash _ _ _ _ _ _ (ScoreInputs.dalek _ _ _ _ Post) ChildRun) (HashEntry.words _ _ _ _ _ ChildRun))))].
+          eexists;split;[unfold FirstDispatch.hash_return;now rewrite HashRun|exact (conj LiveDalek (conj HashPost (conj (ScoreInputs.at_hash _ _ _ _ _ _ Place (ScoreInputs.dalek _ _ _ _ Post) ChildRun) (HashEntry.words _ _ _ _ _ ChildRun))))].
 Qed.
 
 Lemma rejected_verdict pol bias pc text e q : admissible pol bias pc text e -> (0<count e)%nat ->
@@ -273,7 +273,7 @@ Proof.
    split;[exact (proj1 Data)|]. split.
    { intro Nonzero;destruct (BatchDecode.from_scalar pol bias pc text e c masks stop) as [d [Trace [Entry CallerRegs]]];
        [exact P|exact (callee_image _ _ _ _ _ Input N)| |exact Run|exact Post|exact (proj1(proj2 Data))|exact Nonzero|].
-     2:{ exists d;split;[exact Trace|split;[exact Entry|]].
+     2:{ exists d;split;[exact Trace|split;[exact Entry|split;[exact CallerRegs|]]].
          destruct(BatchScalar.has_masks _ _ _ _ _ _ _ _ Run) as [bank Bank].
          pose proof(NativeWords.decoder_entry _ _ _ _ _ _ _ _ _ (initial_cpu _ P) Run (proj1(proj1(proj2 Data))) Trace) as Words.
          destruct(EligibleLanes.from_decoder _ _ _ stop d bank P (callee_image _ _ _ _ _ Input N)

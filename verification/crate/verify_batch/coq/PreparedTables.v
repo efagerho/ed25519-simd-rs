@@ -30,22 +30,34 @@ Proof.
  unfold row,TableRowMeaning.stored,TablePackRows.row,TableMultiple.pos,TableMultiple.neg,TableIdentity.first,TableEntry.tables,
    PrepareChunk.Caller.table_offset,PrepareChunk.Caller.tables_offset,PrepareChunk.Caller.table_stride;destruct sign;f_equal;ring.
 Qed.
+Lemma cache_ext a b : (forall i,(i<20)%nat -> a i=b i) -> scalar_cache false a=scalar_cache false b.
+Proof.
+ intro E;unfold scalar_cache,cache_from_fields;f_equal;try match goal with |-Some _=Some _=>f_equal end;
+ apply Radix51.limbs_ext;intros;apply E;lia.
+Qed.
+
+Lemma keep e s t : preserved (span (TableEntry.tables e) 21760) (mem s) (mem t) -> table e s -> table e t.
+Proof.
+ intros M Tab j d J D;destruct(Tab j d J D) as [B R];cbv zeta.
+ assert (E:forall i,(i<20)%nat -> row e t j d i=row e s j d i).
+ { intros i I;unfold row;apply preserved_read with (outside:=span (TableEntry.tables e) 21760);[exact M|].
+   intros k K;change (0<=k<8) in K;unfold span,TableEntry.tables,PrepareChunk.Caller.table_offset,PrepareChunk.Caller.tables_offset,PrepareChunk.Caller.table_stride;lia. }
+ split;[intros i I;rewrite E by exact I;exact (B i I)|rewrite (cache_ext _ _ E);exact R].
+Qed.
+
 Theorem meaning e w s : DecodedRows.geometry false e w -> TableContents.contents e w s -> table e s.
 Proof.
  intros [Bound Seed] [Center Rows] j d J D;cbv zeta.
- assert (CacheExt:forall a b,(forall i,(i<20)%nat -> a i=b i) -> scalar_cache false a=scalar_cache false b).
- { intros a b E;unfold scalar_cache,cache_from_fields;f_equal;try match goal with |-Some _=Some _=>f_equal end;
-   apply Radix51.limbs_ext;intros;apply E;lia. }
  destruct (Z.eq_dec d 0) as [->|NZ].
  - assert (E:forall i,(i<20)%nat -> row e s j 0 i=KeyTable.Image.identity_word (Z.of_nat i)) by
      (intros i N;rewrite (stored e s j 0 true i);apply Center;assumption).
    split;[intros i N;rewrite E by exact N;do 20 (destruct i as [|i];[vm_compute;easy|]);lia|].
-   intros P Dec;rewrite (CacheExt _ _ E);exact KeyTable.Correct.identity_rep.
+   intros P Dec;rewrite (cache_ext _ _ E);exact KeyTable.Correct.identity_rep.
  - set (k:=Z.abs d);set (sign:=(0<?d)).
    assert (Dg:d=(if sign then k else -k)) by (unfold sign,k;destruct(Z.ltb_spec 0 d);[rewrite Z.abs_eq by lia|rewrite Z.abs_neq by lia];lia).
    assert (Same:forall i,row e s j d i=TableRowMeaning.stored e k sign s j i) by (intro i;rewrite Dg at 1;apply stored).
    destruct(Rows Bound k sign j ltac:(unfold k;lia) J) as [B R].
    split;[intros i I;rewrite Same;apply B,I|].
-   intros P Dec;rewrite (CacheExt _ _ (fun i _=>Same i)).
+   intros P Dec;rewrite (cache_ext _ _ (fun i _=>Same i)).
    specialize(R P (Seed j P J Dec));destruct sign;[now rewrite Dg|rewrite Dg;now rewrite <-KeyTable.Correct.negative_scale].
 Qed.
