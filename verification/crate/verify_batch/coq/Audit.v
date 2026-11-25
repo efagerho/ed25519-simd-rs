@@ -112,7 +112,7 @@ Inductive observation pol bias pc text e carry masks : list WriteTrace.store -> 
    observation pol bias pc text e carry masks (LinkedRun.log q) (LinkedRun.ip q) (LinkedRun.machine q)
  | observe_batch prefix ip final : (0<count e)%nat ->
    (FirstDispatch.run pol bias pc text e carry masks=Some(FirstDispatch.MoreChunks prefix) \/
-    FirstDispatch.run pol bias pc text e carry masks=Some(FirstDispatch.PreparedLanes prefix)) ->
+    FirstDispatch.run pol bias pc text e carry masks=Some(FirstDispatch.PolicyCall prefix)) ->
    execution pol bias pc text (bias+pc) e ip final ->
    observation pol bias pc text e carry masks (LinkedRun.log prefix) ip final.
 
@@ -144,6 +144,7 @@ Record batch_contract pol pc text : Prop := {
  image_preserved : forall bias e, admissible pol bias pc text e ->
    (forall ip final,immutable_after pol bias pc text e ip final) /\
    ((0<count e)%nat -> physical_scatter pol bias e /\ RejectCall.contract bias pc text e);
+ hash_caller : HashEntry.bound pc text;
  machine_prepare_entry : forall bias e, admissible pol bias pc text e -> (0<count e)%nat ->
    StageEntry.physical (bias+pc) text (destination pol Prepare-pc) e;
  machine_scalar_return : forall bias e carry masks, admissible pol bias pc text e -> (0<count e)%nat ->
