@@ -1,3 +1,4 @@
+From Machine Require execution.CursorSegment.
 From Coq Require Import List ZArith Lia.
 From Machine Require Import isa.Instructions execution.WordSemantics execution.WordBounds execution.LinkedCalls execution.LinkedRun
  execution.ScalarBytes execution.ScalarWords execution.MappedFetch execution.InstructionRoute memory.ByteMemory memory.FlatMemory memory.WriteTrace.
@@ -10,6 +11,7 @@ Import ListNotations. Local Open Scope Z_scope.
 Definition origin:=KeyTable.ObjectBytes.address.
 Definition site:=PrepareNative.common.
 Definition point e:=scratch e+1024.
+Definition point_words e s:=buffer_words (mem s) (point e).
 Definition tables e:=scratch e+3584.
 Definition frame pol e:=common_top pol e-112.
 Definition code:list line:=[(161,7%nat,LeaG 7 (Address 3 None 1024));(168,7%nat,LeaG 6 (Address 3 None 3584));
@@ -60,8 +62,10 @@ Proof.
    rewrite (word_fits _ Dest);replace (bias+origin-o) with (origin-site) by (unfold o;ring);rewrite Slot;reflexivity. }
  assert (Safe:confined (writable e) [w]) by (constructor;[intros x X;left;
    change (frame pol e<=x<frame pol e+8) in X;unfold span,frame,common_top,Rows.frame,sp in *;destruct pol;lia|constructor]).
- pose proof(EligibleLanes.writes _ _ _ _ _ E) as Acc;destruct(mapped_now _ _ _ I _ _ _ Acc (in_common pol)) as [Map Sep].
- destruct(at_segment _ _ p o CommonBytes.symbol_bytes 4 161 _ _ Acc PC Map Sep Run Safe) as [Next Paid].
+ destruct (CursorSegment.checked e (writable e) (writable e) o CommonBytes.symbol_bytes 4 p 161 _ _
+   (LoadedImage.symbol_available _ _ _ _ _ _ I (in_common pol)) (fun _ X=>X)
+   (conj (EligibleLanes.writes _ _ _ _ _ E) (EligibleLanes.words _ _ _ _ _ E)) PC Run Safe)
+   as [Next [[Paid Words] _]].
  set (q:=LinkedRun.finish o p (State(Running(origin-site)) callee (LinkedRun.carry p),[w])) in *.
  assert (G:regs callee=put (regs args) 4 (frame pol e)).
  { unfold callee,args;cbn [push push_words with_words regs set set_regs put Nat.eqb];now rewrite Slot. }
@@ -70,7 +74,7 @@ Proof.
  exists q;split;[exact Next|constructor];change (machine q) with callee.
  - change (o+(origin-site)=bias+origin);unfold o;ring.
  - exact Paid.
- - exact (segment_wf _ _ _ p q (EligibleLanes.words _ _ _ _ _ E) Next).
+ - exact Words.
  - rewrite G;repeat split;reflexivity.
  - rewrite M;apply read_word_exact;[exact Ret|intros k B;unfold store_word;apply write_at,B].
  - intros r A B C D;rewrite G;unfold args;cbn [set set_regs regs];unfold put.

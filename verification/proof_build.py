@@ -66,7 +66,7 @@ def public_statement(component):
     elif component == "decompress_r":
         for module in ("DecoderBytes", "HelperBytes"):
             expected += f" {namespace}.{module}.address {namespace}.{module}.symbol_bytes"
-        expected += f" {namespace}.DecoderBytes.pow_pc Ed25519Simd.Pow2.ObjectBytes.symbol_bytes"
+        expected += f" {namespace}.PowAddress.address Ed25519Simd.Pow2.ObjectBytes.symbol_bytes"
     elif component == "small_order":
         for module in ("EntryBytes", "HelperBytes"):
             expected += f" {namespace}.{module}.address {namespace}.{module}.symbol_bytes"

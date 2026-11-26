@@ -45,6 +45,10 @@ for every input. One choice suffices to exhibit a run.
 | [Dependencies.v](execution/Dependencies.v) | Tracks which registers and loads can influence a vector result. Proves agreement on selected outputs and preservation of untouched registers. |
 | [VectorSequence.v](execution/VectorSequence.v) | Defines a single SIMD step with direct memory reads. Proves that stepping a fragment instruction by instruction agrees with its batched evaluation, including failed access checks. |
 | [Cutpoint.v](execution/Cutpoint.v) | Runs to the first matching state and relates the exact register, memory and ordered write result to ordinary instruction execution. A verified symbol exit covers every successful prefix fetched from memory. |
+| [CursorSegment.v](execution/CursorSegment.v) | Lifts decoded instructions into a cursor with a valid machine state and an exact local store history. The caller supplies the mapped image and the permitted write region. |
+| [ProcedureWords.v](execution/ProcedureWords.v) | Proves that instruction segments, wrapped calls and their compositions preserve machine-word bounds. |
+| [StoreHistory.v](execution/StoreHistory.v) | Tracks a write suffix, composes footprints and rejoins a callee’s local log to its caller’s log. |
+| [RegisterSpill.v](abi/RegisterSpill.v) | Relates a sequence of register pushes to saved stack words and proves which bytes it preserves. |
 | [Composition.v](execution/Composition.v) | Sequences proofs that a phase has an outcome and every permitted outcome meets its postcondition. It also accepts deterministic instruction blocks. |
 | [CallReturn.v](abi/CallReturn.v) | Lifts a callee’s observed return into caller states with the specified PC, stack, preserved registers, memory and exact write suffix. The continuation covers every well-formed completion of the volatile state. |
 | [StackFrame.v](abi/StackFrame.v) | Proves that the call instruction and a callee with a bounded stack footprint preserve disjoint byte ranges and little-endian reads, including the caller’s return word. |

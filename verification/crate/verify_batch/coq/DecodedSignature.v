@@ -1,10 +1,11 @@
+From Ed25519Simd.Decode Require NativeProduct.
 From Curve25519.group Require Import PointDecoding.
 From Coq Require Import ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun memory.FlatMemory memory.ByteMemory.
 From Ed25519Simd.VerifyBatch Require Import Policy Return BatchDecode KeySquare NativeScale RootValue DecodedRows.
 From Ed25519Simd.VerifyBatch Require RootOperands SignatureDecision PairReturn.
 Local Open Scope Z_scope.
-Local Opaque DecoderProduct.kernel Power.apply_kernel.
+Local Opaque NativeProduct.kernel Power.apply_kernel.
 
 From Ed25519Simd.VerifyBatch Require BatchWindow.
 Section Iteration.

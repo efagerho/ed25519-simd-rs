@@ -1,10 +1,12 @@
+From Ed25519Simd.Decode Require NativeProduct.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import execution.WordSemantics execution.WordBounds execution.LinkedCalls execution.LinkedRun
  execution.ScalarBytes execution.MappedFetch execution.InstructionRoute execution.AlignedRows
  execution.VectorProcedure memory.MemoryGeometry memory.ByteMemory memory.FlatMemory memory.WriteTrace.
 From Machine Require execution.VectorWindow execution.Dependencies.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode DecoderSave KeySquare.
-From Ed25519Simd.VerifyBatch Require DecoderKernel DecoderProduct DecoderFrame.
+From Ed25519Simd.Decode Require DecoderKernel.
+From Ed25519Simd.VerifyBatch Require DecoderProduct DecoderFrame.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition step_at bias n:=segment (base bias) text n.
@@ -160,7 +162,7 @@ Proof.
    p Need At A ltac:(change (sp e-16384+24<=regs(machine p) 4%nat<=sp e);rewrite SP;lia))
    as [q [R [End Done G Keep Result]]].
  exists q;split;[exact R|split;[|now constructor]];eapply (transfer 860 865 p q);[now constructor|exact End|exact Done|intros;apply G| |].
- - intros i j I;rewrite Result;destruct ((proj2 DecoderProduct.multiplication) no_read no_read (args j) (args j) ltac:(reflexivity)) as [_ High].
+ - intros i j I;rewrite Result;destruct ((proj2 NativeProduct.multiplication) no_read no_read (args j) (args j) ltac:(reflexivity)) as [_ High].
    rewrite High by lia;unfold args,DecoderProduct.arguments;rewrite (proj2(Nat.ltb_ge (28+i) 10) ltac:(lia)),andb_false_r;reflexivity.
  -
  intros x X;apply Keep;rewrite SP;pose proof caller_above;destruct(scratch_stack _ P);unfold retained,caller_bytes,address,disjoint,point,point_offset in *;destruct signature;lia.

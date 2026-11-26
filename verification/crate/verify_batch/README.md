@@ -15,8 +15,12 @@ executes the return to Rust. Replaying its instruction-level store log on
 entry memory recovers every final byte, including scratch and stack.
 [Native execution](coq/Iteration.v) · [All-row proof](coq/NativeLoop.v)
 
-When preparation builds the public-key
-tables, the log includes its six register saves, the 48 stores that initialize the eight identity entries,
+Both policies invoke the same eight-key builder. The batch proof establishes
+its argument and memory-placement premises at the call site and uses its
+public theorem to resume preparation at the return address.
+[Builder theorem](../key_table/coq/Object.v) · [Call and return](coq/TableUnwind.v)
+
+The builder’s store log includes its six register saves, the 48 stores that initialize the eight identity entries,
 the nested arithmetic calls for all eight multiples, and the 15 stores staging
 the affine operand. The proof checks the eight-key transpose and the loaded
 permutation indices, negation biases and opmask. It follows the eight-key branch
@@ -280,7 +284,7 @@ Here the audit is the handoff from memory to those formulas. Check the four byte
    offsets used to apply each component result. The decoded scorer's entry
    RSP is eight bytes below its aligned point buffer. The nested write regions
    exclude the wrapper's five saved GPRs and its caller's return word.
-   [Rejection call and return](coq/RejectedPath.v) · [Native dispatch](coq/FirstDispatch.v) · [Key-table initialization](coq/TableStart.v) · [Native cached coordinates](coq/TableValues.v) · [Table staging and transpose](coq/TablePackedInputs.v) · [Signed row contents](coq/TableSignedWords.v) · [Eight-multiple loop](coq/TableRounds.v) · [Builder return](coq/TableUnwind.v) · [Caller regions](coq/CallWrites.v) · [Nested regions](coq/NestedRegions.v) ·
+   [Rejection call and return](coq/RejectedPath.v) · [Native dispatch](coq/FirstDispatch.v) · [Key-table call site](coq/TableEntry.v) · [Key-table callee contract](../key_table/coq/NativeBuilder.v) · [Builder handoff](coq/TableUnwind.v) · [Caller regions](coq/CallWrites.v) · [Nested regions](coq/NestedRegions.v) ·
    [Scorer alignment](coq/Score.v) · [Mapped image](coq/LoadedImage.v)
 6. **Verdicts across iterations.** Check that `Iteration.more` passes the
    actual scatter continuation into staging and that the recursive call starts

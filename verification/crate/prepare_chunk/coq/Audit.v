@@ -1,3 +1,4 @@
+From Ed25519Simd.Decode Require PowAddress.
 From Coq Require Import ZArith List Bool.
 From Machine Require Import execution.LinkedCalls execution.WordSemantics memory.WriteTrace memory.ByteMemory memory.FlatMemory memory.MemoryGeometry.
 From Ed25519Simd.Decode Require Audit Image Program Kernels Chunks Caller DecoderBytes HelperBytes.
@@ -64,7 +65,7 @@ Definition chunk_result mode p prior incoming slide table_scratch :=
 (* The paired decoder's native return is the same packed mask consumed
    by the two wrapper branches, for every allowed decoder stack padding. *)
 Definition decoder_handoff :=
- let h:=HelperBytes.address-pc DecodePair in let pow:=DecoderBytes.pow_pc-pc DecodePair in
+ let h:=HelperBytes.address-pc DecodePair in let pow:=PowAddress.address-pc DecodePair in
  forall p pad,(pad<4)%nat ->
  Decode.Caller.caller_result h pow true pad /\
  Decode.Caller.return_value h pow true pad
@@ -99,7 +100,7 @@ Record prepare_chunk_contract : Prop := {
    forallb (fits_jump pc Strict strict) strict=true /\
    forallb (fun j=>(0<=?table_offset j)&&(table_offset j<?2^16)) (seq 0 8)=true;
  decoder : Decode.Audit.decode_contract (pc DecodePair) (raw DecodePair)
-   HelperBytes.address HelperBytes.symbol_bytes DecoderBytes.pow_pc Pow2.ObjectBytes.symbol_bytes;
+   HelperBytes.address HelperBytes.symbol_bytes PowAddress.address Pow2.ObjectBytes.symbol_bytes;
  scalar_site_binding : linked_scalar_call common_pc CommonBytes.symbol_bytes;
  scalar_returns : forall p prior incoming slide,scalar_inputs common_pc p prior slide -> scalar_handoff p prior incoming slide;
  paired_call : decoder_handoff;

@@ -80,6 +80,9 @@ Proof.
  destruct (segment_history _ _ _ _ _ _ _ _ At M Apart R Safe) as [Step History].
  exact (conj Step (account_history _ _ _ _ Prev History)).
 Qed.
+Definition available e (allowed:Z->Prop) base text := mapped (mem e) base text /\
+ forall x,base<=x<base+Z.of_nat(length text) -> ~allowed x.
+
 Lemma image_after e allowed p origin text : accounted e allowed p -> mapped (mem e) origin text ->
  (forall x,origin<=x<origin+Z.of_nat(length text)->~allowed x) -> mapped (mem(machine p)) origin text.
 Proof. intros [W M] Code Sep i I;rewrite M;exact (keep_image _ _ _ _ _ Code Sep W i I). Qed.

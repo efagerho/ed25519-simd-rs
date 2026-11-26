@@ -1,3 +1,4 @@
+From Ed25519Simd.Decode Require NativeProduct.
 From Curve25519.group Require Import PointDecoding.
 From Coq Require Import ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun memory.ByteMemory memory.FlatMemory.
@@ -9,7 +10,7 @@ From Ed25519Simd.Decode Require Import Decode.
 From Ed25519Simd.VerifyBatch Require Import Policy BatchDecode NativeScale RootValue.
 From Ed25519Simd.VerifyBatch Require ReturnedPoint.
 Local Open Scope Z_scope.
-Local Opaque Power.apply_kernel DecoderProduct.kernel.
+Local Opaque Power.apply_kernel NativeProduct.kernel.
 
 Definition buffer sig e s:=buffer_words (mem s) (BatchDecode.point e sig).
 Definition coord w j c i:=cell w (5*c+i)%nat j.
@@ -53,7 +54,7 @@ Proof.
  intros Out Inputs;destruct(ReturnedPoint.point_before_return _ _ _ _ _ _ Out) as [a [A M]].
  set (w:=buffer sig e (machine q)).
  assert (Lane:forall j,(j<8)%nat -> let X:=vectors(machine s) j in let Y:=row (machine s) (BatchDecode.point e sig+320) j in
-  same (coord w j 0) X /\ same (coord w j 1) Y /\ same (coord w j 2) one /\ same (coord w j 3) (mul DecoderProduct.kernel X Y)).
+  same (coord w j 0) X /\ same (coord w j 1) Y /\ same (coord w j 2) one /\ same (coord w j 3) (mul NativeProduct.kernel X Y)).
  { intros j J;cbv zeta;unfold w;repeat split;intros i I;rewrite memory_coord.
    all: unfold row at 1;rewrite M.
    all: pose proof(ExtendedPoint.point_rows _ _ _ _ _ _ A j i J I) as [X [Y [Z T]]].
@@ -66,7 +67,7 @@ Proof.
  - intros i j I J;change (i<20)%nat in I;destruct (Inputs j J) as [BX [BY _]];destruct(Lane j J) as [X [Y [Z T]]].
    assert (Bound:forall c,(c<4)%nat -> split_field(coord w j c)).
    { intros [|[|[|[|c]]]] C;try lia;[exact(same_split _ _ X BX)|exact(same_split _ _ Y (digits_split _ BY))|exact(same_split _ _ Z One)|].
-     apply(same_split _ _ T),bounded_split,(proj1(mul_ok _ _ _ (proj1 DecoderProduct.multiplication) BX (digits_split _ BY))). }
+     apply(same_split _ _ T),bounded_split,(proj1(mul_ok _ _ _ (proj1 NativeProduct.multiplication) BX (digits_split _ BY))). }
    pose proof(Nat.div_mod i 5 ltac:(lia)) as D;pose proof(Nat.mod_upper_bound i 5 ltac:(lia)) as R.
    specialize(Bound (i/5)%nat ltac:(lia) (i mod 5)%nat R);unfold coord in Bound;rewrite <-D in Bound;unfold Radix51.split in Bound;lia.
  - split.
@@ -79,7 +80,7 @@ Proof.
      by (unfold value,pack;now rewrite YVal).
    pose proof(same_value _ _ Y) as VY;rewrite YField,YP in VY.
    pose proof(same_value _ _ Z) as VZ;change (value one) with 1%fp in VZ.
-   pose proof(same_value _ _ T) as VT;destruct(mul_ok _ _ _ (proj1 DecoderProduct.multiplication) BX (digits_split _ BY)) as [_ [_ Product]].
+   pose proof(same_value _ _ T) as VT;destruct(mul_ok _ _ _ (proj1 NativeProduct.multiplication) BX (digits_split _ BY)) as [_ [_ Product]].
    rewrite Product,(XVal P In),YField,YP in VT.
    split;[|exact VZ];change ((value(coord w j 2)<>0%fp /\ value(coord w j 0)=(x P*value(coord w j 2))%fp /\
     value(coord w j 1)=(y P*value(coord w j 2))%fp) /\ (true=true -> value(coord w j 3)=(x P*y P*value(coord w j 2))%fp)).

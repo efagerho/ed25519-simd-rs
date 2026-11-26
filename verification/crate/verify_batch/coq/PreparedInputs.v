@@ -75,7 +75,7 @@ Proof.
  intros P A x X;pose proof(scratch_stack _ P) as Apart;unfold operand_bytes,prefix,BatchDecode.point,BatchDecode.point_offset,span in X;unfold disjoint in Apart.
  rewrite (PrepareOutputs.surrounding _ _ _ _ _ _ A) by (unfold PrepareOutputs.dest,span,Rows.frame,sp in *;lia).
  rewrite (TableUnwind.parent _ _ _ _ _ (PrepareOutputs.parent _ _ _ _ _ _ A)).
- - unfold TableParentFrame.expected;rewrite outside_spill by (change (Z.of_nat(length TableFrame.saved_regs)) with 6;unfold TableEntry.frame,common_top,Rows.frame,sp in *;destruct pol;lia).
+ - unfold TableParentFrame.expected;rewrite outside_spill by (change (Z.of_nat(length KeyTable.Frame.saved_regs)) with 6;unfold TableEntry.frame,common_top,Rows.frame,sp in *;destruct pol;lia).
    apply write_outside;unfold TableEntry.frame,common_top,Rows.frame,sp in *;destruct pol;lia.
  - unfold TableParentFrame.keep,TableParentFrame.top,KeyTable.Frame.staging,KeyTable.Frame.allocation,KeyTable.Frame.align64.
    change KeyTable.Frame.saved_size with 48;pose proof(Z.mod_pos_bound (TableEntry.frame pol e-48) 64 ltac:(lia)).

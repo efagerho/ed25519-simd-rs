@@ -1,3 +1,4 @@
+From Ed25519Simd.Decode Require NativeProduct.
 From Curve25519 Require Radix51Digits.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions execution.WordBounds execution.WordSemantics execution.LinkedCalls execution.LinkedRun
@@ -5,7 +6,8 @@ From Machine Require Import isa.Instructions execution.WordBounds execution.Word
  memory.ByteMemory memory.MemoryGeometry memory.WriteTrace.
 From Ed25519Simd.Decode Require Decode Kernels Power HelperBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode KeySquare NativeScale.
-From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderProduct DecoderKernel RowProduct NativeWords.
+From Ed25519Simd.Decode Require DecoderKernel.
+From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderProduct RowProduct NativeWords.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition literal i:=0xe20+8*Z.of_nat i.
@@ -15,7 +17,7 @@ Definition prefix:=map broadcast (seq 0 5)++[(0xa55,2%nat,Jump (0xa79-0xa57))].
 Lemma code:linked text prefix.
 Proof. repeat constructor;vm_compute;discriminate || reflexivity. Qed.
 Definition rhs (s:cpu) j n:=if ((5<=?n)&&(n<?10))%nat then Radix51Digits.sqrt_limbs (n-5)%nat else vectors s j n.
-Definition product s t:=forall j i,vectors t j i=Instructions.run no_read (Kernels.product DecoderProduct.kernel) (rhs s j) i.
+Definition product s t:=forall j i,vectors t j i=Instructions.run no_read (Kernels.product NativeProduct.kernel) (rhs s j) i.
 Definition body bias:=then_run (segment (base bias) text 6) (DecoderProduct.product bias).
 Definition execute bias:=wrapped (base bias) text (base bias) text (body bias).
 
@@ -91,12 +93,12 @@ Proof. unfold execute,body,DecoderProduct.product,DecoderProduct.columns,Decoder
 
 Lemma multiplied s t : RowProduct.constants s -> product s t ->
  RowProduct.constants t /\ forall j i,(i<5)%nat -> vectors t j i=
- Power.apply_kernel DecoderProduct.kernel Kernels.Multiply (vectors s j) Radix51Digits.sqrt_limbs i.
+ Power.apply_kernel NativeProduct.kernel Kernels.Multiply (vectors s j) Radix51Digits.sqrt_limbs i.
 Proof.
  intros C V;split.
- - intros i j N;rewrite (V j (28+i)%nat);destruct((proj2 DecoderProduct.multiplication) no_read no_read (rhs s j) (rhs s j) ltac:(reflexivity)) as [_ High].
+ - intros i j N;rewrite (V j (28+i)%nat);destruct((proj2 NativeProduct.multiplication) no_read no_read (rhs s j) (rhs s j) ltac:(reflexivity)) as [_ High].
    rewrite High by lia;unfold rhs;rewrite (proj2(Nat.ltb_ge (28+i) 10) ltac:(lia)),Bool.andb_false_r;apply C,N.
- - intros j i N;rewrite (V j i);apply DecoderProduct.lane_product.
+ - intros j i N;rewrite (V j i);apply NativeProduct.lane_product.
    + intros k K;unfold rhs;rewrite (proj2(Nat.leb_gt 5 k) ltac:(lia)),(proj2(Nat.ltb_lt (5+k) 10) ltac:(lia)),
       (proj2(Nat.leb_le 5 (5+k)) ltac:(lia));cbn [andb];replace (5+k-5)%nat with k by lia;auto.
    + intros k K;unfold rhs;rewrite (proj2(Nat.ltb_ge (28+k) 10) ltac:(lia)),Bool.andb_false_r;apply C,K.

@@ -1,3 +1,4 @@
+From Ed25519Simd.Decode Require NativeProduct.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions execution.WordBounds execution.WordSemantics execution.LinkedCalls execution.LinkedRun
  execution.ScalarBytes execution.ScalarWords execution.MappedFetch execution.InstructionRoute execution.VectorProcedure
@@ -5,7 +6,8 @@ From Machine Require Import isa.Instructions execution.WordBounds execution.Word
 From Curve25519 Require Import Field Radix51.
 From Ed25519Simd.Decode Require Kernels Power.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode KeySquare NativeScale.
-From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderProduct DecoderKernel DecoderFinish FinishSquare RowProduct.
+From Ed25519Simd.Decode Require DecoderKernel.
+From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderProduct DecoderFinish FinishSquare RowProduct.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition pointer_code:list line:=[(940,7%nat,LeaG 8 (Address 7 None 960))].
@@ -14,8 +16,8 @@ Lemma bytes : linked text pointer_code /\
 Proof. repeat split;repeat constructor;vm_compute;discriminate || reflexivity. Qed.
 Definition pointer bias:=segment (base bias) text 1.
 Definition finish bias:=then_run (FinishSquare.evaluate bias) (then_run (pointer bias) (DecoderProduct.multiply_call bias)).
-Definition candidate x uv:=let h:=Power.apply_kernel DecoderProduct.kernel Kernels.Square x x in
- Power.apply_kernel DecoderProduct.kernel Kernels.Multiply h uv.
+Definition candidate x uv:=let h:=Power.apply_kernel NativeProduct.kernel Kernels.Square x x in
+ Power.apply_kernel NativeProduct.kernel Kernels.Multiply h uv.
 Definition post sig pol bias e p q:=let st:=link_slot pol e in
  ip q=base bias+952 /\ accounted e (writable e) q /\ well_formed(machine q) /\
  (forall r,r<>8%nat -> regs(machine q) r=regs(machine p) r) /\

@@ -1,3 +1,4 @@
+From Ed25519Simd.Decode Require PowAddress.
 From Coq Require Import ZArith Lia.
 From Ed25519Simd.Pow2 Require Object ObjectBytes.
 From Ed25519Simd.Decode Require Import Kernels Chunks Caller Image Glue Program Audit.
@@ -5,7 +6,7 @@ From Ed25519Simd.Decode Require DecoderBytes HelperBytes.
 
 Theorem assembled_decode_correct : decode_contract
  DecoderBytes.address DecoderBytes.symbol_bytes HelperBytes.address HelperBytes.symbol_bytes
- DecoderBytes.pow_pc ObjectBytes.symbol_bytes.
+ PowAddress.address ObjectBytes.symbol_bytes.
 Proof.
  constructor.
  - exact Object.assembled_symbol_correct.

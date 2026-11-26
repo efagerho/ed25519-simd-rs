@@ -2,7 +2,8 @@ From Coq Require Import ZArith List Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.WordSemantics execution.MappedFetch memory.ByteMemory.
 From Machine Require execution.MaskedResult execution.MaskTransfer.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode KeySquare.
-From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderProduct DecoderKernel.
+From Ed25519Simd.Decode Require DecoderKernel.
+From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderProduct.
 Local Open Scope Z_scope.
 
 (* One certificate checks a store-free predicate block against the current

@@ -1,3 +1,4 @@
+From Machine Require Export abi.RegisterSpill.
 From Coq Require Import List ZArith Lia.
 From Machine Require Import isa.Instructions execution.LinkedCalls execution.WordSemantics execution.WordBounds
  abi.SysV memory.ByteMemory memory.FlatMemory memory.MemoryGeometry.
@@ -23,8 +24,6 @@ Record placement e : Prop := {
   out_stack : disjoint (output e) (Z.of_nat(count e)) (sp e-16384) 16392;
   out_scratch : disjoint (output e) (Z.of_nat(count e)) (scratch e) 25344
 }.
-Fixpoint spill rs m top (regs:list nat) := match regs with
- | []=>m | r::rest=>spill rs (store_word m (top-8) (rs r)) (top-8) rest end.
 Definition saved_memory e := spill (regs e) (mem e) (sp e) saved.
 Definition fill e stack_bytes scratch_bytes out :=
  let m:=write_bytes (saved_memory e) (sp e-16384) (16384-40) stack_bytes in
@@ -41,24 +40,6 @@ Definition empty_return e :=
  (* TEST RSI,RSI set ZF on the empty branch. MOV EAX,1 and RET preserve it. *)
  caller_step 0 0 Return (set (CPU (regs e) (vectors e) (Some true) (mem e)) 0 1).
 
-Lemma outside_spill rs m top xs x : x<top-8*Z.of_nat(length xs) \/ top<=x ->
- spill rs m top xs x=m x.
-Proof.
- revert m top;induction xs as [|r xs IH];intros m top X;[reflexivity|].
- cbn [length] in X;rewrite Nat2Z.inj_succ in X. cbn [spill].
- rewrite IH by lia. apply write_outside;lia.
-Qed.
-Lemma spilled_word rs m top xs i r : (forall r,word64 (rs r)) ->
- nth_error xs i=Some r ->
- read_word (spill rs m top xs) (top-8*(1+Z.of_nat i))=rs r.
-Proof.
- revert m top i;induction xs as [|a xs IH];intros m top [|i] W N;try discriminate.
- - injection N as ->;cbn [spill]. replace (top-8*(1+Z.of_nat 0)) with (top-8) by ring.
-   apply read_word_exact;[apply W|]. intros k K;rewrite outside_spill by lia.
-   unfold store_word;rewrite write_at by lia;reflexivity.
- - cbn [spill];replace (top-8*(1+Z.of_nat(S i))) with ((top-8)-8*(1+Z.of_nat i)) by lia.
-   apply IH;assumption.
-Qed.
 Lemma saved_slots e stack_bytes scratch_bytes out a : placement e -> sp e-40<=a<sp e+8 ->
  fill e stack_bytes scratch_bytes out a=saved_memory e a.
 Proof.

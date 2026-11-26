@@ -20,8 +20,7 @@ Definition region a x := bottom a<=x<ceiling a.
 Definition stack_ok a (allowed:Z->Prop) :=
  0<=bottom a /\ ceiling a<2^64 /\ forall x,region a x -> allowed x.
 Definition room a depth s := bottom a+depth<=regs s 4%nat<=ceiling a.
-Definition available e (allowed:Z->Prop) base text := mapped (mem e) base text /\
- forall x,base<=x<base+Z.of_nat(length text) -> ~allowed x.
+Definition available := LinkedRun.available.
 Definition procedure := (cursor->option cursor)%type.
 Definition then_run (a b:procedure) p := bind (a p) b.
 

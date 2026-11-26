@@ -104,3 +104,10 @@ Lemma blocks_checked raw bs : forallb (block_matches raw) bs=true ->
 Proof.
  rewrite forallb_forall,Forall_forall;intros B [off f] H;apply equal_bytes_sound,(B _ H).
 Qed.
+
+Definition helper_image k decoder ds helper hs :=
+ at_bytes ds 0xa79 (call (decoder+0xa79) (helper+0xb90) ++ vectors(Kernels.carry k) ++ [0xc3]) /\
+ at_bytes hs 0xb90 (vectors(seed_columns k)++call 0xbfc 0xcb0++vectors(fold_columns k)++[0xc3]) /\
+ length(vectors(seed_columns k))=0x6c%nat /\
+ at_bytes hs 0xcb0 (vectors(convolve k)++[0xc3]) /\
+ at_bytes hs 0xde0 (flat_map word_bytes [19;2^51-1;(2^51-19)*1024;(2^51-1)*1024]).

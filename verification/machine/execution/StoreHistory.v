@@ -21,3 +21,10 @@ Proof.
 Qed.
 Definition account := LinkedRun.account_history.
 Definition segment_checked := LinkedRun.segment_history.
+
+(* A callee can check its entire write history in a fresh cursor. Rejoining
+   the caller keeps those same events and the callee's actual machine state. *)
+Definition fresh p:=initial (ip p) (machine p) (carry p).
+Definition rejoin p t:=Cursor (ip t) (machine t) (carry t) (log p++log t).
+Lemma rejoin_history region p t : accounted (machine p) region t -> extends region p (rejoin p t).
+Proof. intros [Safe Mem];exists (log t);auto. Qed.

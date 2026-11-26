@@ -5,7 +5,8 @@ From Machine Require Import isa.Instructions execution.WordSemantics execution.L
 From Machine Require execution.PredicateBlock execution.MaskedWords execution.MaskTransfer.
 From Curve25519 Require Import Radix51 Radix51Digits.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode KeySquare.
-From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderProduct DecoderKernel NativeScale.
+From Ed25519Simd.Decode Require DecoderKernel.
+From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderProduct NativeScale.
 Import ListNotations. Local Open Scope Z_scope.
 Module MB:=MaskedWords.
 Definition start (first:bool):=if first then 952 else 1030.

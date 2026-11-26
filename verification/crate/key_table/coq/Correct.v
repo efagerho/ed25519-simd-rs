@@ -20,12 +20,6 @@ Proof.
    rewrite Nat2Z.inj_succ. replace (1+Z.succ (Z.of_nat n)) with (Z.succ(1+Z.of_nat n)) by lia.
    rewrite scale_succ,plus_comm. apply Add;auto using staged_rep.
 Qed.
-Lemma identity_rep : represents_cache (scalar_cache false (fun i=>identity_word (Z.of_nat i))) identity.
-Proof.
- exists 1%fp;split;[discriminate|].
- change ((1=(1-0)*1) /\ (1=(1+0)*1) /\ (0=(1+1)*d*0*1*1) /\ residue 2=(1+1)*1)%fp.
- rewrite residue_two;repeat split;ring.
-Qed.
 Definition expected_row incoming k w j d i := resolve incoming k w (expected j d i).
 Lemma entry_correct incoming k w j digit : (forall t,data_words(incoming t)) -> kernels_ok k -> cache_bounds false w -> (j<8)%nat ->
  let a:=expected_row incoming k w j digit in
@@ -34,7 +28,7 @@ Lemma entry_correct incoming k w j digit : (forall t,data_words(incoming t)) -> 
  represents_cache (scalar_cache false a) (scale digit P)).
 Proof.
  intros Scratch K W J a;unfold a,expected_row,expected;destruct (Z.eqb_spec digit 0) as [->|D].
- - split;[intros i I;do 20 (destruct i as [|i];[vm_compute;easy|]);lia|intros;exact identity_rep].
+ - split;[intros i I;do 20 (destruct i as [|i];[vm_compute;easy|]);lia|intros;exact NativeTable.identity_rep].
  - set (n:=Nat.pred(Z.to_nat(Z.abs digit))).
    change (fun i=>resolve incoming k w (n, Pack.signed_word (0<?digit) i j)) with
      (row k (points incoming k w n) (0<?digit) j).
@@ -60,7 +54,7 @@ Proof.
    assert (Byte:forall i b,(i<20)%nat->0<=b<8 ->
      output_byte incoming k w ws base (slot base j digit i+b)=Some (word_byte(expected_row incoming k w j digit i) b)).
    { intros i b I Br;unfold output_byte.
-     replace (slot base j digit i+b-base) with (b+address j digit i*8) by (unfold slot,address;ring).
+     replace (slot base j digit i+b-base) with (b+address j digit i*8) by (unfold slot,NativeTable.slot,address;ring).
      rewrite Z.div_add,Z.mod_add,Z.div_small,Z.mod_small by lia.
      rewrite Z.add_0_l,Complete by assumption;reflexivity. }
    split;[intros;eexists;apply Byte;assumption|]. intros prior entry.

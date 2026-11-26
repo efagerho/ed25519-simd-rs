@@ -1,3 +1,4 @@
+From Ed25519Simd.Decode Require NativeProduct.
 From Curve25519.group Require Decompression.
 From Coq Require Import ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.ScalarWords memory.ByteMemory memory.MemoryGeometry memory.FlatMemory.
@@ -9,7 +10,7 @@ From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScala
  SetupTail PairedSetup DecoderPower NativeScale SetupValues.
 From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderProduct NativeWords.
 Local Open Scope Z_scope.
-Local Opaque DecoderProduct.kernel.
+Local Opaque NativeProduct.kernel.
 
 Definition half t (signature:bool):=if signature then signature_r (setup_points t) else public_key (setup_points t).
 Definition point_bytes e signature:=span (point e signature) 1280.
@@ -63,7 +64,7 @@ Proof.
  set (v:=vectors(machine(after_square(half t sig))) j) in *.
  assert (B:bounded v) by (intros i I;specialize(Bounds i I);change (0<=v i<=radix+2^16) in Bounds;lia).
  destruct(scaled_bounds _ B Pos) as [U V].
- destruct(Power.apply_ok _ Kernels.Multiply _ _ (proj1 DecoderProduct.multiplication)
+ destruct(Power.apply_ok _ Kernels.Multiply _ _ (proj1 NativeProduct.multiplication)
     (bounded_split _ U) (bounded_split _ V)) as [UV [Rep _]].
  destruct(Input sig) as [Fields Keep].
  assert (Same:forall i,(i<5)%nat -> cell buf i j=product v i).

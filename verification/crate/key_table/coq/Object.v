@@ -9,6 +9,7 @@ Theorem assembled_key_table_correct : key_table_contract
  HelperBytes.address HelperBytes.symbol_bytes CachedBytes.address CachedBytes.symbol_bytes.
 Proof.
  constructor.
+ - apply NativeBuilder.checked;repeat constructor;vm_compute;discriminate || reflexivity.
  - unfold image. split;[apply blocks_checked;vm_compute;reflexivity|].
    split;[vm_compute;reflexivity|]. split;[repeat constructor;vm_compute;discriminate|].
    vm_compute;split;reflexivity.

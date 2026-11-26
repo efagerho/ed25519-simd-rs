@@ -1,3 +1,4 @@
+From Ed25519Simd.Decode Require NativeProduct.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.ScalarBytes execution.WordSemantics
  execution.WordBounds execution.MappedFetch execution.InstructionRoute memory.ByteMemory memory.FlatMemory
@@ -106,7 +107,7 @@ Proof.
  - unfold frame;split;[rewrite G;exact DI|split;[rewrite G;exact SP|split]].
    + exact (eq_trans ReturnWord Link).
    + split.
-     * intros i j I;rewrite YY;destruct ((proj2 DecoderProduct.multiplication) no_read no_read (args j) (args j)
+     * intros i j I;rewrite YY;destruct ((proj2 NativeProduct.multiplication) no_read no_read (args j) (args j)
        ltac:(reflexivity)) as [_ High];rewrite High by lia;apply C,I.
      * eapply keep_caller;[exact Caller| |].
        -- intros r InReg;rewrite G;change (Instructions.put (regs s) 8 (address signature e) r=regs s r);
@@ -116,7 +117,7 @@ Proof.
    + split;[intros i I;rewrite D by assumption;apply B,I|split].
      * rewrite <-Y;apply limbs_ext;intros;apply D;assumption.
      * rewrite G;exact Sign.
-   + pose proof(DecoderProduct.lane_square (args j) (digits signature e s j) (digits_split _ B)
+   + pose proof(NativeProduct.lane_square (args j) (digits signature e s j) (digits_split _ B)
        ltac:(intros i I;apply Inputs;assumption) (C j)) as [Bound [Value Positive]].
      split;[intros i I;rewrite YY;apply Bound,I|split;[|rewrite YY;exact Positive]].
      erewrite limbs_ext;[rewrite <-Y;exact Value|intro i;intros;apply YY].

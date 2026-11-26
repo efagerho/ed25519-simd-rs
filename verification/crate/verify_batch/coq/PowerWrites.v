@@ -1,3 +1,4 @@
+From Ed25519Simd.Decode Require PowAddress.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import execution.Blocks execution.LinkedCalls execution.LinkedRun execution.WordBounds
  execution.LocatedReturn execution.KnownRegisters memory.MemoryTrace memory.FlatMemory memory.ByteMemory memory.WriteTrace memory.BlockWrites abi.SysV.
@@ -54,7 +55,7 @@ Proof.
    intro U;rewrite U in Word;discriminate. }
  destruct(lift_return _ _ _ _ _ _ _ _ _ Known (did_return Cert) Bytes) as [Call [WF Keep]].
  assert (Image:MappedFetch.mapped (mem s) (code_base loc) (ProgramLayout.image program)).
- { change (MappedFetch.mapped (mem s) (bias+Decode.DecoderBytes.pow_pc) (ProgramLayout.image Pow2.Program.pow2_program)).
+ { change (MappedFetch.mapped (mem s) (bias+Decode.PowAddress.address) (ProgramLayout.image Pow2.Program.pow2_program)).
    rewrite (Pow2.Audit.code_matches Pow2.Object.assembled_symbol_correct).
    exact (proj1(BatchScalar.mapped_now _ _ _ I _ _ _ Paid (power_in pol))). }
  destruct(LocatedReturn.checked program abi_layout loc 1024 _ _ st final p after At Image (search _) (did_return Cert) Bytes)

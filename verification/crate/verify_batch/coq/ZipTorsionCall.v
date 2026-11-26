@@ -1,3 +1,4 @@
+From Machine Require execution.CursorSegment.
 From Coq Require Import List ZArith Lia.
 From Machine Require Import isa.Instructions execution.LinkedCalls execution.LinkedRun execution.WordSemantics execution.WordBounds
  execution.ScalarBytes execution.InstructionRoute execution.ScalarWords execution.StoreHistory execution.MappedFetch
@@ -45,18 +46,19 @@ Proof.
    cbn [push push_words set set_regs with_words regs mem put Nat.eqb];rewrite SP,(word_fits _ Fit).
    replace (o+(57+Z.of_nat 5+(target-(pc+62)))) with (bias+target) by (unfold o;ring);rewrite (word_fits _ Dest).
    replace (bias+target-o) with (target-pc) by (unfold o;ring);reflexivity. }
- pose proof(ZipResume.writes _ _ _ _ _ Before) as Paid;destruct(mapped_now _ _ _ I _ _ _ Paid (ScoreSetup.image Zip215)) as [Map Sep].
  assert (Loan:forall x,slot e x -> writable e x) by (intros x X;left;unfold slot,span,ScoreFrame.buffer,FramePointer.bottom,ScoreFrame.top,Rows.frame,sp in *;lia).
  assert (Safe:confined (slot e) [w]) by (constructor;[intros x X;change (base-8<=x<base-8+8) in X;unfold slot;fold base;lia|constructor]).
- destruct(StoreHistory.segment_checked _ o text 3 p 51 _ _ (ZipResume.at_return _ _ _ _ _ Before)
-   Map ltac:(intros x X Y;exact (Sep x X (Loan x Y))) Run Safe) as [Next Hist].
+ destruct (CursorSegment.checked e (writable e) (slot e) o text 3 p 51 _ _
+   (LoadedImage.symbol_available _ _ _ _ _ _ I (ScoreSetup.image Zip215)) Loan
+   (conj (ZipResume.writes _ _ _ _ _ Before) (ZipResume.words _ _ _ _ _ Before))
+   (ZipResume.at_return _ _ _ _ _ Before) Run Safe) as [Next [[Paid Words] Hist]].
  pose proof(StoreHistory.preserves _ _ _ Hist) as Preserve.
  assert (Mem:mem u=commit (mem s) w) by exact (steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ Run)).
  assert (Kept:forall g,In g sysv_saved -> regs u g=regs s g) by (intros g [<-|[<-|[<-|[<-|[<-|[<-|[]]]]]]];reflexivity).
  eexists;split;[exact Next|constructor].
  - cbn [LinkedRun.finish ip absolute loc];unfold o;ring.
- - exact (segment_wf _ _ _ _ _ (ZipResume.words _ _ _ _ _ Before) Next).
- - exact (StoreHistory.account _ _ _ _ Paid (StoreHistory.lend _ _ _ _ Loan Hist)).
+ - exact Words.
+ - exact Paid.
  - change (word(regs s 4%nat-8)=base-8);now rewrite SP,(word_fits _ Fit).
  - reflexivity.
  - exact BX.

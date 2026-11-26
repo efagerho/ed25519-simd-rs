@@ -1,3 +1,5 @@
+From Ed25519Simd.Decode Require PowAddress.
+From Machine Require execution.LinkedRun.
 From Coq Require Import List ZArith Lia.
 From Machine Require Import memory.ByteMemory memory.ByteExecution memory.WriteTrace memory.MemoryGeometry.
 From Machine Require execution.MappedFetch.
@@ -29,7 +31,7 @@ Definition common : list (Z*list Z) :=
   (Sha512Challenge.ObjectBytes.address,Sha512Challenge.ObjectBytes.symbol_bytes);
   (LiteralBytes.address,LiteralBytes.symbol_bytes);
   (Decode.DecoderBytes.address,Decode.DecoderBytes.symbol_bytes);
-  (Decode.DecoderBytes.pow_pc,Pow2.ObjectBytes.symbol_bytes);
+  (Decode.PowAddress.address,Pow2.ObjectBytes.symbol_bytes);
   (Decode.HelperBytes.address,Decode.HelperBytes.symbol_bytes);
   (KeyTable.ObjectBytes.address,KeyTable.ObjectBytes.symbol_bytes);
   (Radix16.LinkedBytes.wrapper_pc,Radix16.LinkedBytes.symbol_bytes);
@@ -61,6 +63,13 @@ Record loaded mode bias m allowed : Prop := {
  tables_fit : forall a n,In (a,n) static_tables -> fits64 (bias+a) n;
  immutable : forall x,readonly mode bias x -> ~allowed x
 }.
+Lemma symbol_available mode bias e allowed addr text : loaded mode bias (LinkedCalls.mem e) allowed ->
+ In (addr,text) (children mode) -> LinkedRun.available e allowed (bias+addr) text.
+Proof.
+ intros I C;split;[exact (proj2 (symbols _ _ _ _ I _ _ C))|].
+ intros x R;apply (immutable _ _ _ _ I);left;exists addr,text;auto.
+Qed.
+
 Lemma after mode bias m allowed ws : loaded mode bias m allowed -> confined allowed ws ->
  loaded mode bias (replay m ws) allowed.
 Proof.
