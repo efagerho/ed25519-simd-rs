@@ -2,7 +2,8 @@ From Coq Require Import List ZArith Bool Lia.
 From Curve25519 Require Import Field Radix51.
 From Machine Require Import isa.Instructions execution.MaskTrace execution.CircuitFacts.
 From ProofArithmetic Require Import Expressions.
-From Ed25519Simd.field51 Require Import Zero Arithmetic Check.
+From Curve25519 Require Import Radix51Zero.
+From Ed25519Simd.field51 Require Import Arithmetic Check.
 Import ListNotations. Local Open Scope Z_scope.
 
 From Ed25519Simd.field51 Require Export RootMasks.

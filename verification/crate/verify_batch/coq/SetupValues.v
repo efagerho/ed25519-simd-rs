@@ -2,8 +2,8 @@ From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions execution.WordSemantics execution.LinkedCalls execution.LinkedRun
  execution.WordBounds execution.ScalarBytes execution.ScalarWords execution.MappedFetch execution.InstructionRoute
  execution.AlignedRows execution.VectorProcedure memory.ByteMemory memory.FlatMemory memory.MemoryGeometry memory.WriteTrace.
-From Curve25519 Require Import Field Radix51.
-From Ed25519Simd.Decode Require Import Limbs Scale.
+From Curve25519 Require Import Field Radix51 Radix51Digits DecompressionRadix51.
+From Ed25519Simd.Decode Require Import Scale.
 From Ed25519Simd.Decode Require Power Decode Kernels.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode DecoderSave KeySquare SetupTail NativeScale.
 From Ed25519Simd.VerifyBatch Require DecoderProduct DecoderKernel DecoderFrame NativeWords FieldStores.

@@ -94,7 +94,7 @@ Release auditing checks the final linked artifact from either build.
 | Files | Checked responsibility |
 | --- | --- |
 | `Unpack.v`, `Product.v` | Exact 64-to-52-bit unpacking and both constant products; actual IFMA operand and accumulator bounds. |
-| `ScalarMath.v`, `Reduction.v`, `Montgomery.v` | Cancellation of each low column, the optimized ceiling carry including zero low limbs, all five Montgomery steps, normalization, and the bound that makes one subtraction sufficient. |
+| [Scalar specialization](../../curve25519/ScalarReduction.v), [general cancellation](../../arithmetic/Montgomery.v), `Reduction.v`, `Montgomery.v` | Cancellation of each low column, the optimized ceiling carry including zero low limbs, all five Montgomery steps, normalization, and the bound that makes one subtraction sufficient. |
 | `Borrow.v`, `Finish.v` | Borrow propagation through five limbs, wrapped subtraction, and bitwise selection of the canonical result. |
 | [Shared arithmetic](../../arithmetic/README.md), `Symbolic.v`, `Calculate.v` | Sound interval/exact-polynomial checking, scalar instruction conditions, and composition into `H mod L`. |
 | `Control.v`, `Lane.v`, `Routing.v`, `Logical.v` | Actual control path, broadcasts, register and memory routing, stores, and all eight lanes. |

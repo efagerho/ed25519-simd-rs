@@ -22,7 +22,7 @@ CASES = (
 
 
 def check(elf, audit, work):
-    for name in ("arithmetic", "machine", "curve25519", "crate", "SmallOrder"):
+    for name in ("arithmetic", "machine", "curve25519", "ed25519", "crate", "SmallOrder"):
         (work / name).symlink_to(audit / name, target_is_directory=True)
     for name in ("Dalek", "Decode"):
         shutil.copytree(audit / name, work / name)

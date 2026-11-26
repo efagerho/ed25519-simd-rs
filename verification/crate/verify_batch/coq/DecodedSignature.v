@@ -1,3 +1,4 @@
+From Curve25519.group Require Import PointDecoding.
 From Coq Require Import ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun memory.FlatMemory memory.ByteMemory.
 From Ed25519Simd.VerifyBatch Require Import Policy Return BatchDecode KeySquare NativeScale RootValue DecodedRows.
@@ -27,7 +28,7 @@ Proof.
  destruct(RootValue.registers true pol bias e (FinishTrace.validity f) (FinishTrace.raw f) (FinishTrace.chosen f)
     (FinishTrace.test_masks f) ks j w (FinishTrace.raw_result _ _ _ _ _ _ Done) Chosen J U UV T TV) as [B V].
  destruct Entry as [_ [_ [_ [_ [_ [_ [_ [_ [Tag _]]]]]]]]].
- assert (Sign:Z.testbit (regs(machine(FinishTrace.chosen f)) 9%nat) (Z.of_nat j)=sign w)
+ assert (Sign:Z.testbit (regs(machine(FinishTrace.chosen f)) 9%nat) (Z.of_nat j)=encoded_sign w)
     by (rewrite (FinishTrace.sign_register _ _ _ _ _ _ Done);apply Tag,J).
  destruct(RootValue.signed (machine(FinishTrace.chosen f)) j w (vectors(machine(FinishTrace.signed f)) j) B Sign
     (fun i I=>FinishTrace.sign _ _ _ _ _ _ Done j i J I)) as [X Value].
@@ -36,6 +37,6 @@ Proof.
  { intros i I;eapply SetupValues.keep_row;[exact (FinishTrace.y_memory _ _ _ _ _ _ Done)|unfold span;lia|exact J|exact I]. }
  destruct(RootOperands.y_at_test _ _ _ _ _ _ Square Fields j J) as [BY YV].
  split;[exact X|split;[intros i I;rewrite Y by exact I;apply BY,I|split;[etransitivity;[apply Radix51.limbs_ext,Y|exact YV]|]]].
- intros G Dec;rewrite Value,V;apply decoded_value;[rewrite (proj2(FinishTrace.mask_bit _ _ _ _ _ _ Done j J));exact Bit|exact Dec].
+ intros G Dec;rewrite Value,V;apply decoded_x;[rewrite (proj2(FinishTrace.mask_bit _ _ _ _ _ _ Done j J));exact Bit|exact Dec].
 Qed.
 End Iteration.

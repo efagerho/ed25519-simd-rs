@@ -3,7 +3,8 @@ From Machine Require Import execution.LinkedCalls memory.ByteMemory memory.FlatM
 From Curve25519 Require Import SignedRadix16 group.Affine group.Representation.
 From Ed25519Simd Require Import Wide51.
 From Ed25519Simd.StageRound Require Program Audit Object ObjectBytes.
-From Ed25519Simd.FullLadder Require Import Program ScalarAction.
+From Ed25519Simd.FullLadder Require Import Program.
+From Curve25519.group Require Import DoubleScalar.
 Import ListNotations. Local Open Scope Z_scope.
 Module S := Ed25519Simd.StageRound.Program.
 Module SA := Ed25519Simd.StageRound.Audit.

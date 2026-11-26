@@ -1,4 +1,5 @@
 -Q .. Curve25519
+-Q ../../arithmetic ProofArithmetic
 PrimeField.v
 Affine.v
 SignedMultiple.v
@@ -6,3 +7,9 @@ Representation.v
 Cofactor.v
 Decompression.v
 RootCriterion.v
+PointEncoding.v
+CoordinateEncoding.v
+PointDecoding.v
+DoubleScalar.v
+BatchInversion.v
+DecompressionDigits.v

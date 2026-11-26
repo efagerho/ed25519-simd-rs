@@ -83,7 +83,7 @@ Proof.
              exact J|apply (proj2(StrictReturn.strong_lane _ _ _ _ F j J)),H]. }
        destruct exit as [r|h];cbn [FirstDispatch.after_filter bind] in *;destruct Branch as [Survives Ready].
        -- exists (FirstDispatch.after_reject r);split;[reflexivity|apply rejected;[|exact Ready]].
-          intros j J Row Sig;apply Survives,Eq;exists j;split;[exact J|apply Lane.accepted_eligible;unfold HashLayout.row;now rewrite BatchWindow.own_row by exact Row].
+          intros j J Row Sig;apply Survives,Eq;exists j;split;[exact J|apply Optimized.accepted_eligible;unfold HashLayout.row;now rewrite BatchWindow.own_row by exact Row].
        -- pose proof(proj1 Eq Survives) as ActiveD.
           destruct(@NativeHash.checked iteration Dalek _ _ _ _ _ P I N Entries Borrow ActiveD (HashLayout.strict_flags _ _ _ _ F)
             (StrictReturn.encodings _ _ _ _ F) Ready) as [r [H Ret]].

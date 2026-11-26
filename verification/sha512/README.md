@@ -23,13 +23,15 @@ has 64 bytes. Executable checks compare literal output bytes for the empty
 input, `abc`, and NIST's 112-byte two-block example. [Facts.v](Facts.v) ·
 [Vectors.v](Vectors.v) · [NIST worked examples](https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Standards-and-Guidelines/documents/examples/SHA512.pdf)
 
+The 16-word rolling schedule and the reassociated additions in each round yield the reference compression rounds. Encoding the high and low length words separately yields the reference 16-byte trailer. [Schedule and rounds](Compression.v) · [Length trailer](LengthTrailer.v)
+
 To check this directory on its own, run the following commands from a copy
 of the directory with Coq installed.
 
 ```sh
 coq_makefile -f _CoqProject -o Makefile
 make
-coqchk -silent -Q . SHA512 SHA512.Facts SHA512.Vectors
+coqchk -silent -Q . SHA512 SHA512.Facts SHA512.Vectors SHA512.Compression SHA512.LengthTrailer
 ```
 
 The challenge routine has its own output layout and proof obligations.

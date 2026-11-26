@@ -3,7 +3,8 @@ From ProofArithmetic Require Import Radix.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.StoreHistory memory.ByteMemory abi.SysV.
 From Curve25519.group Require Import Affine Representation.
 From Ed25519Simd Require Import Wide51.
-From Ed25519Simd.FullLadder Require Import LinkedBytes Operands ScalarAction Native Execution Audit LoopFrame.
+From Curve25519.group Require Import DoubleScalar.
+From Ed25519Simd.FullLadder Require Import LinkedBytes Operands Native Execution Audit LoopFrame.
 From Ed25519Simd.FullLadder Require TopPair LoopReady LoopControl LoopRounds LoopReturn.
 Local Open Scope Z_scope.
 Definition execute slide p:=let base:=regs(machine p) 4%nat in bind (LoopControl.start slide p)
@@ -41,7 +42,7 @@ Proof.
  - constructor;[exact (LoopReturn.back _ _ _ Done)|exact (LoopReturn.stack _ _ _ Done)|exact (LoopReturn.saved _ _ _ Done)|
    exact (LoopReturn.words _ _ _ Done)|exact (StoreHistory.compose _ _ _ _ History (LoopReturn.stores _ _ _ Done))| | |].
    + unfold LoopReady.point;rewrite End;apply (LoopRounds.final_bound _ _ _ _ _ _ _ R).
-   + intros j J;pose proof(LoopRounds.value _ _ _ _ _ _ _ R j J) as Vj;unfold accumulated in Vj;rewrite !digits_number in Vj by lia.
+   + intros j J;pose proof(LoopRounds.value _ _ _ _ _ _ _ R j J) as Vj;unfold accumulated in Vj;rewrite full_ladder_value in Vj.
      unfold LoopReady.point;rewrite End;exact Vj.
    + unfold LoopReady.point;rewrite End;exact (LoopRounds.omitted _ _ _ _ _ _ _ R).
 Qed.

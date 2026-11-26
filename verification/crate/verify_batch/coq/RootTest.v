@@ -1,3 +1,4 @@
+From Curve25519.group Require Decompression.
 From Coq Require Import ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.LocatedReturn memory.ByteMemory memory.FlatMemory memory.MemoryGeometry.
 From Curve25519 Require Import Field Radix51.
@@ -27,11 +28,11 @@ Section Iteration.
 Context `{iteration:BatchWindow.t}.
 Definition math sig e q:=forall j,(j<8)%nat ->
  let v:=vectors(machine q) j in let y:=original_encoding sig e j mod 2^255 in
- let uv:=PowerInputs.uv y in let power:=uv^Pow2Spec.exponent in
+ let uv:=Decompression.integer_uv y in let power:=uv^Pow2Spec.exponent in
  field_bound (fun _=>radix+2^16) v /\ 2<=v 0%nat /\ represents (limbs v) (power*power*uv).
 
 Definition operands sig pol e (start:cursor):=forall j,(j<8)%nat ->
- let uv:=PowerInputs.uv(original_encoding sig e j mod 2^255) in
+ let uv:=Decompression.integer_uv(original_encoding sig e j mod 2^255) in
  let x:=FinishSquare.operand sig pol e (machine start) j in let v:=row (machine start) (point e sig+960) j in
  Radix51.squared x /\ split_field v /\ represents (limbs x) (uv^Pow2Spec.exponent) /\ represents (limbs v) uv.
 
@@ -68,7 +69,7 @@ Lemma from_bytes sig pol bias e t returned start :
 Proof.
  intros P D Inputs Powers After Enter j J.
  set (st:=link_slot pol e) in *;set (w:=DecoderPower.exponent_entry t) in *.
- set (uv:=PowerInputs.uv(original_encoding sig e j mod 2^255)).
+ set (uv:=Decompression.integer_uv(original_encoding sig e j mod 2^255)).
  set (x:=FinishSquare.operand sig pol e (machine start) j);set (v:=row (machine start) (point e sig+960) j).
  set (out:=buffer_words (mem(machine returned)) (st+8));set (input:=PowerInputs.argument e (machine w) sig).
  destruct(Powers sig j J) as [B E];fold st out uv in B,E.

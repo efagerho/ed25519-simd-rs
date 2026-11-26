@@ -1,17 +1,18 @@
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.WordBounds execution.MaskedResult
  memory.FlatMemory memory.ByteMemory.
-From Ed25519Simd.Decode Require Scale Limbs.
+From Ed25519Simd.Decode Require Scale.
+From Curve25519 Require Radix51Digits.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar.
 From Ed25519Simd.VerifyBatch Require FilterCompare.
 Local Open Scope Z_scope.
 
 Definition execute phase bias p ks:=bind (FilterColumns.execute phase bias p ks) (fun '(a,k)=>
  bind (FilterCarry.execute bias a) (fun b=>FilterCompare.execute bias b k)).
-Definition matched phase s j:=Limbs.high_test (Scale.reduced (FilterColumns.differences phase s j)) 0.
+Definition matched phase s j:=Radix51Digits.high_test (Scale.reduced (FilterColumns.differences phase s j)) 0.
 Lemma same_test a b : (forall i,(i<5)%nat -> a i=b i) ->
- Limbs.high_test (Scale.reduced a) 0=Limbs.high_test (Scale.reduced b) 0.
-Proof. intro E;unfold Limbs.high_test,Scale.reduced;now rewrite !E by lia. Qed.
+ Radix51Digits.high_test (Scale.reduced a) 0=Radix51Digits.high_test (Scale.reduced b) 0.
+Proof. intro E;unfold Radix51Digits.high_test,Scale.reduced;now rewrite !E by lia. Qed.
 
 Record result phase bias e p q k:Prop:=Result {
  pc:ip q=bias+FilterLoad.site+(FilterCompare.start phase+34); writes:accounted e (writable e) q; words:well_formed(machine q);
@@ -49,8 +50,8 @@ Proof.
  - intros x X;rewrite (FilterCompare.memory_after _ _ _ _ _ _ Compare),(FilterCarry.memory_after _ _ _ _ _ Carry),(MaskedResult.memory_after _ _ _ _ U);
    [reflexivity|rewrite SA;lia].
  - intro j;rewrite (FilterCompare.equal_zero _ _ _ _ _ _ Compare);destruct(Nat.ltb_spec j 8) as [J|];[|reflexivity].
-   cbn [andb];unfold matched;transitivity (Limbs.high_test (Scale.reduced (vectors(machine a) j)) 0).
-   + unfold Limbs.high_test;now rewrite !(FilterCarry.reduced _ _ _ _ _ Carry) by lia.
+   cbn [andb];unfold matched;transitivity (Radix51Digits.high_test (Scale.reduced (vectors(machine a) j)) 0).
+   + unfold Radix51Digits.high_test;now rewrite !(FilterCarry.reduced _ _ _ _ _ Carry) by lia.
    + apply same_test;intros i N;apply (proj1(FilterColumns.limbs _ _ _ _ _ Col i j N J)).
  - intros -> j i J N;rewrite (FilterCompare.high_regs _ _ _ _ _ _ Compare),(FilterCarry.kept _ _ _ _ _ Carry) by lia;
    exact (proj2(FilterColumns.limbs _ _ _ _ _ Col i j N J) eq_refl).

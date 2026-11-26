@@ -1,4 +1,5 @@
 From Coq Require Import ZArith List Bool Lia Ring.
+From Curve25519.group Require Import CoordinateEncoding.
 From Machine Require Import isa.Instructions isa.X86 isa.ProgramLayout execution.WordBounds.
 From Curve25519 Require Import Field Radix51 Edwards.
 From Curve25519.group Require Import PrimeField Affine Representation.
@@ -136,13 +137,12 @@ Definition output_point a s := let f c:=limbs(fun i=>out (execute a s) (5*c+i)%n
 Lemma seed_represents a s P : bounded a -> represents_cache (cache a) P ->
  represents_xyz (output_point a s) P.
 Proof.
- intros B [z [NZ [M [Y [_ Z2]]]]].
+ intros B Cache.
  assert (E:forall c,(c<3)%nat -> residue(limbs(fun i=>out(execute a s)(5*c+i)%nat))=
    residue(coordinate(seed_point a)c)).
  { intros c C;rewrite (limbs_ext _ _ (fun i I=>routed a s c i C I));apply residue_eq,seed_value;assumption. }
  unfold represents_xyz,output_point;cbn [cx cy cz];rewrite !E by lia.
- cbn [coordinate seed_point cx cy cz]. cbn [cache y_minus_x y_plus_x doubled_z] in M,Y,Z2.
- rewrite residue_sub,residue_add,M,Y,Z2;split;[apply mul_nonzero;[discriminate|exact NZ]|split;ring].
+ exact (cache_seed_xyz _ _ _ _ _ Cache).
 Qed.
 
 (* Only these aligned, disjoint input/output views are projected by step.

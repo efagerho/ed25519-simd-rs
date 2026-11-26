@@ -68,10 +68,10 @@ Qed.
    the wrapper byte-equality field. *)
 From Ed25519Simd.VerifyBatch Require Import Policy Audit.
 Corollary rejects_master_on_live_call bias e :
- admissible Policy.Zip215 bias ZipBytes.address symbol_bytes e ->
- (0<Scatter.count e)%nat -> ~batch_contract Policy.Zip215 ZipBytes.address symbol_bytes.
+ admissible Equations.Zip215 bias ZipBytes.address symbol_bytes e ->
+ (0<Scatter.count e)%nat -> ~batch_contract Equations.Zip215 ZipBytes.address symbol_bytes.
 Proof.
  intros Input Live Master;destruct (batch_inputs _ _ _ _ _ Input Live) as [P [_ [[_ Apart] _]]].
- apply (rejects_placed_call _ (destination Policy.Zip215 Image.Prepare-ZipBytes.address) _ P Live (entry_text _ _ _ _ _ Input) Apart).
+ apply (rejects_placed_call _ (destination Equations.Zip215 Image.Prepare-ZipBytes.address) _ P Live (entry_text _ _ _ _ _ Input) Apart).
  exact (machine_prepare_entry _ _ _ Master _ _ Input Live).
 Qed.

@@ -1,7 +1,7 @@
 From Coq Require Import List NArith ZArith Lia.
 From Machine Require Import isa.X86 isa.Arithmetic isa.Shift.
 From SHA512 Require Import Spec.
-From Ed25519Simd.Sha512Challenge Require Import Compression.
+From SHA512 Require Import Compression.
 Import ListNotations.
 Local Open Scope nat_scope.
 

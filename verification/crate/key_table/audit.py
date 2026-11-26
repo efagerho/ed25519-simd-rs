@@ -46,7 +46,7 @@ def replay(elf, work, dependencies):
     (work / "Decode").mkdir()
     helpers = decoder.extract(elf, work / "Decode")
     compile_modules(work, "Decode", decoder.HERE / "coq",
-                    ("Kernels", "Power", "Image", "Limbs", "Scale", "Decode", "Glue",
+                    ("Kernels", "Power", "Image", "Scale", "Decode", "Glue",
                      "Program", "DecoderBytes", "HelperBytes"))
     compile_modules(work, "KeyTable", HERE / "coq",
                     (*modules, "Fields", "Pack", "Frame", "Image", "Rows", "Advance",

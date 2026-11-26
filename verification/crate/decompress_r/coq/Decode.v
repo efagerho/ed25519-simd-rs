@@ -1,26 +1,18 @@
 From Coq Require Import List ZArith Bool Lia.
+From Curve25519.group Require Import DecompressionDigits.
 From Coqprime.Z Require Import ZCAux.
 From Coqprime.elliptic Require GZnZ.
 From Curve25519 Require Import Field Radix51.
 From Curve25519.group Require Import PrimeField Affine Decompression.
-From Ed25519Simd.Decode Require Import Kernels Power Limbs.
+From Ed25519Simd.Decode Require Import Kernels Power.
+From Curve25519 Require Import Radix51Digits DecompressionRadix51.
 Local Open Scope Z_scope.
 
 Definition value h := residue (pack h).
-Lemma congruent_value a b : represents a b <-> residue a=residue b.
-Proof.
- split;[intro H;apply residue_eq,represents_mod;exact H|].
- intro H; apply (f_equal (GZnZ.val prime)) in H. change (a mod prime=b mod prime) in H.
- exists (a/prime-b/prime). pose proof (Z.div_mod a prime ltac:(unfold prime;lia)).
- pose proof (Z.div_mod b prime ltac:(unfold prime;lia)). lia.
-Qed.
-Lemma pow_value a e : 0<=e -> residue (a^e)=power (residue a) e.
-Proof. intro E;apply residue_eq. apply Zpower_mod;unfold prime;lia. Qed.
 Definition mul k := apply_kernel k Multiply.
 Definition sq k x := apply_kernel k Square x x.
 Definition yy k y := mul k y y.
 Definition uv k y := let h:=yy k y in mul k (u_digits h) (v_digits h).
-Definition sqrt_limbs := five 1718705420411056 234908883556509 2233514472574048 2117202627021982 765476049583133.
 Definition one := five 1 0 0 0 0.
 Record output := Output { valid:bool; ox:field; oy:field; oz:field; ot:field }.
 Definition finish k y sign t :=
@@ -51,11 +43,6 @@ Proof.
  intros V T;destruct (apply_ok _ _ _ _ V T T) as [B [Rep _]].
  split;[apply squared_split;exact B|]. apply congruent_value in Rep. unfold value;rewrite <-residue_mul;exact Rep.
 Qed.
-Local Lemma positive h : bounded h -> 2<=h 0%nat -> 1<pack h.
-Proof.
- intros B L; unfold pack,limbs. pose proof (B 1%nat ltac:(lia));pose proof (B 2%nat ltac:(lia));
- pose proof (B 3%nat ltac:(lia));pose proof (B 4%nat ltac:(lia));unfold radix;lia.
-Qed.
 Lemma setup_ok k y : verified k Multiply=true -> split_field y ->
  let h:=yy k y in let u:=u_digits h in let v:=v_digits h in
  bounded h /\ 2<=h 0%nat /\ bounded u /\ split_field(uv k y) /\
@@ -64,17 +51,15 @@ Proof.
  intros M Y h u v. destruct(mul_ok _ _ _ M Y Y) as [H [L V]].
  destruct(scaled_bounds h H L) as [U D].
  destruct(mul_ok _ _ _ M (bounded_split _ U) (bounded_split _ D)) as [P [_ E]].
- destruct(scaled_values h) as [A B];apply congruent_value in A,B.
- assert (N:value u=numerator(value y)).
- { unfold numerator. rewrite <-V.
-   rewrite residue_mul,residue_sub in A. exact A. }
- split;[exact H|]. split;[exact L|]. split;[exact U|]. split;[apply bounded_split;exact P|].
- split;[exact N|]. change (value (mul k u v)=(numerator(value y)*denominator(value y))%fp). change (value (mul k u v)=(value u*value v)%fp) in E. rewrite E,N. f_equal.
- unfold denominator. rewrite <-V,<-N. rewrite residue_sub in B. exact B.
+ assert (YY : represents (pack h) (pack y*pack y)).
+ { apply congruent_value. rewrite residue_mul. exact V. }
+ destruct (setup_field _ _ YY) as [Nu Dv].
+ split; [exact H|]. split; [exact L|]. split; [exact U|]. split; [apply bounded_split;exact P|].
+ split; [exact Nu|]. change (value (mul k u v) = (numerator(value y)*denominator(value y))%fp).
+ change (value (mul k u v)=(value u*value v)%fp) in E. rewrite E.
+ unfold u,v,value. now rewrite Nu,Dv.
 Qed.
 
-Lemma sqrt_bound : split_field sqrt_limbs.
-Proof. intros [|[|[|[|i]]]] Lt; vm_compute;easy. Qed.
 Local Lemma one_bound : split_field one.
 Proof. intros [|[|[|[|i]]]] Lt; vm_compute;easy. Qed.
 
@@ -92,7 +77,7 @@ Proof.
  { rewrite Qv. unfold test_value. ring. }
  assert (Test:forall delta, -1<=delta<=1 ->
    (high_test q delta=true <-> value q=residue delta)).
- { intros delta D;rewrite high_test_correct by (assumption || apply positive; assumption). apply congruent_value. }
+ { intros delta D;rewrite high_test_correct by (assumption || apply positive_from_low; assumption). apply congruent_value. }
  assert (UT:high_test u 0=true <-> numerator fy=0%fp).
  { rewrite <-Nu. rewrite <- (congruent_value (pack u) 0). apply u_test_correct;auto. }
  assert (P:high_test q 1=true <-> value q=1%fp) by (apply Test;lia).

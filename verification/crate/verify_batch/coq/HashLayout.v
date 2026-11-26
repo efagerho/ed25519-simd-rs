@@ -18,7 +18,7 @@ Proof.
  - rewrite Nat.min_r by lia;change (j=Nat.min j (n-1));symmetry;apply Nat.min_l;lia.
 Qed.
 Definition row e j:=read_input (mem e) (regs e 7%nat) (BatchWindow.row e j).
-Definition eligible pol e j:=Lane.eligible_input pol (row e j).
+Definition eligible pol e j:=Optimized.eligible_input pol (row e j).
 Definition active pol e:=exists j,(j<8)%nat /\ eligible pol e j.
 Definition flags pol e s:=forall j,(j<8)%nat -> (HashLengths.enabled e s j=true <-> eligible pol e j).
 
@@ -27,8 +27,8 @@ Lemma original_row pol e bias j : (0<BatchWindow.remaining e)%nat -> (j<8)%nat -
 Proof. intros N J;unfold Prepare.input_at,Rows.original_row,chunk,make_chunk;cbn [Prepare.entry Prepare.first Prepare.live];now rewrite index. Qed.
 Lemma candidate e j : EligibleLanes.candidate e j <-> eligible Zip215 e j.
 Proof.
- unfold EligibleLanes.candidate,eligible,Lane.eligible_input;rewrite !RootDecision.signed_encoding.
- unfold BatchDecode.original_encoding,ScalarInputs.original_scalar,row;cbn [Lane.strict].
+ unfold EligibleLanes.candidate,eligible,Optimized.eligible_input;rewrite !RootDecision.signed_encoding.
+ unfold BatchDecode.original_encoding,ScalarInputs.original_scalar,row;cbn [Optimized.strict].
  split;[intros [S [[a A] R]];split;[exact S|split;[exact R|exists a;split;[exact A|discriminate]]]|].
  intros [S [R [a [A _]]]];split;[exact S|split;[now exists a|exact R]].
 Qed.

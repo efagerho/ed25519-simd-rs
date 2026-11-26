@@ -26,7 +26,7 @@ Qed.
 Definition row e s j d i:=read_word (mem s) (scratch e+PrepareChunk.Caller.table_offset j+160*(8+d)+8*Z.of_nat i).
 Definition table e s:=forall j d,(j<8)%nat -> -8<=d<=8 ->
  let v:=row e s j d in (forall i,(i<20)%nat -> 0<=v i<2^52) /\
- forall P,Policy.decodes (BatchDecode.original_encoding false e j) P -> represents_cache (scalar_cache false v) (scale d P).
+ forall P,PointEncoding.decodes (BatchDecode.original_encoding false e j) P -> represents_cache (scalar_cache false v) (scale d P).
 
 Lemma stored e s j d sign i: row e s j (if sign:bool then d else -d) i=TableRowMeaning.stored e d sign s j i.
 Proof.
@@ -62,6 +62,6 @@ Proof.
    destruct(Rows Bound k sign j ltac:(unfold k;lia) J) as [B R].
    split;[intros i I;rewrite Same;apply B,I|].
    intros P Dec;rewrite (cache_ext _ _ (fun i _=>Same i)).
-   specialize(R P (Seed j P J Dec));destruct sign;[now rewrite Dg|rewrite Dg;now rewrite <-KeyTable.Correct.negative_scale].
+   specialize(R P (Seed j P J Dec));destruct sign;[now rewrite Dg|rewrite Dg;now rewrite <-SignedMultiple.negative_scale].
 Qed.
 End Iteration.

@@ -1,5 +1,5 @@
 From Coq Require Import List PeanoNat NArith Strings.Byte Lia Bool.
-From SHA512 Require Import Spec Facts.
+From SHA512 Require Import LengthTrailer Spec Facts.
 From Ed25519Simd.Sha512Challenge Require Import Block Transpose Loader.
 Import ListNotations.
 Local Open Scope nat_scope.

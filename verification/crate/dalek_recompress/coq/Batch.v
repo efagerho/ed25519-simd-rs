@@ -1,9 +1,11 @@
 From Coq Require Import ZArith List Bool Lia Field.
 From Machine Require Import memory.ByteMemory.
 From Curve25519 Require Import Field Edwards Radix51.
-From Curve25519.group Require Import PrimeField Affine Representation Decompression.
+From Curve25519.group Require Import PrimeField Affine Representation Decompression BatchInversion.
 From Ed25519Simd Require Import Wide51.
-From Ed25519Simd.Decode Require Import Kernels Power Limbs Unpack Decode.
+From Ed25519Simd.Decode Require Import Kernels Power.
+From Curve25519 Require Import Radix51Digits.
+From Ed25519Simd.Decode Require Import Unpack Decode.
 From Ed25519Simd.Dalek Require Import FieldOps Encoding Masks.
 Local Open Scope Z_scope.
 
@@ -47,7 +49,7 @@ Definition returned n := match n with O=>Some 0 | S last=>
  if any_y n =? 0 then Some 0 else backward n (fun j=>inverse k (prefix last j)) 0 end.
 
 Variables (P:nat->nat->point) (masks:nat->Z).
-Definition expected i j := (encoded flat (ptr i) j =? compress (P i j)) &&
+Definition expected i j := (encoded flat (ptr i) j =? compression (P i j)) &&
  negb(Z.testbit (masks i) (Z.of_nat j)).
 Fixpoint packed n hi := match n with O=>hi | S i=>packed i (push hi (expected i)) end.
 
@@ -124,8 +126,8 @@ Proof.
    destruct(mul_ok _ _ _ (K Multiply) Zr B) as [D' [_ V']].
    destruct(mul_ok _ _ _ (K Multiply) Zr Pr) as [_ [_ W]].
    change (value(acc j)=(1/value(mul k (zz (S t) j) (prefix t j)))%fp) in E.
-   rewrite W in E. unfold vecmul. split;split;auto using bounded_split;
-     rewrite ?V,?V',E;field;auto. }
+   rewrite W in E. destruct (inverse_step _ _ _ NZ NZp E) as [Out Next].
+   unfold vecmul. split; split; auto using bounded_split; now rewrite ?V,?V'. }
  cbn [backward packed]. rewrite score_correct.
  - apply IH;[lia|]. intros t j Eq J;exact(proj2(Step t j Eq J)).
  - lia.
@@ -141,7 +143,7 @@ Lemma batch_correct n : (n<=total)%nat -> returned n=Some(packed n 0).
 Proof.
  intros N;unfold returned;destruct n as [|last];[reflexivity|]. destruct (Z.eqb_spec (any_y (S last)) 0) as [No|_].
  - assert (Empty:forall i j,(i<S last)%nat -> (j<8)%nat -> expected i j=false).
-   { intros i j I J;unfold expected. destruct(Z.eqb_spec (encoded flat (ptr i) j) (compress (P i j))) as [E|];[|reflexivity].
+   { intros i j I J;unfold expected. destruct(Z.eqb_spec (encoded flat (ptr i) j) (compression (P i j))) as [E|];[|reflexivity].
      apply encoding_equal in E as [Y _];auto. apply (flag_correct i j ltac:(lia) J) in Y.
      rewrite (zero_flags _ No i j I J) in Y;discriminate. }
    assert (E:forall n,(n<=S last)%nat -> packed n 0=0).

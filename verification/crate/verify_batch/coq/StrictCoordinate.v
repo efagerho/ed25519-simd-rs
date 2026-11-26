@@ -3,7 +3,7 @@ From Machine Require Import isa.Instructions execution.LinkedCalls execution.Lin
  execution.MappedFetch execution.WordBounds execution.WordSemantics execution.MaskTransfer memory.ByteMemory memory.FlatMemory.
 From Machine Require abi.FramePointer.
 From Curve25519 Require Import Radix51.
-From Ed25519Simd.Decode Require Limbs.
+From Curve25519 Require Radix51Digits.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar.
 From Ed25519Simd.VerifyBatch Require StrictAxis StrictMatchState PointCompare.
 Local Open Scope Z_scope.
@@ -22,7 +22,7 @@ Theorem compute vertical bias parent e caller p:placement e -> loaded Dalek bias
  StrictMatchState.context bias parent e caller (machine p) ->
  exists q,arithmetic bias p=Some q /\ ip q=bias+pc+PointCompare.start(PointCompare.Signature vertical) /\
  accounted e (writable e) q /\ well_formed(machine q) /\ StrictMatchState.context bias parent e caller (machine q) /\
- regs(machine q) 12%nat=regs(machine p) 12%nat /\ claim vertical e (fun j=>Limbs.high_test(vectors(machine q) j) 0).
+ regs(machine q) 12%nat=regs(machine p) 12%nat /\ claim vertical e (fun j=>Radix51Digits.high_test(vectors(machine q) j) 0).
 Proof.
  intros P I PC Acc W Context;destruct(StrictOperands.checked vertical bias e p P I PC
    (StrictMatchState.r_ptr _ _ _ _ _ Context) (StrictMatchState.product _ _ _ _ _ Context) Acc W)

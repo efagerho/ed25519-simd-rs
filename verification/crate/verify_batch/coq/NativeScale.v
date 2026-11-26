@@ -5,7 +5,8 @@ From Machine Require Import isa.Instructions isa.QwordRegister execution.WordSem
  memory.ByteMemory memory.MemoryGeometry memory.WriteTrace.
 From Machine Require execution.VectorWindow.
 From Curve25519 Require Import Radix51.
-From Ed25519Simd.Decode Require Import Scale Limbs.
+From Ed25519Simd.Decode Require Import Scale.
+From Curve25519 Require Import Radix51Digits.
 From Ed25519Simd.Decode Require HelperBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode KeySquare SetupTail.
 From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderKernel DecoderProduct.

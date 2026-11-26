@@ -18,7 +18,7 @@ sha512-spec:
 	cp -R verification/sha512 verification/crate/sha512_challenge/coq "$(sha512_work)/"
 	cd "$(sha512_work)" && coq_makefile -Q sha512 SHA512 sha512/*.v \
 	  -Q coq Ed25519Simd.Sha512Challenge -Q "$(ED25519_SIMD_COQ_LIBRARIES)/machine" Machine \
-	  coq/Compression.v coq/Output.v -o Makefile
+	  coq/Output.v -o Makefile
 	$(MAKE) -C "$(sha512_work)"
 
 .PHONY: sha512-challenge sha512-challenge-mutations

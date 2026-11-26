@@ -3,7 +3,8 @@ From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.
 From Ed25519Simd Require Import Wide51 PointResults.
 From Curve25519.group Require Import Affine Representation.
 From Ed25519Simd.LadderStep Require History.
-From Ed25519Simd.FullLadder Require Import LinkedBytes Program Operands ScalarAction Execution Native Audit LoopFrame.
+From Curve25519.group Require Import DoubleScalar.
+From Ed25519Simd.FullLadder Require Import LinkedBytes Program Operands Execution Native Audit LoopFrame.
 From Ed25519Simd.FullLadder Require LoopStageCall LoopStepCall LoopStage LoopReady RoundOperands.
 Import ListNotations. Local Open Scope Z_scope.
 Definition execute slide base p:=bind (LoopStepCall.enter slide p) (History.execute slide (base-1344) 16).
@@ -59,8 +60,7 @@ Proof.
  - intros j J;pose proof(History.value _ _ _ _ _ _ _ End j (accumulated s B A (32-S n) j) (operand_point s B A j n S.Odd) (operand_point s B A j n S.Base) (operand_point s B A j n S.Even) J
      ltac:(change (represents_xyz (point_values (LoopReady.point s u) j) (accumulated s B A (32-S n) j));rewrite (point_values_ext _ _ _ Same J);apply XYZ,J)
      (Odd j J) (Base j J) (Even j J)) as R.
-   unfold operand_point,weight,affine in R;cbn iota in R;unfold accumulated in *;rewrite radix_step in R.
-   replace (32-n)%nat with (S(32-S n)) by lia;cbn [remaining_digits].
-   replace (31-(32-S n))%nat with n by lia;exact R.
+   unfold operand_point,weight,affine in R;cbn iota in R;unfold accumulated in R |- *.
+   rewrite digit_ladder_round in R by lia; exact R.
  - exact (History.omitted _ _ _ _ _ _ _ End).
 Qed.

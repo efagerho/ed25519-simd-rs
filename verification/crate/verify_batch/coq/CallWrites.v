@@ -7,7 +7,8 @@ From Ed25519Simd.PrepareChunk Require Staging Caller Audit Object.
 From Ed25519Simd.Sha512Challenge Require Audit Object ObjectBytes LiteralBytes Frame
  Control Execution Writes.
 From Ed25519Simd.Zip215 Require Audit Object ScatterBytes ScatterTrace.
-From Ed25519Simd.VerifyBatch Require Import Lane Rows Prepare Hash Candidate Scatter Return.
+From Ed25519 Require Import Optimized.
+From Ed25519Simd.VerifyBatch Require Import Rows Prepare Hash Candidate Scatter Return.
 Local Open Scope Z_scope.
 
 (* A callee may borrow the frame below the wrapper's five saved GPRs.
@@ -51,7 +52,7 @@ Proof.
  - right;left;exact X.
  - left;change (sp (entry c)-1000+768<=x<sp (entry c)-1000+768+80) in X;unfold span;lia.
  - left. unfold p,preparation in X;cbn [Staging.stack] in X;unfold Rows.frame,sp,span in *.
-   destruct (Lane.strict (mode c));lia.
+   destruct (Optimized.strict (mode c));lia.
 Qed.
 
 Lemma ladder_borrow c flat x :
@@ -112,7 +113,7 @@ Proof.
    eapply lend;[|exact Safe]. intros x [Stack|Digits].
    + left;unfold Staging.workspace,Caller.frame,Caller.allocation,Caller.saves,p,preparation,Rows.frame,sp,span in *.
      cbn [Staging.stack length Z.of_nat Pos.of_succ_nat Pos.succ] in Stack.
-     destruct (Lane.strict (mode c));lia.
+     destruct (Optimized.strict (mode c));lia.
    + right;left;change (Return.scratch (entry c)+512<=x<Return.scratch (entry c)+512+512) in Digits.
      unfold span;lia.
  - intros e s pc carry ws last P D N Image Apart Run.

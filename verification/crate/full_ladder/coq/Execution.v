@@ -6,7 +6,8 @@ From Curve25519 Require Import Radix51 Edwards group.Affine group.Representation
 From Ed25519Simd Require Import Wide51.
 From Ed25519Simd.LadderStep Require Import Schedule.
 From Ed25519Simd.CachedAdd Require CachedAddSpec.
-From Ed25519Simd.FullLadder Require Import Program Operands ScalarAction Seed.
+From Curve25519.group Require Import DoubleScalar.
+From Ed25519Simd.FullLadder Require Import Program Operands Seed.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition buffer := nat->Z.
@@ -71,19 +72,7 @@ Proof.
  intros j J;eapply represents_equivalent;[exact(V j J)|apply add_represents;auto].
 Qed.
 
-Fixpoint remaining_digits (d:nat->Z) n := match n with
- | O=>0 | S m=>let i:=(31-m)%nat in d (2*i)%nat+16*(d (S (2*i))+16*remaining_digits d m) end.
-Lemma digits_number d n : (n<=32)%nat ->
- remaining_digits d n=number 16 (map d (seq (2*(32-n)) (2*n))).
-Proof.
- induction n as [|n IH];intro N;[reflexivity|].
- replace (2*S n)%nat with (S(S(2*n))) by lia.
- cbn [seq map number remaining_digits];rewrite IH by lia.
- replace (32-S n)%nat with (31-n)%nat by lia.
- replace (S (S (2*(31-n)))) with (2*(32-n))%nat by lia;reflexivity.
-Qed.
-Definition accumulated s B A n j := combination (remaining_digits (digits s 1 j) n)
- (remaining_digits (digits s 8 j) n) B (A j).
+Definition accumulated s B A n j := digit_ladder (digits s 1 j) (digits s 8 j) B (A j) n.
 Definition tail count full := flat_map (fun n=>[Stage n;Ladder (full && Nat.eqb n 0)]) (rev(seq 0 count)).
 Lemma tail_cons n full : tail (S n) full=[Stage n;Ladder (full && Nat.eqb n 0)]++tail n full.
 Proof. unfold tail;rewrite seq_S,rev_app_distr,flat_map_app;cbn [rev app Nat.add];reflexivity. Qed.
@@ -108,9 +97,7 @@ Proof.
  { intros j J;eapply represents_equivalent;[apply Values;exact J|].
    pose proof(ladder_represents (full && Nat.eqb n 0) _ _ _ _ _ _ _ _ (Q j J) (Odd j J) (Base j J) (Even j J)) as R.
    unfold operand_point,weight,affine in R;cbn iota in R.
-   unfold accumulated in *;rewrite radix_step in R.
-   replace (32-n)%nat with (S (32-S n)) by lia;cbn [remaining_digits].
-   replace (31-(32-S n))%nat with n by lia;exact R. }
+   unfold accumulated in R |- *. rewrite digit_ladder_round in R by lia; exact R. }
  destruct n as [|n].
  - change ((v,staged pc pad s 0)=(out,cache)) in Rest;injection Rest as E _;subst out.
    rewrite Bool.andb_true_r in Result,T;auto.
@@ -137,10 +124,8 @@ Proof.
  { eapply (rounds 31 full);[lia|exact FB| |exact Rest|lia].
    intros j J;specialize(FQ j J);apply proj1 in FQ.
    unfold operand_point,affine,weight in FQ;cbn iota in FQ.
-   rewrite top_pair in FQ.
-   unfold accumulated;change (32-31)%nat with 1%nat;cbn [remaining_digits].
-   rewrite !Z.mul_0_r,!Z.add_0_r;exact FQ. }
+   exact FQ. }
  destruct R as [Bounds [R T]];split;[exact Bounds|split;[|exact T]].
- intros j J;specialize(R j J);unfold accumulated in R;rewrite !digits_number in R by lia;exact R.
+ intros j J;specialize(R j J);unfold accumulated in R;rewrite full_ladder_value in R;exact R.
 Qed.
 End Correct.

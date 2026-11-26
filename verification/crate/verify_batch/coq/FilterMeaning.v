@@ -6,7 +6,8 @@ From Ed25519Simd.Dalek Require Masks.
 From Ed25519Simd.DalekPostHash Require Keys Caller.
 From Ed25519Simd.FullLadder Require Operands.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage.
-From Ed25519Simd.VerifyBatch Require FilterScreen Lane.
+From Ed25519 Require Import Optimized.
+From Ed25519Simd.VerifyBatch Require FilterScreen.
 Local Open Scope Z_scope.
 
 From Ed25519Simd.VerifyBatch Require BatchWindow.
@@ -14,7 +15,7 @@ Section Iteration.
 Context `{iteration:BatchWindow.t}.
 Lemma row bias outer e prep p j P d :
  placement e -> PreparedReturn.result Dalek bias outer e prep -> StrictFilterCall.entry bias e prep p ->
- (j<8)%nat -> -8<=d<=8 -> Policy.decodes (BatchDecode.original_encoding false e j) P ->
+ (j<8)%nat -> -8<=d<=8 -> PointEncoding.decodes (BatchDecode.original_encoding false e j) P ->
  let v:=Operands.table_row (FilterRows.view e (machine p)) j false d in
  (forall i,(i<20)%nat -> 0<=v i<2^52) /\ represents_cache (scalar_cache false v) (scale d P).
 Proof.
@@ -42,7 +43,7 @@ Proof.
  apply Z.eqb_eq in E;rewrite <-(Masks.byte_bit (DalekPostHash.Keys.first s) j J),E,Z.bits_0;reflexivity.
 Qed.
 Theorem weak bias outer e prep p j P : placement e -> PreparedReturn.result Dalek bias outer e prep ->
- StrictFilterCall.entry bias e prep p -> (j<8)%nat -> Policy.decodes (BatchDecode.original_encoding false e j) P ->
+ StrictFilterCall.entry bias e prep p -> (j<8)%nat -> PointEncoding.decodes (BatchDecode.original_encoding false e j) P ->
  (FilterScreen.weak e (machine p) j=false <-> multiple 8 P<>identity).
 Proof.
  intros Pl Done Call J Dec;destruct(row bias outer e prep p j P 8 Pl Done Call J ltac:(lia) Dec) as [B R].
@@ -50,12 +51,12 @@ Proof.
  rewrite strict_bit,negb_true_iff in Valid by exact J;unfold FilterScreen.weak;tauto.
 Qed.
 
-Definition eligible e j:=Lane.eligible_input Dalek (read_input (mem e) (regs e 7%nat) (BatchWindow.row e j)).
+Definition eligible e j:=Optimized.eligible_input Dalek (read_input (mem e) (regs e 7%nat) (BatchWindow.row e j)).
 Theorem enabled bias outer e prep p j : placement e -> PreparedReturn.result Dalek bias outer e prep ->
  StrictFilterCall.entry bias e prep p -> (j<8)%nat ->
  (EligibleLanes.candidate e j /\ FilterScreen.weak e (machine p) j=false <-> eligible e j).
 Proof.
- intros Pl Done Call J;unfold EligibleLanes.candidate,eligible,Lane.eligible_input;rewrite !RootDecision.signed_encoding.
+ intros Pl Done Call J;unfold EligibleLanes.candidate,eligible,Optimized.eligible_input;rewrite !RootDecision.signed_encoding.
  split.
  - intros [[S [[A DA] R]] Strong];split;[exact S|split;[exact R|exists A;split;[exact DA|intros _;apply (proj1(weak _ _ _ _ _ _ _ Pl Done Call J DA)),Strong]]].
  - intros [S [R [A [DA Strong]]]];split;[split;[exact S|split;[exists A;exact DA|exact R]]|].

@@ -1,3 +1,4 @@
+From Ed25519 Require Equations.
 From Coq Require Import ZArith List Bool.
 From Machine Require Import memory.ByteMemory execution.MaskTrace.
 From Curve25519 Require Import Radix51.
@@ -26,7 +27,7 @@ Definition input_layout (n:nat) pts enc := n=O \/
 Definition small_call s h flat pts pad (initial:nat->nat->nat->Z) i :=
  MaskTrace.result (Audit.run_at s h pad) (Audit.inputs (point_words flat pts i)) (initial i).
 
-(* The integer read by encoded is little endian. compress is the canonical
+(* The integer read by encoded is little endian. compression is the canonical
    y residue with bit 255 equal to the parity of canonical x. *)
 Record recompress_contract
     (entry_pc : Z) (entry_bytes : list Z) (decoder_pc : Z) (decoder_bytes : list Z)
@@ -50,5 +51,5 @@ Record recompress_contract
         0 <= rax < 2^(8*Z.of_nat n) /\
         forall i j, (i < n)%nat -> (j < 8)%nat ->
           (Z.testbit rax (8*Z.of_nat i + Z.of_nat j) = true <->
-           encoded flat (Batch.ptr enc i) j = compress (P i j) /\ multiple 8 (P i j) <> identity)
+           Equations.strict_R (encoded flat (Batch.ptr enc i) j) (P i j))
 }.

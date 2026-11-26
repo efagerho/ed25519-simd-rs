@@ -40,7 +40,7 @@ Proof.
      * intro op;destruct op;vm_compute;reflexivity.
      * intros i I;destruct (Small i I) as [E [B _]];auto.
    + split;[apply packed_range|]. intros i j I J;rewrite packed_bit by assumption.
-     unfold expected;rewrite andb_true_iff, Z.eqb_eq,negb_true_iff.
+     unfold expected, Equations.strict_R;rewrite andb_true_iff, Z.eqb_eq,negb_true_iff.
      destruct(Small i I) as [_ [_ Bits]]. specialize (Bits j J).
      destruct (Z.testbit (masks i)(Z.of_nat j));intuition congruence.
 Qed.

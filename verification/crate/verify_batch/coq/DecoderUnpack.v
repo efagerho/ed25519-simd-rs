@@ -3,7 +3,8 @@ From Machine Require Import isa.Instructions isa.QwordRegister execution.ScalarB
  execution.WordBounds execution.WordSemantics execution.InstructionRoute execution.LinkedRun execution.MappedFetch
  memory.MemoryGeometry memory.ByteMemory memory.WriteTrace.
 From Machine Require execution.MaskTransfer execution.QwordBlock.
-From Ed25519Simd.Decode Require Unpack Limbs.
+From Ed25519Simd.Decode Require Unpack.
+From Curve25519 Require Radix51Digits.
 From Ed25519Simd.VerifyBatch Require DecoderWords DecoderFrame.
 Import ListNotations. Local Open Scope Z_scope.
 
@@ -68,7 +69,7 @@ Proof.
  change (DecoderWords.result_reg 0) with 0%nat in A;change (DecoderWords.result_reg 1) with 4%nat in B;
  change (DecoderWords.result_reg 2) with 2%nat in C;change (DecoderWords.result_reg 3) with 6%nat in D.
  rewrite Values;destruct i as [|[|[|[|[|i]]]]];try lia.
- all: cbv beta iota zeta delta [ops lane lane_step bits put Nat.eqb Logic.vpandq Unpack.unpack Limbs.five];
+ all: cbv beta iota zeta delta [ops lane lane_step bits put Nat.eqb Logic.vpandq Unpack.unpack Radix51Digits.five];
    rewrite ?A,?B,?C,?D,(Mask j J);
    unfold Unpack.splice;first [apply word_mask|reflexivity].
 Qed.

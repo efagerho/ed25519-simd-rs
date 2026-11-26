@@ -4,3 +4,5 @@ Ranges.v
 Polynomial.v
 Interval.v
 Radix.v
+AdditionChain.v
+Montgomery.v

@@ -110,7 +110,7 @@ Record footprint : Prop := {
  stage : forall c flat n, stage_output c flat n;
  key_table : forall c,exists log,KeyTable.Execution.returning 8=Some log /\
    forall off words,In (off,words) log -> includes (nested_writable (entry c)) (table_area c off (length words));
- scorer : forall c, score_writes c (match mode c with Policy.Zip215=>torsion c | Policy.Dalek=>small_order c end)
+ scorer : forall c, score_writes c (match mode c with Equations.Zip215=>torsion c | Equations.Dalek=>small_order c end)
 }.
 Theorem embedded : footprint.
 Proof.

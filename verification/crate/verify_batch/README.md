@@ -109,19 +109,9 @@ adds an output store. [Scatter targets and preservation](coq/RejectOutputs.v) ·
 
 ## Acceptance on the input bytes
 
-Both policies require the little-endian signature scalar `S < L`. Decode the
-public key to `A`, compute `k = LE(SHA512(R_bytes || A_bytes || message)) mod L`
-and let `Q = [S]B − [k]A`. The two 32-byte strings in the hash are exactly the
-encodings supplied by the caller, including for noncanonical inputs.
+Each output byte in `Audit.returned` answers the shared `Ed25519.Signature.signature_accepts` predicate for the original descriptor. The predicate defines the two group equations, scalar cutoff, hash and encoding rules. Its equivalence theorem explains why ZIP-215 can test the cofactored difference and why the strict path can compare coordinates after screening. [Signature formulas and equivalence proofs](../../ed25519/README.md)
 
-| Policy | Condition for acceptance |
-| --- | --- |
-| ZIP-215 | The supplied R decodes to a point and `[8](Q − R) = identity`. Decoding reduces the encoded y modulo the field prime and accepts either sign of zero. |
-| Dalek strict | `[8]A ≠ identity`, the supplied R is the canonical encoding of Q, and `[8]Q ≠ identity`. |
-
-The definitions of the base point, decoding, compression and challenge are
-together in the policy specification. An auditor can read that specification
-without following the SIMD layout. [Policy](coq/Policy.v) · [Challenge digest byte order](coq/Digest.v)
+Here the audit is the handoff from memory to those formulas. Check the four byte strings produced by `read_input`, including their lengths, the digest's little-endian interpretation and the output index read from each descriptor. [Input descriptor](coq/Policy.v) · [Challenge digest byte order](coq/Digest.v)
 
 ## What to audit
 

@@ -10,7 +10,7 @@ VERIFY = HERE.parents[1]
 sys.path.insert(0, str(VERIFY))
 from crate.post_hash.build import load_callees, symbol_inputs
 from evidence import write_evidence
-from proof_build import MASK_PROJECTS, check_object, compile_libraries, component_flags
+from proof_build import ED25519_FLAGS, check_object, compile_signature_equations, component_flags
 
 ENTRIES = {"Common": "ed25519_simd_prepare_chunk", "Strict": "ed25519_simd_dalek_prepare_chunk"}
 DEPENDENCIES = {
@@ -20,14 +20,14 @@ DEPENDENCIES = {
     "key_table": ("KeyTable",),
     "signature_scalar": ("SignatureScalar",),
 }
-FLAGS = component_flags("prepare_chunk") + [
+FLAGS = component_flags("prepare_chunk") + ED25519_FLAGS + [
     arg for names in DEPENDENCIES.values() for ns in names for arg in ("-Q", ns, "Ed25519Simd." + ns)]
 MODULES = ("Caller", "Staging", "Dispatch", "Composition", "Audit", "Object")
 
 
 def replay(elf, work, dependencies, dalek):
     work.mkdir(parents=True, exist_ok=False)
-    compile_libraries(work, projects=MASK_PROJECTS)
+    compile_signature_equations(work)
     dest = work / "PrepareChunk"
     dest.mkdir()
     symbols, inputs = symbol_inputs(elf, dest, ENTRIES)

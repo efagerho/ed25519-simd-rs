@@ -1,3 +1,4 @@
+From Curve25519.group Require Import PointDecoding.
 From Coq Require Import List ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun memory.WriteTrace memory.FlatMemory memory.ByteMemory.
 From Curve25519.group Require Import Affine PrimeField Decompression.
@@ -8,17 +9,12 @@ Local Open Scope Z_scope.
 
 (* Invalid lanes select the read-only identity table. For every decodable
    key the original compressed bytes determine the point uniquely. *)
-Definition decoded w :=
- let y:=residue (w mod 2^255) in let sign:=Z.testbit w 255 in
- match decode y sign as v return
-  (match v with Some x=>on_curve x y /\ has_sign sign x | None=>forall x,~on_curve x y end -> point) with
- | Some x=>fun H=>Point x y (proj1 H) | None=>fun _=>identity end (decode_correct y sign).
-Lemma choice w : Policy.decodes w (decoded w) \/ ((forall P,~Policy.decodes w P) /\ decoded w=identity).
+Definition decoded w := match decode_point w with Some P => P | None => identity end.
+Lemma choice w : decodes w (decoded w) \/ ((forall P, ~decodes w P) /\ decoded w=identity).
 Proof.
- unfold decoded;set (y:=residue (w mod 2^255));generalize(decode_correct y (Z.testbit w 255)).
- destruct(decode y (Z.testbit w 255)) as [x|];intro H.
- - left;split;[reflexivity|apply H].
- - right;split;[|reflexivity];intros P [Y _];apply (H (Affine.x P));unfold y;rewrite <-Y;apply on_edwards.
+ unfold decoded; destruct (decode_point w) as [P|] eqn:D.
+ - left; now apply decode_point_iff.
+ - right; split; [intros P H; apply decode_point_iff in H; congruence|reflexivity].
 Qed.
 From Ed25519Simd.VerifyBatch Require BatchWindow.
 Section Iteration.

@@ -1,3 +1,4 @@
+From Curve25519 Require Radix51Digits.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions execution.WordBounds execution.WordSemantics execution.LinkedCalls execution.LinkedRun
  execution.ScalarBytes execution.ScalarWords execution.MappedFetch execution.InstructionRoute execution.VectorProcedure
@@ -13,13 +14,13 @@ Definition broadcast i:=let pc:=0xa23+10*Z.of_nat i in
 Definition prefix:=map broadcast (seq 0 5)++[(0xa55,2%nat,Jump (0xa79-0xa57))].
 Lemma code:linked text prefix.
 Proof. repeat constructor;vm_compute;discriminate || reflexivity. Qed.
-Definition rhs (s:cpu) j n:=if ((5<=?n)&&(n<?10))%nat then Decode.sqrt_limbs (n-5)%nat else vectors s j n.
+Definition rhs (s:cpu) j n:=if ((5<=?n)&&(n<?10))%nat then Radix51Digits.sqrt_limbs (n-5)%nat else vectors s j n.
 Definition product s t:=forall j i,vectors t j i=Instructions.run no_read (Kernels.product DecoderProduct.kernel) (rhs s j) i.
 Definition body bias:=then_run (segment (base bias) text 6) (DecoderProduct.product bias).
 Definition execute bias:=wrapped (base bias) text (base bias) text (body bias).
 
 Lemma literal_value pol bias e p i : loaded pol bias (mem e) (writable e) -> accounted e (writable e) p ->
- (i<5)%nat -> read_word (mem(machine p)) (word(bias+DecoderFrame.helper+literal i))=Decode.sqrt_limbs i.
+ (i<5)%nat -> read_word (mem(machine p)) (word(bias+DecoderFrame.helper+literal i))=Radix51Digits.sqrt_limbs i.
 Proof.
  intros I A N;destruct(mapped_now _ _ _ I _ _ _ A (helper_in pol)) as [Map _].
  apply read_literal with (bs:=HelperBytes.symbol_bytes);[exact Map|exact (proj1(symbols _ _ _ _ I _ _ (helper_in pol)))| | |];
@@ -35,7 +36,7 @@ Proof.
  eexists;split;[apply (checked _ _ _ code);reflexivity|];split;[reflexivity|split;[reflexivity|]].
  intros j i;cbn [prefix map seq app broadcast follow loc cf cpu_state step option_map regs mem vectors].
  assert (Read:forall n,(n<5)%nat -> read_word (mem s)
-   (word(base bias+(0xa23+10*Z.of_nat n+10)+(DecoderFrame.helper+literal n-(DecoderFrame.origin+(0xa23+10*Z.of_nat n)+10))))=Decode.sqrt_limbs n).
+   (word(base bias+(0xa23+10*Z.of_nat n+10)+(DecoderFrame.helper+literal n-(DecoderFrame.origin+(0xa23+10*Z.of_nat n)+10))))=Radix51Digits.sqrt_limbs n).
  { intros n N;replace (base bias+(0xa23+10*Z.of_nat n+10)+(DecoderFrame.helper+literal n-(DecoderFrame.origin+(0xa23+10*Z.of_nat n)+10)))
     with (bias+DecoderFrame.helper+literal n) by (unfold base;ring);exact (literal_value _ _ _ _ _ I A N). }
  unfold rhs,put;do 10 (destruct i as [|i];[cbn [Nat.eqb Nat.leb Nat.ltb andb Nat.add Nat.sub];first [reflexivity|
@@ -90,7 +91,7 @@ Proof. unfold execute,body,DecoderProduct.product,DecoderProduct.columns,Decoder
 
 Lemma multiplied s t : RowProduct.constants s -> product s t ->
  RowProduct.constants t /\ forall j i,(i<5)%nat -> vectors t j i=
- Power.apply_kernel DecoderProduct.kernel Kernels.Multiply (vectors s j) Decode.sqrt_limbs i.
+ Power.apply_kernel DecoderProduct.kernel Kernels.Multiply (vectors s j) Radix51Digits.sqrt_limbs i.
 Proof.
  intros C V;split.
  - intros i j N;rewrite (V j (28+i)%nat);destruct((proj2 DecoderProduct.multiplication) no_read no_read (rhs s j) (rhs s j) ltac:(reflexivity)) as [_ High].

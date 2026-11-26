@@ -31,11 +31,11 @@ Definition filtered b :=
   Lanes (active m) (index m) (filter_keys (ladder_entry b) (eligible m)).
 
 (* The same predicate governs every active output on both paths.
-   strict_R w Q means w = compress Q and [8]Q is not the identity. *)
+   Equations.strict_R w Q means w = compression Q and [8]Q is not the identity. *)
 Definition accepts b w j :=
   eligible (metadata b) j = true /\
   multiple 8 (key b j) <> identity /\
-  strict_R w (product b j).
+  Equations.strict_R w (product b j).
 
 (* The paired decoder takes the key chunk at ptr and R at ptr + 256. *)
 Definition decoded_result dk := forall b flat ptr q pad init len out,

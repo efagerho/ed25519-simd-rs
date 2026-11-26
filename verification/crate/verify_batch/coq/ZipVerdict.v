@@ -48,7 +48,7 @@ Proof.
  - intros j J;unfold verdict;rewrite Mem,AX;unfold m;rewrite Z.mod_pow2_bits_low,Z.land_spec,andb_true_iff by lia.
    destruct(ZipTorsion.flags _ _ _ _ _ Before j J) as [_ On];fold s in On;rewrite On;split.
    + intros [Eligible [B _]];apply (proj1(ZipTorsion.accepts _ _ _ _ _ Before j J Eligible));exact B.
-   + intro Accept;pose proof(Lane.accepted_eligible _ _ Accept) as Eligible.
+   + intro Accept;pose proof(Optimized.accepted_eligible _ _ Accept) as Eligible.
      split;[exact Eligible|split;[exact (proj2(ZipTorsion.accepts _ _ _ _ _ Before j J Eligible) Accept)|]].
      apply (proj2(ZipTorsion.valid _ _ _ _ _ Before j J)),(proj2(RootDecision.signed_encoding true e j)).
      exact (proj1(proj2 Eligible)).

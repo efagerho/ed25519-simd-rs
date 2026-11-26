@@ -4,7 +4,9 @@ From ProofArithmetic Require Import Interval.
 From Curve25519 Require Import Field Radix51.
 From Curve25519.group Require Import PrimeField Decompression.
 From Ed25519Simd Require Import FieldKernel FieldSymbolic.
-From Ed25519Simd.Decode Require Import Kernels Power Limbs Decode Scale Unpack.
+From Ed25519Simd.Decode Require Import Kernels Power.
+From Curve25519 Require Import Radix51Digits.
+From Ed25519Simd.Decode Require Import Decode Scale Unpack.
 Import ListNotations. Local Open Scope Z_scope.
 
 (* The five memory-source subtractions consume Y[i] at offset 320+64*i.

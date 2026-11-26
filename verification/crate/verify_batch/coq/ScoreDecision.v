@@ -48,7 +48,7 @@ Proof.
    { intros p R bank;destruct(All _ R) as [_ [PC [cand [C [_ Data]]]]].
      pose proof(StrictResume.checked bias parent e h r caller screen cand p P I
        (ScoreStart.caller _ _ _ _ _ _ _ _ Start) Decision Frame On C PC Data) as Ret.
-     exact (StrictVerdict.checked _ _ _ _ _ bank P I (proj2(proj2(initial_cpu _ P))) Ret). }
+     exact (StrictVerdict.checked _ _ _ _ _ bank P I Ret). }
    split.
    + destruct(Strict v Run (fun _ _:nat=>false)) as [t [Finish _]];exists t,v;split;[exact Run|now exists (fun _ _:nat=>false)].
    + intros t [p [R [bank End]]];destruct(Strict p R bank) as [u [Done Result]];rewrite End in Done;injection Done as <-.

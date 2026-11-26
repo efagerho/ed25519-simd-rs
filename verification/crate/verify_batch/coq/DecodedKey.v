@@ -1,3 +1,4 @@
+From Curve25519.group Require Import PointDecoding.
 From Coq Require Import ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun memory.FlatMemory memory.ByteMemory.
 From Curve25519 Require Import Radix51.
@@ -34,7 +35,7 @@ Proof.
  destruct(RootValue.registers false pol bias e valid (RootCandidate.saved_x(SignedRoot.candidate sr)) (SignedRoot.selected sr) m ks j w
     Raw Chosen J U UV T TV) as [BX VX].
  destruct Args as [_ [_ [_ [_ [_ [_ [_ [_ [Tag _]]]]]]]]].
- assert (Sign:Z.testbit (regs(machine(SignedRoot.selected sr)) 9%nat) (Z.of_nat j)=sign w).
+ assert (Sign:Z.testbit (regs(machine(SignedRoot.selected sr)) 9%nat) (Z.of_nat j)=encoded_sign w).
  { rewrite (RootAdjusted.gprs _ _ _ _ _ _ _ Chosen),(RootCandidate.saved_register _ _ _ _ R) by discriminate;exact (Tag j J). }
  destruct(RootValue.signed (machine(SignedRoot.selected sr)) j w (vectors(machine(SignedRoot.at_store sr)) j) BX Sign
   (fun i I=>SignedRoot.sign _ _ _ _ S j i J I)) as [X Value].
@@ -46,6 +47,6 @@ Proof.
    all: try reflexivity;unfold SignedRoot.protected,BatchDecode.point,BatchDecode.point_offset,disjoint in *;lia. }
  destruct(RootOperands.y_at_test _ _ _ _ _ _ Square Fields j J) as [BY YV].
  split;[exact X|split;[intros i I;rewrite Y by exact I;apply BY,I|split;[etransitivity;[apply Radix51.limbs_ext,Y|exact YV]|]]].
- intros G Dec;rewrite Value,VX;apply decoded_value;[unfold m;rewrite (proj2(Selection.accepts_key _ _ _ _ Pick j J));exact TestBit|exact Dec].
+ intros G Dec;rewrite Value,VX;apply decoded_x;[unfold m;rewrite (proj2(Selection.accepts_key _ _ _ _ Pick j J));exact TestBit|exact Dec].
 Qed.
 End Iteration.

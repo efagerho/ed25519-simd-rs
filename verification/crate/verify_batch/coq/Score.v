@@ -10,7 +10,8 @@ From Ed25519Simd.PrepareChunk Require Composition Staging.
 From Ed25519Simd.DalekPostHash Require Decoded.
 From Ed25519Simd.Zip215 Require Calls Equation.
 From Ed25519Simd.Torsion Require Audit Object.
-From Ed25519Simd.VerifyBatch Require Import Policy Lane Rows Digest Prepare Hash Candidate ProductRun.
+From Ed25519 Require Import Optimized.
+From Ed25519Simd.VerifyBatch Require Import Policy Rows Digest Prepare Hash Candidate ProductRun.
 Local Open Scope Z_scope.
 Definition flat c := Staging.staged(p c).
 Definition os c := Decoded.outputs Decode.Program.code (flat c) (scratch c).
@@ -33,9 +34,9 @@ Proof. unfold pad;rewrite scorer_alignment;reflexivity. Qed.
 Definition initial c j r := vectors(entry c) j r.
 
 Definition mask c q := match mode c with
- | Policy.Zip215=> option_map (fun m=>Z.land m (saved_rvalid c))
+ | Equations.Zip215=> option_map (fun m=>Z.land m (saved_rvalid c))
      (Calls.torsion_run (pad c) q (Lanes.words(os c)) (initial c))
- | Policy.Dalek=>Decoded.direct Decode.Program.code (os c) (saved_rvalid c) (enabled c) q (pad c) (initial c)
+ | Equations.Dalek=>Decoded.direct Decode.Program.code (os c) (saved_rvalid c) (enabled c) q (pad c) (initial c)
  end.
 
 Lemma kernels_checked op : Kernels.verified Decode.Program.code op=true.
@@ -93,14 +94,14 @@ Proof.
      ltac:(unfold raw,Unpack.encoded;f_equal;lia) (Reps j J) Bits) as E.
    unfold rvalid,Decoded.valid_mask;rewrite Z.land_spec,Lanes.octet_bit by exact J.
    replace (8*Z.of_nat 1+Z.of_nat j) with (Z.of_nat (8+j)) by lia.
-   change (check_point Policy.Zip215 (raw c j) (Q j)) with (Equation.accepts (raw c j) (Q j)).
+   change (check_point Equations.Zip215 (raw c j) (Q j)) with (Equations.zip215_R (raw c j) (Q j)).
    rewrite <-E,!andb_true_iff. tauto.
  - assert (K:Dalek.FieldOps.checked Decode.Program.code=true) by (vm_compute;reflexivity).
    assert (V:Dalek.Batch.valid_chunk q Q).
    { split;[intros r j R J;apply (strict_split _ Bound);cbn;lia|intros j J;apply (proj1(Reps j J))]. }
    destruct (Decoded.direct_correct Decode.Program.code Decode.Program.code (flat c) (scratch c) q Q (enabled c) (pad c) (initial c) decoder_lanes K B Pad V)
     as [m [Run Bits]]. exists m;split;[exact Run|].
-   intros j J. rewrite andb_true_iff,(Bits j J). cbn [check_point]. unfold Decoded.strict_R;tauto.
+   intros j J. rewrite andb_true_iff,(Bits j J). cbn [check_point]. unfold Equations.strict_R;tauto.
 Qed.
 
 Lemma score_hash c result keys q : Prepare.placement c -> ready c=true -> Hash.geometry c ->

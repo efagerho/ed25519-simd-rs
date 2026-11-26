@@ -1,3 +1,4 @@
+From Curve25519 Require Radix51Digits.
 From Coq Require Import List ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.WordSemantics execution.WordBounds
  execution.ScalarBytes execution.ScalarWords execution.MappedFetch execution.AlignedRows execution.RipBroadcasts
@@ -44,7 +45,7 @@ Record loaded_y bias e p q:Prop:=Loaded {
  high:forall j,(j<8)%nat -> vectors(machine q) j 10%nat=RootMasks.high (y e (machine p) j);
  low:forall j,(j<8)%nat -> vectors(machine q) j 0%nat=y e (machine p) j 0%nat;
  mask:forall j,vectors(machine q) j 29%nat=radix-1;
- canonical:forall j,(j<8)%nat -> (Encoding.noncanonical (y e (machine p) j)=false <->
+ canonical:forall j,(j<8)%nat -> (Radix51Digits.noncanonical (y e (machine p) j)=false <->
     BatchDecode.original_encoding true e j mod 2^255<Field.prime)
 }.
 
@@ -82,7 +83,7 @@ Proof.
    destruct(mapped_now _ _ _ I _ _ _ Prev (BatchDecode.helper_in Dalek)) as [Helper _].
    eapply NativeScale.read_literal;[exact Helper|apply (proj1(symbols _ _ _ _ I _ _ (BatchDecode.helper_in Dalek)))|
      lia|vm_compute;discriminate|vm_compute;reflexivity].
- - intros j J;destruct(Raw j J) as [Bound Number];rewrite Encoding.digits_canonical by exact Bound.
+ - intros j J;destruct(Raw j J) as [Bound Number];rewrite Radix51Digits.digits_canonical by exact Bound.
    change (limbs (y e s j)<Field.prime <-> BatchDecode.original_encoding true e j mod 2^255<Field.prime);fold (y e s j) in Number;now rewrite Number.
 Qed.
 End Iteration.

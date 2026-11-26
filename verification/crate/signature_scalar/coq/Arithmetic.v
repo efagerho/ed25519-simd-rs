@@ -1,3 +1,4 @@
+From ProofArithmetic Require Import Radix.
 From Coq Require Import ZArith List Lia.
 From Machine Require Import isa.X86 isa.Arithmetic.
 From Curve25519 Require Import Scalar SignedRadix16.
@@ -13,12 +14,14 @@ Definition below a b c d p q z :=
 Lemma below_correct a b c d : 0<=a<Q -> 0<=b<Q -> 0<=c<Q -> 0<=d<Q ->
  below a b c d l0 l1 l3 = (four_words a b c d <? L).
 Proof.
- intros A B C D. apply Bool.eq_true_iff_eq;unfold below.
- rewrite !Bool.orb_true_iff,!Bool.andb_true_iff,!Z.ltb_lt,!Z.eqb_eq.
- change L with (four_words l0 l1 0 l3).
- unfold four_words,l0,l1,l3,Q in *;split;[intros;intuition lia|].
- intro H;destruct (Z.compare_spec d 0x1000000000000000);
- destruct (Z.compare_spec b 0x14def9dea2f79cd6);intuition lia.
+ intros A B C D. unfold below.
+ replace (four_words a b c d) with ((a+Q*b)+Q^2*c+Q^3*d)
+   by (unfold four_words; ring).
+ change L with ((l0+Q*l1)+Q^2*0+Q^3*l3).
+ rewrite (compare_digit (Q^3)), (compare_digit (Q^2)), (compare_digit Q)
+   by (unfold Q,l0,l1 in *; lia).
+ replace (c <? 0) with false by (symmetry;apply Z.ltb_ge;lia).
+ now rewrite Bool.orb_false_r.
 Qed.
 
 Definition B := 0x8888888888888888.

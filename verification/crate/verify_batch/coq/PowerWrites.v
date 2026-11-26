@@ -78,7 +78,7 @@ Definition powers pol e q:=let out:=buffer_words (mem(machine q)) (KeySquare.lin
  let first:=if sig then 5%nat else 0%nat in
  (forall i,(i<5)%nat -> 0<=Wide51.cell out (first+i)%nat j<=public_bound i) /\
  Wide51.field_at out first j mod Field.prime=
-  ((PowerInputs.uv (BatchDecode.original_encoding sig e j mod 2^255))^exponent) mod Field.prime.
+  ((Decompression.integer_uv (BatchDecode.original_encoding sig e j mod 2^255))^exponent) mod Field.prime.
 
 Lemma pow_residue a b k : 0<=k -> Field.represents a b -> a^k mod Field.prime=b^k mod Field.prime.
 Proof.

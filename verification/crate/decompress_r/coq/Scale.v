@@ -1,7 +1,7 @@
 From Coq Require Import ZArith Znumtheory Lia.
+From Curve25519 Require Import DeferredCarry.
 From Machine Require Import isa.X86 isa.Arithmetic isa.Logic isa.Shift isa.IFMA.
-From Curve25519 Require Import Radix51.
-From Ed25519Simd.Decode Require Import Limbs.
+From Curve25519 Require Import Radix51 Radix51Digits DecompressionRadix51.
 Local Open Scope Z_scope.
 
 Definition scale_input h i := if Nat.eqb i 0 then vpsubq (h i) 1 else h i.

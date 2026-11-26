@@ -73,7 +73,7 @@ Lemma flush_ok : exists k, exact_image k /\ forall n flat pts enc Q pad init met
  (n<=8)%nat -> Dalek.Audit.input_layout n pts enc -> byte_memory flat -> (pad<4)%nat ->
  (forall i,(i<n)%nat -> valid_chunk(point_words flat pts i)(Q i) /\ positions(meta i) len) ->
  exists bits,flush k flat pts enc pad init n meta len out=Some (0%nat,writes n meta bits out) /\
- forall i j,(i<n)%nat -> (j<8)%nat -> (bits i j=true <-> strict_R (Unpack.encoded flat (ptr enc i) j)(Q i j)).
+ forall i j,(i<n)%nat -> (j<8)%nat -> (bits i j=true <-> Equations.strict_R (Unpack.encoded flat (ptr enc i) j)(Q i j)).
 Proof.
  destruct(Dalek.Audit.recompress_result _ _ _ _ _ _ _ _ Dalek.Object.assembled_dalek_recompress_correct)
  as [k [Image [_ [_ Exact]]]]. exists k;split;[exact Image|].

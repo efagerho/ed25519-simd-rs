@@ -84,7 +84,7 @@ Proof.
  assert (C:forall i,(i<n)%nat -> candidate_chunk(point_words flat pts i)(Q i)) by (intros;apply Input;auto).
  set (slow:=fun start paired=>checked_mask decode flat pts enc start paired pad ic).
  set (v:=fun i j=>match slow i false with Some m=>Z.testbit m (Z.of_nat j) | None=>false end).
- assert (V:forall i j,(i<n)%nat -> (j<8)%nat -> (v i j=true <-> accepts(encoded_at flat enc i j)(Q i j))).
+ assert (V:forall i j,(i<n)%nat -> (j<8)%nat -> (v i j=true <-> Equations.zip215_R(encoded_at flat enc i j)(Q i j))).
  { intros i j I J;destruct(D flat pts enc Q n i false pad ic B P ltac:(change (i+1<=n)%nat;lia) C) as [m [E H]].
    unfold v,slow;rewrite E;exact (proj2(H false j J ltac:(discriminate))). }
  exists (expected n meta v out);split;[|exists v;auto].

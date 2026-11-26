@@ -10,7 +10,7 @@ VERIFY = HERE.parents[1]
 sys.path.insert(0, str(VERIFY))
 from crate.post_hash.build import SHARED_FLAGS, compile_shared, load_callees, symbol_inputs
 from evidence import write_evidence
-from proof_build import MASK_PROJECTS, check_object, compile_libraries, component_flags
+from proof_build import ED25519_FLAGS, check_object, compile_signature_equations, component_flags
 
 DEPENDENCIES = {
     "radix16": ("Radix16", "Scalar"),
@@ -22,13 +22,13 @@ ENTRIES = {key: "ed25519_simd_dalek_" + suffix for key, suffix in
            (("Candidate", "candidate"), ("Push", "push"), ("Flush", "flush"),
             ("Decoded", "decoded"), ("Filter", "filter_keys"))}
 ENTRIES["Scatter"] = "ed25519_simd_zip215_scatter"
-FLAGS = component_flags("dalek_post_hash") + SHARED_FLAGS + ["-Q", "Zip215", "Ed25519Simd.Zip215"] + [
+FLAGS = component_flags("dalek_post_hash") + ED25519_FLAGS + SHARED_FLAGS + ["-Q", "Zip215", "Ed25519Simd.Zip215"] + [
     arg for names in DEPENDENCIES.values() for ns in names for arg in ("-Q", ns, "Ed25519Simd." + ns)]
 
 
 def replay(elf, work, dependencies, overrides):
     work.mkdir(parents=True, exist_ok=False)
-    compile_libraries(work, projects=MASK_PROJECTS)
+    compile_signature_equations(work)
     dest = work / "DalekPostHash"
     dest.mkdir()
     symbols, modules = symbol_inputs(elf, dest, ENTRIES)

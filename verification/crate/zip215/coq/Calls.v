@@ -53,7 +53,7 @@ Definition strong_mask flat enc Q (n start:nat) (paired:bool) m :=
  forall high j,(j<8)%nat -> (high=true -> paired=true) ->
  let i:=if high then S start else start in
  (i<n)%nat /\ (Z.testbit m (Z.of_nat(if high then (8+j)%nat else j))=true <->
- accepts (Unpack.encoded flat (Batch.ptr enc i) j) (Q i j)).
+ Equations.zip215_R (Unpack.encoded flat (Batch.ptr enc i) j) (Q i j)).
 
 Lemma slow_masks : exists k, (forall flat pts enc Q n start (paired:bool) pad init,
  byte_memory flat -> (pad<4)%nat -> (start+(if paired then 2 else 1)<=n)%nat ->
@@ -73,7 +73,7 @@ Proof.
    exists m, torsion_run pad (point_words flat pts i)(words os)(init i)=Some m /\
    forall j,(j<8)%nat ->
    (Z.testbit (Chunks.returned k flat ptr paired) (Z.of_nat(if high then (8+j)%nat else j)) &&
-    Z.testbit m (Z.of_nat j))%bool=true <-> accepts (Unpack.encoded flat (Batch.ptr enc i) j)(Q i j)).
+    Z.testbit m (Z.of_nat j))%bool=true <-> Equations.zip215_R (Unpack.encoded flat (Batch.ptr enc i) j)(Q i j)).
  { intros high H i os. assert (I:(i<n)%nat) by (unfold i;destruct high,paired;intuition lia).
    assert (J':forall j,(j<8)%nat -> ((if high then 8+j else j)<count paired)%nat).
    { unfold count;destruct high,paired;intuition lia. }
@@ -114,7 +114,7 @@ Lemma fast_masks : exists k, Dalek.Audit.shared_image k DecoderBytes.address Dec
  (forall i,(i<n)%nat -> candidate_chunk(point_words flat pts i)(Q i)) ->
  exists m, exact_run k flat pts enc pad init n=Some m /\
  forall i j,(i<n)%nat -> (j<8)%nat -> Z.testbit(octet m i)(Z.of_nat j)=true ->
- accepts (Unpack.encoded flat (Batch.ptr enc i) j)(Q i j).
+ Equations.zip215_R (Unpack.encoded flat (Batch.ptr enc i) j)(Q i j).
 Proof.
  destruct (Dalek.Audit.recompress_result _ _ _ _ _ _ _ _ Dalek.Object.assembled_dalek_recompress_correct)
  as [k [Img [_ [_ Fast]]]]. exists k;split;[exact Img|]. intros flat pts enc Q n pad init N L B P C.
@@ -124,5 +124,5 @@ Proof.
    - intros j J;exact(proj1(Rep j J)). }
  destruct (Fast n flat pts enc Q pad init N L B P Chunks) as [m [Run [_ Bits]]].
  exists m;split;[exact Run|]. intros i j I J H. rewrite octet_bit in H by exact J.
- apply Bits in H as [E _];auto. apply exact_accepts;assumption.
+ apply Bits in H as [E _];auto. exact (Equations.canonical_zip215 _ _ E).
 Qed.

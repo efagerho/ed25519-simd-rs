@@ -1,9 +1,11 @@
 From Coq Require Import List ZArith Lia Ring Field.
 From Machine Require Import isa.Arithmetic execution.WordBounds.
 From Curve25519 Require Import Radix51 Edwards.
-From Curve25519.group Require Import PrimeField Affine Representation.
+From Curve25519.group Require Import PrimeField Affine Representation CoordinateEncoding.
 From Ed25519Simd Require Import Wide51.
-From Ed25519Simd.Decode Require Import Kernels Power Limbs Decode.
+From Ed25519Simd.Decode Require Import Kernels Power.
+From Curve25519 Require Import Radix51Digits.
+From Ed25519Simd.Decode Require Import Decode.
 From Ed25519Simd.KeyTable Require Import Fields Pack Image.
 Import ListNotations. Local Open Scope Z_scope.
 
@@ -84,7 +86,7 @@ Lemma row_rep k w j pos P : kernels_ok k -> cache_bounds false w -> (j<8)%nat ->
  represents_point true (point_values w j) P ->
  represents_cache (scalar_cache false (row k w pos j)) (if pos then P else negative P).
 Proof.
- intros [M C] W J [[NZ [X Y]] T];specialize(T eq_refl).
+ intros [M C] W J Rep.
  set (a:=coord w j).
  assert (B:forall c,(c<4)%nat->split_field (a c)).
  { intros c H i I. specialize(W (5*c+i)%nat j ltac:(cbn;lia) J);unfold a,coord,split;lia. }
@@ -96,18 +98,13 @@ Proof.
  pose proof(proj2(neg_digits_ok _ TB)) as Neg.
  apply congruent_value in D,S,Z2,Neg. cbn [formula] in D,S,Z2.
  rewrite residue_sub in D;rewrite residue_add in S,Z2;rewrite residue_opp in Neg.
- change (value (a 2%nat)<>0%fp) in NZ.
- change (value (a 0%nat)=(x P*value(a 2%nat))%fp) in X.
- change (value (a 1%nat)=(y P*value(a 2%nat))%fp) in Y.
- change (value (a 3%nat)=(x P*y P*value(a 2%nat))%fp) in T.
  assert (E:forall c,(c<4)%nat->limbs (fun i=>row k w pos j (5*c+i)%nat)=limbs(sign_field k w j pos c)).
  { intros;apply limbs_ext;intros;apply row_field;auto;split;auto. }
- exists (value(a 2%nat));split;[exact NZ|].
- unfold scalar_cache,cache_from_fields;cbn [y_minus_x y_plus_x t2d doubled_z];rewrite !E by lia.
- unfold value,pack in *.
- pose proof two_d_value as D2;unfold value,pack in D2;rewrite D2 in Td.
- destruct pos;cbn [sign_field fields compute source rhs field_op linear_op negative x y];fold a;rewrite ?Neg,?D,?S,?Z2,?Td,?X,?Y,?T;
- repeat split;ring.
+ unfold scalar_cache,cache_from_fields. apply (signed_cache_from_extended pos (point_values w j) P); [exact Rep|..].
+ all: rewrite E by lia; unfold value,pack in *;
+   pose proof two_d_value as D2; unfold value,pack in D2; rewrite D2 in Td;
+   destruct pos; cbn [sign_field fields compute source rhs field_op linear_op]; fold a;
+   rewrite ?Neg,?D,?S,?Z2,?Td; reflexivity.
 Qed.
 
 Lemma staged_rep k w j P : kernels_ok k -> cache_bounds false w -> (j<8)%nat ->
@@ -115,21 +112,17 @@ Lemma staged_rep k w j P : kernels_ok k -> cache_bounds false w -> (j<8)%nat ->
  represents_cache (cache_values true (staged k w) j) P.
 Proof.
  intros K W J Rep Z1.
- destruct (row_rep k w j true P K W J Rep) as [z [NZ [M [S [T Z2]]]]].
+ pose proof (row_rep k w j true P K W J Rep) as Cache.
  assert (E:forall c,(c<3)%nat -> word_coordinate (staged k w) j c =
    limbs (fun i=>row k w true j (5*c+i)%nat)).
  { intros c C;apply limbs_ext;intros i I;apply stage_cell;lia. }
- unfold scalar_cache,cache_from_fields in M,S,T,Z2;cbn [y_minus_x y_plus_x t2d doubled_z] in M,S,T,Z2.
  assert (V:limbs (fun i=>row k w true j (5*3+i)%nat)=limbs(fields k w j 3)).
  { apply limbs_ext;intros;apply (row_field k w j true 3%nat);auto. }
- rewrite V in Z2.
  assert (B:split_field (coord w j 2)).
  { intros i I;specialize(W (10+i)%nat j ltac:(cbn;lia) J);change (0<=cell w (10+i)%nat j<=2^52-1);lia. }
  pose proof(proj2(linear_ok k Twice _ _ (proj2 K Twice) B B)) as L.
  apply congruent_value in L;cbn [formula] in L;rewrite residue_add in L.
  change (residue(limbs(fields k w j 3))=(value(coord w j 2)+value(coord w j 2))%fp) in L.
- rewrite L,Z1 in Z2.
- exists z. unfold cache_values,cache_from_fields;cbn [y_minus_x y_plus_x t2d doubled_z].
- rewrite !E by lia;repeat split;auto.
- transitivity (((1+1)*z/(1+1))%fp);[field;discriminate|rewrite <-Z2;field;discriminate].
+ unfold cache_values,cache_from_fields; rewrite !E by lia.
+ apply (unit_cache_affine _ _ _ _ _ Cache). rewrite V, L, Z1; reflexivity.
 Qed.

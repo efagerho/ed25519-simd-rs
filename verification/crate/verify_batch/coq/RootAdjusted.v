@@ -1,3 +1,4 @@
+From Curve25519 Require Radix51Digits.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions execution.WordBounds execution.WordSemantics execution.LinkedCalls execution.LinkedRun
  execution.ScalarBytes execution.MappedFetch execution.VectorProcedure memory.ByteMemory memory.FlatMemory memory.MemoryGeometry.
@@ -14,7 +15,7 @@ Lemma image:MR.assemble 1124 select=Some bytes /\ length bytes=39%nat.
 Proof. split;vm_compute;reflexivity. Qed.
 Definition execute bias p bank:=bind (RootMultiply.execute bias p) (fun q=>MR.execute (base bias) select q bank).
 Definition adjusted s (bank:MaskTransfer.bank) j:=if bank 4%nat j then
- Power.apply_kernel DecoderProduct.kernel Kernels.Multiply (vectors s j) Decode.sqrt_limbs else vectors s j.
+ Power.apply_kernel DecoderProduct.kernel Kernels.Multiply (vectors s j) Radix51Digits.sqrt_limbs else vectors s j.
 
 Record result pol bias e p bank q (out:MaskTransfer.bank):Prop:=Result {
  next:ip q=base bias+1163;

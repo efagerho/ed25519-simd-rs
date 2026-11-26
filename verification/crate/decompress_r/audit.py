@@ -88,7 +88,7 @@ def main():
     compile_object(power, pow_dir, [sources / (name + ".v") for name in PROOF_MODULES],
                    sources / "Object.v", component_flags("pow2", ".", Path("..")))
     flags = component_flags("decompress_r") + ["-Q", "Pow2", "Ed25519Simd.Pow2"]
-    for name in ("Kernels", "Power", "Image", "Limbs", "Scale", "Unpack", "Decode", "Glue", "Caller", "Chunks",
+    for name in ("Kernels", "Power", "Image", "Scale", "Unpack", "Decode", "Glue", "Caller", "Chunks",
                  "Program", "DecoderBytes", "HelperBytes", "Audit", "Object"):
         source = dest / (name + ".v")
         if not source.exists():

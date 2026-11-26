@@ -9,3 +9,7 @@ Edwards.v
 Torsion.v
 SmallOrderFilter.v
 FieldPolynomial.v
+Radix51Zero.v
+Radix51Digits.v
+DecompressionRadix51.v
+ScalarReduction.v

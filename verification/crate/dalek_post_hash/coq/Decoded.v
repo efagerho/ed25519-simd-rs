@@ -1,10 +1,12 @@
+From Ed25519 Require Equations.
 From Coq Require Import List ZArith Bool Lia Field.
-From Coqprime.elliptic Require GZnZ.
 From Machine Require Import execution.MaskTrace memory.ByteMemory.
 From Curve25519 Require Import Edwards Field Radix51.
-From Curve25519.group Require Import PrimeField Affine Cofactor Decompression Representation.
+From Curve25519.group Require Import PrimeField Affine Cofactor Decompression Representation CoordinateEncoding.
 From Ed25519Simd Require Import Wide51.
-From Ed25519Simd.Decode Require Import Kernels Decode Limbs Unpack Chunks.
+From Ed25519Simd.Decode Require Import Kernels Decode.
+From Curve25519 Require Import Radix51Digits.
+From Ed25519Simd.Decode Require Import Unpack Chunks.
 From Ed25519Simd.Decode Require Audit Object DecoderBytes HelperBytes Program.
 From Ed25519Simd.SmallOrder Require Audit EntryBytes Object.
 From Ed25519Simd.Dalek Require Import FieldOps Encoding Batch Masks.
@@ -12,18 +14,14 @@ From Ed25519Simd.PostHash Require Import Lanes.
 From Ed25519Simd.DalekPostHash Require Import Caller.
 From Ed25519Simd.Zip215 Require Schedule.
 Import ListNotations. Local Open Scope Z_scope.
-Local Notation val := (GZnZ.val prime).
 
-Definition strict_R w Q := w=compress Q /\ multiple 8 Q<>identity.
 Definition match_coord k a z c := high_test (subtract_product k a z c) 0.
 Lemma match_ok k a z c : checked k=true -> split_field a -> split_field z -> split_field c ->
  (match_coord k a z c=true <-> (value a*value z)%fp=value c).
 Proof.
  intros K A Zr C. destruct (fused_ok _ _ _ _ K A Zr C) as [B [L V]].
  set (h:=subtract_product k a z c) in *.
- assert (Pos:1<pack h).
- { unfold pack,limbs;pose proof(B 1%nat ltac:(lia));pose proof(B 2%nat ltac:(lia));
-   pose proof(B 3%nat ltac:(lia));pose proof(B 4%nat ltac:(lia));unfold radix in *;lia. }
+ assert (Pos:1<pack h) by (apply positive_from_low; assumption).
  unfold match_coord;fold h;rewrite high_test_correct,congruent_value by (auto || lia).
  change (value h=0%fp <-> (value a*value z)%fp=value c);rewrite V. split;[intro E|intro E;rewrite E;ring].
  replace (value a*value z)%fp with ((value a*value z-value c)+value c)%fp by ring;rewrite E;ring.
@@ -81,7 +79,7 @@ Lemma lane_exact k dk flat ptr q Q weak j :
  (ok && negb(noncanonical(oy o)) && negb(Z.testbit weak (Z.of_nat j)) &&
    match_coord k (oy o)(coord q 10 j)(coord q 5 j) &&
    match_coord k (ox o)(coord q 10 j)(coord q 0 j)=true <->
- strict_R (encoded flat (ptr+256) j) (Q j)).
+ Equations.strict_R (encoded flat (ptr+256) j) (Q j)).
 Proof.
  intros n o ok B J K L [Bounds Qs] [_ Weak]. specialize(Qs j J).
  set (w:=encoded flat (ptr+256) j).
@@ -99,38 +97,20 @@ Proof.
  { intros c C i I;unfold coord;pose proof(Bounds (c+i)%nat j ltac:(lia) J);lia. }
  rewrite !andb_true_iff,!negb_true_iff,digits_canonical by exact Tight.
  rewrite !match_ok by (assumption || apply Bound;lia). fold fx z. rewrite Raw,Ey,QX,QY.
- assert (Cancel:forall a b:fp,(a*z=b*z)%fp <-> a=b).
- { intros a b;split;[intro E|intros ->;reflexivity].
-   replace a with ((a*z)/z)%fp by (field;exact NZ);rewrite E;field;exact NZ. }
- rewrite !Cancel. unfold strict_R;pose proof (encoding_equal flat (ptr+256) j (Q j) B) as Enc;fold w in Enc;rewrite Enc.
- assert (YR:0<=w mod 2^255<2^255) by (apply Z.mod_pos_bound;lia).
- assert (Canon: w mod 2^255<prime -> val fy=w mod 2^255).
- { intro H;change ((w mod 2^255) mod prime=w mod 2^255);apply Z.mod_small;lia. }
- assert (VR:0<=val (y(Q j))<prime) by (rewrite (GZnZ.inZnZ prime (y(Q j)));apply Z.mod_pos_bound;unfold prime;lia).
- assert (FromBytes:w mod 2^255=val (y(Q j)) -> fy=y(Q j)).
- { intro H;unfold fy;rewrite H;destruct (y(Q j)) as [v E];apply GZnZ.zirr;symmetry;exact E. }
+ rewrite !scaled_coordinate_eq by exact NZ.
+ assert (Width:0<=w<2^256) by (apply (read_le_bound 32 _ _ B)).
  destruct ok.
- - destruct Dec as [Curve [Sign Unique]]. set (R:=Point fx fy Curve).
+ - destruct Dec as [Curve [Sign _]]. set (R:=Point fx fy Curve).
+   assert (DR:decodes w R) by (split;[reflexivity|exact Sign]).
    assert (Rep:represents_xyz (coordinates_of o) R).
    { change (value(oz o)<>0%fp /\ fx=(fx*value(oz o))%fp /\ value(oy o)=(fy*value(oz o))%fp).
      rewrite Ez,Ey;split;[discriminate|split;ring]. }
-   specialize(Weak R Rep).
-   split.
-   + intros [[[[ _ Can] Strong] yEq] xEq].
-     assert (RP:R=Q j) by (apply point_ext;exact(conj xEq yEq)).
-     assert (NN:multiple 8 R<>identity) by (intro E;apply Weak in E;congruence).
-     split;[split;[rewrite <-yEq;now rewrite Canon|]|congruence].
-     unfold has_sign in Sign. destruct Sign as [Zero|Parity];[|congruence].
-     exfalso;apply NN,eight_identity_iff. change (fx*fy*(fx*fx+fy*fy)=0)%fp;rewrite Zero;ring.
-   + intros [[Bytes SignQ] Strong];assert (yEq:=FromBytes Bytes).
-     assert (xEq:x(Q j)=fx).
-     { apply Unique;[rewrite yEq;apply on_edwards|right;congruence]. }
-     assert (RP:R=Q j) by (apply point_ext;split;[symmetry|];assumption).
-     assert (Off:Z.testbit weak (Z.of_nat j)=false) by (destruct (Z.testbit weak (Z.of_nat j)) eqn:H;
-       [exfalso;apply Strong;rewrite <-RP;apply Weak;reflexivity|reflexivity]).
-     intuition congruence.
- - split;[intuition discriminate|]. intros [[Bytes _] _];exfalso.
-   apply (Dec (x(Q j)));rewrite (FromBytes Bytes);apply on_edwards.
+   rewrite (Equations.strict_R_coordinates w R (Q j) Width DR).
+   specialize (Weak R Rep). cbn [x y]; fold fx fy.
+   destruct (Z.testbit weak (Z.of_nat j)); intuition congruence.
+ - split;[intuition discriminate|]. intros [Bytes _]; exfalso.
+   pose proof (decodes_compression (Q j)) as [DecodedY _]. rewrite <-Bytes in DecodedY.
+   apply (Dec (x (Q j))); unfold fy; rewrite <-DecodedY; apply on_edwards.
 Qed.
 
 Definition decoder_runs dk := forall flat ptr,byte_memory flat ->
@@ -151,7 +131,7 @@ Lemma direct_correct dk k flat ptr q Q eligible pad init :
  let os:=outputs dk flat ptr in let valid:=valid_mask dk flat ptr in
  exists m,direct k os valid eligible q pad init=Some m /\
  forall j,(j<8)%nat -> (Z.testbit m (Z.of_nat j)=true <->
- eligible j=true /\ strict_R (encoded flat (ptr+256) j) (Q j)).
+ eligible j=true /\ Equations.strict_R (encoded flat (ptr+256) j) (Q j)).
 Proof.
  intros D K B P Qs os valid.
  assert (L:forall j,(j<8)%nat -> lane_claim dk flat ptr true (8+j)%nat) by auto.
