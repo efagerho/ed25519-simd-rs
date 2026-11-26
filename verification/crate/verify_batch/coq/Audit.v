@@ -50,7 +50,7 @@ Lemma decoder_aligned pol bias pc text e : admissible pol bias pc text e -> (0<c
  (bias+DecoderFrame.origin) mod 64=0.
 Proof.
  intros A N;destruct(batch_inputs _ _ _ _ _ A N) as [_ [_ [_ [_ [_ Entries]]]]].
- destruct (Entries 0%nat (count e) zero_loc N eq_refl zero_words) as [_ [_ [[Hash _] _]]].
+ destruct (Entries 0%nat (count e) N eq_refl) as [_ [_ [[Hash _] _]]].
  destruct(Sha512Challenge.Frame.image_fits _ _ _ _ Hash) as [_ [_ Al]].
  change ((bias+Sha512Challenge.LiteralBytes.address) mod 64=0) in Al.
  rewrite Z.add_mod in Al by lia;change (Sha512Challenge.LiteralBytes.address mod 64) with 0 in Al.
@@ -92,10 +92,9 @@ Definition scorer_result pol bias pc e screen:=
   forall stop,ScoreDecision.observed pol bias screen stop ->
      LinkedRun.accounted e (writable e) stop /\ ScoreDecision.selected pol bias pc e stop).
 
-Definition scoring pol bias pc text e c masks stop := exists q r s cf child score,
+Definition scoring pol bias pc text e c masks stop := exists q r started,
    FirstDispatch.run pol bias pc text e c masks=Some(FirstDispatch.HashReturned q r) /\
-   HashResume.compatible r s /\ well_formed s /\ ScoreCall.execute bias pc text q r s cf=Some child /\
-   ScoreStart.from_call pol bias child=Some score /\ ScoreProgress.observed pol bias score stop.
+   ScoreStart.from_hash pol bias pc text q r started /\ ScoreProgress.observed pol bias started stop.
 
 (* A completed native return fixes the verdict CPU and the write log together. *)
 Inductive observation pol bias pc text e carry masks : list WriteTrace.store -> Z -> cpu -> Prop :=

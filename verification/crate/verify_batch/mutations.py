@@ -62,7 +62,7 @@ def check(elf, audit, work):
             (work / path.name).symlink_to(path)
     dest = work / NS
     shutil.copytree(audit / NS, dest)
-    for module in ("RejectedBatch", "TwoChunks", "DecoderY", "TableIdentityBytes", "StrictCanonical"):
+    for module in ("RejectedBatch", "TwoChunks", "DecoderY", "TableIdentityBytes", "StrictCanonical", "HashHandoff", "ScorerMasks"):
         shutil.copyfile(Path(__file__).with_name("tests") / f"{module}.v", dest / f"{module}.v")
         compile_module(work, FLAGS, NS, module)
     print("Both policy entries returned a confined rejection on the padded single-row control", flush=True)
@@ -70,6 +70,8 @@ def check(elf, audit, work):
     print("The decoder preserved the sign mask and noncanonical Y in all eight scratch lanes", flush=True)
     print("All eight table identities matched and the changed 2Z store was detected", flush=True)
     print("The strict scorer rejected Y equal to p and admitted it with a damaged cutoff byte", flush=True)
+    print("The shared SHA return admits exactly the ABI completions of the scorer handoff", flush=True)
+    print("Both policy scorer paths matched their explicit mask and return-state handoffs", flush=True)
     for description, label, old, new in (*CASES, redirected(elf)):
         damaged = work / "mutated.elf"
         mutate(elf, damaged, ENTRIES[label], old, new)
@@ -97,7 +99,7 @@ def check(elf, audit, work):
     if source.count(exact) != 1:
         raise ValueError("missing verdict specification")
     contract.write_text(source.replace(exact, "v=false <-> signature_accepts"))
-    for module in ("Audit", "ChunkDispatch", "ChunkScore", "NativeLoop"):
+    for module in ("Audit", "ChunkScreen", "ChunkDispatch", "ChunkScore", "NativeLoop"):
         compile_module(work, FLAGS, NS, module)
     compile_module(work, FLAGS, NS, "Object", reject=True, diagnostic="while it is expected to have type")
     print("Batch theorem rejected an inverted acceptance specification", flush=True)

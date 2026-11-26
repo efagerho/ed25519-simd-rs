@@ -1,8 +1,14 @@
-From Coq Require Import ZArith.
+From Coq Require Import ZArith Lia.
 From Machine Require Import isa.Instructions memory.ByteMemory memory.FlatMemory.
 Local Open Scope Z_scope.
 
 Definition word n := n mod 2^64.
+
+Lemma small_relative o a b : -2^62<a<2^62 -> 0<=b<2^32 -> word(o+a)-o=b -> a=b.
+Proof.
+ intros A B Eq;unfold word in Eq;pose proof(Z.div_mod (o+a) (2^64) ltac:(lia)) as D.
+ assert ((o+a)/2^64=0) by lia;lia.
+Qed.
 Definition signed_value half n := let u := n mod (2*half) in
  if u <? half then u else u-2*half.
 

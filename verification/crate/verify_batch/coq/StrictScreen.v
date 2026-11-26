@@ -1,4 +1,5 @@
 From Coq Require Import ZArith Lia.
+From Machine Require execution.Composition.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage.
 From Ed25519Simd.VerifyBatch Require StrictScoreFrame.
@@ -9,9 +10,11 @@ Local Open Scope Z_scope.
 Definition execute bias t k:=bind (StrictRCall.execute bias t) (fun child=>
  if regs(machine t) 12%nat=?0 then Some child else
  bind (StrictOrderReturn.execute bias child k) (fun '(r,_)=>StrictRClear.execute bias r)).
-Definition observed bias score stop:=exists ks k y t bank,
- StrictRStart.execute bias score ks=Some(y,k) /\ StrictRCanonical.execute bias y k=Some(t,bank) /\
- execute bias t bank=Some stop.
+Definition observed bias score :=
+ Composition.with_input (fun incoming =>
+ Composition.followed_by (Composition.output (StrictRStart.execute bias score incoming)) (fun '(y,k) =>
+ Composition.followed_by (Composition.output (StrictRCanonical.execute bias y k)) (fun '(t,bank) =>
+   Composition.output (execute bias t bank)))).
 From Ed25519Simd.VerifyBatch Require BatchWindow.
 Section Iteration.
 Context `{iteration:BatchWindow.t}.
@@ -57,16 +60,13 @@ Qed.
 
 Theorem with_frame bias parent e h r child score : placement e -> loaded Dalek bias (mem e) (writable e) ->
  HashLayout.active Dalek e -> ScoreStart.reached Dalek bias parent e h r child score ->
- (exists stop,observed bias score stop) /\ (forall stop,observed bias score stop -> decision bias e stop /\ StrictScoreFrame.context bias parent e child stop).
+ Composition.ensures (observed bias score) (fun stop => decision bias e stop /\ StrictScoreFrame.context bias parent e child stop).
 Proof.
- intros P I Live Start;split.
- - set (ks:=fun _ _:nat=>false);destruct(StrictRStart.checked _ _ _ _ _ _ _ ks P I Live Start) as [y [k [First Y]]].
-   destruct(StrictRCanonical.checked _ _ _ _ _ _ _ _ k P I Start Y) as [t [bank [Run C]]].
-   destruct(proj1(from_canonical _ _ _ _ _ _ _ _ _ bank P I Start Y C)) as [q End];exists q,ks,k,y,t,bank;auto.
- - intros stop [ks [k [y [t [bank [F [C E]]]]]]].
-   destruct(StrictRStart.checked _ _ _ _ _ _ _ ks P I Live Start) as [u [ko [First Y]]];rewrite F in First;injection First as <- <-.
-   destruct(StrictRCanonical.checked _ _ _ _ _ _ _ _ k P I Start Y) as [u [ko [Run Post]]];rewrite C in Run;injection Run as <- <-.
-   exact (proj2(from_canonical _ _ _ _ _ _ _ _ _ bank P I Start Y Post) _ E).
+ intros P I Live Start. unfold observed. apply (Composition.each_input (fun _ _ : nat => false)).
+ intro incoming. destruct (StrictRStart.checked _ _ _ _ _ _ _ incoming P I Live Start) as [y [k [First Y]]].
+ apply (Composition.after_some First).
+ destruct (StrictRCanonical.checked _ _ _ _ _ _ _ _ k P I Start Y) as [t [bank [Run C]]].
+ apply (Composition.after_some Run). exact (from_canonical _ _ _ _ _ _ _ _ _ bank P I Start Y C).
 Qed.
 
 Theorem checked bias parent e h r child score : placement e -> loaded Dalek bias (mem e) (writable e) ->

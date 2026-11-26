@@ -2,10 +2,7 @@ From Coq Require Import List ZArith.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.MappedFetch memory.WriteTrace.
 Local Open Scope Z_scope.
 
-(* The suffix is both the extension to the incoming log and the memory
-   update between these two particular instruction boundaries. *)
-Definition extends region p q:=exists ws,log q=log p++ws /\ confined region ws /\
- forall x,mem(machine q) x=replay (mem(machine p)) ws x.
+Definition extends := LinkedRun.extends_log.
 
 Lemma compose region p q r : extends region p q -> extends region q r -> extends region p r.
 Proof.
@@ -22,21 +19,5 @@ Proof.
  intros Sub [ws [A [Safe M]]];exists ws;split;[exact A|split;[|exact M]].
  eapply Forall_impl;[|exact Safe];intros w H x X;apply Sub,(H x X).
 Qed.
-Lemma account e region p q : accounted e region p -> extends region p q -> accounted e region q.
-Proof.
- intros Paid [ws [L [W M]]];destruct q as [pc s c logs];cbn [log machine] in L,M;subst logs;
- apply append_accounted;[exact Paid|exact W|exact M].
-Qed.
-
-(* The PC may be an in-symbol offset, a relative call target outside the
-   symbol, or the absolute address popped by RET. *)
-Lemma segment_checked region o text n p off t ws : ip p=o+off -> mapped (mem(machine p)) o text ->
- (forall x,o<=x<o+Z.of_nat(length text) -> ~region x) ->
- run n (ScalarBytes.fetch o text) (ScalarBytes.State (ScalarBytes.Running off) (machine p) (carry p))=Some(t,ws) ->
- confined region ws -> let q:=finish o p (t,ws) in
- segment o text n p=Some q /\ extends region p q.
-Proof.
- intros PC Code Sep R Safe q;split.
- - unfold segment;rewrite PC;replace (o+off-o) with off by ring;now rewrite (run_lift _ _ _ _ _ _ _ R Safe Code Sep).
- - exists ws;split;[reflexivity|split;[exact Safe|intro x;exact (f_equal (fun m=>m x) (ScalarBytes.steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ R)))]].
-Qed.
+Definition account := LinkedRun.account_history.
+Definition segment_checked := LinkedRun.segment_history.

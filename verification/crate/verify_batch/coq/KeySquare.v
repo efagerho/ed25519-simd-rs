@@ -2,6 +2,7 @@ From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.ScalarBytes execution.WordSemantics
  execution.WordBounds execution.MappedFetch execution.InstructionRoute memory.ByteMemory memory.FlatMemory
  memory.WriteTrace memory.MemoryGeometry execution.VectorProcedure.
+From Machine Require abi.StackFrame.
 From Curve25519 Require Import Radix51 Field.
 From Ed25519Simd.Decode Require Kernels DecoderBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode DecoderSave.
@@ -29,6 +30,36 @@ Lemma depth pol e : sp e-2048<=link_slot pol e<sp e-1000.
 Proof. unfold link_slot,DecoderFrame.top;pose proof(Z.mod_pos_bound (common_top pol e-112-40) 64 ltac:(lia));
  unfold common_top,Rows.frame,sp in *;destruct pol;lia. Qed.
 
+(* Layout of the caller-owned data that is live across the multiplication. *)
+Record square_layout signature pol e := {
+ call_room : bottom (DecoderProduct.area e)+24<=link_slot pol e<=ceiling (DecoderProduct.area e);
+ push_fits : word64 (link_slot pol e-8);
+ input_apart : disjoint (link_slot pol e-24) 24 (address signature e) 320;
+ caller_apart : forall x,caller_bytes pol e x -> StackFrame.outside (link_slot pol e) 24 x
+}.
+
+Lemma layout signature pol e : placement e -> square_layout signature pol e.
+Proof.
+ intro P;pose proof (depth pol e) as Depth;destruct(Return.stack_ok _ P) as [[Lo Hi] _].
+ pose proof (scratch_stack _ P) as Apart;constructor.
+ - change (sp e-16384+24<=link_slot pol e<=sp e);lia.
+ - unfold word64;lia.
+ - unfold disjoint,address,point,point_offset in *;destruct signature;lia.
+ - intros x X;unfold caller_bytes,StackFrame.outside,link_slot,DecoderFrame.top in *.
+   pose proof(Z.mod_pos_bound (common_top pol e-112-40) 64 ltac:(lia)).
+   unfold disjoint,common_top,Rows.frame,sp in *;destruct pol;lia.
+Qed.
+
+Lemma digits_kept signature e top depth s t :
+ disjoint (top-depth) depth (address signature e) 320 ->
+ preserved (StackFrame.outside top depth) (mem s) (mem t) ->
+ forall j i,(j<8)%nat -> (i<5)%nat -> digits signature e t j i=digits signature e s j i.
+Proof.
+ intros Apart Keep j i J I;unfold digits;apply (StackFrame.read_outside _ _ _ _ _ _ Keep).
+ change (disjoint (top-depth) depth (address signature e+64*Z.of_nat i+8*Z.of_nat j) 8).
+ unfold disjoint in *;lia.
+Qed.
+
 Theorem from_saved signature pol bias e p : placement e -> loaded pol bias (mem e) (writable e) ->
  saved signature bias e p -> frame signature pol bias e (machine p) ->
  (forall j i,(j<8)%nat -> (i<5)%nat -> digits signature e (machine p) j i=vectors(machine p) j i) ->
@@ -37,8 +68,8 @@ Theorem from_saved signature pol bias e p : placement e -> loaded pol bias (mem 
 Proof.
  intros P M [PC [Acc [_ Raw]]] [DI [SP [Link [Constants Caller]]]] Data.
  set (s:=machine p) in *;set (o:=base bias) in *;set (stack:=link_slot pol e) in *;change (regs s 4%nat=stack) in SP;change (read_word (mem s) stack=word(o+resume_offset signature)) in Link.
- pose proof(depth pol e) as Deep;fold stack in Deep.
- destruct(Return.stack_ok _ P) as [[Lo Hi] _];destruct(scratch_ok _ P) as [[SL SH] Al].
+ destruct(layout signature pol e P) as [Room Fit Apart Live];fold stack in Room,Fit,Apart,Live.
+ destruct(scratch_ok _ P) as [[SL SH] Al].
  assert (Addr:word(regs s 7%nat+0+320)=address signature e) by
   (rewrite DI;unfold address,point,point_offset;destruct signature;rewrite word_fits by (unfold word64;lia);ring).
  set (v:=set s 8 (address signature e)).
@@ -53,43 +84,34 @@ Proof.
  { split;[rewrite V8;unfold address;replace 320 with (5*64) by reflexivity;rewrite Z.mod_add by lia;apply point_aligned,Al|
    split;[rewrite V8;unfold fits64,address,point,point_offset;destruct signature;lia|reflexivity]]. }
  destruct(DecoderProduct.call_at pol bias e 504 args P M ltac:(lia) ltac:(lia) (proj2 image) mid A eq_refl Paid
-    ltac:(change (bottom (DecoderProduct.area e)+24<=regs s 4%nat<=ceiling (DecoderProduct.area e));
-       change (sp e-16384+24<=regs s 4%nat<=sp e);change (regs s 4%nat=stack) in SP;rewrite SP;lia)) as [q [Call [At Done G Keep YY]]].
- assert (K:forall x,~(stack-24<=x<stack) -> mem(machine q) x=mem s x).
- { intros x X;apply Keep;change (~(regs s 4%nat-24<=x<regs s 4%nat));now rewrite SP. }
- assert (Outside:forall i j k,(i<5)%nat -> (j<8)%nat -> 0<=k<8 ->
-   ~(stack-24<=address signature e+64*Z.of_nat i+8*Z.of_nat j+k<stack)).
- { intros;destruct(scratch_stack _ P);unfold disjoint,address,point,point_offset in *;destruct signature;lia. }
- assert (D:forall i j,(i<5)%nat -> (j<8)%nat -> digits signature e (machine q) j i=digits signature e s j i).
- { intros i j I J;apply preserved_read with (outside:=fun x=>~(stack-24<=x<stack));[exact K|intros k B;exact (Outside i j k I J B)]. }
+    ltac:(change (bottom (DecoderProduct.area e)+24<=regs s 4%nat<=ceiling (DecoderProduct.area e));now rewrite SP))
+   as [q [Call [At Done G Keep YY]]].
+ destruct (StackFrame.call_frame v (o+509) (mem(machine q)) stack 24 SP Fit ltac:(lia) Keep)
+   as [Pushed [Kept ReturnWord]].
+ pose proof (digits_kept signature e stack 24 v child Apart Pushed) as AtPush.
+ pose proof (digits_kept signature e stack 24 s (machine q) Apart Kept) as D.
  assert (Inputs:forall j i,(j<8)%nat -> (i<5)%nat -> args j i=digits signature e s j i /\ args j (5+i)%nat=digits signature e s j i).
  { intros j i J I;unfold args,DecoderProduct.arguments.
    rewrite (proj2(Nat.leb_gt 5 i) ltac:(lia)),(proj2(Nat.leb_le 5 (5+i)) ltac:(lia)),
      (proj2(Nat.ltb_lt (5+i) 10) ltac:(lia));cbn [andb].
    split;[symmetry;apply Data;assumption|].
    replace (5+i-5)%nat with i by lia;unfold DecoderProduct.rhs_at,digits;rewrite V8.
-   apply preserved_read with (outside:=fun x=>~(stack-8<=x<stack)).
-   - intros x X;change (store_word (mem s) (word(regs s 4%nat-8)) (o+509) x=mem s x).
-     rewrite SP,word_fits by (unfold word64;lia);apply write_outside;lia.
-   - intros k B;pose proof(Outside i j k I J B);lia. }
+   change (digits signature e child j i=digits signature e v j i);exact (AtPush j i J I). }
  assert (C:forall j i,(i<4)%nat -> args j (28+i)%nat=DecoderFrame.constant i).
  { intros j i I;unfold args,DecoderProduct.arguments;rewrite (proj2(Nat.ltb_ge (28+i) 10) ltac:(lia)),andb_false_r;apply Constants,I. }
  exists q;split;[unfold square,then_run,set_rhs;fold o;rewrite Lea;exact Call|].
  split.
- 2:{ intros x [X _];apply K,X. }
+ 2:{ intros x [X _];apply Kept,X. }
  split;[exact At|split;[exact Done|split]].
  - unfold frame;split;[rewrite G;exact DI|split;[rewrite G;exact SP|split]].
-   + change (read_word (mem(machine q)) stack=word(o+resume_offset signature));rewrite <-Link.
-     apply preserved_read with (outside:=fun x=>~(stack-24<=x<stack));[exact K|intros;lia].
+   + exact (eq_trans ReturnWord Link).
    + split.
      * intros i j I;rewrite YY;destruct ((proj2 DecoderProduct.multiplication) no_read no_read (args j) (args j)
        ltac:(reflexivity)) as [_ High];rewrite High by lia;apply C,I.
      * eapply keep_caller;[exact Caller| |].
        -- intros r InReg;rewrite G;change (Instructions.put (regs s) 8 (address signature e) r=regs s r);
           unfold Instructions.put;destruct (Nat.eqb_spec 8 r);[subst;unfold caller_reg in InReg;cbn in InReg;lia|reflexivity].
-       -- intros x X;apply K;unfold caller_bytes in X;unfold stack,link_slot,DecoderFrame.top in *;
-          pose proof(Z.mod_pos_bound (common_top pol e-112-40) 64 ltac:(lia));destruct(scratch_stack _ P);
-          unfold disjoint,common_top,Rows.frame,sp in *;destruct pol;lia.
+       -- intros x X;apply Kept,Live,X.
  - split;intros j J;destruct(Raw j J) as [B [Y Sign]].
    + split;[intros i I;rewrite D by assumption;apply B,I|split].
      * rewrite <-Y;apply limbs_ext;intros;apply D;assumption.

@@ -25,16 +25,13 @@ Record meaning pol bias e ladder stop : Prop:=Meaning {
    (verification_point (little_endian(s_bytes(HashLayout.row e j))) (Signature.challenge(HashLayout.row e j)) A)
 }.
 
-Theorem checked pol bias e prev ladder staged seed top : loaded pol bias (mem e) (writable e) -> Tables.mapped e bias ->
- Candidate.constants e -> ProductRun.geometry (HashLayout.chunk pol e bias) -> LadderEntry.entry pol bias e prev ladder ->
- LadderStage.observed bias ladder staged -> LadderSeed.execute bias staged=Some seed -> LadderTop.execute bias seed=Some top ->
+Theorem checked pol bias e prev ladder staged seed top : loaded pol bias (mem e) (writable e) ->
+ FullLadder.Operands.valid_tables (machine ladder) generator (LadderTables.key e) -> LadderEntry.entry pol bias e prev ladder ->
+ LadderStage.result bias e ladder staged -> LadderSeed.result bias e ladder staged seed ->
+ accounted e (writable e) top /\ LadderTop.result bias e ladder seed top ->
  exists q,execute bias top=Some q /\ accounted e (writable e) q /\ meaning pol bias e ladder q.
 Proof.
- intros I M T G L Stage Seed Top.
- destruct(LadderTop.checked _ _ _ _ _ _ _ I M T G L Stage Seed) as [v [Run [Paid Pair]]];rewrite Top in Run;injection Run as Eq;subst v.
- destruct(LadderLayout.checked _ _ _ _ _ G L) as [P V].
- destruct(proj2(LadderStage.with_cpu _ _ _ _ _ I G L) _ Stage) as [_ [_ [_ [_ [_ [_ [F StageLog]]]]]]].
- destruct(LadderSeed.with_history _ _ _ _ _ _ I G L Stage) as [v [R [_ [_ [_ [_ [Regs H]]]]]]];rewrite Seed in R;injection R as Eq;subst v.
+ intros I Tables L [_ _ _ [_ [_ [_ [F StageLog]]]] [P V]] [_ [_ [_ [_ [Regs H]]]]] [Paid Pair].
  assert (SF:LoopFrame.intact bias (machine ladder) (machine seed)).
  { apply (LoopFrame.after _ _ staged seed P F);[intros g K;apply Regs;cbv [LoopFrame.live In] in K;intuition congruence|].
    eapply StoreHistory.lend;[|exact H];intros x X;left;exact X. }
@@ -47,7 +44,7 @@ Proof.
      repeat first [left;reflexivity|right]. }
    exact (proj1(mapped_now _ _ _ I _ _ _ Paid Child)). }
  destruct(LadderEntry.arguments _ _ _ _ _ L) as [SP [Pt [_ [_ [_ [_ Mode]]]]]].
- destruct(LoopProduct.checked _ _ _ _ _ _ _ P V (LadderTables.supplied _ _ _ _ _ I M T L) Mode TF Code Pair) as [q [R Done]].
+ destruct(LoopProduct.checked _ _ _ _ _ _ _ P V Tables Mode TF Code Pair) as [q [R Done]].
  exists q;split;[exact R|split].
  - eapply StoreHistory.account;[exact Paid|eapply StoreHistory.lend;[|exact (LoopProduct.stores _ _ _ _ _ _ Done)]].
    intros x [Point|Stack];[apply (LadderTop.loan _ _ _ _ _ L);left;exact Point|].

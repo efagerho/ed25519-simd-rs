@@ -8,7 +8,7 @@ Local Open Scope Z_scope.
 From Ed25519Simd.VerifyBatch Require BatchWindow.
 Section Iteration.
 Context `{iteration:BatchWindow.t}.
-Definition chunk pol e bias:=make_chunk e pol bias BatchWindow.first (BatchWindow.remaining e) zero_loc.
+Definition chunk pol e bias:=make_chunk e pol bias BatchWindow.first (BatchWindow.remaining e).
 Lemma index e j : (0<BatchWindow.remaining e)%nat -> (j<8)%nat ->
  Rows.row_no BatchWindow.first (Nat.min (BatchWindow.remaining e) 8) j=BatchWindow.row e j.
 Proof.

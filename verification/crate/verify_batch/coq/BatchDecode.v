@@ -94,17 +94,6 @@ Proof.
      exact (conj Top (conj Ret Data)).
 Qed.
 
-Theorem from_scalar pol bias pc text e c ks p :
- placement e -> loaded pol bias (mem e) (writable e) -> readable e ->
- BatchScalar.observe pol bias (bias+pc) text e c ks=Some p -> BatchScalar.post pol bias (bias+pc) e p ->
- copy_ready e (machine p) -> regs(machine p) 0%nat mod 2^32<>0 ->
- exists q,observe pol bias pc text e c ks=Some q /\ entry pol bias e q /\ handoff pol e p q.
-Proof.
- intros P I Inputs Prefix Post Args Live.
- destruct(from_return pol bias pc e p P I Inputs Post Args Live) as [q [Call End]].
- exists q;split;[unfold observe;rewrite Prefix;cbn [bind];rewrite (proj2(Z.eqb_neq _ _) Live);exact Call|exact End].
-Qed.
-
 Definition inner bias := segment (bias+DecoderFrame.origin) DecoderFrame.code 15.
 (* The decoder invokes the same local subroutine on its two staged inputs. *)
 Definition source_offset (signature:bool) : Z := if signature then 256 else 0.

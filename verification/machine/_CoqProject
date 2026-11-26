@@ -50,7 +50,9 @@ abi/SysV.v
 execution/KnownRegisters.v
 execution/LinkedCalls.v
 abi/CallFrame.v
+abi/StackFrame.v
 tests/CallerSteps.v
+tests/Countdown.v
 execution/Packed.v
 memory/PackedMemory.v
 tests/PackedRows.v
@@ -74,6 +76,7 @@ memory/BlockWrites.v
 memory/PackedWrites.v
 memory/RowWrites.v
 execution/MappedFetch.v
+execution/Cutpoint.v
 execution/FrameInstructions.v
 execution/InstructionRoute.v
 execution/QwordBlock.v
@@ -86,6 +89,8 @@ execution/PackedStores.v
 execution/VectorWindow.v
 execution/VectorSpills.v
 execution/LinkedRun.v
+execution/Composition.v
+abi/CallReturn.v
 execution/StoreHistory.v
 execution/LocatedReturn.v
 execution/MaskTransfer.v

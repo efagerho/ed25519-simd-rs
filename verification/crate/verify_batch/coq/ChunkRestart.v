@@ -5,7 +5,7 @@ From Ed25519Simd.VerifyBatch Require Import Image Return StageEntry RejectExecut
 From Ed25519Simd.VerifyBatch Require ChunkRows ChunkStaging BatchWindow.
 Local Open Scope Z_scope.
 
-Definition code text delta := StageEntry.bound text /\ TailWrites.bound text /\
+Definition code text delta := ChunkRows.Selection.bound text /\ TailWrites.bound text /\
  StageWrites.bound text delta /\ ChunkStaging.preserves_bp text=true.
 
 (* The back edge leaves R13 at the original output capacity. Only R12 and

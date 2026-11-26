@@ -1,9 +1,8 @@
 From Coq Require Import List ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.ScalarBytes execution.ScalarWords
- execution.WordBounds execution.MappedFetch execution.VectorProcedure execution.CircuitFacts memory.ByteMemory.
+ execution.WordBounds execution.VectorProcedure execution.CircuitFacts memory.ByteMemory.
 From Machine Require execution.MaskTransfer.
-From Ed25519Simd.SignatureScalar Require Program OrderBytes.
-From Ed25519Simd.VerifyBatch Require Import ScalarState StageEntry BatchScalar BatchDecode DecoderSave KeySquare
+From Ed25519Simd.VerifyBatch Require Import BatchDecode DecoderSave KeySquare
  SetupTail PairedSetup DecoderPower.
 From Ed25519Simd.VerifyBatch Require DecoderKernel DecoderProduct DecoderUnpack.
 Local Open Scope Z_scope.
@@ -22,31 +21,6 @@ Proof.
  unfold finish_setup,square,set_rhs,step_at,carry_call,DecoderProduct.multiply_call,DecoderProduct.multiply_body,
  DecoderProduct.product,DecoderProduct.columns,DecoderProduct.native.
  split;[|split];repeat first [apply sequence|apply call|apply block].
-Qed.
-
-Lemma returned_scalar pol bias entry text e c masks p : well_formed e ->
- BatchScalar.observe pol bias entry text e c masks=Some p -> byte_memory(mem(machine p)) -> well_formed(machine p).
-Proof.
- intros W;unfold BatchScalar.observe,scalar_entry,StageEntry.observe.
- destruct(StageEntry.budget entry text e c) as [n|];[|discriminate].
- destruct(run n _ _) as [[stage ws]|] eqn:Prefix;[|discriminate];cbn [bind].
- set (start:=LinkedRun.finish entry (LinkedRun.initial entry e c) (stage,ws)).
- assert (SW:well_formed(machine start)) by exact (mapped_run_wf _ _ _ (State (Running 0) e c) _ _ W Prefix).
- destruct(via_strict pol bias start) as [a|] eqn:Shim;[|discriminate];cbn [bind].
- assert (AW:well_formed(machine a)) by (destruct pol;[injection Shim as <-;exact SW|eapply segment_wf;[exact SW|exact Shim]]).
- destruct(to_scalar bias a) as [b|] eqn:To;[|discriminate];cbn [bind].
- pose proof(segment_wf _ _ _ _ _ AW To) as BW.
- unfold scalar_call;destruct (_=?_);[|discriminate];destruct(list_eq_dec _ _ _);[|discriminate].
- destruct(SignatureScalar.Program.run _ _ _ _ _ _) as [back out] eqn:R;intro Eq;injection Eq as <-.
- exact (returned_words _ _ _ _ _ _ _ _ BW R).
-Qed.
-
-Lemma decoder_entry pol bias pc text e c masks stop d :
- well_formed e -> BatchScalar.observe pol bias (bias+pc) text e c masks=Some stop ->
- byte_memory(mem(machine stop)) -> BatchDecode.observe pol bias pc text e c masks=Some d -> well_formed(machine d).
-Proof.
- intros W R B;unfold BatchDecode.observe;rewrite R;cbn [bind];destruct (_=?0);[discriminate|].
- apply segment_wf,(returned_scalar _ _ _ _ _ _ _ _ W R B).
 Qed.
 
 Lemma mask_op op p bank q k : well_formed(machine p) -> MaskTransfer.tick op p bank=Some(q,k) -> well_formed(machine q).

@@ -1,4 +1,5 @@
 From Coq Require Import List ZArith Lia.
+From Machine Require execution.Composition.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun memory.ByteMemory memory.FlatMemory.
 From Ed25519Simd.VerifyBatch Require Import Policy Image Return Audit.
 From Ed25519Simd.VerifyBatch Require Iteration BatchWindow ChunkBegin ChunkRestart ChunkScore.
@@ -20,17 +21,14 @@ Hypotheses (live:(0<BatchWindow.remaining e)%nat)
  (earlier:forall x,BatchWindow.earlier e x -> mem(machine p) x=BatchWindow.before x)
  (staged:ChunkStaging.entry (bias+pc) (destination pol Prepare-pc) e BatchWindow.first (BatchWindow.remaining e) p).
 
-Lemma step: (exists last,Iteration.observed pol bias pc text e p masks last) /\
- forall last,Iteration.observed pol bias pc text e p masks last -> ChunkScore.result pol bias pc e last.
+Lemma step : Composition.ensures (Iteration.observed pol bias pc text e p masks) (ChunkScore.result pol bias pc e).
 Proof.
  pose proof staged as St;rewrite symbol in St.
- destruct(ChunkDispatch.checked pol bias pc text e p masks caller code live St earlier) as [b [Run Post]].
- assert (Finish:(exists r,Iteration.finish pol bias pc text b r) /\
-   forall r,Iteration.finish pol bias pc text b r -> ChunkScore.result pol bias pc e r).
- { destruct b as [q|q|h d];[split;[eexists;reflexivity|intros r ->;exact Post]|
-     split;[eexists;reflexivity|intros r ->;exact Post]|exact(ChunkScore.checked _ _ _ _ _ _ _ caller image code scorer live Post)]. }
- split;[destruct(proj1 Finish) as [r R];exists r,b;auto|].
- intros r [v [V End]];rewrite Run in V;injection V as <-;exact(proj2 Finish r End).
+ unfold Iteration.observed. eapply Composition.sequence.
+ - exact (ChunkDispatch.checked pol bias pc text e p masks caller code live St earlier).
+ - intros [q|q|h d] Post.
+   1,2: destruct Post as [None Done];split;[eexists;reflexivity|intros r ->;exact (ChunkDispatch.rejected_outputs pol bias pc e _ None Done)].
+   exact (ChunkScore.checked _ _ _ _ _ _ _ caller image code scorer live Post).
 Qed.
 End Window.
 
@@ -122,7 +120,8 @@ Theorem checked_verdicts cf masks:(0<Scatter.count e)%nat ->
 Proof.
  intros N Enter;destruct(batch_inputs _ _ _ _ _ caller N) as [P [[Read _] _]].
  destruct(ChunkBegin.checked _ _ _ _ cf P Read Enter) as [p [Run St]].
- destruct(progress (Scatter.count e) 0%nat p masks N eq_refl St) as [last Steps].
- split;[exists last,p;auto|intros q [v [Start R]];rewrite Run in Start;injection Start as <-;exact (sound _ _ _ _ R 0%nat N eq_refl St ltac:(intros i I;lia))].
+ apply (Composition.after_some Run). split.
+ - exact (progress (Scatter.count e) 0%nat p masks N eq_refl St).
+ - intros last Path. exact (sound _ _ _ _ Path 0%nat N eq_refl St ltac:(intros i I;lia)).
 Qed.
 End Batch.

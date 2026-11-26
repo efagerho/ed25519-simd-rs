@@ -6,7 +6,6 @@ From Ed25519Simd.VerifyBatch Require ScoreInputs ScoreSetup.
 Import ListNotations. From Ed25519Simd.VerifyBatch Require ChunkContext.
 Local Open Scope Z_scope.
 
-Definition execute bias pc text q r s c:=ScoreSetup.execute (bias+pc) text (HashResume.resume bias q r s c).
 From Ed25519Simd.VerifyBatch Require BatchWindow.
 Section Iteration.
 Context `{iteration:BatchWindow.t}.
@@ -27,20 +26,21 @@ Record entered pol bias pc e q r child:Prop:=Entered {
    regs(machine child) 12%nat=BatchWindow.next_count e;
  restart:ChunkContext.bindings e (machine child);
  frame:preserved (fun x=>~ScoreSetup.slots (Rows.frame e) x) (Sha512Challenge.Execution.after r) (mem(machine child));
- store_log:log child=NativeHash.history bias q++ScoreSetup.events (bias+pc) (Rows.frame e) (scratch e) (Sha512Challenge.Execution.after r)
+ store_log:log child=(log q++NativeHash.stores bias q)++ScoreSetup.events (bias+pc) (Rows.frame e) (scratch e) (Sha512Challenge.Execution.after r)
 }.
 
-Theorem checked pol bias pc text e q r s c : ScoreSetup.bound pol pc text -> placement e -> loaded pol bias (mem e) (writable e) ->
+Theorem checked pol bias pc text e q r p : ScoreSetup.bound pol pc text -> placement e -> loaded pol bias (mem e) (writable e) ->
  fits64 (bias+pc) (Z.of_nat(length text)) -> mapped (mem e) (bias+pc) text ->
  (forall x,bias+pc<=x<bias+pc+Z.of_nat(length text) -> ~writable e x) ->
- ScoreInputs.inputs pol e (machine q) -> NativeHash.returned pol bias (bias+pc) e q r -> HashResume.compatible r s -> well_formed s ->
- exists child,execute bias pc text q r s c=Some child /\ entered pol bias pc e q r child.
+ ScoreInputs.inputs pol e (machine q) -> NativeHash.returned pol bias (bias+pc) e q r -> NativeHash.ready bias (bias+pc) e q r p ->
+ exists child,ScoreSetup.execute (bias+pc) text p=Some child /\ entered pol bias pc e q r child.
 Proof.
- intros Code P I Fit Map Sep Before R C W;set (p:=HashResume.resume bias q r s c).
- pose proof(ScoreInputs.after_hash _ _ _ _ _ _ _ P Before R C) as Data.
+ intros Code P I Fit Map Sep Before R Return.
+ pose proof(ScoreInputs.after_hash _ _ _ _ _ _ _ P Before R Return) as Data.
+ destruct Return as [PC SP _ Memory Trace W Paid];set (s:=machine p) in *.
+ change (mem s=Sha512Challenge.Execution.after r) in Memory.
  destruct(ScoreInputs.gprs _ _ _ Data) as [DS [N Out]].
- destruct(ScoreSetup.checked pol bias pc text e p Code P I Map Sep (NativeHash.back _ _ _ _ _ _ R)
-   (eq_trans (proj1(proj2 C)) (NativeHash.stack _ _ _ _ _ _ R)) DS (HashResume.accounted _ _ _ _ _ _ _ c R C) W)
+ destruct(ScoreSetup.checked pol bias pc text e p Code P I Map Sep PC SP DS Paid W)
    as [child [Run Entry]];set (t:=Rows.frame e) in *;set (m:=mem s).
  pose proof(ScoreSetup.words _ _ _ _ _ _ Entry) as LastW.
  assert (Mem:mem(machine child)=replay m (ScoreSetup.events (bias+pc) t (scratch e) m)) by exact (ScoreSetup.memory _ _ _ _ _ _ Entry).
@@ -55,7 +55,7 @@ Proof.
  - exact (ScoreSetup.target _ _ _ _ _ _ Entry).
  - exact (ScoreSetup.writes _ _ _ _ _ _ Entry).
  - exact LastW.
- - unfold m in Args;rewrite (proj1 C) in Args;exact Args.
+ - unfold m in Args;rewrite Memory in Args;exact Args.
  - exact (conj Back (conj (eq_trans Base (proj2(ScoreInputs.tables _ _ _ Data))) (conj Digits Digest))).
  - intros j J;cbv zeta;fold t;rewrite <-(read_word_byte _ (t+856) (Z.of_nat j) (proj2(proj2 LastW)) ltac:(lia)),Flags.
    rewrite read_word_byte by (apply W || lia);exact (ScoreInputs.flags _ _ _ Data j J).
@@ -63,7 +63,7 @@ Proof.
    destruct(scratch_stack _ P);unfold ScoreBuffers.region,ScoreSetup.slots,span,disjoint,t,Rows.frame,sp in *;lia.
  - intros j J;destruct Args as [_ [_ [_ [DX _]]]];rewrite DX;exact (ScoreInputs.r_valid _ _ _ Data j J).
  - intros j J On;etransitivity;[|exact (NativeHash.digest _ _ _ _ _ _ R j J On)];unfold Scalar.ScalarSpec.lane_input;f_equal.
-   apply map_ext_in;intros k K;apply in_seq in K;unfold buffer_words;rewrite <-(proj1 C).
+   apply map_ext_in;intros k K;apply in_seq in K;unfold buffer_words;rewrite <-Memory.
    apply preserved_read with (outside:=fun x=>~ScoreSetup.slots t x);[exact Kept|].
    intros i B;change (0<=i<8) in B;unfold ScoreSetup.slots,span;fold t;lia.
  - split.
@@ -77,7 +77,7 @@ Proof.
    + constructor;[exact(ScoreInputs.gprs _ _ _ Data)|exact(ScoreInputs.next_descriptor _ _ _ Data)|exact(ScoreInputs.tables _ _ _ Data)].
    + exact(ScoreSetup.saved _ _ _ _ _ _ Entry).
    + intros x X;apply Kept;unfold ScoreSetup.slots,span,t in *;lia.
- - rewrite <-(proj1 C);exact Kept.
- - rewrite <-(proj1 C);exact (ScoreSetup.store_log _ _ _ _ _ _ Entry).
+ - rewrite <-Memory;exact Kept.
+ - rewrite <-Memory,<-Trace;exact (ScoreSetup.store_log _ _ _ _ _ _ Entry).
 Qed.
 End Iteration.

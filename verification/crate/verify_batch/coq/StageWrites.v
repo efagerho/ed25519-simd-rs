@@ -134,9 +134,3 @@ Proof.
    apply read_word_encoded;intros k K. change (store_word (mem args) (word(regs args 4%nat-8)) ret
       (Rows.frame e-8+k)=word_byte ret k). rewrite SP',Slot;unfold store_word;apply write_at,K.
 Qed.
-
-Theorem instructions ip text delta e s c : bound text delta -> placement e ->
- regs s 4%nat=Rows.frame e -> Prologue.context_registers e s -> regs s 12%nat=Prologue.rows_left (regs e 6%nat) -> Prologue.segment ip text e 42 (offset Stage) s c (fun child=>entered ip delta e child /\
- matrix (Rows.frame e) s (mem (cpu_state child)) /\ regs(cpu_state child) 2%nat=read_word (mem s) (Rows.frame e+936) /\
- regs(cpu_state child) 15%nat=Return.scratch e).
-Proof. apply instructions_with. Qed.

@@ -1,4 +1,5 @@
 From Coq Require Import ZArith Lia.
+From Machine Require execution.Composition.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.WordBounds memory.ByteMemory memory.MemoryGeometry.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage.
 From Ed25519Simd.VerifyBatch Require CandidateReturn ScoreProgress StrictCandidateCall LadderTop.
@@ -9,9 +10,12 @@ Definition staging pol bias screen stop:=match pol with
  | Zip215=>stop=screen
  | Dalek=>exists candidate,StrictCandidateCall.execute bias screen=Some candidate /\
     ScoreProgress.product Dalek bias candidate stop end.
-Definition observed pol bias screen stop:=exists staged seed high product,staging pol bias screen staged /\
- LadderSeed.execute bias staged=Some seed /\ LadderTop.execute bias seed=Some high /\
- LadderProduct.execute bias high=Some product /\ CandidateReturn.execute pol bias product=Some stop.
+Definition observed pol bias screen :=
+ Composition.followed_by (staging pol bias screen) (fun staged =>
+ Composition.followed_by (Composition.output (LadderSeed.execute bias staged)) (fun seed =>
+ Composition.followed_by (Composition.output (LadderTop.execute bias seed)) (fun high =>
+ Composition.followed_by (Composition.output (LadderProduct.execute bias high))
+   (fun product => Composition.output (CandidateReturn.execute pol bias product))))).
 Definition continuation pol bias:=bias+ScoreSetup.callee pol+match pol with Zip215=>51|Dalek=>193 end.
 Definition origin pol bias score screen candidate:=match pol with
  | Zip215=>candidate=score | Dalek=>StrictCandidateCall.execute bias screen=Some candidate end.
@@ -44,10 +48,9 @@ Proof.
    destruct(proj2(StrictScreen.with_frame _ _ _ _ _ _ _ P I Live Start) _ Screen) as [D F].
    destruct(StrictCandidateCall.checked _ _ _ _ _ _ _ P I (ScoreStart.caller _ _ _ _ _ _ _ _ Start) D F On)
       as [candidate [Call [E [_ [Link _]]]]].
-   destruct(ScoreProgress.product_checked _ _ _ _ P I G E) as [[stop Product] Sound].
-   split;[exists stop,candidate;auto|].
-   intros q [p [Run Staged]];rewrite Call in Run;injection Run as <-.
-   exists candidate;split;[exact Call|split];[exact E|split;[exact Link|exact (Sound _ Staged)]].
+   apply (Composition.after_some Call). eapply Composition.consequence.
+   + exact (ScoreProgress.product_checked _ _ _ _ P I G E).
+   + intros stop _ Context. exists candidate; auto.
 Qed.
 
 Theorem with_origin pol bias pc e h r caller score screen :
@@ -55,26 +58,23 @@ Theorem with_origin pol bias pc e h r caller score screen :
  Tables.mapped e bias -> Candidate.constants e -> HashLayout.active pol e ->
  ScoreStart.reached pol bias pc e h r caller score -> ScoreProgress.observed pol bias score screen ->
  rejected pol screen=false ->
- (exists stop,observed pol bias screen stop) /\
- (forall stop,observed pol bias screen stop -> accounted e (writable e) stop /\ ip stop=continuation pol bias /\ exists candidate,
+ Composition.ensures (observed pol bias screen) (fun stop =>
+   accounted e (writable e) stop /\ ip stop=continuation pol bias /\ exists candidate,
    origin pol bias score screen candidate /\ CandidateEntry.entry pol bias e candidate /\ from_candidate pol bias e candidate stop).
 Proof.
  intros P I G M Tables Live Start Screen On.
- destruct(stage_checked _ _ _ _ _ _ _ _ _ P I G Live Start Screen On) as [[staged Stage] Sound].
- split.
- - destruct(Sound _ Stage) as [cand [At [Entry [Link [d [mid [ladder [D [RR [E End]]]]]]]]]].
-   destruct(LadderSeed.checked _ _ _ _ _ _ I G E End) as [seed [Run _]].
-   destruct(LadderTop.checked _ _ _ _ _ _ _ I M Tables G E End Run) as [top [High _]].
-   destruct(LadderProduct.checked _ _ _ _ _ _ _ _ I M Tables G E End Run High) as [q [Ret [Paid Product]]].
-   destruct(CandidateReturn.checked _ _ _ _ _ _ _ _ P I Entry D RR E Product Paid) as [stop [Finish _]].
-   exists stop,staged,seed,top,q;auto.
- - intros stop [v [seed [top [q [Observed [Seed [High [Ret Finish]]]]]]]].
-   destruct(Sound _ Observed) as [cand [At [Entry [Link [d [mid [ladder [D [RR [E End]]]]]]]]]].
-   destruct(LadderProduct.checked _ _ _ _ _ _ _ _ I M Tables G E End Seed High) as [u [R [Paid Product]]].
-   rewrite Ret in R;injection R as Eq;subst u.
-   destruct(CandidateReturn.checked _ _ _ _ _ _ _ _ P I Entry D RR E Product Paid) as [u [R [Done Mem]]].
-   rewrite Finish in R;injection R as Eq;subst u;split;[exact (CandidateReturn.log_ok _ _ _ Done)|].
-   split;[now rewrite (CandidateReturn.back _ _ _ Done),Link|exists cand;split;[exact At|split;[exact Entry|exists mid,ladder,q;auto]]].
+ unfold observed. eapply Composition.sequence.
+ - exact (stage_checked _ _ _ _ _ _ _ _ _ P I G Live Start Screen On).
+ - intros staged [cand [At [Entry [Link [d [mid [ladder [D [RR [E End]]]]]]]]]].
+   pose proof (LadderTables.supplied _ _ _ _ _ I M Tables E) as ValidTables.
+   destruct (LadderSeed.checked _ _ _ _ _ _ I E End) as [seed [Seed Seeded]]. apply (Composition.after_some Seed).
+   destruct (LadderTop.checked _ _ _ _ _ _ _ I ValidTables E End Seeded) as [top [High Pair]]. apply (Composition.after_some High).
+   destruct (LadderProduct.checked _ _ _ _ _ _ _ _ I ValidTables E End Seeded Pair) as [q [Ret [Paid Product]]].
+   apply (Composition.after_some Ret), Composition.option_result.
+   destruct (CandidateReturn.checked _ _ _ _ _ _ _ _ P I Entry D RR E Product Paid) as [stop [Finish [Done Mem]]].
+   exists stop; split; [exact Finish|split; [exact (CandidateReturn.log_ok _ _ _ Done)|]].
+   split; [now rewrite (CandidateReturn.back _ _ _ Done),Link|].
+   exists cand; split; [exact At|split; [exact Entry|exists mid,ladder,q; auto]].
 Qed.
 
 Theorem checked pol bias pc e h r caller score screen :

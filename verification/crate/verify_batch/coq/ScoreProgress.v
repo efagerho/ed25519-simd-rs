@@ -1,13 +1,15 @@
 From Coq Require Import ZArith.
+From Machine Require execution.Composition.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage.
 From Ed25519Simd.VerifyBatch Require LadderProduct LadderStage StrictScreen.
 
 (* The two scorers diverge after their common frame allocation. ZIP calls
    the candidate immediately. Dalek starts by screening its decoded R. *)
-Definition product pol bias candidate stop := exists q mid ladder,
- CandidateDigest.enter pol bias candidate=Some q /\ ReducedDigest.observed bias q mid /\
- LadderEntry.enter pol bias mid=Some ladder /\ LadderStage.observed bias ladder stop.
+Definition product pol bias candidate :=
+ Composition.followed_by (Composition.output (CandidateDigest.enter pol bias candidate)) (fun digest =>
+ Composition.followed_by (ReducedDigest.observed bias digest) (fun reduced =>
+ Composition.followed_by (Composition.output (LadderEntry.enter pol bias reduced)) (LadderStage.observed bias))).
 
 Definition observed pol bias score stop : Prop := match pol with
  | Zip215=>product Zip215 bias score stop | Dalek=>StrictScreen.observed bias score stop end.
@@ -17,23 +19,21 @@ Section Iteration.
 Context `{iteration:BatchWindow.t}.
 Definition context pol bias e candidate staged:=exists digest mid ladder,
  CandidateDigest.entry pol bias e candidate digest /\ ReducedDigest.returned pol bias e digest mid /\
- LadderEntry.entry pol bias e mid ladder /\ LadderStage.observed bias ladder staged.
+ LadderEntry.entry pol bias e mid ladder /\ LadderStage.result bias e ladder staged.
 
 Theorem product_checked pol bias e candidate :
  placement e -> loaded pol bias (mem e) (writable e) -> ProductRun.geometry (HashLayout.chunk pol e bias) ->
  CandidateEntry.entry pol bias e candidate ->
- (exists stop,product pol bias candidate stop) /\
- (forall stop,product pol bias candidate stop -> context pol bias e candidate stop).
+ Composition.ensures (product pol bias candidate) (context pol bias e candidate).
 Proof.
  intros P I Geo C.
- destruct(CandidateDigest.checked _ _ _ _ P I C) as [q [Call Entry]].
- destruct(ReducedDigest.checked _ _ _ _ _ P I C Entry) as [[mid Run] Sound].
- split.
- - destruct(LadderEntry.checked _ _ _ _ _ _ P I C Entry (Sound _ Run)) as [t [Ladder E]].
-   destruct(proj1(LadderStage.checked _ _ _ _ _ I Geo E)) as [stop Stage];exists stop,q,mid,t;auto.
- - intros stop [u [t [ladder [U [T [L Stage]]]]]];rewrite Call in U;injection U as <-.
-   destruct(LadderEntry.checked _ _ _ _ _ _ P I C Entry (Sound _ T)) as [v [RunL E]].
-   rewrite L in RunL;injection RunL as <-;exists q,t,ladder;auto.
+ unfold product. destruct (CandidateDigest.checked _ _ _ _ P I C) as [q [Call Entry]].
+ apply (Composition.after_some Call). eapply Composition.sequence.
+ - exact (ReducedDigest.checked _ _ _ _ _ P I C Entry).
+ - intros mid Reduced. destruct (LadderEntry.checked _ _ _ _ _ _ P I C Entry Reduced) as [ladder [Ladder E]].
+   apply (Composition.after_some Ladder). eapply Composition.consequence.
+   + exact (LadderStage.checked _ _ _ _ _ I Geo E).
+   + intros stop _ Stage. exists q,mid,ladder; auto.
 Qed.
 
 Lemma zip pc bias e h r child score :
@@ -49,7 +49,7 @@ Theorem checked pol bias pc e h r child score :
 Proof.
  intros P I Geo Live Ready;destruct pol.
  - destruct(zip _ _ _ _ _ _ _ P I Geo Ready) as [Exists Sound];split;[exact Exists|].
-   intros stop O;destruct(Sound _ O) as [d [mid [ladder [_ [_ [E Stage]]]]]];exact (proj1(proj2(LadderStage.checked _ _ _ _ _ I Geo E) _ Stage)).
+   intros stop O;destruct(Sound _ O) as [d [mid [ladder [_ [_ [_ Stage]]]]]];exact (LadderStage.paid _ _ _ _ Stage).
  - destruct(StrictScreen.checked _ _ _ _ _ _ _ P I Live Ready) as [Exists Sound];split;[exact Exists|].
    intros stop O;exact (StrictScreen.writes _ _ _ (Sound _ O)).
 Qed.

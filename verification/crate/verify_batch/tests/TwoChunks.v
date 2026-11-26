@@ -4,7 +4,7 @@ From Coq Require Import List ZArith Bool.
 From Machine Require Import isa.Instructions execution.LinkedCalls execution.LinkedRun execution.WordSemantics
   memory.FlatMemory memory.WriteTrace.
 From Ed25519Simd.VerifyBatch Require Import Policy ZipBytes DalekBytes.
-From Ed25519Simd.VerifyBatch Require RejectedBatch Iteration FirstDispatch ChunkStaging.
+From Ed25519Simd.VerifyBatch Require RejectedBatch StageEntry FirstDispatch ChunkStaging.
 Import ListNotations. Local Open Scope Z_scope.
 
 Local Notation rows:=RejectedBatch.rows.
@@ -19,11 +19,11 @@ Definition image x:=
  else RejectedBatch.inputs x.
 Definition initial:=CPU (put (regs RejectedBatch.initial) 6 9) (vectors RejectedBatch.initial) None image.
 Definition windows pol pc text:=let masks:=fun _ _:nat=>true in
- bind (Iteration.begin pc text initial None) (fun staged=>
- bind (Iteration.dispatch pol 0 pc text initial staged masks) (fun first=>
+ bind (StageEntry.begin pc text initial None) (fun staged=>
+ bind (FirstDispatch.dispatch pol 0 pc text initial staged masks) (fun first=>
  match first with
  | FirstDispatch.MoreChunks back=>bind (ChunkStaging.execute pc text 1 back) (fun next=>
-   bind (Iteration.dispatch pol 0 pc text initial next masks) (fun last=>
+   bind (FirstDispatch.dispatch pol 0 pc text initial next masks) (fun last=>
    match last with FirstDispatch.Completed q=>Some(back,q) | _=>None end))
  | _=>None end)).
 Definition check pol pc text:=match windows pol pc text with
