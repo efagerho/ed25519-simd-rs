@@ -16,6 +16,16 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 
 ## Programs and execution
 
+To compose a callee with the caller’s next instructions, start at the cursor
+produced by `CALL`. Its log already includes the return-address push. Prove
+the callee’s write suffix from that cursor’s memory and use `CallReturn.checked`
+to resume at the observed return address. Use `Composition.option_result` for
+a caller block with a deterministic result. `Composition.sequence` passes
+each permitted result to the next proof. For an executable chain of optional
+steps, `LinkedRun.ensures_bind` applies the same rule directly to `bind`. For a block with an unspecified
+input, such as a mask-register bank, `Composition.each_input` requires a proof
+for every input. One choice suffices to exhibit a run.
+
 | File | Contents |
 | --- | --- |
 | [IndexedLoad.v](isa/IndexedLoad.v) and [IndexedLoads.v](execution/IndexedLoads.v) | Encode scalar and indexed vector loads and evaluate register-only/load blocks against incoming byte memory. The access log records each full operand width. |
@@ -34,6 +44,10 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 | --- | --- |
 | [Dependencies.v](execution/Dependencies.v) | Tracks which registers and loads can influence a vector result. Proves agreement on selected outputs and preservation of untouched registers. |
 | [VectorSequence.v](execution/VectorSequence.v) | Defines a single SIMD step with direct memory reads. Proves that stepping a fragment instruction by instruction agrees with its batched evaluation, including failed access checks. |
+| [Cutpoint.v](execution/Cutpoint.v) | Runs to the first matching state and relates the exact register, memory and ordered write result to ordinary instruction execution. A verified symbol exit covers every successful prefix fetched from memory. |
+| [Composition.v](execution/Composition.v) | Sequences proofs that a phase has an outcome and every permitted outcome meets its postcondition. It also accepts deterministic instruction blocks. |
+| [CallReturn.v](abi/CallReturn.v) | Lifts a callee’s observed return into caller states with the specified PC, stack, preserved registers, memory and exact write suffix. The continuation covers every well-formed completion of the volatile state. |
+| [StackFrame.v](abi/StackFrame.v) | Proves that the call instruction and a callee with a bounded stack footprint preserve disjoint byte ranges and little-endian reads, including the caller’s return word. |
 | [BlockSequence.v](execution/BlockSequence.v) | Defines instruction-by-instruction execution with PC advancement. Proves equivalence to a fetched block step and the empty, singleton, and split-block laws. |
 | [ExecutionProperties.v](execution/ExecutionProperties.v) | Proves memory preservation outside permitted writes and independence of the control trace and step failure from initial vector data. |
 | [MemoryTrace.v](memory/MemoryTrace.v) | Uses the common execution traversal to record vector effects and transfer events. Relates the trace to block execution and checks the order and addresses of live returns. |
@@ -59,6 +73,7 @@ To audit a block, follow its mnemonics in `IntelSyntax.v`, its branch displaceme
 | [tests/overflow.py](tests/overflow.py) | Generates arithmetic and IFMA boundary cases and all 256 immediate shift counts, with expected values computed in Python. |
 | [tests/Operands.v](tests/Operands.v) | Coq regression examples for load encodings, signed displacement rendering, and operand order. |
 | [tests/Representation.v](tests/Representation.v) | Regressions for noncanonical word rejection, high-bit little-endian decoding, unaligned vector writes and adjacent-byte preservation. |
+| [tests/Countdown.v](tests/Countdown.v) | Proves a countdown loop and a nested call for every positive 32-bit count, including both return addresses, stack restoration and the exact write log. |
 | [tests/Control.v](tests/Control.v) | Mnemonic call/return and conditional-branch probe, predicted scalar observations, and invalid control-flow and stack-access examples. |
 | [tests/Mixed.v](tests/Mixed.v) | Mnemonic loop combining vector arithmetic, load/store, and a scalar branch. Defines the initial state, memory permissions, and final observations. |
 | [tests/Prologue.v](tests/Prologue.v) | Stack and buffer probe for scalar moves, broadcasts, address calculations, vector loads and stores, and upper-lane clearing. |

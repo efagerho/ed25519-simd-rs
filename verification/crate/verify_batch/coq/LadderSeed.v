@@ -21,17 +21,19 @@ Definition seeded ladder staged stop:=forall j i,(j<8)%nat -> (i<20)%nat ->
 From Ed25519Simd.VerifyBatch Require BatchWindow.
 Section Iteration.
 Context `{iteration:BatchWindow.t}.
-Theorem with_history pol bias e prev ladder staged : loaded pol bias (mem e) (writable e) ->
- ProductRun.geometry (HashLayout.chunk pol e bias) -> LadderEntry.entry pol bias e prev ladder ->
- LadderStage.observed bias ladder staged ->
- exists q,execute bias staged=Some q /\ accounted e (writable e) q /\ ip q=bias+pc+768 /\
+Definition result bias e ladder staged q :=
+ accounted e (writable e) q /\ ip q=bias+pc+768 /\
  seeded ladder staged q /\ well_formed(machine q) /\
  (forall g,g<>0%nat -> regs(machine q) g=regs(machine staged) g) /\
  StoreHistory.extends (FullLadder.SeedPath.region (regs(machine ladder) 7%nat)) staged q.
+
+Theorem checked pol bias e prev ladder staged : loaded pol bias (mem e) (writable e) ->
+ LadderEntry.entry pol bias e prev ladder ->
+ LadderStage.result bias e ladder staged ->
+ exists q,execute bias staged=Some q /\ result bias e ladder staged q.
 Proof.
- intros I G L S;destruct(proj2(LadderStage.with_cpu _ _ _ _ _ I G L) _ S) as [Acc [At [Rows [W [Pt [Stack _]]]]]].
+ intros I L [Acc At Rows [W [Pt [Stack _]]] [P _]].
  destruct(mapped_now _ _ _ I _ _ _ Acc (LadderEntry.child_image pol)) as [Code Sep].
- destruct(LadderLayout.checked _ _ _ _ _ G L) as [P _].
  destruct(F.seed_execution FullLadder.Object.assembled_full_ladder_correct bias (machine ladder) (machine staged) (carry staged)
      P W Pt Stack Code) as [u [ws [Run R]]].
  set (q:=Cursor (bias+pc+768) u (carry staged) (log staged++ws)).
@@ -47,31 +49,19 @@ Proof.
      exists ws;split;[reflexivity|split;[exact (Seed.stores _ _ _ _ _ R)|intro x;exact (f_equal (fun m=>m x) (Seed.memory _ _ _ _ _ R))]].
 Qed.
 
-Theorem checked pol bias e prev ladder staged : loaded pol bias (mem e) (writable e) ->
- ProductRun.geometry (HashLayout.chunk pol e bias) -> LadderEntry.entry pol bias e prev ladder ->
- LadderStage.observed bias ladder staged ->
- exists q,execute bias staged=Some q /\ accounted e (writable e) q /\ ip q=bias+pc+768 /\
- seeded ladder staged q /\ well_formed(machine q) /\
- (forall g,g<>0%nat -> regs(machine q) g=regs(machine staged) g).
-Proof.
- intros I G E S;destruct(with_history _ _ _ _ _ _ I G E S) as [q [Run [Paid [PC [Rows [W [Saved H]]]]]]].
- exists q;auto 7.
-Qed.
-
 Definition odd_point e ladder stop:=
  let w:=buffer_words (mem(machine stop)) (regs(machine ladder) 7%nat) in
  loose_xyz w /\ (forall j,(j<8)%nat -> represents_xyz (point_values w j)
    (operand_point (machine ladder) generator (LadderTables.key e) j 31 S.Odd)) /\
  forall i j,(i<5)%nat -> (j<8)%nat -> cell w (15+i)%nat j=0.
 
-Lemma represents pol bias e p ladder staged stop : loaded pol bias (mem e) (writable e) ->
- Tables.mapped e bias -> Candidate.constants e -> ProductRun.geometry (HashLayout.chunk pol e bias) ->
- LadderEntry.entry pol bias e p ladder -> LadderStage.selected ladder staged -> seeded ladder staged stop ->
- odd_point e ladder stop.
+Lemma represents bias e ladder staged stop : LadderLayout.valid bias ladder ->
+ valid_tables (machine ladder) generator (LadderTables.key e) ->
+ LadderStage.selected ladder staged -> seeded ladder staged stop -> odd_point e ladder stop.
 Proof.
- intros I Map T G E Staged Seeded;destruct(LadderLayout.checked _ _ _ _ _ G E) as [_ V].
+ intros [_ V] Tables Staged Seeded.
  eapply (SeedPoint.checked _ _ 31%nat _ _ (F.base_of(machine ladder)) (machine staged));
- [exact V|exact (LadderTables.supplied _ _ _ _ _ I Map T E)|lia| |exact Seeded].
+ [exact V|exact Tables|lia| |exact Seeded].
  intros i j H J;exact (Staged S.Odd i j H J).
 Qed.
 End Iteration.

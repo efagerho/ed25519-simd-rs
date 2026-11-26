@@ -1,7 +1,7 @@
 From Coq Require Import List ZArith Lia.
 From Machine Require Import isa.Instructions execution.LinkedCalls execution.LinkedRun execution.WordSemantics execution.WordBounds
  execution.ScalarBytes execution.ScalarWords execution.MappedFetch execution.InstructionRoute memory.ByteMemory memory.WriteTrace.
-From Machine Require abi.FramePointer.
+From Machine Require abi.FramePointer abi.CallReturn execution.Composition.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar.
 From Ed25519Simd.VerifyBatch Require ScoreFrame.
 Import ListNotations. Local Open Scope Z_scope.
@@ -76,6 +76,14 @@ Proof.
 Qed.
 
 Definition from_call pol bias p:=bind (ScoreFrame.enter pol bias p) (execute pol bias).
+
+(* The same path is used by the public scorer observation and by every
+   iteration. The wrapper executes on each well-formed CPU permitted by SHA. *)
+Definition from_hash pol bias pc text h r :=
+ Composition.followed_by (NativeHash.resumes bias h r) (fun returned =>
+   Composition.followed_by (Composition.output (ScoreSetup.execute (bias+pc) text returned))
+     (fun child => Composition.output (from_call pol bias child))).
+
 From Ed25519Simd.VerifyBatch Require BatchWindow.
 Section Iteration.
 Context `{iteration:BatchWindow.t}.
@@ -93,4 +101,21 @@ Proof.
 Qed.
 Lemma accounted pol bias pc0 e h r p q : reached pol bias pc0 e h r p q -> LinkedRun.accounted e (writable e) q.
 Proof. intros [_ [f [_ [_ [_ S]]]]];exact (writes _ _ _ _ _ S). Qed.
+
+Theorem from_hash_checked pol bias pc text e h r :
+ ScoreSetup.bound pol pc text -> placement e -> loaded pol bias (mem e) (writable e) ->
+ MemoryGeometry.fits64 (bias+pc) (Z.of_nat(length text)) -> mapped (mem e) (bias+pc) text ->
+ (forall x,bias+pc<=x<bias+pc+Z.of_nat(length text) -> ~writable e x) ->
+ ScoreInputs.inputs pol e (machine h) -> NativeHash.returned pol bias (bias+pc) e h r -> well_formed (machine h) ->
+ Composition.ensures (from_hash pol bias pc text h r) (fun started => exists child, reached pol bias pc e h r child started).
+Proof.
+ intros Code P Image Range Text Apart Inputs Hash Words. unfold from_hash.
+ eapply Composition.sequence.
+ - exact (CallReturn.checked (kept:=SysV.sysv_saved) ltac:(simpl; intuition discriminate) Words (NativeHash.abi _ _ _ _ _ _ Hash)).
+ - intros returned Ready. eapply Composition.sequence.
+   + apply Composition.option_result. exact (ScoreCall.checked _ _ _ _ _ _ _ _ Code P Image Range Text Apart Inputs Hash Ready).
+   + intros child Entry. apply Composition.option_result.
+     destruct (from_entry _ _ _ _ _ _ _ P Image Entry) as [v [Run Post]].
+     exists v; split; [exact Run|now exists child].
+Qed.
 End Iteration.

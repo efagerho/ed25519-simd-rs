@@ -1,7 +1,7 @@
 From Coq Require Import ZArith List Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.MappedFetch execution.StoreHistory memory.FlatMemory.
 From Machine Require abi.FramePointer.
-From Ed25519Simd.FullLadder Require TopPair RoundOperands.
+From Ed25519Simd.FullLadder Require TopPair RoundOperands Operands.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar.
 From Ed25519Simd.VerifyBatch Require LadderSeed.
 Import ListNotations. Local Open Scope Z_scope.
@@ -23,16 +23,14 @@ Proof.
    pose proof(Z.mod_pos_bound (regs(machine ladder) 4%nat) 64 ltac:(lia));lia.
 Qed.
 Theorem checked pol bias e prev ladder staged seed :
- loaded pol bias (mem e) (writable e) -> Tables.mapped e bias -> Candidate.constants e ->
- ProductRun.geometry (HashLayout.chunk pol e bias) -> LadderEntry.entry pol bias e prev ladder ->
- LadderStage.observed bias ladder staged -> LadderSeed.execute bias staged=Some seed ->
+ loaded pol bias (mem e) (writable e) -> Operands.valid_tables (machine ladder) generator (LadderTables.key e) ->
+ LadderEntry.entry pol bias e prev ladder ->
+ LadderStage.result bias e ladder staged -> LadderSeed.result bias e ladder staged seed ->
  exists q,execute bias seed=Some q /\ accounted e (writable e) q /\ result bias e ladder seed q.
 Proof.
- intros I Map T G L Stage Seed;destruct(LadderSeed.with_history _ _ _ _ _ _ I G L Stage)
-   as [v [R [Paid [PC [Rows [W [Regs H]]]]]]];rewrite Seed in R;injection R as Eq;subst v.
- destruct(proj2(LadderStage.with_cpu _ _ _ _ _ I G L) _ Stage) as [_ [_ [Staged [_ [Pt [SP _]]]]]].
- destruct(LadderLayout.checked _ _ _ _ _ G L) as [P V];pose proof(LadderTables.supplied _ _ _ _ _ I Map T L) as Tables.
- pose proof(LadderSeed.represents _ _ _ _ _ _ _ I Map T G L Staged Rows) as [Bound [Odd _]].
+ intros I Tables L [_ _ Staged [_ [Pt [SP _]]] Layout] [Paid [PC [Rows [W [Regs H]]]]].
+ pose proof(LadderSeed.represents _ _ _ _ _ Layout Tables Staged Rows) as [Bound [Odd _]].
+ destruct Layout as [P V].
  assert (Ready:TopPair.ready bias (machine ladder) seed).
  { constructor;[exact W|now rewrite Regs by discriminate|now rewrite Regs by discriminate| |].
    - split;[exact (proj1(mapped_now _ _ _ I _ _ _ Paid (LadderEntry.child_image pol)))|].

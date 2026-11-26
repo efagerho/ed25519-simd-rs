@@ -1,6 +1,7 @@
 From Coq Require Import List ZArith Lia.
 From Machine Require Import execution.WordSemantics execution.LinkedCalls execution.ScalarBytes
  execution.MappedFetch memory.WriteTrace.
+From Machine Require execution.Composition execution.Cutpoint.
 Import ListNotations. Local Open Scope Z_scope.
 
 (* Cross a symbol boundary with the CPU that actually reached it. CALL and
@@ -16,6 +17,14 @@ Definition segment origin (text:list Z) n prior :=
    (run n (MappedFetch.fetch origin (length text))
       (State (Running (ip prior-origin)) (machine prior) (carry prior))).
 Definition bind {A B} (x:option A) (f:A->option B) := match x with Some a=>f a |None=>None end.
+
+Lemma ensures_bind {A B : Type} (step : option A) (next : A -> option B) (middle:A->Prop) (post:B->Prop):
+ Composition.ensures (Composition.output step) middle ->
+ (forall a,middle a -> Composition.ensures (Composition.output (next a)) post) ->
+ Composition.ensures (Composition.output (bind step next)) post.
+Proof.
+ intros [[a R] All] Continue. specialize (All a R). unfold Composition.output in R. rewrite R. exact (Continue a All).
+Qed.
 
 Definition accounted (entry:cpu) (allowed:Z->Prop) p :=
  confined allowed (log p) /\ forall x,mem (machine p) x=WriteTrace.replay (mem entry) (log p) x.
@@ -36,6 +45,30 @@ Proof.
  intro x;cbn [log machine];rewrite replay_app,F;apply replay_equal,M.
 Qed.
 
+(* The suffix is both the extension to the incoming log and the memory
+   update between these two particular instruction boundaries. *)
+Definition extends_log region p q:=exists ws,log q=log p++ws /\ confined region ws /\
+ forall x,mem(machine q) x=replay (mem(machine p)) ws x.
+
+Lemma account_history e region p q : accounted e region p -> extends_log region p q -> accounted e region q.
+Proof.
+ intros Paid [ws [L [W M]]];destruct q as [pc s c logs];cbn [log machine] in L,M;subst logs;
+ apply append_accounted;[exact Paid|exact W|exact M].
+Qed.
+
+(* The PC may be an in-symbol offset, a relative call target outside the
+   symbol, or the absolute address popped by RET. *)
+Lemma segment_history region o text n p off t ws : ip p=o+off -> mapped (mem(machine p)) o text ->
+ (forall x,o<=x<o+Z.of_nat(length text) -> ~region x) ->
+ run n (ScalarBytes.fetch o text) (ScalarBytes.State (ScalarBytes.Running off) (machine p) (carry p))=Some(t,ws) ->
+ confined region ws -> let q:=finish o p (t,ws) in
+ segment o text n p=Some q /\ extends_log region p q.
+Proof.
+ intros PC Code Sep R Safe q;split.
+ - unfold segment;rewrite PC;replace (o+off-o) with off by ring;now rewrite (run_lift _ _ _ _ _ _ _ R Safe Code Sep).
+ - exists ws;split;[reflexivity|split;[exact Safe|intro x;exact (f_equal (fun m=>m x) (ScalarBytes.steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ R)))]].
+Qed.
+
 Lemma at_segment e allowed p origin text n off s ws : accounted e allowed p ->
  ip p=origin+off -> MappedFetch.mapped (mem (machine p)) origin text ->
  (forall x,origin<=x<origin+Z.of_nat(length text)->~allowed x) ->
@@ -43,11 +76,9 @@ Lemma at_segment e allowed p origin text n off s ws : accounted e allowed p ->
  confined allowed ws ->
  segment origin text n p=Some(finish origin p (s,ws)) /\ accounted e allowed (finish origin p (s,ws)).
 Proof.
- intros Prev At M Apart R Safe;split.
- - unfold segment;rewrite At;replace (origin+off-origin) with off by ring.
-   now rewrite (run_lift _ _ _ _ _ _ _ R Safe M Apart).
- - apply append_accounted;[exact Prev|exact Safe|].
-   intro x;rewrite (steps_memory _ _ _ _ _ (run_steps _ _ _ _ _ _ R));reflexivity.
+ intros Prev At M Apart R Safe.
+ destruct (segment_history _ _ _ _ _ _ _ _ At M Apart R Safe) as [Step History].
+ exact (conj Step (account_history _ _ _ _ Prev History)).
 Qed.
 Lemma image_after e allowed p origin text : accounted e allowed p -> mapped (mem e) origin text ->
  (forall x,origin<=x<origin+Z.of_nat(length text)->~allowed x) -> mapped (mem(machine p)) origin text.
@@ -55,25 +86,16 @@ Proof. intros [W M] Code Sep i I;rewrite M;exact (keep_image _ _ _ _ _ Code Sep 
 
 (* Stop on the first RET. A step at a running PC that cannot be decoded
    still fails. The fuel counts instructions, including RET itself. *)
-Fixpoint until_return (fuel:nat) (next:tick) (s:state) : option (state*list store) :=
- match loc s with
- | Returned _=>Some(s,[])
- | Running _=>match fuel with
-   | O=>None
-   | S rest=>match next s with
-     | Some(mid,own)=>option_map (fun '(t,tail)=>(t,own++tail)) (until_return rest next mid)
-     | None=>None end end end.
+Definition at_return s := match loc s with Returned _=>true | Running _=>false end.
+Definition until_return fuel := Cutpoint.until fuel at_return.
 
 Lemma until_exact origin size k : forall fuel s t ws back, (k<=fuel)%nat ->
  run k (MappedFetch.fetch origin size) s=Some(t,ws) -> loc t=Returned back ->
  until_return fuel (MappedFetch.fetch origin size) s=Some(t,ws).
 Proof.
- induction k as [|k IH];intros fuel s t ws back Bound R Ret.
- - cbn [run] in R;injection R as <- <-;destruct fuel;cbn [until_return];now rewrite Ret.
- - destruct fuel as [|fuel];[lia|]. destruct s as [[off|ip] s c];[|discriminate].
-   cbn [run] in R;destruct (MappedFetch.fetch origin size (State (Running off) s c)) as [[mid own]|] eqn:F;
-     [|discriminate]. destruct (run k _ mid) as [[last tail]|] eqn:T;[|discriminate].
-   injection R as <- <-;cbn [until_return loc];rewrite F,(IH fuel _ _ _ back ltac:(lia) T Ret);reflexivity.
+ intros fuel s t ws back B R Ret. assert (Stopped:forall u,at_return u=true -> MappedFetch.fetch origin size u=None).
+ { intros [[off|ip] cpu c];[discriminate|reflexivity]. }
+ eapply (Cutpoint.terminal_exact at_return _ Stopped k);[exact B|exact R|unfold at_return;now rewrite Ret].
 Qed.
 
 Definition returning origin size fuel p :=
@@ -106,12 +128,9 @@ Qed.
 Lemma returned_run fuel : forall s t ws,until_return fuel tick s=Some(t,ws) ->
  exists n back, (n<=fuel)%nat /\ run n tick s=Some(t,ws) /\ loc t=Returned back.
 Proof.
- induction fuel as [|fuel IH];intros [[off|back] s c] t ws R;cbn [until_return loc] in R;try discriminate;
- try solve [injection R as <- <-;exists 0%nat,back;repeat split;lia].
- destruct(tick (State (Running off) s c)) as [[u head]|] eqn:F;[|discriminate].
- destruct(until_return fuel tick u) as [[last tail]|] eqn:T;[|discriminate].
- injection R as <- <-;destruct (IH _ _ _ T) as [n [back [Bound [Steps Ret]]]].
- exists (S n),back;split;[lia|];split;[cbn [run];rewrite F,Steps;reflexivity|exact Ret].
+ intros s t ws R;destruct (Cutpoint.sound _ _ _ _ _ _ R) as [n [B [Run End]]].
+ unfold at_return in End;destruct (loc t) as [off|back] eqn:At;[discriminate|].
+ exists n,back;auto.
 Qed.
 End Memory.
 

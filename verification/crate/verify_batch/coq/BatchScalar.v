@@ -25,10 +25,9 @@ Definition scalar_call bias ks p :=
    Some(Cursor back t (carry p) (log p++writes))
  else None else None.
 
+Definition enter pol bias p:=bind (via_strict pol bias p) (to_scalar bias).
 Definition scalar_entry pol bias entry text e c :=
- bind (StageEntry.observe entry text e c) (fun r=>
- let p:=LinkedRun.finish entry (LinkedRun.initial entry e c) r in
- bind (via_strict pol bias p) (to_scalar bias)).
+ bind (StageEntry.begin entry text e c) (enter pol bias).
 Definition observe pol bias entry text e c ks :=
  bind (scalar_entry pol bias entry text e c) (scalar_call bias ks).
 
@@ -39,9 +38,6 @@ Definition outgoing_masks bias s incoming k j :=
  MaskedWords.mask (SignatureScalar.Program.lanes OrderBytes.address bias s incoming j) k.
 Definition masks_after pol bias entry text e c incoming :=
  option_map (fun b=>outgoing_masks bias (machine b) incoming) (scalar_entry pol bias entry text e c).
-Lemma has_masks pol bias entry text e c incoming p : observe pol bias entry text e c incoming=Some p ->
- exists bank,masks_after pol bias entry text e c incoming=Some bank.
-Proof. unfold observe,masks_after;destruct(scalar_entry _ _ _ _ _ _);[intro;eexists;reflexivity|discriminate]. Qed.
 
 Definition common_top pol e := Rows.frame e-8-(match pol with Zip215=>0 | Dalek=>16 end).
 
@@ -291,8 +287,9 @@ Theorem from_entry pol bias pc text e c ks :
  exists q,observe pol bias (bias+pc) text e c ks=Some q /\ post pol bias (bias+pc) e q.
 Proof.
  intros Place Loaded Start.
- destruct(Start c) as [n [N [Budget [last [writes [Run [[ABI [Matrix [Indices [Kept [[Identity [Scratch Tables]] [NextRow _]]]]]] [Replay Prefix]]]]]]]].
- destruct(Prefix n ltac:(lia)) as [u [pre [R Safe]]];rewrite Run in R;injection R as <- <-.
+ destruct(Start c) as [last [writes [Observed [[ABI [Matrix [Indices [Kept [[Identity [Scratch Tables]] [NextRow _]]]]]] [Safe [Replay _]]]]]].
+ change (StageEntry.observe (bias+pc) text e c=Some(last,writes)) in Observed.
+ destruct(StageEntry.observed_run _ _ _ _ _ _ Observed) as [n Run].
  set (p:=LinkedRun.finish (bias+pc) (LinkedRun.initial (bias+pc) e c) (last,writes)).
  assert (Acc:accounted e (writable e) p) by (split;[exact Safe|intro x;unfold p;cbn [LinkedRun.finish log machine LinkedRun.initial];now rewrite Replay]).
  destruct ABI as [Dest [SP [Ret [SI [Meta [DI Output]]]]]].
@@ -317,7 +314,7 @@ Proof.
  destruct(@reach_common BatchWindow.initial pol bias (bias+pc) e p Place Loaded Acc Entry (conj SP (conj DI (conj SI (conj Meta (conj (proj1 Output) (conj (proj2 Output) View)))))) Ret NextRow) as [q [Q [Acct [IP [Args [Slots [StrictBx ZipBx]]]]]]].
  destruct(@through_scalar BatchWindow.initial pol bias (bias+pc) e q ks Place Loaded Acct IP Args Slots StrictBx ZipBx) as [f [S Post]].
  exists f;split;[|exact Post].
- unfold observe,scalar_entry,StageEntry.observe;rewrite Budget,Run;cbn [bind];fold p;rewrite Q;cbn [bind];exact S.
+ unfold observe,scalar_entry,StageEntry.begin,enter;rewrite Observed;cbn [bind option_map];fold p;rewrite Q;cbn [bind];exact S.
 Qed.
 
 (* Store replay depends only on the execution. Separation is needed for the
@@ -325,8 +322,8 @@ Qed.
 Lemma observed_memory pol bias entry text e c masks p :
  observe pol bias entry text e c masks=Some p -> replays e p.
 Proof.
- unfold observe,scalar_entry,StageEntry.observe. destruct (StageEntry.budget entry text e c) as [n|];[|discriminate].
- destruct (run n _ _) as [[stage ws]|] eqn:Prefix;[|discriminate];cbn [bind].
+ unfold observe,scalar_entry,StageEntry.begin,enter;destruct (StageEntry.observe entry text e c) as [[stage ws]|] eqn:Seen;[|discriminate];cbn [bind option_map].
+ destruct (StageEntry.observed_run _ _ _ _ _ _ Seen) as [n Prefix].
  set (start:=LinkedRun.finish entry (LinkedRun.initial entry e c) (stage,ws)).
  assert (P:replays e start).
  { intros x;unfold start;cbn [LinkedRun.finish LinkedRun.initial machine log].

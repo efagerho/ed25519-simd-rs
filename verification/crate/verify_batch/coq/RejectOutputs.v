@@ -18,7 +18,7 @@ Definition outputs e s := regs s 0%nat=1 /\ forall j,(j<Nat.min (BatchWindow.rem
 Lemma window_values mask o e first n p q : placement e -> (0<n)%nat -> (first+n=count e)%nat -> Scatter.indices e ->
  ip p=o -> regs(machine p) 7%nat=Rows.frame e+856 -> regs(machine p) 6%nat=output e ->
  regs(machine p) 2%nat=Z.of_nat(count e) -> regs(machine p) 0%nat=mask ->
- IndexStores.metadata (Rows.frame e) (ChunkRows.active n) (ChunkStaging.index e first n) (mem(machine p)) ->
+ IndexStores.metadata (Rows.frame e) (ChunkRows.active n) (StagedRows.index e first n) (mem(machine p)) ->
  mapped (mem(machine p)) o Zip215.ScatterBytes.symbol_bytes ->
  (forall x,o<=x<o+Z.of_nat(length Zip215.ScatterBytes.symbol_bytes) -> ~(output e<=x<output e+Z.of_nat(count e))) ->
  returning o (length Zip215.ScatterBytes.symbol_bytes) 88 p=Some q -> regs(machine q) 0%nat=1 /\
@@ -33,8 +33,8 @@ Proof.
  set (len:=Z.of_nat(count e)) in *;set (index:=fun j=>Z.of_nat(position e (first+j))).
  set (meta:=Rows.frame e+856) in *.
  destruct(stack_ok _ Place) as [[S Top] _].
- assert (Idx:forall j,(j<lanes)%nat -> ChunkStaging.index e first n j=index j).
- { intros j J;unfold ChunkStaging.index,ChunkRows.lane,index,position,Policy.output_index;rewrite Nat.min_l by (unfold lanes in *;lia).
+ assert (Idx:forall j,(j<lanes)%nat -> StagedRows.index e first n j=index j).
+ { intros j J;unfold StagedRows.index,ChunkRows.lane,index,position,Policy.output_index;rewrite Nat.min_l by (unfold lanes in *;lia).
    symmetry;apply Z2Nat.id;apply (read_word_bound _ _ (proj2(proj2(initial_cpu _ Place)))). }
  assert (Words:ScatterValues.indices (mem(machine p)) meta lanes index).
  { intros j J;rewrite <-Idx by exact J;unfold ScatterValues.index_address,meta.

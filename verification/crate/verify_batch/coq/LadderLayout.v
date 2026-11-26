@@ -56,9 +56,12 @@ Proof.
  destruct(Z.ltb_spec s Curve25519.Scalar.L);[tauto|rewrite S;split;[apply Forall_forall;intros v V;apply repeat_spec in V;lia|lia]].
 Qed.
 
+Definition valid bias t :=
+ F.placement bias (machine t) /\ valid_inputs (bias+FullLadder.LinkedBytes.stage_pc) (F.pad_of (machine t)) (machine t).
+
 Theorem checked pol bias e p t : ProductRun.geometry (HashLayout.chunk pol e bias) ->
  LadderEntry.entry pol bias e p t ->
- F.placement bias (machine t) /\ valid_inputs (bias+FullLadder.LinkedBytes.stage_pc) (F.pad_of (machine t)) (machine t).
+ valid bias t.
 Proof.
  intros Geometry E;set (v:=view pol bias e t);pose proof(same_view _ _ _ _ _ E) as H;fold v in H.
  destruct H as [M G];pose proof(LadderEntry.words _ _ _ _ _ E) as W.

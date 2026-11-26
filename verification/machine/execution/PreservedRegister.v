@@ -85,11 +85,6 @@ Proof.
  - destruct b;cbn;auto.
 Qed.
 
-Lemma small_relative o a b : -2^62<a<2^62 -> 0<=b<2^32 -> word(o+a)-o=b -> a=b.
-Proof.
- intros A B Eq;unfold word in Eq;pose proof(Z.div_mod (o+a) (2^64) ltac:(lia)) as D.
- assert ((o+a)/2^64=0) by lia;lia.
-Qed.
 Lemma continuing_offset o text off s c t ws : ScalarBytes.fetch o text (State (Running off) s c)=Some(t,ws) ->
  0<=off<Z.of_nat(length text).
 Proof.
@@ -119,4 +114,17 @@ Proof.
  specialize(Next (off+Z.of_nat width+disp) ltac:(cbn [successors In];auto)).
  repeat rewrite andb_true_iff in Next;destruct Next as [[Lo Hi] Good];apply Z.ltb_lt in Lo,Hi.
  rewrite <- (small_relative o (off+Z.of_nat width+disp) d ltac:(lia) ltac:(lia) (eq_sym PC));exact Good.
+Qed.
+
+Lemma checks_at_prefix r text limit : forall n off, (n<=limit)%nat ->
+ checks_at r text off limit=true -> checks_at r text off n=true.
+Proof.
+ induction limit as [|limit IH];intros [|n] off B C;try reflexivity;try lia.
+ cbn [checks_at] in C|-*;destruct (off<?0);[reflexivity|].
+ destruct (decode _) as [[w op]|];[|reflexivity].
+ apply andb_true_iff in C as [Keep Next];rewrite Keep;cbn [andb].
+ destruct n;[reflexivity|]. destruct limit;[lia|].
+ apply forallb_forall;intros dest D;apply forallb_forall with (x:=dest) in Next;[|exact D].
+ apply andb_true_iff in Next as [Fits Rest];apply andb_true_iff;split;[exact Fits|].
+ eapply IH;[lia|exact Rest].
 Qed.

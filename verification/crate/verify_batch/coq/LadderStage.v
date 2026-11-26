@@ -44,10 +44,18 @@ Definition ready bias ladder stop:=well_formed(machine stop) /\ regs(machine sto
  regs(machine stop) 4%nat=F.base_of(machine ladder) /\ FullLadder.LoopFrame.intact bias (machine ladder) (machine stop) /\
  StoreHistory.extends (private_stack ladder) ladder stop.
 
-Theorem with_cpu pol bias e p t : loaded pol bias (mem e) (writable e) ->
+Record result bias e ladder stop : Prop := Result {
+ paid : accounted e (writable e) stop;
+ next : ip stop=bias+pc+54;
+ rows : selected ladder stop;
+ caller_ready : ready bias ladder stop;
+ layout : LadderLayout.valid bias ladder
+}.
+
+Theorem checked pol bias e p t : loaded pol bias (mem e) (writable e) ->
  ProductRun.geometry (HashLayout.chunk pol e bias) -> LadderEntry.entry pol bias e p t ->
  (exists stop,observed bias t stop) /\ (forall stop,observed bias t stop ->
- accounted e (writable e) stop /\ ip stop=bias+pc+54 /\ selected t stop /\ ready bias t stop).
+ result bias e t stop).
 Proof.
  intros I Geo L;pose proof(LadderEntry.writes _ _ _ _ _ L) as Prev.
  destruct(LadderLayout.checked _ _ _ _ _ Geo L) as [Place Valid].
@@ -73,24 +81,18 @@ Proof.
  split.
  - exists (resume q None),q;split;[exact Call|split;[reflexivity|split;[exact Code|]]];repeat rewrite Return;reflexivity.
  - intros stop [a [A [_ [_ End]]]];rewrite Call in A;injection A as <-.
-   rewrite Return in End;rewrite End;split.
+   rewrite Return in End;rewrite End;constructor.
    + unfold q;cbn [log];rewrite <-app_assoc;apply append_accounted;[exact Prev| |].
      * apply Safe,(F.writes _ _ _ _ _ Done).
      * exact (F.account _ _ _ _ _ Done).
-   + split;[exact (F.at_continuation _ _ _ _ _ Done)|split;[exact (F.rows _ _ _ _ _ Done)|]].
-     split;[exact (F.returned_words _ _ _ _ _ Done)|split;[exact (F.point_pointer _ _ _ _ _ Done)|]].
+   + exact (F.at_continuation _ _ _ _ _ Done).
+   + exact (F.rows _ _ _ _ _ Done).
+   + split;[exact (F.returned_words _ _ _ _ _ Done)|split;[exact (F.point_pointer _ _ _ _ _ Done)|]].
      split;[exact (F.restored_rsp _ _ _ _ _ Done)|split;[exact Frame|]].
      exists (F.stage_stores bias (machine t) u);split.
      * unfold F.stage_stores,q;cbn [log];symmetry;apply app_assoc.
      * split;[exact (F.writes _ _ _ _ _ Done)|exact (F.account _ _ _ _ _ Done)].
+   + exact (conj Place Valid).
 Qed.
 
-Theorem checked pol bias e p t : loaded pol bias (mem e) (writable e) ->
- ProductRun.geometry (HashLayout.chunk pol e bias) -> LadderEntry.entry pol bias e p t ->
- (exists stop,observed bias t stop) /\ (forall stop,observed bias t stop ->
- accounted e (writable e) stop /\ ip stop=bias+pc+54 /\ selected t stop).
-Proof.
- intros I G L;destruct(with_cpu _ _ _ _ _ I G L) as [Ex Sound];split;[exact Ex|].
- intros stop O;destruct(Sound _ O) as [A [At [Rows _]]];auto.
-Qed.
 End Iteration.

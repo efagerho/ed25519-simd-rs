@@ -1,11 +1,12 @@
 From Coq Require Import List ZArith Lia.
+From Machine Require execution.Composition.
 From Machine Require Import execution.LinkedCalls memory.FlatMemory memory.ByteMemory memory.MemoryGeometry.
 From Ed25519Simd.PrepareChunk Require Object.
 From Ed25519Simd.Sha512Challenge Require Object.
 From Ed25519Simd.Zip215 Require Object.
 From Ed25519Simd.DalekPostHash Require Object.
 From Ed25519Simd.VerifyBatch Require Import Policy Image Control Scatter Loop Return LoadedImage EntryWrites CallWrites NestedRegions Prologue StageEntry RejectCall Audit TableCertificate ZipBytes DalekBytes.
-From Ed25519Simd.VerifyBatch Require StrictAccept ChunkRestart ChunkStaging NativeLoop.
+From Ed25519Simd.VerifyBatch Require StrictAccept ChunkRestart ChunkStaging ChunkScalar ChunkScreen ChunkDispatch NativeLoop.
 Local Open Scope Z_scope.
 
 Lemma linked_calls pol : callees pol.
@@ -41,67 +42,17 @@ Proof.
  - destruct pol;exact Entry.
 Qed.
 
-Definition rejected_inputs pol e:=forall j,(j<8)%nat -> (j<count e)%nat ->
- ~signature_accepts pol (read_input (mem e) (regs e 7%nat) j).
-
 Definition active_chunk e:=exists j,(j<8)%nat /\ EligibleLanes.candidate e j.
-Definition at_boundary pol bias pc e b:=let entry:=bias+pc in match b with
- | FirstDispatch.Completed q=>RejectExecution.post entry e (RejectExecution.BatchReturned q) /\ rejected_inputs pol e /\ ~HashLayout.active pol e
- | FirstDispatch.MoreChunks q=>RejectExecution.post entry e (RejectExecution.NextChunk q) /\ ~HashLayout.active pol e
- | FirstDispatch.HashReturned q r=>HashLayout.active pol e /\ NativeHash.returned pol bias entry e q r /\
-    ScoreInputs.inputs pol e (LinkedRun.machine q) /\ well_formed(LinkedRun.machine q) end.
-Lemma after_reject pol bias pc e r : rejected_inputs pol e -> ~HashLayout.active pol e -> RejectExecution.post (bias+pc) e r ->
- at_boundary pol bias pc e (FirstDispatch.after_reject r).
-Proof. destruct r;cbn;auto. Qed.
 
 Lemma dispatch_correct pol bias pc text e c ks : admissible pol bias pc text e -> StrictDispatch.bound pc text -> (0<count e)%nat ->
  first_chunk pol bias pc text e c ks ->
- exists b,FirstDispatch.run pol bias pc text e c ks=Some b /\ at_boundary pol bias pc e b.
+ Composition.ensures (Composition.output (FirstDispatch.run pol bias pc text e c ks)) (@ChunkDispatch.post BatchWindow.initial pol bias pc e).
 Proof.
- intros Input Hash N.
- destruct(batch_inputs _ _ _ _ _ Input N) as [Place [_ [[_ Sep] _]]];pose proof(callee_image _ _ _ _ _ Input N) as Loaded.
- pose proof(decoder_aligned _ _ _ _ _ Input N) as Al;intros [s [Scalar [_ [Digits [Checked Rejected]]]]];destruct(Z.eqb_spec (regs(LinkedRun.machine s) 0%nat mod 2^32) 0) as [Z|Live].
- - destruct(Rejected Z) as [Invalid [r [End Post]]];exists(FirstDispatch.after_reject r);split;
-   [eapply FirstDispatch.scalar_path;[exact Scalar|exact Z|exact End]|apply after_reject;[exact Invalid| |exact Post]].
-   intros [j [J On]];destruct (HashLayout.candidate_of _ _ _ On) as [Canon _];destruct Digits as [Bound Bits];specialize(Bits j J).
-   apply (proj2(proj1 Bits)) in Canon;rewrite Z.mod_small in Z by lia;rewrite Z,Z.bits_0 in Canon;discriminate.
- - destruct(Checked Live) as [d [Run [Decoder [Handoff Calls]]]];destruct Calls as [bank [t [Bank [Trace [Check [Frame Reject]]]]]].
-   unfold FirstDispatch.run,BatchDecode.observe in *;rewrite Scalar in Run|-*;cbn [LinkedRun.bind] in Run|-*;
-   rewrite (proj2(Z.eqb_neq _ _) Live) in Run|-*;rewrite Run;cbn [LinkedRun.bind];rewrite Bank;cbn [LinkedRun.bind];rewrite Trace;cbn [LinkedRun.bind].
-   destruct(Z.eqb_spec (regs(LinkedRun.machine(EligibleLanes.stopped t)) 14%nat) 0) as [Zero|Yes].
-   + destruct(Reject Zero) as [r [End Post]];rewrite End;exists(FirstDispatch.after_reject r);split;[reflexivity|].
-     apply after_reject;[exact (EligibleLanes.zero_rejects _ _ _ _ _ (proj2 Check) Zero)|intros [j [J On]];apply (proj2(EligibleLanes.live_branch _ _ _ _ _ (proj2 Check)) ltac:(exists j;split;[exact J|apply (HashLayout.candidate_of _ _ _ On)])),Zero|exact Post].
-   + assert (Enc:PreparedInputs.operands e (LinkedRun.machine(EligibleLanes.stopped t))).
-     { eapply PreparedInputs.from_decoder;[exact Place|exact Digits|exact Handoff| |exact Check].
-       destruct Decoder as [_ [_ [_ [_ [_ [_ [_ Data]]]]]]];exact Data. }
-     destruct(PreparedReturn.from_eligible _ _ _ _ _ _ (TableMask.masks t) Place Loaded Al (proj2 Check) Frame (PreparedTables.input _ _ _ _ _ Place Check) Enc Yes) as [q [bank1 [Call Done]]].
-     destruct(ReadyDispatch.checked pol bias pc text e q bank1 (proj1 Hash) Place Loaded (entry_range _ _ _ _ _ Input) (entry_text _ _ _ _ _ Input) Sep Done)
-        as [v [kv [RunCall [Reached Child]]]];unfold ReadyDispatch.observe;rewrite Call;cbn [LinkedRun.bind];rewrite RunCall.
-     assert (Active:=proj1(EligibleLanes.live_branch _ _ _ _ _ (proj2 Check)) Yes).
-     destruct(batch_inputs _ _ _ _ _ Input N) as [_ [[_ Slices] [_ [Tables [Idx Entries]]]]].
-     assert (Borrow:NativeHash.messages_immutable e).
-     { intros j k J K;destruct(Slices _ (@BatchWindow.live_row BatchWindow.initial e j N)) as [_ [_ [_ B]]];apply B;unfold NativeHash.field in K|-*;lia. }
-     specialize (Entries 0%nat (count e) zero_loc N eq_refl zero_words).
-     destruct pol.
-     * destruct Active as [j [J On]];assert (LiveZip:HashLayout.active Zip215 e) by (exists j;split;[exact J|now apply HashLayout.candidate]).
-       destruct(@NativeHash.checked BatchWindow.initial Zip215 _ _ _ _ _ Place Loaded N Entries Borrow LiveZip (HashLayout.zip_flags _ _ _ _ Done)
-         (PreparedReturn.encodings _ _ _ _ _ Done) Child) as [r [HashRun HashPost]].
-       eexists;split;[cbn [LinkedRun.bind fst snd FirstDispatch.continue FirstDispatch.hash_return];unfold FirstDispatch.hash_return;now rewrite HashRun|exact (conj LiveZip (conj HashPost (conj (ScoreInputs.at_hash _ _ _ _ _ _ Place (ScoreInputs.zip _ _ _ _ Done) Child) (HashEntry.words _ _ _ _ _ Child))))].
-     * destruct(StrictReturn.from_entry _ _ _ _ _ kv Place Loaded Tables Done Child) as [out [k [FilterRun Post]]].
-       destruct(@StrictDispatch.checked BatchWindow.initial bias pc text e v out k Hash Place Loaded (entry_range _ _ _ _ _ Input) (entry_text _ _ _ _ _ Input)
-         Sep N Idx Post) as [exit [Path [_ Branch]]].
-       cbn [LinkedRun.bind fst snd FirstDispatch.continue];rewrite FilterRun;cbn [LinkedRun.bind];rewrite Path.
-       assert (Eq:StrictReturn.live e (LinkedRun.machine v) <-> HashLayout.active Dalek e).
-       { split;intros [j [J H]];exists j;split;[exact J|apply (proj1(StrictReturn.strong_lane _ _ _ _ Post j J)),H|
-          exact J|apply (proj2(StrictReturn.strong_lane _ _ _ _ Post j J)),H]. }
-       destruct exit as [r|h];cbn [FirstDispatch.after_filter LinkedRun.bind] in *;destruct Branch as [Survives ChildRun].
-       -- exists (FirstDispatch.after_reject r);split;[reflexivity|apply after_reject;[|tauto|exact ChildRun]].
-          intros j J In Sig;apply Survives,Eq;exists j;split;[exact J|].
-          apply Optimized.accepted_eligible;unfold HashLayout.row;rewrite BatchWindow.own_row by exact In;exact Sig.
-       -- assert (LiveDalek:=proj1 Eq Survives).
-          destruct(@NativeHash.checked BatchWindow.initial Dalek _ _ _ _ _ Place Loaded N Entries Borrow LiveDalek (HashLayout.strict_flags _ _ _ _ Post)
-            (StrictReturn.encodings _ _ _ _ Post) ChildRun) as [r [HashRun HashPost]].
-          eexists;split;[unfold FirstDispatch.hash_return;now rewrite HashRun|exact (conj LiveDalek (conj HashPost (conj (ScoreInputs.at_hash _ _ _ _ _ _ Place (ScoreInputs.dalek _ _ _ _ Post) ChildRun) (HashEntry.words _ _ _ _ _ ChildRun))))].
+ intros A Code N [s [Run [Post _]]].
+ destruct (ChunkScalar.first_execution _ _ _ _ _ _ _ _ Run) as [p [bank [Stage [Scalar [_ Words]]]]].
+ specialize (Words (cpu_words _ _ _ _ _ A)).
+ unfold FirstDispatch.run,FirstDispatch.dispatch;rewrite Stage;cbn [LinkedRun.bind];rewrite Scalar;cbn [LinkedRun.bind].
+ exact (@ChunkDispatch.from_scalar BatchWindow.initial pol bias pc text e s bank A Code N Post Words).
 Qed.
 
 Lemma native_verdict pol e q:indices e -> Iteration.exit e q ->
@@ -115,21 +66,18 @@ Proof.
  intros j J;destruct(indices_cover e Idx j J) as [i [I <-]];destruct(Prefix i I) as [[] [V _]];cbn in V;auto.
 Qed.
 
-Lemma rejected_return pol bias pc text e q : admissible pol bias pc text e -> (0<count e)%nat ->
- RejectExecution.post (bias+pc) e (RejectExecution.BatchReturned q) -> rejected_inputs pol e -> returned pol e (LinkedRun.ip q) (LinkedRun.machine q).
-Proof.
- intros Caller Live Done Invalid;destruct Done as [Paid [[Status Outputs] [Bytes [Size [PC [SP Saved]]]]]].
- destruct(batch_inputs _ _ _ _ _ Caller Live) as [_ [_ [_ [_ [Idx _]]]]].
- change (count e<=8)%nat in Size.
- enough (P:NativeLoop.prefix_at pol e (count e) (mem(LinkedRun.machine q))) by
-   exact(proj1(native_verdict pol e q Idx (conj Paid (conj Bytes (conj Status (conj PC (conj SP Saved))))) P)).
- intros i I;exists false;split;[apply Outputs;change (i<Nat.min (count e) 8)%nat;lia|].
- split;[discriminate|intro A;exfalso;exact (Invalid i ltac:(lia) I A)].
-Qed.
-
 Lemma rejected_verdict pol bias pc text e q : admissible pol bias pc text e -> (0<count e)%nat ->
- at_boundary pol bias pc e (FirstDispatch.Completed q) -> returned pol e (LinkedRun.ip q) (LinkedRun.machine q).
-Proof. intros A N [Post [Invalid _]];exact (rejected_return _ _ _ _ _ _ A N Post Invalid). Qed.
+ @ChunkDispatch.post BatchWindow.initial pol bias pc e (FirstDispatch.Completed q) ->
+ returned pol e (LinkedRun.ip q) (LinkedRun.machine q).
+Proof.
+ intros Caller Live [None Done].
+ destruct (@ChunkDispatch.rejected_outputs BatchWindow.initial pol bias pc e _ None Done)
+   as [Paid [[Status Outputs] [Bytes [Size [PC [SP Saved]]]]]].
+ destruct(batch_inputs _ _ _ _ _ Caller Live) as [_ [_ [_ [_ [Idx _]]]]].
+ assert (Prefix:NativeLoop.prefix_at pol e (count e) (mem(LinkedRun.machine q))).
+ { intros i I;apply (Outputs i);change (count e<=8)%nat in Size;change (i<Nat.min (count e) 8)%nat;lia. }
+ exact (proj1 (native_verdict pol e q Idx (conj Paid (conj Bytes (conj Status (conj PC (conj SP Saved))))) Prefix)).
+Qed.
 
 Corollary single_policy_rejection pol pc text : batch_contract pol pc text ->
  forall bias e cf masks,admissible pol bias pc text e -> (0<count e<=8)%nat -> ~HashLayout.active pol e ->
@@ -139,10 +87,10 @@ Corollary single_policy_rejection pol pc text : batch_contract pol pc text ->
 Proof.
  intros Main bias e cf masks A [N Size] Bad.
  destruct(dispatch_correct _ _ _ _ _ _ _ A (dispatch_code _ _ _ Main) N (machine_scalar_return _ _ _ Main _ _ cf masks A N))
-    as [[q|q|q r] [Run Done]].
+    as [[b Run] All]. specialize (All b Run) as Done; destruct b as [q|q|q r].
  - exists q;split;[exact Run|split;[exact (rejected_verdict _ _ _ _ _ _ A N Done)|]].
-   destruct Done as [[Paid [[_ Zeros] _]] _];split;[exact Paid|intros i I;apply Zeros;change (i<Nat.min (count e) 8)%nat;lia].
- - destruct Done as [[_ [_ [_ [More _]]]] _];change (8<count e)%nat in More;lia.
+   destruct Done as [_ [Paid [[_ Zeros] _]]];split;[exact Paid|intros i I;apply Zeros;change (i<Nat.min (count e) 8)%nat;lia].
+ - destruct Done as [_ [_ [_ [_ [More _]]]]];change (8<count e)%nat in More;lia.
  - exfalso;apply Bad,(proj1 Done).
 Qed.
 Corollary single_ineligible_return pol pc text : batch_contract pol pc text ->
@@ -163,9 +111,8 @@ Corollary eligible_hash_returns pol pc text : batch_contract pol pc text ->
 Proof.
  intros Main bias e c masks A N Live.
  destruct(dispatch_correct _ _ _ _ _ _ _ A (dispatch_code _ _ _ Main) N (machine_scalar_return _ _ _ Main _ _ c masks A N))
-   as [[q|q|q r] [Run T]].
- - destruct T as [_ [_ None]];contradiction.
- - destruct T as [_ None];contradiction.
+   as [[b Run] All]. specialize (All b Run) as T; destruct b as [q|q|q r].
+ 1,2: exfalso;exact ((proj1 T) Live).
  - exists q,r;exact (conj Run (proj1(proj2 T))).
 Qed.
 
@@ -178,21 +125,11 @@ Proof.
  exists j;split;[exact J|now apply HashLayout.candidate].
 Qed.
 
-Lemma score_handoff pol bias pc text e q r s c : admissible pol bias pc text e -> (0<count e)%nat ->
- ScoreSetup.bound pol pc text -> at_boundary pol bias pc e (FirstDispatch.HashReturned q r) ->
- HashResume.compatible r s -> well_formed s -> exists child,ScoreCall.execute bias pc text q r s c=Some child /\
-   ScoreCall.entered pol bias pc e q r child.
-Proof.
- intros A N Code [_ [R [Inputs _]]] C W;destruct(batch_inputs _ _ _ _ _ A N) as [P [_ [[_ Sep] _]]].
- apply ScoreCall.checked;[exact Code|exact P|exact (callee_image _ _ _ _ _ A N)|exact (entry_range _ _ _ _ _ A)|
-   exact (entry_text _ _ _ _ _ A)|exact Sep|exact Inputs|exact R|exact C|exact W].
-Qed.
-
 Lemma ladder_geometry pol bias pc text e : admissible pol bias pc text e -> (0<count e)%nat ->
  ProductRun.geometry (HashLayout.chunk pol e bias).
 Proof.
  intros A N;destruct(batch_inputs _ _ _ _ _ A N) as [_ [_ [_ [_ [_ Entries]]]]].
- exact (proj2(proj2(proj2(proj2(Entries 0%nat (count e) zero_loc N eq_refl zero_words))))).
+ exact (proj2(proj2(proj2(Entries 0%nat (count e) N eq_refl)))).
 Qed.
 
 Lemma scoring_context pol bias pc text e c masks stop : admissible pol bias pc text e -> (0<count e)%nat ->
@@ -201,11 +138,13 @@ Lemma scoring_context pol bias pc text e c masks stop : admissible pol bias pc t
  exists q r child score,HashLayout.active pol e /\ ScoreStart.reached pol bias pc e q r child score /\
  ScoreProgress.observed pol bias score stop.
 Proof.
- intros A N Hash Scorer Native [q [r [s [cf [child [score [Run [C [W [Call [Start Progress]]]]]]]]]]].
- destruct(dispatch_correct _ _ _ _ _ _ _ A Hash N Native) as [b [At B]];rewrite Run in At;injection At as <-.
- destruct(score_handoff _ _ _ _ _ _ _ _ cf A N Scorer B C W) as [v [V E]];rewrite Call in V;injection V as <-.
- destruct(ScoreStart.from_entry _ _ _ _ _ _ _ (proj1(batch_inputs _ _ _ _ _ A N)) (callee_image _ _ _ _ _ A N) E)
-    as [v [V Ready]];rewrite Start in V;injection V as <-;exists q,r,child,score;exact (conj (proj1 B) (conj Ready Progress)).
+ intros A N Hash Scorer Native [q [r [score [Run [Start Progress]]]]].
+ destruct (proj2 (dispatch_correct _ _ _ _ _ _ _ A Hash N Native) _ Run) as [Live [Ret [Inputs Words]]].
+ destruct(batch_inputs _ _ _ _ _ A N) as [P [_ [[Range Sep] _]]].
+ pose proof (ScoreStart.from_hash_checked _ _ _ _ _ _ _ Scorer P (callee_image _ _ _ _ _ A N)
+   Range (entry_text _ _ _ _ _ A) Sep Inputs Ret Words) as Path.
+ destruct (proj2 Path score Start) as [child Ready].
+ exists q,r,child,score;auto.
 Qed.
 
 Lemma scorer_verdict_checked pol bias pc text e c masks stop : admissible pol bias pc text e -> (0<count e)%nat ->
@@ -248,7 +187,7 @@ Proof.
      exact (native_verdict pol e q Idx Exit Prefix).
 Qed.
 
-Lemma verified pol pc text : matches pc (destination pol) text -> empty_image text -> Prologue.bound text -> StageEntry.bound text -> TailWrites.bound text -> StageWrites.bound text (destination pol Prepare-pc) -> RejectCall.bound pc text -> RejectDispatch.bound pc text -> RejectFinish.bound text -> StageEntry.preserves_bp text=true -> ChunkStaging.preserves_bp text=true -> HashEntry.bound pc text -> ScoreSetup.bound pol pc text ->
+Lemma verified pol pc text : matches pc (destination pol) text -> empty_image text -> Prologue.bound text -> ChunkRows.Selection.bound text -> TailWrites.bound text -> StageWrites.bound text (destination pol Prepare-pc) -> RejectCall.bound pc text -> RejectDispatch.bound pc text -> RejectFinish.bound text -> StageEntry.checked_layout text (destination pol Prepare-pc)=true -> ChunkStaging.preserves_bp text=true -> HashEntry.bound pc text -> ScoreSetup.bound pol pc text ->
  batch_contract pol pc text.
 Proof.
  intros Image Bytes Setup Select Pad Transfer Rejection ScatterCode ExitCode RBP LoopBP Hash Scorer.
@@ -262,53 +201,21 @@ Proof.
    destruct Rows as [Fit Const].
    apply StageEntry.from_entry;[exact Setup|exact Select|exact Pad|exact Transfer|exact RBP|exact P|exact N|exact Fit|exact Const|
      exact (entry_text _ _ _ _ _ Input)|exact Apart]. }
+ assert (CallerCode:StrictDispatch.bound pc text) by
+   (exact (conj Hash (conj ScatterCode (conj ExitCode (proj1(proj2(proj2(proj2 Rejection)))))))).
  assert (Native:forall bias e c masks,admissible pol bias pc text e -> (0<count e)%nat ->
      first_chunk pol bias pc text e c masks).
  { intros bias e c masks Input N.
-   destruct (scalar_from_entry _ _ _ _ _ c masks Input N (Live _ _ Input N)) as [stop [Run Post]].
-   exists stop;split;[exact Run|split;[exact Post|]].
-   destruct (batch_inputs _ _ _ _ _ Input N) as [P [[_ Inputs] [[_ Apart] [_ [Indices _]]]]].
-   pose proof(callee_image _ _ _ _ _ Input N) as Loaded.
-
-   assert (Data:ScalarInputs.recoded e (LinkedRun.machine stop) /\ ScalarInputs.copy_ready e (LinkedRun.machine stop) /\ StageEntry.metadata e (mem(LinkedRun.machine stop)) /\ StageEntry.saved_caller e (LinkedRun.machine stop)).
-   { destruct Post as [_ [_ [_ [_ [_ Contract]]]]]. apply Contract;[exact N|].
-     intros j J;exact (proj1 (proj2 (Inputs j J))). }
-   assert (Layout:WrapperInputs.layout e (mem(LinkedRun.machine stop))) by
-      (destruct Data as [_ [[_ [_ [_ [_ [_ [_ Layout]]]]]] _]];exact Layout).
-   assert (Exit:forall decoded p,EligibilityFrame.context pol bias (bias+pc) e p ->
-     LinkedRun.accounted e (writable e) p -> well_formed(LinkedRun.machine p) ->
-     regs(LinkedRun.machine p) 4%nat=BatchScalar.common_top pol e-104 -> LinkedRun.ip p=bias+PrepareNative.common+PrepareUnwind.unwind_offset decoded ->
-     PrepareUnwind.return_value decoded (LinkedRun.machine p) mod 2^32=0 ->
-     exists r,RejectedPath.execute decoded pol bias pc text p=Some r /\ RejectExecution.post (bias+pc) e r).
-   { intros dec p;apply RejectedPath.checked;[exact ScatterCode|exact ExitCode|exact P|exact Loaded|exact (entry_range _ _ _ _ _ Input)|
-       exact (proj1(proj2(proj2(proj2 Rejection))))|exact (entry_text _ _ _ _ _ Input)|exact Apart|exact N|exact Indices]. }
-   split;[exact (proj1 Data)|]. split.
-   { intro Nonzero;destruct (BatchDecode.from_scalar pol bias pc text e c masks stop) as [d [Trace [Entry CallerRegs]]];
-       [exact P|exact (callee_image _ _ _ _ _ Input N)| |exact Run|exact Post|exact (proj1(proj2 Data))|exact Nonzero|].
-     2:{ exists d;split;[exact Trace|split;[exact Entry|split;[exact CallerRegs|]]].
-         destruct(BatchScalar.has_masks _ _ _ _ _ _ _ _ Run) as [bank Bank].
-         pose proof(NativeWords.decoder_entry _ _ _ _ _ _ _ _ _ (initial_cpu _ P) Run (proj1(proj1(proj2 Data))) Trace) as Words.
-         destruct(EligibleLanes.from_decoder _ _ _ stop d bank P (callee_image _ _ _ _ _ Input N)
-            (decoder_aligned _ _ _ _ _ Input N) Entry Words (proj1 Data) (BatchDecode.caller_args _ _ _ _ CallerRegs)) as [r [R Check]].
-         exists bank,r;split;[exact Bank|split;[exact R|split;[exact Check|]]].
-         pose proof(EligibilityFrame.restore _ _ _ _ _ _ _ P Post CallerRegs (proj1(proj2(proj2 Data))) (proj2(proj2(proj2 Data))) Layout Check) as Frame.
-         split;[exact Frame|intro Zero;apply Exit].
-         - exact Frame.
-         - exact (EligibleLanes.writes _ _ _ _ _ (proj2 Check)).
-         - exact (EligibleLanes.words _ _ _ _ _ (proj2 Check)).
-         - exact (EligibleLanes.stack _ _ _ _ _ (proj2 Check)).
-         - rewrite (EligibleLanes.destination _ _ _ _ _ (proj2 Check));unfold EligibleLanes.next;now rewrite Zero.
-         - reflexivity. }
-     intros j sig J;destruct (Inputs _ (@BatchWindow.live_row BatchWindow.initial e j N)) as [Key [Sig Msg]].
-     unfold ScalarInputs.encoding_ptr;destruct sig;[|exact Key]. destruct Sig as [[Low High] Away].
-     split;[unfold fits64;split;[exact Low|lia]|intros x X;apply Away;lia]. }
-   intro Zero;split;[exact (ScalarInputs.zero_rejects pol e _ (proj1 Data) Zero)|].
-   destruct Post as [PC [SP [Acc [Links [Outputs _]]]]].
-   destruct(Exit false stop (EligibilityFrame.Context _ _ _ _ _ Links Outputs (proj1(proj2(proj2 Data))) (proj2(proj2(proj2 Data))) Layout)
-      Acc (NativeWords.returned_scalar _ _ _ _ _ _ _ _ (initial_cpu _ P) Run (proj1(proj1(proj2 Data)))) SP PC Zero) as [r [End Result]].
-   exists r;split;[unfold RejectExecution.scalar_rejection;rewrite Run;cbn [LinkedRun.bind];rewrite Zero,Z.eqb_refl;exact End|exact Result]. }
- assert (CallerCode:StrictDispatch.bound pc text) by
-   (exact (conj Hash (conj ScatterCode (conj ExitCode (proj1(proj2(proj2(proj2 Rejection)))))))).
+   destruct (scalar_from_entry _ _ _ _ _ c masks Input N (Live _ _ Input N)) as [s [Run Post]].
+   destruct (ChunkScalar.first_execution _ _ _ _ _ _ _ _ Run) as [_ [bank [_ [_ [Bank Words]]]]].
+   specialize (Words (cpu_words _ _ _ _ _ Input)).
+   destruct (@ChunkScreen.checked BatchWindow.initial pol bias pc text e s bank Input CallerCode N Post Words) as [Digits [Decode Reject]].
+   exists s;split;[exact Run|split;[exact Post|split;[exact Digits|split]]].
+   - intro NZ;destruct (Decode NZ) as [d [To [Entry [Caller [t Trace]]]]].
+     exists d;split;[unfold BatchDecode.observe;rewrite Run;cbn [LinkedRun.bind];now rewrite (proj2(Z.eqb_neq _ _) NZ)|].
+     split;[exact Entry|split;[exact Caller|exists bank,t;exact (conj Bank Trace)]].
+   - intro Zero;split;[exact (ScalarInputs.zero_rejects pol e _ Digits Zero)|].
+     unfold RejectExecution.scalar_rejection;rewrite Run;cbn [LinkedRun.bind];rewrite Zero,Z.eqb_refl;exact (Reject Zero). }
  assert (Run:forall bias e c masks,admissible pol bias pc text e ->
    (exists ws ip final,observation pol bias pc text e c masks ws ip final) /\
    (forall ws ip final,observation pol bias pc text e c masks ws ip final -> returned pol e ip final /\ effects e ws final)).

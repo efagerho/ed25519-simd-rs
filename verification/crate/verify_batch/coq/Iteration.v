@@ -1,4 +1,5 @@
 From Coq Require Import List ZArith.
+From Machine Require execution.Composition.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun memory.ByteMemory memory.FlatMemory.
 From Ed25519Simd.VerifyBatch Require Import Policy.
 From Ed25519Simd.VerifyBatch Require ChunkScalar FirstDispatch ScoreProgress ScoreDecision ScorePublish.
@@ -6,33 +7,19 @@ Local Open Scope Z_scope.
 
 (* Each transition takes the cursor returned by the preceding call. The
    caller can observe any volatile register completion permitted by SHA. *)
-Definition after_decode pol bias pc text e bank d:=
- bind (EligibleLanes.observe pol bias e d bank) (fun t=>let q:=EligibleLanes.stopped t in
- if regs(machine q) 14%nat=?0 then option_map FirstDispatch.after_reject (RejectedPath.execute true pol bias pc text q)
- else bind (ReadyDispatch.observe pol bias pc text e q (TableMask.masks t))
-      (fun result=>FirstDispatch.continue pol bias pc text (fst result) (snd result))).
-Definition after_scalar pol bias pc text e s bank:=
- if regs(machine s) 0%nat mod 2^32=?0 then option_map FirstDispatch.after_reject (RejectedPath.execute false pol bias pc text s)
- else bind (BatchDecode.enter bias s) (after_decode pol bias pc text e bank).
-Definition dispatch pol bias pc text e p masks:=
- bind (ChunkScalar.execute pol bias p masks) (fun '(s,bank)=>after_scalar pol bias pc text e s bank).
-
 Definition publish pol bias pc text screen last:=if ScoreProduct.rejected pol screen then
  ScorePublish.execute bias pc text screen=Some last
- else exists q,ScoreDecision.observed pol bias screen q /\ ScorePublish.scatter bias pc text q=Some last.
-Definition score pol bias pc text h r last:=exists s cf child score screen,
- HashResume.compatible r s /\ well_formed s /\ ScoreCall.execute bias pc text h r s cf=Some child /\
- ScoreStart.from_call pol bias child=Some score /\ ScoreProgress.observed pol bias score screen /\
- publish pol bias pc text screen last.
+ else Composition.followed_by (ScoreDecision.observed pol bias screen)
+   (fun q => Composition.output (ScorePublish.scatter bias pc text q)) last.
+Definition score pol bias pc text h r :=
+ Composition.followed_by (ScoreStart.from_hash pol bias pc text h r) (fun started =>
+   Composition.followed_by (ScoreProgress.observed pol bias started) (publish pol bias pc text)).
 Definition finish pol bias pc text sent last:=match sent with
  | FirstDispatch.Completed q=>last=RejectExecution.BatchReturned q
  | FirstDispatch.MoreChunks q=>last=RejectExecution.NextChunk q
  | FirstDispatch.HashReturned h r=>score pol bias pc text h r last end.
-Definition observed pol bias pc text e p masks last:=exists sent,
- dispatch pol bias pc text e p masks=Some sent /\ finish pol bias pc text sent last.
-
-Definition begin o text e cf:=option_map (LinkedRun.finish o (LinkedRun.initial o e cf))
- (StageEntry.observe o text e cf).
+Definition observed pol bias pc text e p masks :=
+ Composition.followed_by (Composition.output (FirstDispatch.dispatch pol bias pc text e p masks)) (finish pol bias pc text).
 
 (* After scatter, R12 determines the next staging budget. The continuation
    carries all preceding stores, including the indices already published. *)
@@ -44,8 +31,9 @@ Inductive chain pol bias pc text e:nat -> cursor -> (nat->nat->bool) -> cursor -
    chain pol bias pc text e (n-8) next next_masks last ->
    chain pol bias pc text e n p masks last.
 
-Definition native pol bias pc text e cf masks last:=exists p,
- begin (bias+pc) text e cf=Some p /\ chain pol bias pc text e (Scatter.count e) p masks last.
+Definition native pol bias pc text e cf masks :=
+ Composition.followed_by (Composition.output (StageEntry.begin (bias+pc) text e cf))
+   (fun p => chain pol bias pc text e (Scatter.count e) p masks).
 
 Lemma scalar_rejected pol bias pc text e cf masks s q:
  BatchScalar.observe pol bias (bias+pc) text e cf masks=Some s ->
@@ -55,15 +43,10 @@ Lemma scalar_rejected pol bias pc text e cf masks s q:
 Proof.
  intros Scalar Zero End;unfold RejectExecution.scalar_rejection in End;rewrite Scalar in End;cbn [bind] in End;
  rewrite Zero,Z.eqb_refl in End.
- unfold BatchScalar.observe,BatchScalar.scalar_entry in Scalar.
- destruct(StageEntry.observe (bias+pc) text e cf) as [st|] eqn:Start;[|discriminate].
- set(p:=LinkedRun.finish (bias+pc) (LinkedRun.initial (bias+pc) e cf) st) in *.
- exists p;split;[unfold begin;now rewrite Start|apply done].
+ destruct (ChunkScalar.first_execution _ _ _ _ _ _ _ _ Scalar) as [p [bank [Start [Call _]]]].
+ exists p;split;[exact Start|apply done].
  exists(FirstDispatch.Completed q);split;[|reflexivity].
- unfold dispatch,ChunkScalar.execute,ChunkScalar.enter;cbn [bind] in Scalar;fold p in Scalar.
- destruct(BatchScalar.via_strict pol bias p) as [v|] eqn:Shim;[|discriminate].
- cbn [bind] in Scalar|-*;destruct(BatchScalar.to_scalar bias v) as [child|] eqn:Call;[|discriminate].
- cbn [bind] in Scalar|-*;rewrite Scalar;cbn [option_map bind];unfold after_scalar;rewrite Zero,Z.eqb_refl.
+ unfold FirstDispatch.dispatch;rewrite Call;cbn [bind];unfold FirstDispatch.after_scalar;rewrite Zero,Z.eqb_refl.
  change (RejectedPath.execute false pol bias pc text s=Some(RejectExecution.BatchReturned q)) in End;now rewrite End.
 Qed.
 

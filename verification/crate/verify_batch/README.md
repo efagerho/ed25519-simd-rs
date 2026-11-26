@@ -32,8 +32,9 @@ The log includes the call to SHA-512, its internal stores and its return.
 Replaying the log from the Rust entry gives every byte of memory at that
 return. For each eligible lane the 64 digest bytes on the stack are SHA-512 of
 the original R, public key and message, in that order.
-The caller resumes with the returned memory and stack pointer. For every
-well-formed assignment to volatile registers and flags, its next 15 instructions
+The shared call-return rule resumes the wrapper with the observed program
+counter, stack pointer, memory and ordered writes. For every well-formed
+assignment to volatile registers and flags, the next 15 instructions
 pass the decoded R mask, eligibility bytes, scalar and digest pointers, output
 pointer, and batch length to the policy scorer. Replaying the four argument
 stores and the return-address push preserves every digest byte. Those bytes
@@ -81,7 +82,20 @@ descriptor’s output index. The same log follows its return to the batch loop
 for more rows or through the outer `ret` for the final chunk.
 [Scorer frame](coq/ScoreSaved.v) · [Scatter and batch return](coq/ScorePublish.v) · [Dalek candidate call](coq/StrictCandidateCall.v)
 [SHA call](coq/HashEntry.v) · [Digest and store log](coq/NativeHash.v) ·
-[SHA return interface](coq/HashResume.v) · [Scorer entry](coq/ScoreCall.v) · [Scorer execution](coq/ScoreStart.v) · [Native challenge digits](coq/ReducedDigest.v) · [Ladder call](coq/LadderEntry.v) · [Product on the original bytes](coq/LadderProduct.v) · [First staging return](coq/LadderStage.v) · [Dalek R mask](coq/StrictRStart.v) · [Canonical Y decision](coq/StrictRCanonical.v) · [Small-order call and rejection](coq/StrictRCall.v) · [Native return](coq/StrictOrderReturn.v) · [Strict lane decision](coq/StrictScreen.v)
+[Call-return rule](../../machine/abi/CallReturn.v) · [Scorer handoff equivalence](tests/HashHandoff.v) · [Scorer entry](coq/ScoreCall.v) · [Scorer execution](coq/ScoreStart.v) · [Native challenge digits](coq/ReducedDigest.v) · [Ladder call](coq/LadderEntry.v) · [Product on the original bytes](coq/LadderProduct.v) · [First staging return](coq/LadderStage.v) · [Dalek R mask](coq/StrictRStart.v) · [Canonical Y decision](coq/StrictRCanonical.v) · [Small-order call and rejection](coq/StrictRCall.v) · [Native return](coq/StrictOrderReturn.v) · [Strict lane decision](coq/StrictScreen.v)
+
+The first chunk and every later chunk share one dispatch proof from the
+scalar return. It follows the returned mask bank through decoding and
+eligibility screening, then proves either that the chunk has no active lanes
+and scatters zeros, or that SHA returns with the inputs needed for scoring.
+[Scalar screening](coq/ChunkScreen.v) · [Dispatch from the scalar return](coq/ChunkDispatch.v)
+
+The batch loop uses the same sequencing rule for dispatch, scoring and
+publication. In the scorer, each block takes the cursor returned by the
+previous block. Dalek’s R screen also passes the mask bank from the first
+block through the canonical-Y check. The ZIP-215 torsion check accepts any
+incoming mask bank and passes its returned CPU to the verdict block.
+[Scoring decision](coq/ScoreDecision.v) · [Mask handoff proofs](tests/ScorerMasks.v)
 
 Both policies require canonical S and decodable R and public-key encodings.
 For a decoded key A, the proof relates every signed cached row from −8 to +8
@@ -126,18 +140,23 @@ Here the audit is the handoff from memory to those formulas. Check the four byte
    no-wrap ranges, stack space, 64-byte scratch alignment, separation,
    and the mapped code and constants at the chosen load bias. Read-only callee images and the two static tables must be disjoint from writable memory. The spatial
    preconditions for preparation, SHA, reduction and the ladder are explicit
-   premises at each nonempty descriptor suffix. The proof derives scalar values, key-table
+   premises at each nonempty descriptor suffix. The layout uses a fixed witness for
+   mask and table contents. Execution takes the actual mask bank and staged tables.
+   The proof derives scalar values, key-table
    selection, the returned mask and each lane's verdict. The linked fixed-base
    table is checked over all 273 signed multiples from −136 through 136,
    and all 17 entries of the fallback table are checked against the identity.
    [Input placement](coq/Audit.v) · [Per-call premises](coq/Loop.v) · [Static tables](coq/Tables.v)
 3. **The wrapper-to-machine correspondence.** Compare the block bodies, call
    displacements, argument registers, frame offsets and tail copy with the
-   linked disassembly. The descriptor transpose uses the shared indexed-load
-   interpreter. Check that each nested call consumes the preceding cursor’s
+   linked disassembly. The first staging run fetches instructions until control
+   leaves the wrapper. Its proof identifies the exit as the preparation call and
+   accounts for every write through that call. The initial chunk and later chunks
+   share the proofs of descriptor selection, transpose, saved stack slots and the
+   next descriptor address. Both then use the same scalar and policy dispatch. Check that each nested call consumes the preceding cursor’s
    registers and memory. In particular, the prepare call must stage the last
    live row into short-chunk padding, and the SHA handoff must clear the lengths
-   of ineligible lanes. [Staged rows](coq/ChunkRows.v) · [Hash handoff](coq/HashEntry.v) · [Native dispatch](coq/Iteration.v)
+   of ineligible lanes. [Selection](coq/ChunkRows.v) · [Staging](coq/StagedRows.v) · [Hash handoff](coq/HashEntry.v) · [Dispatch](coq/FirstDispatch.v)
 4. **The memory claim.** For a zero count the theorem fetches from the caller's
    byte memory, executes through `ret` and proves that every prefix writes
    nothing. Every nonempty batch trace runs through the first nested signature-scalar call. Every recorded write is inside

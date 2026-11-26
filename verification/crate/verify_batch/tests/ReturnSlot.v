@@ -53,9 +53,8 @@ Proof.
    rewrite (MappedFetch.snapshot_mapped _ _ _ Mapped).
    rewrite (fetch_at ip symbol_bytes 40 _ _ 8 (Store64 8 addr) ltac:(lia) ltac:(reflexivity));reflexivity. }
  pose proof (MappedFetch.run_append _ 13 _ _ _ First 1 _ _ Store) as Bad.
- destruct (Physical None) as [n [N [_ [t [ws [_ [_ [_ Prefix]]]]]]]].
- destruct (Prefix 14%nat ltac:(lia)) as [mid [pre [Steps Bounds]]].
- replace (13+1)%nat with 14%nat in Bad by reflexivity;rewrite Bad in Steps;injection Steps as <- <-.
+ destruct (Physical None) as [t [ws [_ [_ [_ [_ Prefix]]]]]].
+ pose proof (Prefix _ _ _ Bad) as Bounds.
  apply Forall_app in Bounds as [_ Bounds];inversion Bounds as [|? ? Allowed];subst.
  assert (T:touches w (sp e)) by (change (effective s addr<=sp e<effective s addr+8);rewrite AddressOf;lia).
  specialize (Allowed _ T);destruct Allowed as [Stack|[Scratch|Out]].

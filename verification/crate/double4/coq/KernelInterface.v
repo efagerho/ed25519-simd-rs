@@ -3,24 +3,11 @@ From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions execution.WordBounds.
 From Curve25519 Require Import Field Radix51.
 From Ed25519Simd Require Import Wide51.
+From Ed25519Simd Require Export FieldKernel.
 From Curve25519 Require Import FieldPolynomial.
 From Ed25519Simd Require Import FieldSymbolic.
 From Ed25519Simd.Double4 Require Import Kernels.
 Import ListNotations. Open Scope Z_scope.
-Definition get (r:nat->Z) start := fun i=>(r (start+i)%nat).
-Definition env (r m:nat->Z) i := if Nat.eqb (i mod 2) 0 then r (i/2)%nat else m (i/2)%nat.
-Lemma env_reg r m i : val (env r m) (regvar i)=r i.
-Proof.
- unfold regvar,val,env. replace (2*i)%nat with (i*2)%nat by lia.
- rewrite Nat.Div0.mod_mul,Nat.div_mul by lia;reflexivity.
-Qed.
-Lemma env_mem r m i : val (env r m) (memvar i)=m i.
-Proof.
- unfold memvar,val,env.
- assert (D:((2*i+1)/2=i)%nat) by (symmetry;apply Nat.div_unique with (r:=1%nat);lia).
- assert (M:((2*i+1) mod 2=1)%nat) by (symmetry;apply Nat.mod_unique with (q:=i);lia).
- now rewrite D,M.
-Qed.
 Definition operands k r :=
  (forall i, (i<10)%nat -> 0<=r i<=input_bound k i) /\
  (match k with SquarePair=>r 1%nat+r 0%nat/radix<split /\ r 6%nat+r 5%nat/radix<split | _=>True end) /\
@@ -64,24 +51,12 @@ Proof.
  pose proof (Z.div_pos (r 5%nat) radix ltac:(lia) ltac:(unfold radix;lia));
  first [change (0<=r 1%nat+r 0%nat/radix<=split-1) | change (0<=r 6%nat+r 5%nat/radix<=split-1)];lia.
 Qed.
-Lemma load_indices k : forallb (fun bd=> Nat.eqb (fst bd) (load_base k) &&
- (0<=?snd bd) && (snd bd mod 64 =? 0) &&
- Nat.ltb (Z.to_nat(snd bd/64)) (right_count k)) (loads_of (code k))=true.
+Lemma load_indices k : aligned_loads (code k) (load_base k) (right_count k)=true.
 Proof. destruct k;vm_compute;reflexivity. Qed.
 Lemma loads_models k r load m : right_ok k m ->
  (forall i, (i<right_count k)%nat -> load (load_base k) (64*Z.of_nat i)=m i) ->
  forall b d, In (b,d) (loads_of(code k)) -> models (env r m) (loads k b d) (load b d).
-Proof.
- intros R Mem b d Member. pose proof (load_indices k) as L.
- rewrite forallb_forall in L;specialize (L (b,d) Member);cbn [fst snd] in L.
- repeat rewrite andb_true_iff in L;destruct L as [[[Base D] Align] I].
- apply Nat.eqb_eq in Base;subst b. apply Z.leb_le in D;apply Z.eqb_eq in Align;apply Nat.ltb_lt in I.
- assert (Disp:d=64*Z.of_nat(Z.to_nat(d/64))).
- { rewrite Z2Nat.id by (apply Z.div_pos;lia). pose proof (Z.div_mod d 64 ltac:(lia));lia. }
- unfold models,loads;cbn [term lower upper ProofArithmetic.Interval.I enclosure lower_bound upper_bound];rewrite env_mem.
- pose proof (Mem (Z.to_nat(d/64)) I) as E; rewrite <-Disp in E.
- rewrite E. split;[reflexivity|apply R;exact I].
-Qed.
+Proof. apply (aligned_loads_model _ _ _ _ _ _ _ (load_indices k)). Qed.
 Theorem run_correct k r load m start :
  (forall i, word64(r i)) -> operands k r -> right_ok k m ->
  (forall i, (i<right_count k)%nat -> load (load_base k) (64*Z.of_nat i)=m i) ->
@@ -92,9 +67,3 @@ Proof.
  intros W Input Right Mem Start; eapply kernel_correct;
  eauto using all_kernels_checked,initial_models,valid_hints,loads_models.
 Qed.
-Lemma pack_env_reg r m start : val (env r m) (packE regvar start)=pack r start.
-Proof. change (limbs(fun i=>val (env r m) (regvar (start+i)))=pack r start).
- unfold limbs,pack;rewrite !env_reg;reflexivity. Qed.
-Lemma pack_env_mem r m start : val (env r m) (packE memvar start)=pack m start.
-Proof. change (limbs(fun i=>val (env r m) (memvar (start+i)))=pack m start).
- unfold limbs,pack;rewrite !env_mem;reflexivity. Qed.

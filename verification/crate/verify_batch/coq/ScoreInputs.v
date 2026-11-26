@@ -1,7 +1,7 @@
 From Coq Require Import List ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun abi.SysV memory.FlatMemory memory.ByteMemory.
 From Ed25519Simd.VerifyBatch Require Import Policy Return.
-From Ed25519Simd.VerifyBatch Require HashLayout HashResume NativeHash.
+From Ed25519Simd.VerifyBatch Require HashLayout NativeHash.
 Local Open Scope Z_scope.
 
 (* Live across SHA. The R-validity byte is separate from the eight
@@ -70,10 +70,10 @@ Proof.
  intros P Prep H;eapply preserve;[exact Prep|exact (HashEntry.saved _ _ _ _ _ H)| |];intros x X;apply (HashEntry.other_bytes _ _ _ _ _ H);
  destruct(scratch_stack _ P);unfold BatchWindow.external_byte,ScoreBuffers.region,span,Rows.frame,disjoint,sp in *;lia.
 Qed.
-Lemma after_hash pol bias o e q r s : placement e -> inputs pol e (machine q) -> NativeHash.returned pol bias o e q r ->
- HashResume.compatible r s -> inputs pol e s.
+Lemma after_hash pol bias o e q r next : placement e -> inputs pol e (machine q) -> NativeHash.returned pol bias o e q r ->
+ NativeHash.ready bias o e q r next -> inputs pol e (machine next).
 Proof.
- intros P I R C;apply (preserve _ _ _ _ I (HashResume.saved _ _ _ _ _ _ _ R C));intros x X;rewrite (proj1 C);
+ intros P I R [_ _ Saved Mem _ _ _];apply (preserve _ _ _ _ I Saved);intros x X;rewrite Mem;
  apply (NativeHash.frame _ _ _ _ _ _ R);destruct(scratch_stack _ P);unfold BatchWindow.external_byte,ScoreBuffers.region,span,Rows.frame,disjoint,sp in *;lia.
 Qed.
 End Iteration.

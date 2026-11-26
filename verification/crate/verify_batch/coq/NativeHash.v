@@ -1,6 +1,7 @@
 From Coq Require Import List ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.MappedFetch abi.SysV
  memory.MemoryGeometry memory.ByteMemory memory.FlatMemory memory.WriteTrace.
+From Machine Require abi.CallReturn.
 From Ed25519Simd.Sha512Challenge Require Execution Output Frame Audit Object ObjectBytes LiteralBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar.
 From Ed25519Simd.VerifyBatch Require HashLayout CallWrites Digest.
@@ -10,7 +11,13 @@ Definition code:=Sha512Challenge.ObjectBytes.symbol_bytes.
 Definition literal:=Sha512Challenge.LiteralBytes.address.
 Definition execute bias q:=Sha512Challenge.Execution.run HashEntry.callee
  (snapshot (mem(machine q)) (ip q) (length code)) bias literal (machine q).
-Definition history bias q:=log q++CallWrites.hash_events_at bias (machine q).
+Definition stores bias q := CallWrites.hash_events_at bias (machine q).
+Definition view (r : Sha512Challenge.Execution.observation) :=
+ CallReturn.Observe (Sha512Challenge.Execution.return_ip r) (Sha512Challenge.Execution.return_sp r)
+   (Sha512Challenge.Execution.saved_register r) (Sha512Challenge.Execution.after r).
+Definition resumes bias q r := CallReturn.resumes sysv_saved q (stores bias q) (view r).
+Definition ready bias origin e q r :=
+ CallReturn.ready sysv_saved e (writable e) q (stores bias q) (view r) (origin+458) (Rows.frame e).
 From Ed25519Simd.VerifyBatch Require BatchWindow.
 Section Iteration.
 Context `{iteration:BatchWindow.t}.
@@ -45,13 +52,8 @@ Proof.
 Qed.
 
 Record returned pol bias origin e q r:Prop:=Returned {
- back:Sha512Challenge.Execution.return_ip r=origin+458;
- stack:Sha512Challenge.Execution.return_sp r=Rows.frame e;
- saved:forall g,In g sysv_saved -> Sha512Challenge.Execution.saved_register r g=Some(regs(machine q) g);
- writes:confined (writable e) (history bias q);
- bytes:byte_memory (Sha512Challenge.Execution.after r);
+ abi : CallReturn.certificate sysv_saved e (writable e) q (stores bias q) (view r) (origin+458) (Rows.frame e);
  frame:preserved (fun x=>x<sp e-16384 \/ Rows.frame e+512<=x) (mem(machine q)) (Sha512Challenge.Execution.after r);
- replayed:forall x,Sha512Challenge.Execution.after r x=replay (mem e) (history bias q) x;
  digest:forall j,(j<8)%nat -> HashLayout.eligible pol e j ->
    Scalar.ScalarSpec.lane_input (buffer_words (Sha512Challenge.Execution.after r) (Rows.frame e)) j=
    little_endian (SHA512.Spec.sha512 (r_bytes(row e j)++key_bytes(row e j)++message(row e j)))
@@ -77,14 +79,17 @@ Proof.
    unfold Sha512Challenge.Frame.writable,Sha512Challenge.Frame.frame,Sha512Challenge.Frame.sp,Sha512Challenge.Frame.dst,s in H.
    rewrite Top,Dst in H;pose proof(Z.mod_pos_bound (Rows.frame e-8-8) 64 ltac:(lia));unfold Rows.frame,span,sp in *;lia. }
  exists r;split;[unfold execute;rewrite (HashEntry.target _ _ _ _ _ Q),snapshot_mapped by exact Text;exact Run|constructor].
- - rewrite PC;unfold Sha512Challenge.Frame.sp,s;rewrite Top;apply (HashEntry.back _ _ _ _ _ Q).
- - rewrite SP;unfold Sha512Challenge.Frame.sp,s;rewrite Top;ring.
- - exact G.
- - apply Forall_app;split;[exact (proj1 Prefix)|exact StackWrites].
- - exact B.
+ - constructor; cbn [view CallReturn.return_ip CallReturn.return_sp].
+   + rewrite PC;unfold Sha512Challenge.Frame.sp,s;rewrite Top;apply (HashEntry.back _ _ _ _ _ Q).
+   + rewrite SP;unfold Sha512Challenge.Frame.sp,s;rewrite Top;ring.
+   + exact G.
+   + destruct (stack_ok _ P) as [[Low High] _];unfold Rows.frame,sp,WordBounds.word64 in *;lia.
+   + exact B.
+   + exact Prefix.
+   + exact StackWrites.
+   + exact (Replay r Run).
  - intros x X;apply Frame;unfold Sha512Challenge.Frame.writable,Sha512Challenge.Frame.frame,Sha512Challenge.Frame.sp,Sha512Challenge.Frame.dst,s;
    rewrite Top,Dst;pose proof(Z.mod_pos_bound (Rows.frame e-8-8) 64 ltac:(lia));unfold Rows.frame,sp in *;lia.
- - intro x;unfold history;rewrite replay_app,(Replay r Run x);apply replay_equal,(proj2 Prefix).
  - intros j J On;pose proof(Digest.sha_to_scalar s _ j J Digests) as Scalar.
    pose proof(challenge_bytes _ _ _ _ _ P Borrow Enc Q j J) as Input.
    rewrite (proj2(Flags j J) On) in Input.
