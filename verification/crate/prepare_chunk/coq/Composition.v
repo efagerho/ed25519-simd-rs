@@ -142,7 +142,7 @@ Proof.
  { intros i I;unfold selected_row,table_row,table_address.
    change (regs(filter_entry p incoming prior) 6%nat) with (selected p).
    rewrite pointer_value by assumption;unfold selected_ptr;rewrite A.
-   unfold row,KeyTable.Audit.slot,base,table_offset,tables_offset,table_stride.
+   unfold row,KeyTable.Audit.slot,KeyTable.NativeTable.slot,base,table_offset,tables_offset,table_stride.
    apply read_block;intros k Range;cbn [mem filter_entry with_words].
    replace (scratch p+(3584+2720*Z.of_nat j)+160*(8+d)+8*Z.of_nat i+k)
     with (scratch p+3584+2720*Z.of_nat j+160*(8+d)+8*Z.of_nat i+k) by ring.

@@ -99,8 +99,11 @@ execution/PredicateBlock.v
 execution/MaskedResult.v
 execution/ProjectionWords.v
 execution/ScalarWords.v
+execution/CursorSegment.v
+execution/ProcedureWords.v
 abi/FramePointer.v
 abi/FrameRestore.v
+abi/RegisterSpill.v
 abi/FrameSlots.v
 execution/ScalarByteMemory.v
 execution/PreservedRegister.v

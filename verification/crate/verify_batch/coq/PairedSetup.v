@@ -3,7 +3,8 @@ From Machine Require Import isa.Instructions execution.WordSemantics execution.W
  execution.ScalarBytes execution.MappedFetch execution.InstructionRoute memory.ByteMemory memory.FlatMemory
  memory.MemoryGeometry memory.WriteTrace.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode KeySquare SetupTail.
-From Ed25519Simd.VerifyBatch Require DecoderProduct DecoderKernel DecoderFrame PrepareCopies.
+From Ed25519Simd.Decode Require DecoderKernel.
+From Ed25519Simd.VerifyBatch Require DecoderProduct DecoderFrame PrepareCopies.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition selector:list line := [(73,3%nat,Copy32 13 0);(76,4%nat,Compare32 12 2);

@@ -156,3 +156,5 @@ Proof.
  now rewrite Zero,Z.bits_0 in Bit.
 Qed.
 End Iteration.
+
+Definition masks t:=FinishTrace.masks (PairReturn.signature (DecoderReturn.points(decoded t))).

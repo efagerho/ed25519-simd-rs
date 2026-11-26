@@ -1,3 +1,4 @@
+From Ed25519Simd.Decode Require NativeProduct.
 From Curve25519.group Require Import PointDecoding.
 From Coq Require Import ZArith Bool Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun memory.ByteMemory.
@@ -8,7 +9,7 @@ From Ed25519Simd.Decode Require Import Decode.
 From Ed25519Simd.VerifyBatch Require Import Policy RootDecision.
 From Ed25519Simd.VerifyBatch Require RootCandidate RootAdjusted RootSign.
 Local Open Scope Z_scope.
-Local Opaque Power.apply_kernel DecoderProduct.kernel.
+Local Opaque Power.apply_kernel NativeProduct.kernel.
 
 Definition same (f g:nat->Z):=forall i,(i<5)%nat -> f i=g i.
 Lemma same_value f g : same f g -> value f=value g.
@@ -19,11 +20,11 @@ Lemma same_split f g : same f g -> split_field g -> split_field f.
 Proof. intros E B i I;rewrite E by exact I;apply B,I. Qed.
 
 Lemma selected w (minus:bool) f g : bounded f -> value f=root_candidate w ->
- same g (if minus then mul DecoderProduct.kernel f sqrt_limbs else f) ->
+ same g (if minus then mul NativeProduct.kernel f sqrt_limbs else f) ->
  bounded g /\ value g=corrected_root w minus.
 Proof.
  intros B V E;unfold corrected_root;destruct minus;[|split;[exact(same_bound _ _ E B)|now rewrite(same_value _ _ E)]].
- destruct(mul_ok _ _ _ (proj1 DecoderProduct.multiplication) (bounded_split _ B) sqrt_bound) as [Bound [_ Value]].
+ destruct(mul_ok _ _ _ (proj1 NativeProduct.multiplication) (bounded_split _ B) sqrt_bound) as [Bound [_ Value]].
  split;[exact (same_bound _ _ E Bound)|rewrite(same_value _ _ E),Value,V;reflexivity].
 Qed.
 
@@ -47,8 +48,8 @@ Theorem registers sig pol bias e valid raw chosen masks out j w :
  split_field u -> value u=numerator(encoded_y w) -> split_field t -> value t=root_power(encoded_y w) ->
  bounded(vectors(machine chosen) j) /\ value(vectors(machine chosen) j)=corrected_root w (masks 4%nat j).
 Proof.
- intros Raw Ch J u t U UV T TV;destruct(mul_ok _ u t (proj1 DecoderProduct.multiplication) U T) as [B [_ V]].
- assert (Eq:same (vectors(machine raw) j) (mul DecoderProduct.kernel u t)).
+ intros Raw Ch J u t U UV T TV;destruct(mul_ok _ u t (proj1 NativeProduct.multiplication) U T) as [B [_ V]].
+ assert (Eq:same (vectors(machine raw) j) (mul NativeProduct.kernel u t)).
  { intros i I;exact (proj1(RootCandidate.live_x _ _ _ _ _ _ Raw j i J I)). }
  apply (selected w _ (vectors(machine raw) j));[exact (same_bound _ _ Eq B)|rewrite(same_value _ _ Eq),V,UV,TV;reflexivity|].
  intros i I;rewrite (RootAdjusted.root _ _ _ _ _ _ _ Ch j i J I);unfold RootAdjusted.adjusted;destruct(masks 4%nat j);reflexivity.

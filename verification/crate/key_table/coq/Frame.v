@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Znumtheory Lia.
-From Machine Require Import isa.X86 execution.LinkedCalls memory.MemoryGeometry memory.FlatMemory.
+From Machine Require Import isa.X86 execution.LinkedCalls execution.LinkedRun abi.RegisterSpill memory.MemoryGeometry memory.FlatMemory.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition saves := [3;12;13;14;15]%nat.
@@ -45,3 +45,9 @@ Definition placement images count sp pt dst :=
  disjoint (sp-stack_depth) (stack_depth+8) pt 1280 /\
  disjoint (sp-stack_depth) (stack_depth+8) dst (2720*Z.of_nat count) /\
  forall r c,In r regions -> In c images -> disjoint (fst r) (snd r) (fst c) (snd c-fst c).
+
+Definition saved_regs:=5%nat::saves.
+Definition keep sp pt dst x:=
+ ~(staging sp-1360<=x<staging sp-1360+2320) /\
+ ~(pt<=x<pt+1280) /\ ~(dst<=x<dst+21760).
+Definition saved sp p:=spill (regs(machine p)) (mem(machine p)) sp saved_regs.

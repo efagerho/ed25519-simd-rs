@@ -1,3 +1,4 @@
+From Ed25519Simd.Decode Require NativeProduct.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions execution.WordSemantics execution.LinkedCalls execution.LinkedRun
  execution.WordBounds execution.ScalarBytes execution.ScalarWords execution.MappedFetch execution.InstructionRoute
@@ -6,7 +7,8 @@ From Curve25519 Require Import Field Radix51 Radix51Digits DecompressionRadix51.
 From Ed25519Simd.Decode Require Import Scale.
 From Ed25519Simd.Decode Require Power Decode Kernels.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode DecoderSave KeySquare SetupTail NativeScale.
-From Ed25519Simd.VerifyBatch Require DecoderProduct DecoderKernel DecoderFrame NativeWords FieldStores.
+From Ed25519Simd.Decode Require DecoderKernel.
+From Ed25519Simd.VerifyBatch Require DecoderProduct DecoderFrame NativeWords FieldStores.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition carry_code:list Instructions.instruction:=
@@ -52,7 +54,7 @@ Lemma keep_row s t ptr protect :
 Proof. intros M Ext j i J I;apply preserved_read with (outside:=protect);[exact M|].
  intros k K;change (0<=k<8) in K;apply Ext;lia. Qed.
 
-Definition product h:=Power.apply_kernel DecoderProduct.kernel Kernels.Multiply (u_digits h) (v_digits h).
+Definition product h:=Power.apply_kernel NativeProduct.kernel Kernels.Multiply (u_digits h) (v_digits h).
 Definition fields (p q:cursor):=forall j i,(j<8)%nat -> (i<5)%nat ->
  let h:=vectors(machine p) j in
  row (machine q) a j i=u_digits h i /\
@@ -128,7 +130,7 @@ Proof.
        apply keep_row with (protect:=fun x=>a+320<=x<a+640);[|lia|exact J|exact I].
        intros x X;rewrite KeepU,CMem,ScaleMem;try reflexivity;try lia;apply (off_stack 320 8 x);lia. }
    unfold row;rewrite RM,(UVRows i j I J);change (vectors(machine g) j i=product (vectors(machine p) j) i).
-   rewrite MRegs;unfold product;apply DecoderProduct.lane_product;[| |exact I].
+   rewrite MRegs;unfold product;apply NativeProduct.lane_product;[| |exact I].
    + intros k K;unfold DecoderProduct.arguments;rewrite (proj2(Nat.leb_gt 5 k) ltac:(lia)),
       (proj2(Nat.leb_le 5 (5+k)%nat) ltac:(lia)),(proj2(Nat.ltb_lt (5+k) 10) ltac:(lia)).
      replace (5+k-5)%nat with k by lia;split;[change (vectors(machine f) j k=u_digits (vectors(machine p) j) k);rewrite PR,LR by exact K;apply U;assumption|].

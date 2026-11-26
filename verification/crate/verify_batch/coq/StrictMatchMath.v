@@ -1,3 +1,4 @@
+From Ed25519Simd.Decode Require NativeProduct.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions execution.LinkedCalls execution.Dependencies execution.VectorProcedure.
 From Curve25519 Require Import Radix51.
@@ -9,7 +10,7 @@ From Ed25519Simd.Dalek Require FieldOps.
 From Ed25519Simd.DalekPostHash Require Decoded.
 From Ed25519Simd.VerifyBatch Require StrictSeeded.
 Local Open Scope Z_scope.
-Local Notation kernel:=DecoderProduct.kernel.
+Local Notation kernel:=NativeProduct.kernel.
 Definition suffix:=StrictSeeded.code++DecoderKernel.body DecoderKernel.Carry.
 Definition prepared r a z c:=forall i,(i<5)%nat ->
  r i=a i /\ r (5+i)%nat=z i /\ r (10+i)%nat=

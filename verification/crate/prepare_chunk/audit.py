@@ -32,8 +32,6 @@ def replay(elf, work, dependencies, dalek):
     dest.mkdir()
     symbols, inputs = symbol_inputs(elf, dest, ENTRIES)
     callees = load_callees(elf, work, dependencies, DEPENDENCIES, {"dalek_post_hash": dalek})
-    # The full paired-decoder certificate adds pow_pc to DecoderBytes.
-    subprocess.run(["coqc", *FLAGS, "KeyTable/Object.v"], cwd=work, check=True)
     for name in (*inputs, *MODULES):
         if name in MODULES:
             shutil.copyfile(HERE / "coq" / (name + ".v"), dest / (name + ".v"))

@@ -54,7 +54,7 @@ Proof. intro R;exact (PreparedInputs.encoded _ _ (operands _ _ _ _ _ R)). Qed.
 
 Theorem checked pol bias entry e before caller p a : placement e -> loaded pol bias (mem e) (writable e) ->
  EligibleLanes.post pol bias e before caller -> EligibilityFrame.context pol bias entry e caller ->
- DecodedRows.geometry false e (TableRowMeaning.point e (machine caller)) ->
+ DecodedRows.geometry false e (TableEntry.point_words e (machine caller)) ->
  PreparedInputs.operands e (machine caller) -> PrepareOutputs.result pol bias e caller p a -> exists q,execute bias a=Some q /\ result pol bias entry e q /\
  mem(machine q)=mem(machine a) /\ log q=log a.
 Proof.
@@ -92,16 +92,16 @@ Proof.
  - intros Eq Long;destruct Outputs as [_ [_ [_ [_ [_ Future]]]]].
    change (regs(cpu_state last) 3%nat=word(regs e 7%nat+(40*Z.of_nat BatchWindow.first+320)));rewrite (G 0%nat 3%nat eq_refl);replace (top-8*(1+Z.of_nat 0)) with (top-8) by ring;exact(Future Eq Long).
  - apply (PreparedTables.meaning _ _ _ Points).
-   apply (TableContents.preserve _ _ (machine p));[|exact (TableUnwind.contents _ _ _ _ _ (PrepareOutputs.parent _ _ _ _ _ _ A))].
+   apply (NativeTable.preserve _ _ (mem(machine p)));[|exact (TableUnwind.contents _ _ _ _ _ (PrepareOutputs.parent _ _ _ _ _ _ A))].
    intros x X;cbn [LinkedRun.finish machine];rewrite M;apply (PrepareOutputs.surrounding _ _ _ _ _ _ A).
    destruct(scratch_stack _ P);unfold TableEntry.tables,PrepareOutputs.dest,Rows.frame,sp,span in *;lia.
 Qed.
 
-Definition observe pol bias e p ks:=bind (PrepareOutputs.observe pol bias e p ks) (fun '(a,ak)=>option_map (fun q=>(q,ak)) (execute bias a)).
+Definition observe bias p ks:=bind (PrepareOutputs.observe bias p ks) (fun '(a,ak)=>option_map (fun q=>(q,ak)) (execute bias a)).
 Theorem from_eligible pol bias entry e before p ks : placement e -> loaded pol bias (mem e) (writable e) ->
  (bias+DecoderFrame.origin) mod 64=0 -> EligibleLanes.post pol bias e before p -> EligibilityFrame.context pol bias entry e p ->
- DecodedRows.geometry false e (TableRowMeaning.point e (machine p)) ->
- PreparedInputs.operands e (machine p) -> regs(machine p) 14%nat<>0 -> exists q bank,observe pol bias e p ks=Some(q,bank) /\ result pol bias entry e q.
+ DecodedRows.geometry false e (TableEntry.point_words e (machine p)) ->
+ PreparedInputs.operands e (machine p) -> regs(machine p) 14%nat<>0 -> exists q bank,observe bias p ks=Some(q,bank) /\ result pol bias entry e q.
 Proof.
  intros P I Al E C Points Enc Live;destruct(PrepareOutputs.from_eligible _ _ _ _ _ ks P I Al E Live) as [a [ak [r [Run A]]]].
  destruct(checked _ _ _ _ _ _ _ _ P I E C Points Enc A) as [q [End [Q _]]];exists q,ak;split;[unfold observe;rewrite Run;cbn [bind];now rewrite End|exact Q].

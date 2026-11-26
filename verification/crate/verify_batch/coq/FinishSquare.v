@@ -1,3 +1,4 @@
+From Ed25519Simd.Decode Require NativeProduct.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions execution.WordBounds execution.WordSemantics execution.LinkedCalls execution.LinkedRun
  execution.ScalarBytes execution.ScalarWords execution.MappedFetch execution.InstructionRoute execution.AlignedRows execution.VectorProcedure
@@ -5,7 +6,8 @@ From Machine Require Import isa.Instructions execution.WordBounds execution.Word
 From Curve25519 Require Import Field Radix51.
 From Ed25519Simd.Decode Require Import Kernels Power.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode KeySquare NativeScale.
-From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderPower DecoderFinish DecoderProduct DecoderKernel NativeWords.
+From Ed25519Simd.Decode Require DecoderKernel.
+From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderPower DecoderFinish DecoderProduct NativeWords.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition load bias:=segment (base bias) text 5.
@@ -33,12 +35,12 @@ Proof.
  - replace (o+(935+5)+(0x59b-940)) with (o+0x59b) by ring;exact (DecoderProduct.calc pol bias e I DecoderKernel.Square).
 Qed.
 
-Lemma square_frame : kernel_frame DecoderProduct.kernel Square.
+Lemma square_frame : kernel_frame NativeProduct.kernel Square.
 Proof. apply frame_ok;vm_compute;reflexivity. Qed.
 Lemma lane r x : (forall i,(i<5)%nat -> r i=x i) ->
  (forall i,(i<4)%nat -> r (28+i)%nat=DecoderFrame.constant i) ->
  forall i,(i<5)%nat -> Instructions.run no_read (DecoderKernel.body DecoderKernel.Square) r i=
- Power.apply_kernel DecoderProduct.kernel Square x x i.
+ Power.apply_kernel NativeProduct.kernel Square x x i.
 Proof.
  intros X C;refine (proj1(square_frame no_read no_read r (Power.feed x x) _)).
  intros i Live;destruct(Nat.lt_ge_cases i 5) as [Small|Large].
@@ -56,7 +58,7 @@ Definition post sig pol bias e p q:=let slot:=link_slot pol e in
  preserved (fun x=>~(slot-8<=x<slot)) (mem(machine p)) (mem(machine q)) /\
  (forall i j,(i<4)%nat -> vectors(machine q) j (28+i)%nat=DecoderFrame.constant i) /\
  forall j i,(j<8)%nat -> (i<5)%nat -> let x:=operand sig pol e (machine p) j in
- vectors(machine q) j i=Power.apply_kernel DecoderProduct.kernel Square x x i.
+ vectors(machine q) j i=Power.apply_kernel NativeProduct.kernel Square x x i.
 
 From Ed25519Simd.VerifyBatch Require BatchWindow.
 Section Iteration.
@@ -90,7 +92,7 @@ Proof.
        by (intros j k K;rewrite Other by lia;apply C,K).
      split.
      * intros k j K;rewrite Project;destruct(square_frame no_read no_read (vectors v j) (vectors v j) ltac:(reflexivity)) as [_ Survive];
-       change (Instructions.run no_read (body DecoderProduct.kernel Square) (vectors v j) (28+k)%nat=DecoderFrame.constant k);
+       change (Instructions.run no_read (body NativeProduct.kernel Square) (vectors v j) (28+k)%nat=DecoderFrame.constant k);
        rewrite Survive by lia;apply High,K.
      * intros j i J K;rewrite Project;apply lane;[intros k N;apply Rows,N|apply High|exact K].
 Qed.

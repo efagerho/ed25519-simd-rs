@@ -1,3 +1,4 @@
+From Ed25519Simd.Decode Require PowAddress.
 From Coq Require Import List ZArith Lia.
 From Machine Require Import isa.Instructions execution.WordSemantics execution.WordBounds execution.LinkedCalls
  execution.LinkedRun execution.ScalarBytes execution.MappedFetch execution.InstructionRoute
@@ -5,19 +6,20 @@ From Machine Require Import isa.Instructions execution.WordSemantics execution.W
 From Ed25519Simd.Pow2 Require Pow2ABI Pow2Memory ObjectBytes.
 From Ed25519Simd.Decode Require DecoderBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode KeySquare SetupTail PairedSetup.
-From Ed25519Simd.VerifyBatch Require DecoderProduct DecoderKernel DecoderFrame ScalarInputs.
+From Ed25519Simd.Decode Require DecoderKernel.
+From Ed25519Simd.VerifyBatch Require DecoderProduct DecoderFrame ScalarInputs.
 Import ListNotations. Local Open Scope Z_scope.
 
-Definition power bias:=bias+DecoderBytes.pow_pc.
+Definition power bias:=bias+PowAddress.address.
 Definition return_pc bias:=base bias+126.
 Definition regions pol e (r:nat):=match r with
  | 1%nat=>scratch e+1984 | 2%nat=>scratch e+3264
  | 3%nat=>link_slot pol e+8 | 4%nat=>link_slot pol e-1928 | _=>0 end.
 Definition locations pol bias e:=Placement (regions pol e) (power bias) (return_pc bias).
 Definition size:=Z.of_nat(length Pow2.ObjectBytes.symbol_bytes).
-Lemma power_in pol : In (DecoderBytes.pow_pc,Pow2.ObjectBytes.symbol_bytes) (children pol).
+Lemma power_in pol : In (PowAddress.address,Pow2.ObjectBytes.symbol_bytes) (children pol).
 Proof. apply in_or_app;left;do 6 right;left;reflexivity. Qed.
-Lemma separate_symbols : DecoderBytes.pow_pc+size<=DecoderFrame.origin+126 \/ DecoderFrame.origin+126<DecoderBytes.pow_pc.
+Lemma separate_symbols : PowAddress.address+size<=DecoderFrame.origin+126 \/ DecoderFrame.origin+126<PowAddress.address.
 Proof. first [left;vm_compute;discriminate || reflexivity|right;vm_compute;reflexivity]. Qed.
 Lemma slot_alignment pol e : link_slot pol e mod 16=8.
 Proof.
@@ -41,14 +43,14 @@ Proof.
  assert (Distinct:forall a n,0<n -> sp e-16384<=a -> a+n<=sp e ->
       disjoint a n (power bias) size).
  { intros a n Len A Z;apply ScalarInputs.apart;[exact Len|vm_compute;reflexivity|intros x X Over];
-   apply (immutable _ _ _ _ I x);[left;exists DecoderBytes.pow_pc,Pow2.ObjectBytes.symbol_bytes;split;[apply power_in|exact X]|left;unfold span;lia]. }
+   apply (immutable _ _ _ _ I x);[left;exists PowAddress.address,Pow2.ObjectBytes.symbol_bytes;split;[apply power_in|exact X]|left;unfold span;lia]. }
  repeat split;try apply slot_alignment;try exact Outside;try apply Distinct;
   unfold fits64,word64,disjoint in *;try lia.
 Qed.
 
 Definition bridge:list line := [(101,3%nat,Copy32 14 0);(104,7%nat,LeaG 2 (Address 3 None 2240));
  (111,7%nat,LeaG 6 (Address 3 None 960));(118,3%nat,CopyG 7 4);
- (121,5%nat,CallRelative (DecoderBytes.pow_pc-(DecoderBytes.address+126)))].
+ (121,5%nat,CallRelative (PowAddress.address-(DecoderBytes.address+126)))].
 Lemma bridge_bytes : linked text bridge.
 Proof. repeat constructor;vm_compute;discriminate || reflexivity. Qed.
 Definition enter bias:=segment (base bias) text 5.
@@ -78,8 +80,8 @@ Proof.
  assert (B:word(regs s 3%nat+0+2240)=scratch e+3264) by (rewrite BX,word_fits by (unfold word64;lia);ring).
  assert (Top:word(regs s 4%nat-8)=st) by (rewrite SP;replace (st+8-8) with st by ring;apply word_fits;unfold word64;lia).
  pose proof(mapped_word _ _ _ I _ _ (power_in pol) ltac:(vm_compute;reflexivity)) as Good.
- assert (Target:word(o+(126+(DecoderBytes.pow_pc-(DecoderBytes.address+126))))=power bias)
-   by (replace (o+(126+(DecoderBytes.pow_pc-(DecoderBytes.address+126)))) with (power bias) by (unfold o,base,DecoderFrame.origin,power;ring);
+ assert (Target:word(o+(126+(PowAddress.address-(DecoderBytes.address+126))))=power bias)
+   by (replace (o+(126+(PowAddress.address-(DecoderBytes.address+126)))) with (power bias) by (unfold o,base,DecoderFrame.origin,power;ring);
        apply word_fits,Good).
  set (args:=set (set (set (set s 14 (regs s 0%nat mod 2^32)) 2 (scratch e+3264)) 6 (scratch e+1984)) 7 (st+8)).
  set (child:=push args (return_pc bias));set (w:=qword (word(o+121)) st (return_pc bias)).

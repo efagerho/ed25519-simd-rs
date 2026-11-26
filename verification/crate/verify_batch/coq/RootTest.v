@@ -1,3 +1,4 @@
+From Ed25519Simd.Decode Require NativeProduct.
 From Curve25519.group Require Decompression.
 From Coq Require Import ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.LocatedReturn memory.ByteMemory memory.FlatMemory memory.MemoryGeometry.
@@ -8,18 +9,18 @@ From Ed25519Simd.Decode Require Kernels Power.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchDecode KeySquare NativeScale SetupValues.
 From Ed25519Simd.VerifyBatch Require DecoderPower PowerInputs PowerWrites DecoderResume DecoderFinish FinishSquare FinishProduct NativeWords DecoderFrame DecoderProduct.
 Local Open Scope Z_scope.
-Local Opaque DecoderProduct.kernel.
+Local Opaque NativeProduct.kernel.
 
-Lemma square_verified : Kernels.verified DecoderProduct.kernel Kernels.Square=true.
+Lemma square_verified : Kernels.verified NativeProduct.kernel Kernels.Square=true.
 Proof. vm_compute;reflexivity. Qed.
 Lemma result x v exponent_value input :
  Radix51.squared x -> split_field v -> represents (limbs x) exponent_value -> represents (limbs v) input ->
  let q:=FinishProduct.candidate x v in
  field_bound (fun _=>radix+2^16) q /\ 2<=q 0%nat /\ represents (limbs q) (exponent_value*exponent_value*input).
 Proof.
- intros X V RX RV;set (sq:=Power.apply_kernel DecoderProduct.kernel Kernels.Square x x).
+ intros X V RX RV;set (sq:=Power.apply_kernel NativeProduct.kernel Kernels.Square x x).
  destruct(Power.apply_ok _ Kernels.Square _ _ square_verified X X) as [S [SS _]].
- destruct(Power.apply_ok _ Kernels.Multiply sq v (proj1 DecoderProduct.multiplication) (squared_split _ S) V) as [B [M L]].
+ destruct(Power.apply_ok _ Kernels.Multiply sq v (proj1 NativeProduct.multiplication) (squared_split _ S) V) as [B [M L]].
  split;[exact B|split;[apply L;reflexivity|]];eapply ctrans;[exact M|apply ctimes;[eapply ctrans;[exact SS|apply ctimes];exact RX|exact RV]].
 Qed.
 

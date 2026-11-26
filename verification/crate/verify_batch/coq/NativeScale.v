@@ -9,7 +9,8 @@ From Ed25519Simd.Decode Require Import Scale.
 From Curve25519 Require Import Radix51Digits.
 From Ed25519Simd.Decode Require HelperBytes.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode KeySquare SetupTail.
-From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderKernel DecoderProduct.
+From Ed25519Simd.Decode Require DecoderKernel.
+From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderProduct.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition prefix:list line:=[(509,10%nat,BroadcastRip 25 (DecoderFrame.helper+0xe18-(DecoderFrame.origin+519)));
@@ -38,14 +39,7 @@ Proof.
  rewrite !Z.lxor_nilpotent,?C28,?C29,?C30,?C31;split;reflexivity.
 Qed.
 
-Lemma read_literal bias a bs off value m : mapped m (bias+a) bs -> fits64 (bias+a) (Z.of_nat(length bs)) ->
- 0<=off -> off+8<=Z.of_nat(length bs) -> read_word (fun x=>nth (Z.to_nat x) bs 0) off=value ->
- read_word m (word(bias+a+off))=value.
-Proof.
- intros Map [L H] Pos Ext Value;rewrite word_fits by (unfold word64;lia).
- unfold read_word;rewrite (DecoderFrame.literal_read _ _ _ 8 Map off Pos Ext);exact Value.
-Qed.
-
+Definition read_literal:=FieldLiterals.read_literal.
 Definition prep s:=vector_dest (vector_dest (vector_dest s 25 (fun _=>121666)) 26
  (fun _=>Arithmetic.vpaddq 121666 121666)) 5 (fun j=>Arithmetic.vpsubq (vectors s j 0%nat) 1).
 Lemma initial pol bias e p : loaded pol bias (mem e) (writable e) -> accounted e (writable e) p ->

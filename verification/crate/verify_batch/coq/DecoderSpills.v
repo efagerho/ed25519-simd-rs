@@ -3,7 +3,8 @@ From Machine Require Import isa.Instructions execution.WordSemantics execution.W
  execution.ScalarBytes execution.ScalarWords execution.StoreInstructions execution.InstructionRoute execution.MappedFetch
  memory.ByteMemory memory.MemoryGeometry memory.FlatMemory memory.WriteTrace.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode KeySquare.
-From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderKernel DecoderProduct.
+From Ed25519Simd.Decode Require DecoderKernel.
+From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderProduct.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition registers: list nat:=[5;3;12;13;14]%nat.

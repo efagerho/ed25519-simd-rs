@@ -1,3 +1,4 @@
+From Ed25519Simd.Decode Require NativeProduct.
 From Curve25519 Require Radix51Digits.
 From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions execution.WordBounds execution.WordSemantics execution.LinkedCalls execution.LinkedRun
@@ -5,7 +6,8 @@ From Machine Require Import isa.Instructions execution.WordBounds execution.Word
 From Machine Require execution.MaskTransfer execution.MaskedResult.
 From Ed25519Simd.Decode Require Decode Kernels Power.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode KeySquare NativeScale.
-From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderKernel DecoderProduct RowProduct RootMultiply SetupValues MaskSegment.
+From Ed25519Simd.Decode Require DecoderKernel.
+From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderProduct RowProduct RootMultiply SetupValues MaskSegment.
 Import ListNotations. Local Open Scope Z_scope.
 Module MR:=MaskedResult.
 
@@ -15,7 +17,7 @@ Lemma image:MR.assemble 1124 select=Some bytes /\ length bytes=39%nat.
 Proof. split;vm_compute;reflexivity. Qed.
 Definition execute bias p bank:=bind (RootMultiply.execute bias p) (fun q=>MR.execute (base bias) select q bank).
 Definition adjusted s (bank:MaskTransfer.bank) j:=if bank 4%nat j then
- Power.apply_kernel DecoderProduct.kernel Kernels.Multiply (vectors s j) Radix51Digits.sqrt_limbs else vectors s j.
+ Power.apply_kernel NativeProduct.kernel Kernels.Multiply (vectors s j) Radix51Digits.sqrt_limbs else vectors s j.
 
 Record result pol bias e p bank q (out:MaskTransfer.bank):Prop:=Result {
  next:ip q=base bias+1163;

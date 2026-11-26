@@ -4,7 +4,8 @@ From Machine Require Import isa.Instructions execution.WordBounds execution.Word
 From Machine Require execution.MaskTransfer.
 From Curve25519 Require Import Radix51 Radix51Digits.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode KeySquare NativeScale.
-From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderKernel DecoderProduct RootMasks.
+From Ed25519Simd.Decode Require DecoderKernel.
+From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderProduct RootMasks.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition load bias:=segment (base bias) text 5.

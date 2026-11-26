@@ -2,9 +2,10 @@
 import argparse
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 
-from audit import ENTRY, FLAGS, decoder
+from audit import ENTRY, FLAGS, build_project, decoder
 from crate.post_hash.build import symbol_inputs
 from crate.post_hash.check_mutations import compile_module, mutate
 from elf import executable_offset, symbol_extent
@@ -25,9 +26,14 @@ def check(elf, audit, work):
     for name in ("arithmetic", "machine", "curve25519", "crate", "CachedAdd"):
         (work / name).symlink_to(audit / name, target_is_directory=True)
     for name in ("KeyTable", "Decode"):
-        shutil.copytree(audit / name, work / name)
-    compile_module(work, FLAGS, "KeyTable", "Object")
+        shutil.copytree(audit / name, work / name, ignore=shutil.ignore_patterns("Checked.*"))
+    build_project(work)
+    subprocess.run(["make", "-s", "KeyTable/Object.vo"], cwd=work, check=True)
     for label, symbol, old, new in CASES:
+        # Reset the checked sources and objects together. Each mutant is compared
+        # with the same positive control, including all interior instruction proofs.
+        for name in ("KeyTable", "Decode"):
+            shutil.copytree(audit / name, work / name, dirs_exist_ok=True, ignore=shutil.ignore_patterns("Checked.*"))
         changed = work / "changed.elf"
         if symbol == decoder.DECODER:
             # Select the carry helper by its audited entry offset. The same
@@ -48,7 +54,7 @@ def check(elf, audit, work):
             witness.write_text("""From Coq Require Import ZArith.
 From Curve25519 Require Import Field Radix51.
 From Ed25519Simd.Decode Require Import Program DecoderBytes HelperBytes.
-From Ed25519Simd.KeyTable Require Import Fields Audit.
+From Ed25519Simd.KeyTable Require Import Fields Image.
 Local Open Scope Z_scope.
 Example mutant_still_bound : helper_image code DecoderBytes.address DecoderBytes.symbol_bytes
  HelperBytes.address HelperBytes.symbol_bytes.
@@ -62,8 +68,11 @@ Proof. vm_compute;discriminate. Qed.
         else:
             mutate(elf, changed, symbol, old, new)
         symbol_inputs(changed, work / "KeyTable", {"Object": ENTRY})
-        compile_module(work, FLAGS, "KeyTable", "ObjectBytes")
-        compile_module(work, FLAGS, "KeyTable", "Object", reject=True)
+        result = subprocess.run(["make", "-s", "-j4", "KeyTable/Object.vo"], cwd=work,
+                                capture_output=True, text=True)
+        output = result.stdout + result.stderr
+        if not result.returncode or "Error: Unable to unify" not in output or "inconsistent assumptions" in output:
+            raise AssertionError(f"expected a proof failure for {label}: {output[-1800:]}")
         print(f"Public key-table theorem rejected {label}", flush=True)
 
 

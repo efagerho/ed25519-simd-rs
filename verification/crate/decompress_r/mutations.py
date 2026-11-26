@@ -30,12 +30,9 @@ def check(elf, audit, work):
         (work / name).symlink_to(audit / name, target_is_directory=True)
     dest = work / "Decode"
     shutil.copytree(audit / "Decode", dest)
-    pow_pc, _ = symbol_extent(elf, "ed25519_simd_pow2_ifma")
 
     def replay(binary):
         extract(binary, dest)
-        with (dest / "DecoderBytes.v").open("a") as out:
-            out.write(f"Definition pow_pc : Z := {pow_pc}.\n")
         for module in ("Program", "DecoderBytes", "HelperBytes"):
             subprocess.run(["coqc", *flags, f"Decode/{module}.v"], cwd=work, check=True)
         return subprocess.run(["coqc", *flags, "Decode/Object.v"], cwd=work,

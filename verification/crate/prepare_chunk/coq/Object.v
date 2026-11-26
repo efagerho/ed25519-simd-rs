@@ -1,3 +1,4 @@
+From Ed25519Simd.Decode Require PowAddress.
 From Coq Require Import ZArith List Lia.
 From Machine Require Import execution.LinkedCalls execution.WordSemantics execution.StoreInstructions memory.WriteTrace memory.ByteMemory memory.FlatMemory.
 From Ed25519Simd.Decode Require Object.
@@ -88,7 +89,7 @@ Proof.
  - apply checked_scalar_call.
  - intros p pad Pad.
    assert (Call:Decode.Caller.caller_result (HelperBytes.address-pc DecodePair)
-     (DecoderBytes.pow_pc-pc DecodePair) true pad).
+     (PowAddress.address-pc DecodePair) true pad).
    { destruct pad as [|[|[|[|pad]]]];try lia;vm_compute;repeat split;reflexivity. }
    split;[exact Call|].
    unfold decoded;exact (Chunks.returned_by_caller _ _ Decode.Program.code (staged p) (scratch p) true pad Call).

@@ -35,17 +35,24 @@ preserve bytes outside the requested extent. [Public contract](coq/Audit.v) ·
    signed store. Unpack and shuffle use the shared byte-level machine model.
    [Byte expansions](coq/Image.v) · [Field kernels](coq/Fields.v) ·
    [Lane and store semantics](coq/Pack.v) · [Caller execution](coq/Execution.v)
-3. **Check the machine boundary.** The caller model groups the prologue,
-   field operations and epilogue. It executes the control flow and table
-   writes, and runs cached addition on the current point and staged input
-   with arbitrary well-formed temporaries. Writable point, table and stack
-   storage must be disjoint from each other and the code. The aligned
-   staging area is 960 bytes, and the lowest nested return slot is at most
-   2,424 bytes below entry RSP. The byte-level postcondition describes the
-   table destination. Correspondence of the grouped caller to native execution,
-   including save/restore of SysV registers, remains a human audit obligation.
-   [Frame geometry](coq/Frame.v) · [Cached-add call](coq/Advance.v) ·
+3. **Check the production call boundary.** The `native_eight` field starts
+   at the linked builder symbol with RDX equal to eight. Its executor reads
+   RSP, RDI and RSI from the incoming CPU. Check the disjoint buffers, stack
+   placement, code mappings and alignment premises. The result restores
+   the six SysV callee-saved registers, advances the 64-bit RSP by eight and
+   returns to the word read at entry RSP. The returned write log extends
+   the caller’s log with the actual stores, including nested calls. Each
+   store lies in the 2,424-byte private stack, the point, or the eight tables.
+   The signed entries are read from the returned byte memory. The caller
+   can choose the three buffer addresses independently.
+   [Callable theorem](coq/NativeBuilder.v) · [Signed memory entries](coq/NativeTable.v) ·
    [Shared machine and memory assumptions](../../README.md#shared-audit-surface)
+4. **Check the single-table boundary separately.** The `table_execution`
+   field checks the grouped control flow, table writes and arithmetic for
+   RDX equal to one or eight. For the lane-zero, single-table path, the
+   correspondence of that grouped execution with the native caller and its
+   register restoration remains an audit obligation.
+   [Grouped execution](coq/Execution.v) · [Frame geometry](coq/Frame.v)
 
 ## Replay
 

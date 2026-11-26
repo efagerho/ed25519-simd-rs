@@ -3,7 +3,8 @@ From Machine Require Import isa.Instructions execution.WordBounds execution.Word
  execution.ScalarBytes execution.ScalarWords execution.MappedFetch execution.InstructionRoute
  memory.ByteMemory memory.FlatMemory memory.MemoryGeometry memory.WriteTrace.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode KeySquare DecoderPower DecoderResume.
-From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderProduct DecoderKernel.
+From Ed25519Simd.Decode Require DecoderKernel.
+From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderProduct.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition power_offset (sig:bool):=if sig then 320 else 0.

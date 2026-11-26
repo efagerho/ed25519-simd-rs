@@ -102,11 +102,11 @@ Proof.
  - exact T.
 Qed.
 
-Definition observe pol bias e p ks:=bind (TableUnwind.observe pol bias e p ks) (fun '(a,ak)=>execute bias a ak).
+Definition observe bias p ks:=bind (TableUnwind.observe bias p ks) (fun '(a,ak)=>execute bias a ak).
 
 Theorem from_eligible pol bias e before p ks : placement e -> loaded pol bias (mem e) (writable e) ->
  (bias+DecoderFrame.origin) mod 64=0 -> EligibleLanes.post pol bias e before p -> regs(machine p) 14%nat<>0 ->
- exists q bank a,observe pol bias e p ks=Some(q,bank) /\ result pol bias e p a q.
+ exists q bank a,observe bias p ks=Some(q,bank) /\ result pol bias e p a q.
 Proof.
  intros P I Al E Live;destruct(TableUnwind.from_eligible _ _ _ _ _ ks P I Al E Live) as [a [ak [Run A]]].
  destruct(checked _ _ _ _ _ _ ak P I E A) as [q [bank [Emit Post]]].

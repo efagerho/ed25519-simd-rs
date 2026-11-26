@@ -1,3 +1,4 @@
+From Ed25519Simd.Decode Require NativeProduct.
 From Coq Require Import ZArith List Lia.
 From Machine Require Import isa.Instructions execution.WordSemantics execution.LinkedCalls execution.LinkedRun execution.MappedFetch
  execution.ScalarBytes execution.ScalarWords execution.InstructionRoute execution.VectorProcedure execution.AlignedRows memory.ByteMemory
@@ -14,7 +15,7 @@ Lemma code : linked text mov /\
 Proof. repeat split;repeat constructor;vm_compute;discriminate || reflexivity. Qed.
 Definition execute bias:=then_run (segment (base bias) text 1)
  (then_run (DecoderProduct.multiply_call bias) (segment (base bias) text 5)).
-Definition candidate s j:=Power.apply_kernel DecoderProduct.kernel Kernels.Multiply
+Definition candidate s j:=Power.apply_kernel NativeProduct.kernel Kernels.Multiply
  (vectors s j) (row s (regs s 6%nat) j).
 
 Record result sig pol bias e p q : Prop:=Result {

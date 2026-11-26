@@ -1,3 +1,4 @@
+From Ed25519Simd.Decode Require NativeProduct.
 From Coq Require Import List ZArith Lia.
 From Machine Require Import isa.Instructions execution.WordSemantics execution.WordBounds execution.LinkedCalls execution.LinkedRun
  execution.ScalarBytes execution.ScalarWords execution.MappedFetch execution.InstructionRoute execution.VectorProcedure execution.AlignedRows
@@ -27,7 +28,7 @@ Record result sig pol bias e p q : Prop:=Result {
   let a:=point e sig in let x:=vectors(machine p) j in let y:=row (machine p) (a+320) j in
   row (machine q) a j i=x i /\ row (machine q) (a+320) j i=y i /\
   row (machine q) (a+640) j i=Decode.one i /\
-  row (machine q) (a+960) j i=Power.apply_kernel DecoderProduct.kernel Kernels.Multiply x y i
+  row (machine q) (a+960) j i=Power.apply_kernel NativeProduct.kernel Kernels.Multiply x y i
 }.
 
 Theorem checked sig pol bias e p : placement e -> loaded pol bias (mem e) (writable e) ->

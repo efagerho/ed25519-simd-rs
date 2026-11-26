@@ -1,3 +1,4 @@
+From Ed25519Simd.Decode Require NativeProduct.
 From Coq Require Import ZArith List Lia.
 From Machine Require Import isa.Instructions execution.LinkedCalls execution.LinkedRun execution.ScalarBytes
  execution.WordSemantics execution.WordBounds execution.VectorProcedure memory.ByteMemory memory.FlatMemory memory.MemoryGeometry.
@@ -26,7 +27,7 @@ Record result pol bias e pc p q : Prop:=Result {
  frame:preserved (fun x=>~(link_slot pol e-24<=x<link_slot pol e)) (mem(machine p)) (mem(machine q));
  constants_after:constants(machine q);
  limbs_after:forall j i,(j<8)%nat -> (i<5)%nat -> vectors(machine q) j i=
-   Power.apply_kernel DecoderProduct.kernel Kernels.Multiply (vectors(machine p) j)
+   Power.apply_kernel NativeProduct.kernel Kernels.Multiply (vectors(machine p) j)
        (row (machine p) (regs(machine p) 8%nat) j) i
 }.
 
@@ -65,7 +66,7 @@ Proof.
  - exact G.
  - intros x X;apply Keep;change (~(regs s 4%nat-24<=x<regs s 4%nat));now rewrite SP.
  - intros i j N;rewrite (Out j (28+i)%nat).
-   destruct((proj2 DecoderProduct.multiplication) no_read no_read (args j) (args j) ltac:(reflexivity)) as [_ Survive].
+   destruct((proj2 NativeProduct.multiplication) no_read no_read (args j) (args j) ltac:(reflexivity)) as [_ Survive].
    rewrite Survive by lia;apply High,N.
- - intros j i J N;rewrite (Out j i);apply DecoderProduct.lane_product;[intros k B;apply Args;assumption|intros k B;apply High,B|exact N].
+ - intros j i J N;rewrite (Out j i);apply NativeProduct.lane_product;[intros k B;apply Args;assumption|intros k B;apply High,B|exact N].
 Qed.

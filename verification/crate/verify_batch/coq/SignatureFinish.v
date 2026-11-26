@@ -2,8 +2,8 @@ From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions execution.WordSemantics execution.WordBounds execution.LinkedCalls execution.LinkedRun
  execution.ScalarBytes execution.ScalarWords execution.InstructionRoute execution.MappedFetch memory.ByteMemory memory.FlatMemory memory.MemoryGeometry memory.WriteTrace.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode KeySquare.
-From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderKernel DecoderProduct DecoderPower DecoderFinish RootTest RootCandidate
- Selection SignedRoot ReturnedPoint KeyReturn.
+From Ed25519Simd.Decode Require DecoderKernel.
+From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderProduct DecoderPower DecoderFinish RootTest RootCandidate Selection SignedRoot ReturnedPoint KeyReturn.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition route:list line:=[(190,4%nat,Compare32 12 2);(194,2%nat,Branch Unequal 32);

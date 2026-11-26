@@ -8,7 +8,7 @@ Local Open Scope Z_scope.
 Definition execute pol bias pc text p ks:=match pol with
  | Zip215=>HashEntry.execute bias pc text p ks
  | Dalek=>option_map (fun q=>(q,ks)) (StrictFilterCall.execute bias p) end.
-Definition observe pol bias pc text e p ks:=bind (PreparedReturn.observe pol bias e p ks)
+Definition observe pol bias pc text p ks:=bind (PreparedReturn.observe bias p ks)
   (fun '(a,b)=>execute pol bias pc text a b).
 Definition site pol:=match pol with Zip215=>HashEntry.callee | Dalek=>DalekPostHash.FilterBytes.address end.
 From Ed25519Simd.VerifyBatch Require BatchWindow.

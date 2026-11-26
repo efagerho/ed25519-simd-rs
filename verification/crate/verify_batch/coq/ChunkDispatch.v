@@ -63,7 +63,7 @@ Local Lemma after_eligible pol bias pc text e s d t : admissible pol bias pc tex
  EligibilityFrame.context pol bias (bias+pc) e (EligibleLanes.stopped t) ->
  (regs(machine(EligibleLanes.stopped t)) 14%nat=0 ->
    exists r,RejectedPath.execute true pol bias pc text (EligibleLanes.stopped t)=Some r /\ RejectExecution.post (bias+pc) e r) ->
- exists b,FirstDispatch.after_eligible pol bias pc text e t=Some b /\ post pol bias pc e b.
+ exists b,FirstDispatch.after_eligible pol bias pc text t=Some b /\ post pol bias pc e b.
 Proof.
  intros A Code N Digits Entry Handoff Check Frame Reject.
  pose proof (BatchWindow.total e N) as Total;assert (Full:(0<Scatter.count e)%nat) by lia.
@@ -77,7 +77,7 @@ Proof.
  - assert (Enc:PreparedInputs.operands e (machine(EligibleLanes.stopped t))).
    { eapply PreparedInputs.from_decoder;[exact P|exact Digits|exact Handoff| |exact Check].
      destruct Entry as [_ [_ [_ [_ [_ [_ [_ Data]]]]]]];exact Data. }
-   destruct(PreparedReturn.from_eligible _ _ _ _ _ _ (TableMask.masks t) P I Al (proj2 Check) Frame (PreparedTables.input _ _ _ _ _ P Check) Enc Yes)
+   destruct(PreparedReturn.from_eligible _ _ _ _ _ _ (EligibleLanes.masks t) P I Al (proj2 Check) Frame (PreparedTables.input _ _ _ _ _ P Check) Enc Yes)
       as [q [k [Prep Done]]].
    destruct(ReadyDispatch.checked pol bias pc text e q k (proj1 Code) P I Range (entry_text _ _ _ _ _ A) Sep Done)
       as [v [kv [Go [_ Child]]]];unfold ReadyDispatch.observe;rewrite Prep;cbn [bind];rewrite Go;cbn [bind fst snd].

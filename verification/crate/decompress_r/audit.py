@@ -32,6 +32,9 @@ def vector_block(rows, start, end):
     return "[" + ";\n".join(result) + "]"
 
 
+NATIVE_MODULES = ("DecoderKernel", "FieldLiterals", "NativeProduct")
+
+
 def extract(binary, dest):
     symbols = []
     metadata = []
@@ -75,10 +78,9 @@ def main():
     elf = args.elf.resolve()
     symbols = extract(elf, dest)
     pc, size = symbol_extent(elf, "ed25519_simd_pow2_ifma")
+    (dest / "PowAddress.v").write_text(f"From Coq Require Import ZArith.\nDefinition address : Z := {pc}%Z.\n")
     power = symbol_bytes(elf, pc, size)
     symbols.append(("ed25519_simd_pow2_ifma", pc, power))
-    with (dest / "DecoderBytes.v").open("a") as out:
-        out.write(f"Definition pow_pc : Z := {pc}.\n")
     compile_libraries(work, projects=MASK_PROJECTS)
     pow_dir = work / "Pow2"
     pow_dir.mkdir()
@@ -89,7 +91,7 @@ def main():
                    sources / "Object.v", component_flags("pow2", ".", Path("..")))
     flags = component_flags("decompress_r") + ["-Q", "Pow2", "Ed25519Simd.Pow2"]
     for name in ("Kernels", "Power", "Image", "Scale", "Unpack", "Decode", "Glue", "Caller", "Chunks",
-                 "Program", "DecoderBytes", "HelperBytes", "Audit", "Object"):
+                 "Program", "DecoderBytes", "HelperBytes", "PowAddress", *NATIVE_MODULES, "Audit", "Object"):
         source = dest / (name + ".v")
         if not source.exists():
             shutil.copyfile(HERE / "coq" / source.name, source)

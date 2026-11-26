@@ -1,39 +1,13 @@
-From Coq Require Import List ZArith Lia.
-From Machine Require Import isa.Instructions execution.WordSemantics execution.WordBounds execution.LinkedCalls execution.LinkedRun
- execution.ScalarBytes execution.MappedFetch execution.ScalarWords execution.InstructionRoute memory.WriteTrace memory.ByteMemory memory.FlatMemory abi.SysV.
+From Coq Require Import List ZArith Znumtheory Lia.
+From Machine Require Import execution.WordSemantics execution.WordBounds execution.LinkedCalls execution.LinkedRun
+ memory.ByteMemory memory.FlatMemory memory.MemoryGeometry abi.SysV.
+From Machine Require execution.StoreHistory.
+From Ed25519Simd.KeyTable Require NativeBuilder NativeTable CallLayout Audit Object.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar.
-From Ed25519Simd.VerifyBatch Require TableContents TableParentFrame.
+From Ed25519Simd.VerifyBatch Require TableEntry TableParentFrame.
 Import ListNotations. Local Open Scope Z_scope.
 
-Definition path:list line:=[(1947,4%nat,Compare32 15 8);(1951,2%nat,Branch Equal (1982-1953));
- (1982,4%nat,LeaG 4 (Address 5 None (-40)));(1986,2%nat,RestoreG 15);(1988,2%nat,RestoreG 14);
- (1990,2%nat,RestoreG 13);(1992,2%nat,RestoreG 12);(1994,1%nat,RestoreG 3);(1995,1%nat,RestoreG 5);
- (1996,3%nat,ZeroUpper);(1999,1%nat,Ret)].
-Lemma linked_path:linked TableFrame.text path.
-Proof. repeat constructor;vm_compute;discriminate || reflexivity. Qed.
-Definition execute bias:=segment (TableFrame.base bias) TableFrame.text 11.
 Definition back bias:=bias+TableEntry.site+185.
-Lemma raw o s c t rs back : regs s 15%nat=8 -> regs s 5%nat=t-8 -> 48<=t -> t+8<2^64 ->
- (forall i r,nth_error TableFrame.saved_regs i=Some r -> read_word (mem s) (t-8*(1+Z.of_nat i))=rs r) ->
- word64 back -> read_word (mem s) t=back ->
- exists last,run 11 (ScalarBytes.fetch o TableFrame.text) (State(Running 1947) s c)=Some(last,[]) /\
- loc last=Returned back /\ regs(cpu_state last) 4%nat=t+8 /\ mem(cpu_state last)=mem s /\
- forall r,In r sysv_saved -> regs(cpu_state last) r=rs r.
-Proof.
- intros Last BP Low High Slots Back Link;eexists;split.
- - apply (InstructionRoute.checked _ _ _ linked_path);cbn [path follow loc cpu_state cf step eval_condition flag with_zf option_map];rewrite Last;reflexivity.
- - cbn [path follow loc cpu_state cf step eval_condition flag with_zf option_map];rewrite ?Last;
-   cbn [loc cpu_state pop caller_step stack_step target_ip result_regs result_mem apply_stack advance_rsp stack_top
-    effective set set_regs with_words with_zf regs mem put Nat.eqb].
-   unfold stack_top,advance_rsp,put;cbn [Nat.eqb];rewrite BP.
-   repeat match goal with |-context[word ?x]=>rewrite (word_fits x ltac:(unfold word64;lia)) end.
-   repeat split;try lia.
-   + match goal with |-Returned(word(read_word _ ?a))=_=>replace a with t by ring end;now rewrite Link,word_fits.
-   + intros r K;destruct K as [<-|[<-|[<-|[<-|[<-|[<-|[]]]]]]].
-     all: match goal with |- read_word _ ?a = ?f ?r =>
-       let i:=(eval compute in (match r with 5%nat=>0%nat|3%nat=>1%nat|12%nat=>2%nat|13%nat=>3%nat|14%nat=>4%nat|_=>5%nat end)) in
-       rewrite <-(Slots i r eq_refl);f_equal;ring end.
-Qed.
 Record returned pol bias e caller q:Prop:=ReturnedTable {
  pc:ip q=back bias;
  writes:accounted e (writable e) q;
@@ -41,46 +15,81 @@ Record returned pol bias e caller q:Prop:=ReturnedTable {
  stack:regs(machine q) 4%nat=TableEntry.frame pol e+8;
  registers:forall r,In r sysv_saved -> regs(machine q) r=regs(machine caller) r;
  parent:TableParentFrame.retained pol bias e (machine caller) (machine q);
- contents:TableContents.contents e (TableRowMeaning.point e (machine caller)) (machine q)
+ contents:NativeTable.contents (TableEntry.tables e) (TableEntry.point_words e (machine caller)) (mem(machine q))
 }.
 
-Theorem checked pol bias e caller p : placement e -> loaded pol bias (mem e) (writable e) -> well_formed(machine caller) ->
- TableRounds.at_multiple pol bias e 8 p -> TableParentFrame.retained pol bias e (machine caller) (machine p) ->
- TableContents.contents e (TableRowMeaning.point e (machine caller)) (machine p) ->
- exists q,execute bias p=Some q /\ returned pol bias e caller q /\ mem(machine q)=mem(machine p) /\ log q=log p.
+Definition observe bias p ks:=bind (TableEntry.enter bias p) (fun a=>NativeBuilder.execute bias a ks).
+
+Lemma images pol : forall sym,In sym CallLayout.children -> In sym (children pol).
 Proof.
- intros P I CW [PC Acc W Ptr] K Rows;set (t:=TableEntry.frame pol e) in *.
- destruct(stack_ok _ P) as [[SL SH] _].
- assert (B:48<=t /\ t+8<2^64) by (unfold t,TableEntry.frame,common_top,Rows.frame,sp in *;destruct pol;lia).
- assert (Fit:word64(back bias)) by (destruct(proj1(symbols _ _ _ _ I _ _ (in_common pol))) as [L H];
-    change (Z.of_nat(length PrepareChunk.CommonBytes.symbol_bytes)) with 290 in H;unfold word64,back,TableEntry.site;lia).
- destruct(raw (TableFrame.base bias) (machine p) (LinkedRun.carry p) t (regs(machine caller)) (back bias)
-   (TableMultiple.multiple _ _ _ _ Ptr) (TableMultiple.frame_pointer _ _ _ _ Ptr) (proj1 B) (proj2 B)
-   (fun i r=>TableParentFrame.saved pol bias e (machine caller) (machine p) i r P K CW) Fit (TableParentFrame.link _ _ _ _ _ P K Fit))
-  as [last [Run [Dest [SP [Mem SysV]]]]].
- destruct(mapped_now _ _ _ I _ _ _ Acc (TableEntry.image pol)) as [Map Sep].
- destruct(at_segment _ _ p _ _ 11 1947 _ _ Acc PC Map Sep Run (Forall_nil _)) as [Next Paid].
- eexists;split;[exact Next|split;[constructor|split;[exact Mem|apply app_nil_r]]].
- - cbn [LinkedRun.finish ip];unfold absolute;now rewrite Dest.
- - exact Paid.
- - exact (segment_wf _ _ _ _ _ W Next).
- - exact SP.
- - exact SysV.
- - unfold TableParentFrame.retained;cbn [LinkedRun.finish machine];now rewrite Mem.
- - apply (TableContents.preserve _ _ (machine p));[intros x X;cbn [LinkedRun.finish machine];now rewrite Mem|exact Rows].
+ intros sym [<-|[<-|[<-|[<-|[]]]]];[apply TableEntry.image|apply BatchDecode.decode_in|apply BatchDecode.helper_in|].
+ apply in_or_app;left;do 15 right;left;reflexivity.
 Qed.
 
-Definition observe pol bias e p ks:=bind (TableRounds.observe pol bias e p ks) (fun '(a,bank)=>
- option_map (fun q=>(q,bank)) (execute bias a)).
+Lemma loan pol e : placement e -> forall x,CallLayout.footprint (TableEntry.frame pol e)
+ (TableEntry.point e) (TableEntry.tables e) x -> writable e x.
+Proof.
+ intros P x [Stack|[Point|Table]];unfold CallLayout.span,TableEntry.frame,common_top,Rows.frame,sp,TableEntry.point,TableEntry.tables in *;
+ destruct pol;unfold writable,span,sp;intuition lia.
+Qed.
+
+Lemma buffers pol e : placement e -> let t:=TableEntry.frame pol e in
+ KeyTable.Frame.placement [] 8 t (TableEntry.point e) (TableEntry.tables e) /\ word64(t+8).
+Proof.
+ intros P t;destruct(stack_ok _ P) as [[L H] S];destruct(scratch_ok _ P) as [[B E] A];pose proof(scratch_stack _ P) as Sep.
+ assert (SP:t mod 16=8).
+ { unfold t,TableEntry.frame,common_top,Rows.frame;fold (sp e);destruct pol.
+   - replace (sp e-1000-8-0-112) with (sp e+(-70)*16) by ring;now rewrite Z.mod_add by lia.
+   - replace (sp e-1000-8-16-112) with (sp e+(-71)*16) by ring;now rewrite Z.mod_add by lia. }
+ assert (Pt:(TableEntry.point e) mod 64=0).
+ { unfold TableEntry.point;replace (scratch e+1024) with (scratch e+16*64) by ring;now rewrite Z.mod_add by lia. }
+ assert (Dst:(TableEntry.tables e) mod 8=0).
+ { assert (R:scratch e mod 8=0) by (rewrite (Zmod_div_mod 8 64) by (try lia;exists 8;reflexivity);now rewrite A).
+   unfold TableEntry.tables;replace (scratch e+3584) with (scratch e+448*8) by ring;now rewrite Z.mod_add by lia. }
+ split;[split;[exact SP|split;[exact Pt|split;[exact Dst|]]]|].
+ all: unfold t,TableEntry.frame,common_top,Rows.frame,sp,TableEntry.point,TableEntry.tables,KeyTable.Frame.stack_depth,
+       disjoint,fits64,word64 in *;change (Z.of_nat 8) with 8;destruct pol;repeat split;try lia;intros r c _ [].
+Qed.
+
 From Ed25519Simd.VerifyBatch Require BatchWindow.
 Section Iteration.
 Context `{iteration:BatchWindow.t}.
 Theorem from_eligible pol bias e before p ks:placement e -> loaded pol bias (mem e) (writable e) ->
  (bias+DecoderFrame.origin) mod 64=0 -> EligibleLanes.post pol bias e before p -> regs(machine p) 14%nat<>0 ->
- exists q bank,observe pol bias e p ks=Some(q,bank) /\ returned pol bias e p q.
+ exists q bank,observe bias p ks=Some(q,bank) /\ returned pol bias e p q.
 Proof.
- intros P I Al E Live;destruct(TableContents.checked _ _ _ _ _ ks P I Al E Live) as [z [bank [Round [Z [Kept Rows]]]]].
- destruct(checked _ _ _ _ _ P I (EligibleLanes.words _ _ _ _ _ E) Z Kept Rows) as [q [Run [Q _]]].
- exists q,bank;split;[unfold observe;rewrite Round;cbn [bind];now rewrite Run|exact Q].
+ intros P I Al E Live;destruct(TableEntry.checked _ _ _ _ _ P I E Live) as [a [Enter A]].
+ destruct(TableEntry.arguments _ _ _ _ _ A) as [SP [DI [SI DX]]].
+ set (l:=NativeBuilder.buffers a).
+ assert (View:l=CallLayout.Layout (TableEntry.frame pol e) (TableEntry.point e) (TableEntry.tables e)
+   (CallLayout.footprint (TableEntry.frame pol e) (TableEntry.point e) (TableEntry.tables e))).
+ { unfold l,NativeBuilder.buffers;now rewrite SP,DI,SI. }
+ destruct(buffers pol e P) as [Place Top].
+ assert (Image:CallLayout.loaded (machine a) bias l).
+ { rewrite View;constructor;intros addr bs C;pose proof(images pol _ C) as Child.
+   destruct(mapped_now _ _ _ I _ _ _ (TableEntry.writes _ _ _ _ _ A) Child) as [Map Sep].
+   split;[exact (proj1(symbols _ _ _ _ I _ _ Child))|split;[exact Map|]].
+   intros x Code X;apply (Sep x Code),(loan pol e P x),X. }
+ destruct(KeyTable.Audit.native_eight _ _ _ _ _ _ _ _ KeyTable.Object.assembled_key_table_correct bias a ks
+   (TableEntry.address _ _ _ _ _ A) DX (TableEntry.words _ _ _ _ _ A)
+   ltac:(fold l;rewrite View;exact Place) Al Image)
+   as [q [bank [Run Q]]].
+ destruct Q as [PC W Stack Regs Trace Parent Data];fold l in PC,Stack,Trace,Parent,Data;rewrite View in PC,Stack,Trace,Parent,Data;
+   cbn [CallLayout.sp CallLayout.point_ptr CallLayout.table_ptr CallLayout.private CallLayout.writable] in *.
+ exists q,bank;split;[unfold observe;now rewrite Enter|constructor].
+ - now rewrite PC,(TableEntry.link _ _ _ _ _ A).
+ - apply (StoreHistory.account _ _ _ _ (TableEntry.writes _ _ _ _ _ A));
+   exact (StoreHistory.lend _ _ _ _ (loan pol e P) Trace).
+ - exact W.
+ - now rewrite Stack,word_fits by exact Top.
+ - intros r R;rewrite Regs by exact R;apply (TableEntry.caller_regs _ _ _ _ _ A);
+   destruct R as [<-|[<-|[<-|[<-|[<-|[<-|[]]]]]]];discriminate.
+ - unfold TableParentFrame.retained;rewrite <-(TableParentFrame.on_entry _ _ _ _ _ A);exact Parent.
+ - eapply NativeTable.input_ext;[|exact Data].
+   intros n N;unfold TableEntry.point_words,buffer_words;rewrite (TableEntry.memory_after _ _ _ _ _ A).
+   apply preserved_read with (outside:=span (TableEntry.point e) 1280).
+   + intros x X;unfold store_word;apply write_outside;pose proof(scratch_stack _ P) as Apart;
+     unfold span,disjoint,TableEntry.point,TableEntry.frame,common_top,Rows.frame,sp in *;destruct pol;lia.
+   + intros b B;change (0<=b<8) in B;unfold span;lia.
 Qed.
 End Iteration.
