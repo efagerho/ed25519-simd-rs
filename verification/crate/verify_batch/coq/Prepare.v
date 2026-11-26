@@ -3,7 +3,8 @@ From Machine Require Import execution.LinkedCalls execution.WordBounds execution
 From Curve25519 Require Import Scalar.
 From Curve25519.group Require Import Affine.
 From Ed25519Simd.PrepareChunk Require Staging Caller Dispatch Composition Audit Object.
-From Ed25519Simd.VerifyBatch Require Import Policy Lane Rows.
+From Ed25519 Require Import Optimized.
+From Ed25519Simd.VerifyBatch Require Import Policy Rows.
 Local Open Scope Z_scope.
 
 Record chunk := Chunk { entry:cpu; first:nat; live:nat; mode:policy; slide:Z;
@@ -78,17 +79,17 @@ Qed.
    constructively. Invalid-key lanes select the caller's identity table. *)
 Definition key_selection c (keys:nat->point) := forall j,(j<8)%nat ->
  if Composition.returned_bit (p c) false j
- then Policy.decodes (Composition.encoding (p c) false j) (keys j)
+ then PointEncoding.decodes (Composition.encoding (p c) false j) (keys j)
  else keys j=identity.
 Lemma select_keys c : byte_memory(Staging.original(p c)) -> exists keys,key_selection c keys.
 Proof.
  intro B. assert (C:forall j,(j<8)%nat ->exists A,
-   if Composition.returned_bit (p c) false j then Policy.decodes (Composition.encoding (p c) false j) A
+   if Composition.returned_bit (p c) false j then PointEncoding.decodes (Composition.encoding (p c) false j) A
    else A=identity).
  { intros j J. destruct (Composition.decode_lane (p c) false j B J) as [Ok _].
    destruct (Composition.returned_bit _ _ _) eqn:E;[apply Ok;reflexivity|exists identity;reflexivity]. }
  assert (F:forall n,(n<=8)%nat -> exists keys:nat->point, forall j,(j<n)%nat ->
-   if Composition.returned_bit (p c) false j then Policy.decodes (Composition.encoding (p c) false j) (keys j)
+   if Composition.returned_bit (p c) false j then PointEncoding.decodes (Composition.encoding (p c) false j) (keys j)
    else keys j=identity).
  { induction n as [|n IH];intro N;[exists (fun _=>identity);intros;lia|].
    destruct (IH ltac:(lia)) as [f H]. destruct (C n ltac:(lia)) as [a A].
@@ -97,7 +98,7 @@ Proof.
  apply F;lia.
 Qed.
 Lemma enabled_key c keys j : placement c -> ready c=true -> key_selection c keys ->
- (j<8)%nat -> enabled c j=true -> Policy.decodes (little_endian(key_bytes(input_at c j))) (keys j).
+ (j<8)%nat -> enabled c j=true -> PointEncoding.decodes (little_endian(key_bytes(input_at c j))) (keys j).
 Proof.
  intros P Ready Select J On. apply (enabled_ok _ _ P Ready J) in On.
  destruct On as [_ [_ [A [DA _]]]]. destruct(same_input _ _ P J) as [K _].

@@ -12,4 +12,4 @@ the routine’s public contract. The checker discharges the intermediate
 congruences and bounds. `zero_gate_result` connects the limbwise bit test
 to zero modulo p, and `four_zero_bits` connects the three mask unions to
 the four field roots. These results depend on the shared machine word and
-field semantics. [Zero test](Zero.v) · [Mask lemmas](RootMasks.v) · [Shared trust boundary](../../README.md#shared-audit-surface)
+field semantics. [Zero test](../../curve25519/Radix51Zero.v) · [Mask lemmas](RootMasks.v) · [Shared trust boundary](../../README.md#shared-audit-surface)

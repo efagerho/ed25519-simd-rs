@@ -12,7 +12,7 @@ From Ed25519Simd.VerifyBatch Require BatchWindow.
 Section Iteration.
 Context `{iteration:BatchWindow.t}.
 Definition product e j A:=let i:=HashLayout.row e j in
- plus (scale (little_endian(s_bytes i)) generator) (scale (-challenge i) A).
+ verification_point (little_endian(s_bytes i)) (challenge i) A.
 Definition accumulator e s:=buffer_words (mem s) (ScoreFrame.buffer e).
 Record points pol e s:Prop:=Points {
  reduced:strict (accumulator e s);

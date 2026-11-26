@@ -10,7 +10,7 @@ VERIFY = HERE.parents[1]
 sys.path.insert(0, str(VERIFY))
 from evidence import write_evidence
 from crate.post_hash.build import SHARED_FLAGS, compile_shared, load_callees, symbol_inputs
-from proof_build import MASK_PROJECTS, check_object, compile_libraries, component_flags
+from proof_build import ED25519_FLAGS, check_object, compile_signature_equations, component_flags
 
 DEPENDENCIES = {
     "radix16": ("Radix16", "Scalar"),
@@ -21,7 +21,7 @@ DEPENDENCIES = {
 }
 ENTRIES = {"Candidate": "candidate", "Scatter": "scatter", "Decoded": "decoded",
            "Push": "push", "CheckR": "check_r", "Flush": "flush"}
-FLAGS = component_flags("zip215") + SHARED_FLAGS + [arg for namespaces in DEPENDENCIES.values()
+FLAGS = component_flags("zip215") + ED25519_FLAGS + SHARED_FLAGS + [arg for namespaces in DEPENDENCIES.values()
     for ns in namespaces for arg in ("-Q", ns, "Ed25519Simd." + ns)]
 
 
@@ -31,7 +31,7 @@ def inputs(elf, dest):
 
 def replay(elf, work, dependencies, recompress_dependencies=None):
     work.mkdir(parents=True, exist_ok=False)
-    compile_libraries(work, projects=MASK_PROJECTS)
+    compile_signature_equations(work)
     dest = work / "Zip215"
     dest.mkdir()
     symbols, modules = inputs(elf, dest)

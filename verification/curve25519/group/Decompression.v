@@ -7,7 +7,7 @@ Local Open Scope fp_scope.
 Local Notation p := Field.prime.
 Local Notation val := (GZnZ.val p).
 
-Definition exponent := ((p-5)/8)%Z.
+Definition exponent := Field.sqrt_ratio_exponent.
 Definition power (a:fp) (n:Z) := residue (val a ^ n).
 
 Local Lemma power_one a : power a 1 = a.
@@ -169,4 +169,20 @@ Proof.
        fold u v. rewrite S,Root,Zr; ring.
      * intros x On. apply ratio_curve in On.
        destruct (square_test u v x NZ On); contradiction.
+Qed.
+
+Local Open Scope Z_scope.
+Lemma pow_value a e : 0<=e -> residue (a^e)=power (residue a) e.
+Proof. intro E;apply residue_eq. apply Zpower_mod;unfold Field.prime;lia. Qed.
+
+Definition integer_uv y:=let yy:=y*y in let u:=121666*(yy-1) in u*(yy-u).
+Lemma uv_field y : residue (integer_uv y)=(numerator(residue y)*denominator(residue y))%fp.
+Proof. unfold integer_uv,denominator,numerator;repeat first [rewrite residue_mul|rewrite residue_sub];reflexivity. Qed.
+Lemma test_field y :
+ let v:=integer_uv y in let t:=v^exponent in
+ residue (t*t*v)=test_value (numerator(residue y)) (denominator(residue y))
+   (power (numerator(residue y)*denominator(residue y))%fp exponent).
+Proof.
+ cbv zeta;rewrite !residue_mul,pow_value by (vm_compute;discriminate || reflexivity);
+ rewrite uv_field;unfold test_value;ring.
 Qed.

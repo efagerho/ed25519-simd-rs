@@ -9,7 +9,7 @@ and can be checked independently of the machine model.
 | [Field.v](Field.v), [FieldPolynomial.v](FieldPolynomial.v) | Field congruence modulo `2^255 - 19` and the polynomial checker specialized to that modulus. |
 | [Radix51.v](Radix51.v) | The value and bounds of a field element represented by five radix-51 limbs. |
 | [DeferredCarry.v](DeferredCarry.v) | For folded columns below `300·2^52`, bounds the sum, biased minuend and difference below `2^63`, and proves that one parallel carry preserves their field values and restores IFMA input bounds. |
-| [Scalar.v](Scalar.v) | The scalar order `L` and canonical reduction modulo `L`. |
+| [Scalar.v](Scalar.v) | The scalar order `L` and canonical reduction modulo `L`. The [Montgomery specialization](ScalarReduction.v) checks the radix, modulus digits, inverse witnesses, and the bound for a single final subtraction. |
 | [SignedRadix16.v](SignedRadix16.v) | Reconstructs a canonical scalar from 64 signed digits in `[-8,7]` after adding the radix-16 bias. |
 | [Edwards.v](Edwards.v) | The coordinate formulas for doubling, cached addition, and the ladder step. |
 | [Torsion.v](Torsion.v) | The determinant, mixed-subtraction numerators, and four field zero tests for one lane of the ZIP-215 equation check. |
@@ -17,7 +17,14 @@ and can be checked independently of the machine model.
 | [PrimeField.v](group/PrimeField.v), [Affine.v](group/Affine.v) | The prime field and the affine Edwards group law. |
 | [SignedMultiple.v](group/SignedMultiple.v) | Integer scalar multiplication, addition of signed coefficients, and scaling a signed multiple. |
 | [Representation.v](group/Representation.v) | How XYZ, extended, and cached coordinates represent group elements. |
+| [CoordinateEncoding.v](group/CoordinateEncoding.v) | XYZ and extended coordinates and both cache forms encode affine points. Valid encodings determine a unique group element. Signed table construction preserves the point or its negative. A projective cache yields an XYZ seed, and two field equalities characterize the identity. |
+| [Radix51Digits.v](Radix51Digits.v), [Radix51Zero.v](Radix51Zero.v) | The range assumptions for zero, ±1, canonical digits, and parity tests on redundant limbs. |
+| [DecompressionRadix51.v](DecompressionRadix51.v), [DecompressionDigits.v](group/DecompressionDigits.v) | Bounds and field values of the decoder's biased numerator and denominator. |
+| [DoubleScalar.v](group/DoubleScalar.v) | The high digit pair and 31 radix-256 rounds compute `[s]B − [k]A` for the two 64-digit sequences, for arbitrary Edwards points. |
+| [BatchInversion.v](group/BatchInversion.v) | For nonzero field elements, the prefix and backward passes recover every reciprocal using one inversion of the total product. |
+| [PointEncoding.v](group/PointEncoding.v) | Canonical compression, permissive signed decoding, uniqueness, round trips, and the canonical-y and sign conditions for equality to a 256-bit word. |
 | [Decompression.v](group/Decompression.v) | The scaled square-root test accepts precisely the Edwards y-coordinates. The encoded sign selects a unique x, including zero. |
+| [PointDecoding.v](group/PointDecoding.v) | The executable decoder returns a particular affine point exactly when the compressed integer denotes that point. The corrected signed root equals its x-coordinate. |
 | [Cofactor.v](group/Cofactor.v) | The Edwards group meaning of the projective small-order check, mixed-subtraction torsion check and determinant shortcut. |
 
 The theorem `ladder_represents` connects the coordinate schedule to the group

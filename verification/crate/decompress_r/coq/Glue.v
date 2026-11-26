@@ -1,7 +1,9 @@
 From Coq Require Import ZArith List.
 From Machine Require Import isa.X86 isa.Instructions execution.MaskTrace.
 From Curve25519 Require Import Radix51.
-From Ed25519Simd.Decode Require Import Kernels Power Limbs Image Decode Scale.
+From Ed25519Simd.Decode Require Import Kernels Power.
+From Curve25519 Require Import Radix51Digits DecompressionRadix51.
+From Ed25519Simd.Decode Require Import Image Decode Scale.
 Import ListNotations. Local Open Scope Z_scope.
 
 (* Symbol-relative labels, relocated against the two other ELF entry points.

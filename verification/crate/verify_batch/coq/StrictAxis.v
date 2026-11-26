@@ -2,9 +2,10 @@ From Coq Require Import ZArith Lia Field.
 From Coqprime.elliptic Require GZnZ.
 From Machine Require Import isa.Instructions execution.LinkedCalls execution.VectorProcedure memory.ByteMemory.
 From Curve25519 Require Import Field Radix51.
-From Curve25519.group Require Import PrimeField Affine Representation.
+From Curve25519.group Require Import PrimeField Affine Representation CoordinateEncoding.
 From Ed25519Simd Require Import Wide51.
-From Ed25519Simd.Decode Require Import Limbs Decode.
+From Curve25519 Require Import Radix51Digits.
+From Ed25519Simd.Decode Require Import Decode.
 From Ed25519Simd.VerifyBatch Require Import Policy Return.
 From Ed25519Simd.VerifyBatch Require StrictOperands StrictMatchMath ScorePoint.
 Local Open Scope Z_scope.
@@ -59,8 +60,6 @@ Proof.
      (split_coord q j 2%nat (strict_split _ QB) J ltac:(lia)) (split_coord _ _ _ (strict_split _ QB) J K)).
  destruct(RV j R J DR) as [Rep Z1];pose proof(affine_value vertical _ _ _ Rep Z1) as Ar;fold k in Ar;rewrite Ar.
  destruct(product_value vertical _ _ _ (QV j A J On DA)) as [NZ Eq];fold k in Eq;rewrite Eq.
- set(z:=value(DecodedRows.coord q j 2)) in *;unfold matches;split;[intro E|intros ->;reflexivity].
- replace (axis vertical (ScorePoint.product e j A)) with ((axis vertical (ScorePoint.product e j A)*z)/z)%fp by (field;exact NZ).
- rewrite <-E;field;exact NZ.
+ unfold matches; rewrite scaled_coordinate_eq by exact NZ; split; apply eq_sym.
 Qed.
 End Iteration.

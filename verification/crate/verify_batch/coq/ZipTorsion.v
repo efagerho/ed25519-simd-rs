@@ -99,8 +99,6 @@ Proof.
    destruct(Geo j R J DR) as [Rep Z1].
    pose proof(proj2(Bits j J) (ScorePoint.product e j A) R) as Law;rewrite DI,SI in Law.
    specialize(Law (Group j A J On DA) Rep Z1).
-   split.
-   + intro B;split;[exact S|exists A;split;[exact DA|exists R;split;[exact DR|exact(proj1 Law B)]]].
-   + intros [_ [A' [DA' [R' [DR' Yes]]]]];rewrite (Lane.unique_key _ _ _ DA' DA),(Lane.unique_key _ _ _ DR' DR) in Yes;exact (proj2 Law Yes).
+   exact (iff_trans Law (Optimized.zip215_decoded _ _ _ S DA DR)).
 Qed.
 End Iteration.

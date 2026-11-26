@@ -2,7 +2,9 @@ From Coq Require Import List ZArith Bool Lia.
 From Machine Require Import isa.Instructions execution.LinkedCalls execution.Dependencies execution.VectorProcedure.
 From Curve25519 Require Import Radix51.
 From Curve25519.group Require Import PrimeField.
-From Ed25519Simd.Decode Require Import Kernels Power Limbs Decode.
+From Ed25519Simd.Decode Require Import Kernels Power.
+From Curve25519 Require Import Radix51Digits.
+From Ed25519Simd.Decode Require Import Decode.
 From Ed25519Simd.Dalek Require FieldOps.
 From Ed25519Simd.DalekPostHash Require Decoded.
 From Ed25519Simd.VerifyBatch Require StrictSeeded.

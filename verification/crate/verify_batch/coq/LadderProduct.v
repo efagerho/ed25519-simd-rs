@@ -20,10 +20,9 @@ Record meaning pol bias e ladder stop : Prop:=Meaning {
  words:well_formed(machine stop); history:StoreHistory.extends (region ladder) ladder stop;
  bound:strict(buffer_words (mem(machine stop)) (ScoreFrame.buffer e));
  value:forall j A,(j<8)%nat -> HashLayout.eligible pol e j ->
- Policy.decodes (little_endian(key_bytes(HashLayout.row e j))) A ->
+ PointEncoding.decodes (little_endian(key_bytes(HashLayout.row e j))) A ->
  represents_point (LadderEntry.full pol) (point_values (buffer_words (mem(machine stop)) (ScoreFrame.buffer e)) j)
-   (plus (scale (little_endian(s_bytes(HashLayout.row e j))) generator)
-         (scale (-Policy.challenge(HashLayout.row e j)) A))
+   (verification_point (little_endian(s_bytes(HashLayout.row e j))) (Signature.challenge(HashLayout.row e j)) A)
 }.
 
 Theorem checked pol bias e prev ladder staged seed top : loaded pol bias (mem e) (writable e) -> Tables.mapped e bias ->
@@ -70,7 +69,7 @@ Proof.
      rewrite (S (proj1 On)),(proj2(LadderEntry.challenge _ _ _ _ _ L j J) On) in Q.
      assert (K:LadderTables.key e j=A).
      { unfold LadderTables.key;destruct(LadderTables.choice (BatchDecode.original_encoding false e j)) as [D|[Bad _]].
-       - exact (Lane.unique_key _ _ _ D Key).
+       - exact (PointEncoding.decodes_unique _ _ _ D Key).
        - exfalso;exact (Bad A Key). }
      now rewrite K in Q.
 Qed.

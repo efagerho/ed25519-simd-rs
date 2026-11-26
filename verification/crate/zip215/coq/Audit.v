@@ -39,16 +39,16 @@ Definition flush_correct fast decode :=
  (n<=8)%nat -> byte_memory flat -> Dalek.Audit.input_layout n pts enc -> (pad<4)%nat ->
  (forall i,(i<n)%nat -> candidate_chunk(point_words flat pts i)(Q i) /\ positions(meta i) len) ->
  exists final, execute fast decode flat pts enc n pad init_exact init_check matches meta len out=Some final /\
- exists verdict, (forall i j,(i<n)%nat -> (j<8)%nat -> (verdict i j=true <-> accepts (encoded_at flat enc i j)(Q i j))) /\
+ exists verdict, (forall i j,(i<n)%nat -> (j<8)%nat -> (verdict i j=true <-> Equations.zip215_R (encoded_at flat enc i j)(Q i j))) /\
  final=expected n meta verdict out.
 
 (* On a miss the FFI receives affine R from the Rust front end. The set bit
    supplies its unique decoded point. A clear bit means no such point exists. *)
 Definition input_R raw valid j r :=
  if Z.testbit valid (Z.of_nat j) then exists R,
- encoded_point raw R /\ represents_point true r R /\
- residue (Edwards.cz r)=1%fp /\ forall P,encoded_point raw P -> P=R
- else forall R,~encoded_point raw R.
+ PointEncoding.decodes raw R /\ represents_point true r R /\
+ residue (Edwards.cz r)=1%fp /\ forall P,PointEncoding.decodes raw P -> P=R
+ else forall R,~PointEncoding.decodes raw R.
 
 Definition direct_correct := forall q r Q raw valid meta len out pad init,
  (pad<4)%nat -> positions meta len -> Torsion.Audit.input_bounds q r ->
@@ -56,7 +56,7 @@ Definition direct_correct := forall q r Q raw valid meta len out pad init,
   input_R (raw j) valid j (Wide51.point_values r j)) ->
  exists m final, torsion_run pad q r init=Some m /\
  scatter meta len (Z.land m valid) out=Some final /\
- exists verdict, (forall j,(j<8)%nat -> (verdict j=true <-> accepts (raw j)(Q j))) /\
+ exists verdict, (forall j,(j<8)%nat -> (verdict j=true <-> Equations.zip215_R (raw j)(Q j))) /\
  final=place (active meta) 0 meta verdict out.
 
 Record zip215_contract : Prop := {

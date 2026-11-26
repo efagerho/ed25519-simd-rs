@@ -49,10 +49,10 @@ Lemma scalar_digest m out j :
  number 256 (map (fun i=>m(digest_cell out j i)) (seq 0 64)).
 Proof.
   unfold ScalarSpec.lane_input,buffer_words.
-  change (number ScalarSpec.W (map (fun i=>read_word m (out+8*Z.of_nat(8*i+j))) (seq 0 8)) = number 256 (map (fun i=>m(digest_cell out j i)) (seq 0 64))).
+  change (number ScalarReduction.W (map (fun i=>read_word m (out+8*Z.of_nat(8*i+j))) (seq 0 8)) = number 256 (map (fun i=>m(digest_cell out j i)) (seq 0 64))).
   rewrite (map_ext _ _ (word_at m out j)).
   generalize (fun i=>m(digest_cell out j i)); intro b.
-  change ScalarSpec.W with 18446744073709551616. cbv [seq map number Nat.mul Nat.add]. ring.
+  change ScalarReduction.W with 18446744073709551616. cbv [seq map number Nat.mul Nat.add]. ring.
 Qed.
 
 (* The reducer consumes the very same 64 bytes in little-endian scalar order. *)

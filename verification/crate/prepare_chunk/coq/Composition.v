@@ -1,10 +1,14 @@
 From Coq Require Import List ZArith Bool Lia Field.
 From Machine Require Import execution.LinkedCalls execution.WordBounds memory.MemoryGeometry memory.FlatMemory memory.ByteMemory.
 From ProofArithmetic Require Import Radix.
+From Ed25519 Require Equations.
+From Curve25519.group Require Export PointEncoding.
 From Curve25519 Require Import Scalar Radix51 Edwards.
 From Curve25519.group Require Import PrimeField Affine Decompression Representation SignedMultiple.
 From Ed25519Simd Require Import Wide51.
-From Ed25519Simd.Decode Require Import Kernels Limbs Decode Chunks Program.
+From Ed25519Simd.Decode Require Import Kernels.
+From Curve25519 Require Import Radix51Digits.
+From Ed25519Simd.Decode Require Import Decode Chunks Program.
 From Ed25519Simd.SignatureScalar Require Audit Object.
 From Ed25519Simd.KeyTable Require Import Rows Execution Correct.
 From Ed25519Simd.KeyTable Require Audit.
@@ -16,10 +20,8 @@ Import ListNotations. Local Open Scope Z_scope.
 
 Definition encoding p sig j := read_le 32 (original p) (lane_ptr p sig j).
 Definition signature_scalar p j := read_le 32 (original p) (s_ptr p j).
-Definition decodes z P := y P=residue(z mod 2^255) /\ has_sign (Z.testbit z 255) (x P).
 Definition accepts mode p j :=
- signature_scalar p j<L /\ (exists R, decodes (encoding p true j) R) /\
- exists A, decodes (encoding p false j) A /\ (mode=true -> multiple 8 A<>identity).
+ Equations.eligible mode (signature_scalar p j) (encoding p false j) (encoding p true j).
 
 Definition scalar_result p out :=
  0<=regs out 0%nat<256 /\ forall j,(j<8)%nat ->
@@ -167,7 +169,7 @@ Proof.
    change (bit (key_mask (decoded p)) j=true <-> exists P,decodes (encoding p false j) P) in Dec.
    change (bit (octet (decoded p) 1) j=true <-> exists R,decodes (encoding p true j) R) in Rdec.
    tauto. }
- unfold final_flag;fold f;unfold accepts.
+ unfold final_flag;fold f;unfold accepts, Equations.eligible.
  destruct mode.
  - destruct (f j) eqn:F.
    + destruct (proj1 Common eq_refl) as [Canon [Rdecodes [P DP]]].

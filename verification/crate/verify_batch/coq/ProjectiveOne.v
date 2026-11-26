@@ -57,6 +57,6 @@ Proof.
      ltac:(split;reflexivity) Run) as [_ Rows].
    change (row t (a+640) j i=Decode.one i);unfold row;replace (a+640+64*Z.of_nat i+8*Z.of_nat j)
        with (a+64*Z.of_nat(10+i)+8*Z.of_nat j) by lia.
-   cbn [cpu_state] in Rows;rewrite (Rows (10+i)%nat ltac:(lia));destruct i as [|[|[|[|[|i]]]]];try lia;cbn [spills fold_left lane rows registers bits put Nat.eqb Decode.one Limbs.five];
+   cbn [cpu_state] in Rows;rewrite (Rows (10+i)%nat ltac:(lia));destruct i as [|[|[|[|[|i]]]]];try lia;cbn [spills fold_left lane rows registers bits put Nat.eqb Decode.one Radix51Digits.five];
     unfold Logic.vpxorq;rewrite ?Z.lxor_nilpotent;reflexivity.
 Qed.

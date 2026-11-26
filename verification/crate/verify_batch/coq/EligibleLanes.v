@@ -5,7 +5,8 @@ From Machine Require Import isa.Instructions execution.WordSemantics execution.W
 From Ed25519Simd.PrepareChunk Require CommonBytes Dispatch.
 From Curve25519 Require Scalar.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode.
-From Ed25519Simd.VerifyBatch Require Lane DecoderReturn DecoderEpilogue DecoderSpills KeyReturn PairReturn RootDecision ScalarInputs.
+From Ed25519 Require Import Optimized.
+From Ed25519Simd.VerifyBatch Require DecoderReturn DecoderEpilogue DecoderSpills KeyReturn PairReturn RootDecision ScalarInputs.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition code:list line := [(142,4%nat,ExtendByte 15 0);(146,3%nat,Shr32 0 8);(149,4%nat,StoreByte 0 (Address 13 None 72));
@@ -142,7 +143,7 @@ Qed.
 Lemma accepted_candidate pol e j : signature_accepts pol (read_input (mem e) (regs e 7%nat) (BatchWindow.row e j)) ->
  candidate e j.
 Proof.
- intro H;destruct(Lane.accepted_eligible _ _ H) as [S [[r [RY _]] [a [[AY _] _]]]].
+ intro H;destruct(Optimized.accepted_eligible _ _ H) as [S [[r [RY _]] [a [[AY _] _]]]].
  split;[exact S|split];unfold RootDecision.decodes,BatchDecode.original_encoding;[exists (Affine.x a);rewrite <-AY;apply Affine.on_edwards|
   exists (Affine.x r);rewrite <-RY;apply Affine.on_edwards].
 Qed.

@@ -1,8 +1,9 @@
+From Curve25519.group Require Decompression.
 From Coq Require Import ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.ScalarWords memory.ByteMemory memory.MemoryGeometry memory.FlatMemory.
 From Curve25519 Require Import Field Radix51.
 From Ed25519Simd Require Import Wide51.
-From Ed25519Simd.Decode Require Import Limbs.
+From Curve25519 Require Import Radix51Digits DecompressionRadix51.
 From Ed25519Simd.Decode Require Power Kernels.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode DecoderSave KeySquare
  SetupTail PairedSetup DecoderPower NativeScale SetupValues.
@@ -46,7 +47,6 @@ Proof.
 Qed.
 
 Definition argument e s sig:=buffer_words (mem s) (point e sig+960).
-Definition uv y:=let yy:=y*y in let u:=121666*(yy-1) in u*(yy-u).
 Lemma limb_word s ptr i j : cell (buffer_words (mem s) ptr) i j=row s ptr j i.
 Proof. unfold cell,buffer_words,row;f_equal;lia. Qed.
 
@@ -54,7 +54,7 @@ Theorem certified pol bias e t : DecoderPower.post pol bias e t -> inputs e t ->
  forall sig j,(j<8)%nat ->
  let buf:=argument e (machine(exponent_entry t)) sig in
  (forall i,(i<5)%nat -> 0<=cell buf i j<split) /\
- represents (field_at buf 0 j) (uv (original_encoding sig e j mod 2^255)).
+ represents (field_at buf 0 j) (Decompression.integer_uv (original_encoding sig e j mod 2^255)).
 Proof.
  intros [Pair _] Input sig j J buf.
  assert (Square:squared sig pol bias e (after_square (half t sig))).
@@ -76,11 +76,8 @@ Proof.
    assert (Width:radix+2^16<Radix51.split) by reflexivity.
    split;[exact (proj1 UV)|exact (Z.le_lt_trans (product v i) (radix+2^16) Radix51.split (proj2 UV) Width)].
 
- - unfold field_at;change (represents (limbs(fun i=>cell buf i j)) (uv (original_encoding sig e j mod 2^255))).
+ - unfold field_at;change (represents (limbs(fun i=>cell buf i j)) (Decompression.integer_uv (original_encoding sig e j mod 2^255))).
    erewrite limbs_ext by exact Same;eapply ctrans;[exact Rep|].
-   destruct(scaled_values v) as [Ueq Veq];set (y:=original_encoding sig e j mod 2^255) in *.
-   assert (Num:represents (pack(u_digits v)) (121666*(y*y-1))).
-   { eapply ctrans;[exact Ueq|apply ctimes;[apply crefl|apply cminus;[exact YY|apply crefl]]]. }
-   apply ctimes;[exact Num|eapply ctrans;[exact Veq|apply cminus;assumption]].
+   destruct (setup_digits _ _ YY) as [Numerator Denominator]. now apply ctimes.
 Qed.
 End Iteration.

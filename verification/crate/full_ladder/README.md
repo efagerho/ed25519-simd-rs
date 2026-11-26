@@ -76,7 +76,7 @@ return in the model and covers every permitted return.
 4. The initial odd cache yields (2X, 2Y, 2Z). Check the carry into
    limb zero and the bound consumed by the first doubling. Each later
    pair updates the two signed scalar coefficients in radix 256.
-   [Seed arithmetic](coq/Seed.v) · [Signed scalar action](coq/ScalarAction.v) ·
+   [Seed arithmetic](coq/Seed.v) · [Signed-digit ladder and its group value](../../curve25519/group/DoubleScalar.v) ·
    [Round induction](coq/Execution.v)
 
 ## Replay

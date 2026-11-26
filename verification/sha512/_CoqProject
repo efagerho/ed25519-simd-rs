@@ -2,3 +2,5 @@
 Spec.v
 Facts.v
 Vectors.v
+Compression.v
+LengthTrailer.v

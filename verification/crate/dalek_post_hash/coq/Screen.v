@@ -109,7 +109,7 @@ Proof.
 Qed.
 
 Lemma screen_sound flat ptr : byte_memory flat -> screen flat ptr=true ->
- forall j,(j<8)%nat -> forall P, encoded flat ptr j=compress P -> multiple 8 P=identity.
+ forall j,(j<8)%nat -> forall P, encoded flat ptr j=compression P -> multiple 8 P=identity.
 Proof.
  intros Bytes Test j J P Eq. unfold screen in Test. apply andb_true_iff in Test as [_ All].
  pose proof(walk_all _ _ 8 0 eq_refl All j ltac:(lia)) as AllJ. clear All;rename AllJ into All.

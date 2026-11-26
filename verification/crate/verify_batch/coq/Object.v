@@ -97,7 +97,7 @@ Proof.
        destruct exit as [r|h];cbn [FirstDispatch.after_filter LinkedRun.bind] in *;destruct Branch as [Survives ChildRun].
        -- exists (FirstDispatch.after_reject r);split;[reflexivity|apply after_reject;[|tauto|exact ChildRun]].
           intros j J In Sig;apply Survives,Eq;exists j;split;[exact J|].
-          apply Lane.accepted_eligible;unfold HashLayout.row;rewrite BatchWindow.own_row by exact In;exact Sig.
+          apply Optimized.accepted_eligible;unfold HashLayout.row;rewrite BatchWindow.own_row by exact In;exact Sig.
        -- assert (LiveDalek:=proj1 Eq Survives).
           destruct(@NativeHash.checked BatchWindow.initial Dalek _ _ _ _ _ Place Loaded N Entries Borrow LiveDalek (HashLayout.strict_flags _ _ _ _ Post)
             (StrictReturn.encodings _ _ _ _ Post) ChildRun) as [r [HashRun HashPost]].

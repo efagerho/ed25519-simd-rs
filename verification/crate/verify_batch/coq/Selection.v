@@ -1,7 +1,7 @@
 From Coq Require Import ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.MaskTransfer.
 From Curve25519 Require Import Radix51.
-From Ed25519Simd.Decode Require Limbs.
+From Curve25519 Require Radix51Digits.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchDecode KeySquare.
 From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderPower PairedSetup SetupTail PowerWrites DecoderFinish FinishProduct RootTest RootAccept RootDecision.
 Local Open Scope Z_scope.
@@ -25,7 +25,7 @@ Record post pol bias e t : Prop:=Post {
  mask_byte:0<=regs(machine(selection t)) 10%nat<256;
  accepts_key:forall j,(j<8)%nat ->
    (Z.testbit (regs(machine(selection t)) 10%nat) (Z.of_nat j)=true <-> RootDecision.decodable e j) /\
-   masks t 4%nat j=Limbs.high_test (vectors(machine(RootTest.at_test(test t))) j) (-1)
+   masks t 4%nat j=Radix51Digits.high_test (vectors(machine(RootTest.at_test(test t))) j) (-1)
 }.
 
 Theorem from_decoder pol bias e p bank : placement e -> loaded pol bias (mem e) (writable e) ->

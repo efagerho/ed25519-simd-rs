@@ -20,11 +20,6 @@ Proof.
    rewrite Nat2Z.inj_succ. replace (1+Z.succ (Z.of_nat n)) with (Z.succ(1+Z.of_nat n)) by lia.
    rewrite scale_succ,plus_comm. apply Add;auto using staged_rep.
 Qed.
-Lemma negative_scale z P : negative(scale z P)=scale (-z) P.
-Proof.
- apply(cancel_left(scale z P));rewrite plus_negative,<-scale_add.
- replace (z+ -z) with 0 by lia;reflexivity.
-Qed.
 Lemma identity_rep : represents_cache (scalar_cache false (fun i=>identity_word (Z.of_nat i))) identity.
 Proof.
  exists 1%fp;split;[discriminate|].

@@ -28,14 +28,14 @@ Proof.
  - unfold m,StrictMatchBranch.mask;destruct zero;[lia|apply EligibleLanes.masked_byte,Byte].
  - intros j J;unfold ScoredChunk.flags;rewrite (ScoreTail.memory _ _ _ _ _ _ End);exact(proj1(Flags j J)).
  - intros j J;unfold ScoredChunk.flags;rewrite (ScoreTail.memory _ _ _ _ _ _ End),(proj2(Flags j J)),(Bits j J);
-   split;[tauto|intro A;exact(conj (Lane.accepted_eligible _ _ A) A)].
+   split;[tauto|intro A;exact(conj (Optimized.accepted_eligible _ _ A) A)].
 Qed.
 
 Theorem checked bias parent e caller p bank:placement e -> loaded Dalek bias (mem e) (writable e) ->
- byte_memory(mem e) -> StrictResume.result bias parent e caller p ->
+ StrictResume.result bias parent e caller p ->
  exists q,execute bias p bank=Some q /\ result bias parent e q.
 Proof.
- intros P I B Ret;destruct(StrictMatchState.checked _ _ _ _ _ I Ret) as [ctx [Setup [Start [Paid [W [Frame Live]]]]]].
+ intros P I Ret;destruct(StrictMatchState.checked _ _ _ _ _ I Ret) as [ctx [Setup [Start [Paid [W [Frame Live]]]]]].
  destruct(StrictCoordinate.checked true bias parent e caller ctx bank P I Start Paid W Frame) as [y [k [First Y]]].
  destruct(StrictMatchBranch.tested _ _ _ _ _ P I (StrictCoordinate.address _ _ _ _ _ _ _ Y)
   (StrictCoordinate.writes _ _ _ _ _ _ _ Y) (StrictCoordinate.words _ _ _ _ _ _ _ Y) (StrictCoordinate.context _ _ _ _ _ _ _ Y)
@@ -46,11 +46,11 @@ Proof.
  unfold execute;rewrite Setup;cbn [bind];rewrite First;cbn [bind];rewrite Gate;cbn [bind];unfold remainder.
  unfold StrictMatchBranch.next in At;destruct(regs(machine v) 12%nat=?0) eqn:Empty.
  - apply Z.eqb_eq in Empty;rewrite Empty in Ymask;apply(published true bias parent e caller v P I At A Wv C);
-     [rewrite AX;exact(StrictCoordinate.mask_byte _ _ _ _ _ _ _ Y)|exact(StrictMatchBits.zero _ B Ymask)].
+     [rewrite AX;exact(StrictCoordinate.mask_byte _ _ _ _ _ _ _ Y)|exact(StrictMatchBits.zero _ Ymask)].
  - destruct(StrictCoordinate.checked false bias parent e caller v k P I At A Wv C) as [x [k' [Second X]]].
    rewrite Second;cbn [bind];apply (published false bias parent e caller x P I (StrictCoordinate.address _ _ _ _ _ _ _ X)
     (StrictCoordinate.writes _ _ _ _ _ _ _ X) (StrictCoordinate.words _ _ _ _ _ _ _ X) (StrictCoordinate.context _ _ _ _ _ _ _ X)
     (StrictCoordinate.mask_byte _ _ _ _ _ _ _ X)).
-   apply StrictMatchBits.horizontal;[exact B|rewrite (StrictCoordinate.active _ _ _ _ _ _ _ X);exact Ymask|exact(StrictCoordinate.coordinates _ _ _ _ _ _ _ X)].
+   apply StrictMatchBits.horizontal;[rewrite (StrictCoordinate.active _ _ _ _ _ _ _ X);exact Ymask|exact(StrictCoordinate.coordinates _ _ _ _ _ _ _ X)].
 Qed.
 End Iteration.

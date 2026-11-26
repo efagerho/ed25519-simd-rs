@@ -34,3 +34,25 @@ Proof.
  induction n;[reflexivity|]. cbn [multiple];rewrite IHn, Nat2Z.inj_succ.
  replace (Z.succ (Z.of_nat n)*z) with (z+Z.of_nat n*z) by ring;apply eq_sym,scale_add.
 Qed.
+
+Lemma cancel_right_iff P Q R : plus P R = plus Q R <-> P = Q.
+Proof.
+ rewrite (plus_comm P R), (plus_comm Q R).
+ split; [apply cancel_left | intros ->; reflexivity].
+Qed.
+
+Lemma multiple_difference_identity n P R :
+ multiple n (plus P (negative R)) = identity <-> multiple n P = multiple n R.
+Proof.
+ assert (Id : multiple n identity = identity).
+ { induction n; [reflexivity | cbn [multiple]; now rewrite plus_identity]. }
+ assert (Inverse : plus (multiple n R) (multiple n (negative R)) = identity)
+   by now rewrite <-multiple_sum, plus_negative.
+ rewrite multiple_sum, <-Inverse. apply cancel_right_iff.
+Qed.
+
+Lemma negative_scale z P : negative(scale z P)=scale (-z) P.
+Proof.
+ apply(cancel_left(scale z P));rewrite plus_negative,<-scale_add.
+ replace (z+ -z) with 0 by lia;reflexivity.
+Qed.

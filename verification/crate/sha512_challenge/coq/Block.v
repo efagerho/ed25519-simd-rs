@@ -1,6 +1,7 @@
 From Coq Require Import List PeanoNat NArith Lia.
 From SHA512 Require Import Spec.
-From Ed25519Simd.Sha512Challenge Require Import Compression Rounds.
+From SHA512 Require Import Compression.
+From Ed25519Simd.Sha512Challenge Require Import Rounds.
 Import ListNotations.
 Local Open Scope nat_scope.
 

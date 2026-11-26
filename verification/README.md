@@ -8,6 +8,7 @@ This directory contains the Coq proofs for the crate’s x86-64 assembly routine
 | [arithmetic/](arithmetic/README.md) | General proofs about integer expressions, polynomial identities, bounds, and radix representations. |
 | [sha512/](sha512/README.md) | The byte-oriented FIPS 180-4 definition of SHA-512, padding and block-size proofs, and known-answer checks. |
 | [curve25519/](curve25519/README.md) | Field and scalar arithmetic, Edwards point formulas, and their relationship to the group law. |
+| [ed25519/](ed25519/README.md) | Byte-level ZIP-215 and Dalek strict signature criteria and their equivalence to the optimized checks. |
 | [crate/](crate/README.md) | Shared SIMD representations, the public theorem for each assembly routine, and instructions for auditing a linked executable. |
 
 ## Shared audit surface
@@ -96,6 +97,10 @@ coordinate convention changes the meaning of every theorem that uses it.
 The soundness of the polynomial and interval checkers, the primality proof,
 and the connection from coordinate formulas to the group law are themselves
 kernel-checked results. [Arithmetic library](arithmetic/README.md) · [Curve definitions and representation theorems](curve25519/README.md)
+
+For Ed25519, check how the original bytes determine the challenge and which
+encodings, cofactor equation and small-order rules each policy accepts.
+Both release entry points use the shared byte-level predicate. [Ed25519 audit surface](ed25519/README.md)
 
 For SHA-512, the reference is a Coq function from message bytes to digest
 bytes. An auditor checks that it transcribes FIPS 180-4, including the constants,

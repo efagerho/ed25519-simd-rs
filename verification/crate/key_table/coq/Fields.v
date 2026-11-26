@@ -5,7 +5,9 @@ From Machine Require Import isa.Instructions.
 From Curve25519 Require Import Field Radix51.
 From Curve25519.group Require Import PrimeField.
 From Ed25519Simd Require Import FieldKernel FieldSymbolic.
-From Ed25519Simd.Decode Require Import Kernels Power Limbs Decode.
+From Ed25519Simd.Decode Require Import Kernels Power.
+From Curve25519 Require Import Radix51Digits.
+From Ed25519Simd.Decode Require Import Decode.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition two_d := five 1859910466990425 932731440258426 1072319116312658

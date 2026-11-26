@@ -8,7 +8,8 @@ From Ed25519Simd.PostHash Require Product.
 From Ed25519Simd.Zip215 Require CandidateBytes.
 From Ed25519Simd.DalekPostHash Require CandidateBytes.
 From Ed25519Simd.FullLadder Require Import Operands.
-From Ed25519Simd.VerifyBatch Require Import Policy Lane Digest Rows Prepare Hash.
+From Ed25519 Require Import Optimized.
+From Ed25519Simd.VerifyBatch Require Import Policy Digest Rows Prepare Hash.
 Import ListNotations. Local Open Scope Z_scope.
 Module D := Ed25519Simd.Radix16.Audit.
 Module F := Ed25519Simd.FullLadder.Audit.
@@ -24,8 +25,8 @@ Definition fixed c := regs(entry c) 9%nat.
 Definition fallback c := regs(entry c) 8%nat.
 Definition full c := negb(strict(mode c)).
 Definition candidate_image pol := match pol with
- | Policy.Zip215=>(Zip215.CandidateBytes.address,Zip215.CandidateBytes.symbol_bytes)
- | Policy.Dalek=>(DalekPostHash.CandidateBytes.address,DalekPostHash.CandidateBytes.symbol_bytes) end.
+ | Equations.Zip215=>(Zip215.CandidateBytes.address,Zip215.CandidateBytes.symbol_bytes)
+ | Equations.Dalek=>(DalekPostHash.CandidateBytes.address,DalekPostHash.CandidateBytes.symbol_bytes) end.
 Definition digest_site pol := fst (candidate_image pol)+24.
 Definition digest_op := Invoke Radix16.LinkedBytes.wrapper_pc.
 Definition digest_binding pol :=

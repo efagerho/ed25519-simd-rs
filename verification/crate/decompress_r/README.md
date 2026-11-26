@@ -18,7 +18,7 @@ chunk. [Public theorem](coq/Object.v) · [Contract](coq/Audit.v) · [Lane result
    both directions of the root test and uniqueness from the checked prime
    field. The scaled numerator is 121666(y² − 1) and the denominator is y²
    minus that numerator. The single and paired paths use exponent (p − 5)/8.
-   [Root and sign specification](../../curve25519/group/Decompression.v) · [Limb tests](coq/Limbs.v)
+   [Root and sign specification](../../curve25519/group/Decompression.v) · [Limb tests](../../curve25519/Radix51Digits.v) · [Biased decoder columns](../../curve25519/DecompressionRadix51.v)
 2. **The release bytes.** The certificate checks the caller, both local paths,
    the arithmetic fragments in the decoder and torsion symbols, their relative
    transfers, constants, and the paired pow2 certificate from the same ELF.

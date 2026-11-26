@@ -1,8 +1,7 @@
 From Coq Require Import List ZArith Bool Lia Ring Znumtheory.
 From ProofArithmetic Require Import Interval Polynomial.
 From Machine Require Import isa.Instructions execution.MaskTrace execution.CircuitFacts.
-From Curve25519 Require Import Field Radix51.
-From Ed25519Simd.field51 Require Import Zero.
+From Curve25519 Require Import Field Radix51 Radix51Zero.
 Import ListNotations. Local Open Scope Z_scope.
 
 (* Keep a signed integer representative across word adds, subtracts and low

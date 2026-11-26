@@ -1,11 +1,12 @@
 From Coq Require Import ZArith Lia.
 From Curve25519 Require Import Radix51 Edwards.
 From Ed25519Simd Require Import Wide51.
-From Ed25519Simd.Decode Require Import Decode Limbs.
+From Ed25519Simd.Decode Require Import Decode.
+From Curve25519 Require Import Radix51Digits.
 Local Open Scope Z_scope.
 
-Definition coordinates_of (o:output) := Coordinates (Limbs.pack (ox o)) (Limbs.pack (oy o))
-  (Limbs.pack (oz o)) (Limbs.pack (ot o)).
+Definition coordinates_of (o:output) := Coordinates (Radix51Digits.pack (ox o)) (Radix51Digits.pack (oy o))
+  (Radix51Digits.pack (oz o)) (Radix51Digits.pack (ot o)).
 Definition octet (w:Z) i := Z.shiftr w (8*Z.of_nat i) mod 256.
 Lemma octet_bit w i j : (j<8)%nat ->
  Z.testbit(octet w i)(Z.of_nat j)=Z.testbit w (8*Z.of_nat i+Z.of_nat j).
@@ -25,6 +26,6 @@ Proof.
 Qed.
 Lemma word_coords os j : (j<8)%nat -> point_values (words os) j=coordinates_of(os j).
 Proof.
- intro J. unfold point_values,point_from_fields,word_coordinate,field_at,coordinates_of,Limbs.pack,limbs.
+ intro J. unfold point_values,point_from_fields,word_coordinate,field_at,coordinates_of,Radix51Digits.pack,limbs.
  now rewrite !word_cell by exact J.
 Qed.

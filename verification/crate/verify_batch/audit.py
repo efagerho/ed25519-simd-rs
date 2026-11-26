@@ -13,7 +13,7 @@ sys.path.insert(0, str(VERIFY))
 from crate.post_hash.build import load_callees, symbol_inputs
 from elf import symbol_bytes
 from evidence import write_evidence
-from proof_build import MASK_PROJECTS, compile_libraries, library_flags, write_project
+from proof_build import ED25519_FLAGS, MASK_PROJECTS, compile_libraries, library_flags, stage_sources, write_project
 
 NS = "Ed25519Simd.VerifyBatch"
 ENTRIES = {"Zip": "ed25519_simd_zip215_verify_batch", "Dalek": "ed25519_simd_dalek_verify_batch"}
@@ -24,7 +24,7 @@ DEPENDENCIES = {
     "zip215": ("Zip215", "Torsion"),
     "sha512_challenge": ("Sha512Challenge", "sha512"),
 }
-FLAGS = [*library_flags(), "-Q", "VerifyBatch", NS,
+FLAGS = [*library_flags(), *ED25519_FLAGS, "-Q", "VerifyBatch", NS,
          *(arg for group in DEPENDENCIES.values() for ns in group
            for arg in ("-Q", ns, "SHA512" if ns == "sha512" else "Ed25519Simd." + ns))]
 
@@ -56,7 +56,7 @@ def check_entries(work):
     lines = [f"Require {NS}.Object."]
     for label, mode in (("Zip", "Zip215"), ("Dalek", "Dalek")):
         theorem = f"{NS}.Object.assembled_{mode.lower()}_verify_batch_correct"
-        expected = (f"{NS}.Audit.batch_contract {NS}.Policy.{mode} "
+        expected = (f"{NS}.Audit.batch_contract Ed25519.Equations.{mode} "
                     f"{NS}.{label}Bytes.address {NS}.{label}Bytes.symbol_bytes")
         lines += [f"Definition checked_{label} : {expected} := {theorem}.", f"Print Assumptions checked_{label}."]
         statements.append(f"{theorem} : {expected}")
@@ -78,6 +78,7 @@ def check_entries(work):
 def replay(elf, work, deps, jobs):
     work.mkdir(parents=True, exist_ok=False)
     compile_libraries(work, projects=MASK_PROJECTS)
+    stage_sources(VERIFY, work, ("ed25519",))
     dest = work / "VerifyBatch"
     shutil.copytree(HERE / "coq", dest)
     symbols, _ = symbol_inputs(elf, dest, ENTRIES)

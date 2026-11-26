@@ -4,7 +4,7 @@ From Curve25519 Require Import SignedRadix16 Scalar.
 From ProofArithmetic Require Import Radix.
 From Ed25519Simd.FullLadder Require Import Operands.
 From Ed25519Simd.PostHash Require Product.
-From Ed25519Simd.VerifyBatch Require Import Policy Lane Digest Rows Prepare Hash Candidate.
+From Ed25519Simd.VerifyBatch Require Import Policy Digest Rows Prepare Hash Candidate.
 Local Open Scope Z_scope.
 
 (* These requirements mention the spatial preconditions of the linked routines.

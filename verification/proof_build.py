@@ -15,6 +15,7 @@ LIBRARIES = (("arithmetic", "ProofArithmetic"), ("machine", "Machine"),
 SHARED_PROJECTS = ("arithmetic", "curve25519", "machine", "machine/symbolic", "crate")
 GROUP_PROJECTS = (*SHARED_PROJECTS, "curve25519/group")
 MASK_PROJECTS = (*GROUP_PROJECTS, "crate/field51")
+ED25519_FLAGS = ["-Q", "ed25519", "Ed25519"]
 SHARED_ENV = "ED25519_SIMD_COQ_LIBRARIES"
 COMPONENTS = {"deferred_point": "Point", "sha512_challenge": "Sha512Challenge",
               "prepare_chunk": "PrepareChunk", "signature_scalar": "SignatureScalar", "pow2": "Pow2", "double4": "Double4", "cached_add": "CachedAdd",
@@ -159,6 +160,15 @@ def compile_libraries(work, projects=SHARED_PROJECTS, source=HERE):
             if hashlib.sha256(data).hexdigest() != manifest["files"].get(str(obj)):
                 raise ValueError(f"shared Coq object failed its digest check: {obj}")
             (work / obj).write_bytes(data)
+
+
+def compile_signature_equations(work):
+    """Post-hash components need the group equations, independently of SHA-512."""
+    compile_libraries(work, projects=MASK_PROJECTS)
+    equations = Path("ed25519/Equations.v")
+    (work / equations.parent).mkdir()
+    shutil.copyfile(HERE / equations, work / equations)
+    subprocess.run(["coqc", *library_flags(), *ED25519_FLAGS, str(equations)], cwd=work, check=True)
 
 
 def write_project(work, flags, sources):

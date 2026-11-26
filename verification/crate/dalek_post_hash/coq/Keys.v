@@ -1,10 +1,13 @@
 From Coq Require Import ZArith Lia Bool List Field.
+From Curve25519.group Require Import CoordinateEncoding.
+From Curve25519 Require DeferredCarry.
 From Machine Require Import isa.X86 isa.Instructions isa.Logic isa.Arithmetic isa.Shift isa.IFMA execution.LinkedCalls memory.ByteMemory.
 From Curve25519 Require Import Field Edwards Radix51.
 From Curve25519.group Require Import PrimeField Affine Representation SignedMultiple.
 From Ed25519Simd Require Import Wide51.
 From Ed25519Simd.FullLadder Require Import Operands.
-From Ed25519Simd.Decode Require Import Limbs Scale Decode Kernels Program.
+From Curve25519 Require Import Radix51Digits.
+From Ed25519Simd.Decode Require Import Scale Decode Kernels Program.
 From Ed25519Simd.Dalek Require Import Masks.
 From Ed25519Simd.DalekPostHash Require Import Caller.
 Import ListNotations. Local Open Scope Z_scope.
@@ -41,8 +44,8 @@ Proof.
    unfold vpaddq,vpsubq,radix,split in *;repeat multimatch goal with |- context[low64 ?n] => rewrite (exact_word n) by lia end;split;lia. }
  assert (C:forall i,(i<5)%nat -> 1018<=d i/radix<=1028).
  { intros i I;destruct(D i I) as [_ H];split;[apply Z.div_le_lower_bound|apply Z.div_le_upper_bound];unfold radix in *;lia. }
- assert (Step:forall i,(i<5)%nat -> Scale.reduced (biased twice a b) i=Limbs.carry d i).
- { intros i I;unfold Scale.reduced,Limbs.carry,vpandq,vpsrlq;
+ assert (Step:forall i,(i<5)%nat -> Scale.reduced (biased twice a b) i=DeferredCarry.carry d i).
+ { intros i I;unfold Scale.reduced,DeferredCarry.carry,vpandq,vpsrlq;
    rewrite (proj1(D _ I));change (radix-1) with (Z.ones 51).
    rewrite Z.land_ones by lia;change (2^51) with radix.
    pose proof(Z.mod_pos_bound (d i) radix ltac:(unfold radix;lia)).
@@ -54,18 +57,18 @@ Proof.
    - specialize(C i ltac:(lia));unfold vpaddq;apply exact_word;unfold radix in *;lia. }
  set (h:=Scale.reduced (biased twice a b)).
  assert (BD:bounded h).
- { intros i I;unfold h;rewrite Step by exact I;unfold Limbs.carry.
+ { intros i I;unfold h;rewrite Step by exact I;unfold DeferredCarry.carry.
    pose proof(Z.mod_pos_bound (d i) radix ltac:(unfold radix;lia)).
    destruct i as [|i];[specialize(C 4%nat ltac:(lia))|specialize(C i ltac:(lia))];lia. }
  assert (Pos:1<pack h).
- { unfold pack,limbs. pose proof(BD 1%nat ltac:(lia));pose proof(BD 2%nat ltac:(lia));
-   pose proof(BD 3%nat ltac:(lia));pose proof(BD 4%nat ltac:(lia)).
+ { apply positive_from_low; [exact BD|].
    replace (h 0%nat) with (d 0%nat mod radix+19*(d 4%nat/radix)) by (apply eq_sym,Step;lia).
    pose proof(Z.mod_pos_bound (d 0%nat) radix ltac:(unfold radix;lia)).
    specialize(C 4%nat ltac:(lia));unfold radix in *;lia. }
- assert (V:pack h=pack(Limbs.carry d)) by (unfold pack,limbs,h;now rewrite !Step by lia).
+ assert (V:pack h=pack(DeferredCarry.carry d)) by (unfold pack,limbs,h;now rewrite !Step by lia).
  assert (Pack:pack d = k*pack a+1024*prime-pack b) by (unfold pack,limbs,d,bias,prime,radix;cbn [Nat.eqb];ring).
- pose proof (proj1 (congruent_value _ _) (carry_value d)) as E.
+ pose proof (proj1 (congruent_value _ _) (DeferredCarry.carry_value d)) as E.
+ change (residue (pack (DeferredCarry.carry d)) = residue (pack d)) in E.
  unfold equal_columns;fold h;rewrite high_test_correct,congruent_value,V,E,Pack by (auto || lia).
  unfold value,k;destruct twice;rewrite residue_sub,residue_add,residue_mul;
  replace (residue (1024*prime)) with 0%fp by
@@ -90,33 +93,17 @@ Proof.
  assert (V:forall c, (c<4)%nat -> split_field(column s j (Z.of_nat c))).
  { intros c C i I;rewrite gather_row;specialize(Bound (5*c+i)%nat ltac:(cbn;lia));fold a;unfold split;lia. }
  set (Q:=multiple 8 P) in *.
- destruct Rep as [z [NZ [Minus [Plus [_ ZZ]]]]].
- change (value(fun i=>a (5*0+i)%nat) = ((y Q-x Q)*z)%fp) in Minus.
- change (value(fun i=>a (5*1+i)%nat) = ((y Q+x Q)*z)%fp) in Plus.
- change (value(fun i=>a (5*3+i)%nat) = ((1+1)*z)%fp) in ZZ.
  assert (Val:forall c,value(column s j (Z.of_nat c))=value(fun i=>a (5*c+i)%nat))
  by (intro c;unfold value,pack,limbs;now rewrite !gather_row).
  pose proof (Val 0%nat) as V0;pose proof (Val 1%nat) as V1;pose proof (Val 3%nat) as V3.
  cbn [Z.of_nat Pos.of_succ_nat Pos.succ] in V0,V1,V3.
- assert (F:first s j=true <-> x Q=0%fp).
- { unfold first;rewrite equal_columns_ok by (apply (V 1%nat) || apply (V 0%nat);lia).
-   rewrite V1,V0,Plus,Minus.
-   split;intro H;[|rewrite H;ring].
-   assert (Zero:((1+1)*x Q*z=0)%fp) by
-    (replace ((1+1)*x Q*z)%fp with (((y Q+x Q)*z)-((y Q-x Q)*z))%fp by ring;rewrite H;ring).
-   apply product_zero in Zero as [Zr|Zr];[|contradiction].
-   apply product_zero in Zr as [Zr|Zr];[discriminate|assumption]. }
  assert (G:first s j && second s j=true <-> Q=identity).
- { rewrite andb_true_iff,F. unfold second;rewrite equal_columns_ok by (apply (V 0%nat) || apply (V 3%nat);lia).
-   rewrite V0,V3,Minus,ZZ.
-   split;[intros [X Y]|intros ->;cbn [identity x y];split;[reflexivity|ring]].
-   apply point_ext;split;[exact X|]. change (y Q=1%fp).
-   assert (Zero:((1+1)*(y Q-1)*z=0)%fp) by
-    (replace ((1+1)*(y Q-1)*z)%fp with
-      (((y Q-x Q)*z+(y Q-x Q)*z)-(1+1)*z)%fp by (rewrite X;ring);rewrite Y;ring).
-   destruct(proj1(product_zero _ _) Zero) as [Zr|Zr];[|contradiction].
-   apply product_zero in Zr as [Zr|Zr];[discriminate|].
-   replace (y Q) with ((y Q-1)+1)%fp by ring;rewrite Zr;ring. }
+ { unfold first,second. rewrite andb_true_iff.
+   rewrite (equal_columns_ok false _ _ (V 1%nat ltac:(lia)) (V 0%nat ltac:(lia))).
+   rewrite (equal_columns_ok true _ _ (V 0%nat ltac:(lia)) (V 3%nat ltac:(lia))).
+   change ((value (column s j 1) = value (column s j 0) /\
+     (value (column s j 0)+value (column s j 0))%fp = value (column s j 3)) <-> Q = identity).
+   rewrite V0,V1,V3. exact (cache_identity_iff _ _ _ _ _ Rep). }
  assert (Flow:forall b,reaches Filter FirstDifference b false KeysDone=b) by (destruct b;reflexivity).
  unfold filter_keys;rewrite Flow;destruct (byte (first s)=?0) eqn:M.
  - apply Z.eqb_eq in M. assert (Off:first s j=false) by (rewrite <-(byte_bit _ _ J),M,Z.bits_0;reflexivity).

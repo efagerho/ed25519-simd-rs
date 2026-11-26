@@ -3,7 +3,7 @@ From Machine Require Import isa.Instructions execution.WordSemantics execution.W
  execution.ScalarBytes execution.ScalarWords execution.QwordBlock execution.MappedFetch memory.ByteMemory memory.FlatMemory.
 From Machine Require execution.PredicateBlock execution.MaskedWords execution.MaskTransfer.
 From Curve25519 Require Import Radix51.
-From Ed25519Simd.Decode Require Limbs.
+From Curve25519 Require Radix51Digits.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar.
 From Ed25519Simd.VerifyBatch Require FilterCarry RootMasks ScoreSetup.
 Import ListNotations. Local Open Scope Z_scope.
@@ -25,7 +25,7 @@ Record result phase bias e p q k:Prop:=Result {
  pc:ip q=bias+origin phase+(start phase+34); writes:accounted e (writable e) q; words:well_formed(machine q);
  registers:regs(machine q)=regs(machine p); memory_after:mem(machine q)=mem(machine p); history:log q=log p;
  high_regs:forall j r,r<>10%nat -> r<>11%nat -> vectors(machine q) j r=vectors(machine p) j r;
- equal_zero:forall j,k 1%nat j=((j<?8)%nat && Limbs.high_test (vectors(machine p) j) 0)%bool
+ equal_zero:forall j,k 1%nat j=((j<?8)%nat && Radix51Digits.high_test (vectors(machine p) j) 0)%bool
 }.
 
 Theorem checked phase bias e p bank : loaded Dalek bias (mem e) (writable e) -> ip p=bias+origin phase+start phase ->
@@ -59,5 +59,5 @@ Proof.
  unfold RootMasks.gate,RootMasks.mask1;rewrite PredicateBlock.compare;cbn [MaskedWords.holds PredicateBlock.operand Nat.eqb orb].
  rewrite Lit,(Other j 29%nat ltac:(discriminate) ltac:(discriminate)),C,(Other j 0%nat ltac:(discriminate) ltac:(discriminate)).
  assert (V:vectors v j 10%nat=RootMasks.high (vectors s j)) by (rewrite Vec;reflexivity).
- rewrite V;unfold RootMasks.high,Limbs.high_test;rewrite Z.add_0_r;destruct(j<?8)%nat;cbn;now rewrite ?andb_true_r.
+ rewrite V;unfold RootMasks.high,Radix51Digits.high_test;rewrite Z.add_0_r;destruct(j<?8)%nat;cbn;now rewrite ?andb_true_r.
 Qed.

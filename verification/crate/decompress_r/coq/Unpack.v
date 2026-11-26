@@ -1,7 +1,6 @@
 From Coq Require Import ZArith Znumtheory Bool Lia.
 From Machine Require Import isa.X86 isa.Shift memory.ByteMemory.
-From Curve25519 Require Import Radix51.
-From Ed25519Simd.Decode Require Import Limbs.
+From Curve25519 Require Import Radix51 Radix51Digits.
 Local Open Scope Z_scope.
 
 (* Lane indices in four consecutive 64-byte loads. VSHUFI64X2 selects

@@ -27,8 +27,3 @@ Proof.
   intro E. unfold torsion_check, torsion_numerators, torsion_roots. right; left.
   rewrite Z.mul_mod, E, Z.mul_0_l, Z.mod_0_l by (unfold prime; lia). reflexivity.
 Qed.
-
-Lemma sqrt_m1_radix51 :
-  1718705420411056 + radix * (234908883556509 + radix * (2233514472574048 +
-    radix * (2117202627021982 + radix * 765476049583133))) = sqrt_m1.
-Proof. reflexivity. Qed.

@@ -9,15 +9,15 @@ From Ed25519Simd.VerifyBatch Require BatchWindow.
 Section Iteration.
 Context `{iteration:BatchWindow.t}.
 Definition eligible e j:=StrictRCanonical.eligible e j /\
- exists R,Policy.decodes (BatchDecode.original_encoding true e j) R /\ multiple 8 R<>identity.
+ exists R,PointEncoding.decodes (BatchDecode.original_encoding true e j) R /\ multiple 8 R<>identity.
 
 Lemma eligible_point e j : StrictRCanonical.eligible e j ->
- exists R,Policy.decodes (BatchDecode.original_encoding true e j) R.
+ exists R,PointEncoding.decodes (BatchDecode.original_encoding true e j) R.
 Proof. intros [[_ [Decoded _]] _];exact Decoded. Qed.
 
 Lemma bit_clear e j (live weak:bool) :
  (live=true <-> StrictRCanonical.eligible e j) ->
- (forall R,Policy.decodes (BatchDecode.original_encoding true e j) R -> (weak=true <-> multiple 8 R=identity)) ->
+ (forall R,PointEncoding.decodes (BatchDecode.original_encoding true e j) R -> (weak=true <-> multiple 8 R=identity)) ->
  (live && negb weak=true <-> eligible e j).
 Proof.
  intros Lane Order;split.

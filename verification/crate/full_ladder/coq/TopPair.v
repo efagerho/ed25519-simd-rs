@@ -3,7 +3,8 @@ From Machine Require Import execution.LinkedCalls execution.LinkedRun execution.
  memory.FlatMemory memory.ByteMemory abi.SysV.
 From Curve25519.group Require Import Affine Representation.
 From Ed25519Simd Require Import Wide51 PointResults.
-From Ed25519Simd.FullLadder Require Import LinkedBytes Operands ScalarAction Execution Native Audit.
+From Curve25519.group Require Import DoubleScalar.
+From Ed25519Simd.FullLadder Require Import LinkedBytes Operands Execution Native Audit.
 From Ed25519Simd.FullLadder Require TopCall TopPoint RoundOperands.
 Import ListNotations. Local Open Scope Z_scope.
 Definition point s:=regs s 7%nat.
@@ -77,6 +78,6 @@ Proof.
    + eapply StoreHistory.compose;[exact (TopPoint.writes _ _ _ _ _ _ DR)|].
      eapply StoreHistory.compose;[exact (TopPoint.writes _ _ _ _ _ _ AR)|exact (TopPoint.writes _ _ _ _ _ _ ER)].
    + intros r R;rewrite (TopPoint.saved _ _ _ _ _ _ ER),(TopPoint.saved _ _ _ _ _ _ AR),(TopPoint.saved _ _ _ _ _ _ DR) by exact R;reflexivity.
-   + intros j J;specialize(QQ j J);apply proj1 in QQ;unfold operand_point,affine,weight in QQ;cbn iota in QQ;rewrite top_pair in QQ.
-     unfold accumulated;cbn [remaining_digits];rewrite !Z.mul_0_r,!Z.add_0_r;exact QQ.
+   + intros j J;specialize(QQ j J);apply proj1 in QQ;unfold operand_point,affine,weight in QQ;cbn iota in QQ.
+     exact QQ.
 Qed.

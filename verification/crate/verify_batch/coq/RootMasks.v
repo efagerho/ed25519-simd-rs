@@ -3,8 +3,7 @@ From Machine Require Import isa.Instructions execution.WordSemantics execution.L
  execution.ScalarBytes execution.ScalarWords execution.MappedFetch execution.InstructionRoute execution.QwordBlock
  memory.ByteMemory memory.MemoryGeometry memory.WriteTrace.
 From Machine Require execution.PredicateBlock execution.MaskedWords execution.MaskTransfer.
-From Curve25519 Require Import Radix51.
-From Ed25519Simd.Decode Require Import Limbs.
+From Curve25519 Require Import Radix51 Radix51Digits.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode KeySquare.
 From Ed25519Simd.VerifyBatch Require DecoderFrame DecoderProduct DecoderKernel NativeScale.
 Import ListNotations. Local Open Scope Z_scope.

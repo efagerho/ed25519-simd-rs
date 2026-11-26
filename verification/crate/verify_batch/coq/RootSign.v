@@ -3,7 +3,8 @@ From Machine Require Import isa.Instructions isa.QwordRegister execution.WordSem
  execution.ScalarBytes execution.ScalarWords execution.MappedFetch execution.InstructionRoute memory.ByteMemory memory.MemoryGeometry.
 From Machine Require execution.MaskedResult execution.MaskTransfer.
 From Curve25519 Require Import Radix51.
-From Ed25519Simd.Decode Require Limbs Scale.
+From Curve25519 Require Radix51Digits.
+From Ed25519Simd.Decode Require Scale.
 From Ed25519Simd.VerifyBatch Require Import Policy Return LoadedImage BatchScalar BatchDecode KeySquare NativeScale.
 From Ed25519Simd.VerifyBatch Require DecoderFrame RootParity RowProduct MaskSegment.
 Import ListNotations. Local Open Scope Z_scope.
@@ -67,13 +68,13 @@ Proof.
    + intros j i J N;rewrite V,(Digits j i N),Signs,Unmoved by lia;reflexivity.
 Qed.
 
-Lemma sign_math s j : Limbs.bounded (vectors s j) -> forall i,(i<5)%nat ->
- adjusted s j i=if xorb (Limbs.canonical_odd (vectors s j)) (Z.testbit (regs s 9%nat) (Z.of_nat j))
- then Limbs.neg_digits (vectors s j) i else vectors s j i.
+Lemma sign_math s j : Radix51Digits.bounded (vectors s j) -> forall i,(i<5)%nat ->
+ adjusted s j i=if xorb (Radix51Digits.canonical_odd (vectors s j)) (Z.testbit (regs s 9%nat) (Z.of_nat j))
+ then Radix51Digits.neg_digits (vectors s j) i else vectors s j i.
 Proof.
  intros B i N;unfold adjusted,RootParity.need_sign;rewrite Scale.parity_after_ok by exact B.
  destruct(xorb _ _);[|reflexivity].
  pose proof (f_equal (fun h=>h i) (Scale.native_neg_ok _ B)) as Neg.
- change (Scale.native_neg (vectors s j) i=Limbs.finite (Limbs.neg_digits (vectors s j)) i) in Neg.
- unfold Scale.native_neg in Neg;now rewrite !Limbs.finite_at in Neg by exact N.
+ change (Scale.native_neg (vectors s j) i=Radix51Digits.finite (Radix51Digits.neg_digits (vectors s j)) i) in Neg.
+ unfold Scale.native_neg in Neg;now rewrite !Radix51Digits.finite_at in Neg by exact N.
 Qed.

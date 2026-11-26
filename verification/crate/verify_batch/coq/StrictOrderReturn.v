@@ -51,7 +51,7 @@ Record result bias e p q:Prop:=Result {
  gprs:forall g,g<>0%nat -> g<>4%nat -> regs(machine q) g=regs(machine p) g;
  frame:preserved (fun x=>~region e x) (mem(machine p)) (mem(machine q));
  byte:0<=regs(machine q) 0%nat<256;
- weak:forall j R,(j<8)%nat -> Policy.decodes (BatchDecode.original_encoding true e j) R ->
+ weak:forall j R,(j<8)%nat -> PointEncoding.decodes (BatchDecode.original_encoding true e j) R ->
     (Z.testbit (regs(machine q) 0%nat) (Z.of_nat j)=true <-> multiple 8 R=identity)
 }.
 Theorem checked bias e prev p ks : placement e -> loaded Dalek bias (mem e) (writable e) ->

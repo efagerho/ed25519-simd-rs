@@ -4,7 +4,9 @@ From Curve25519 Require Import Radix51 Field.
 From Curve25519.group Require Import PrimeField Affine Decompression.
 From Ed25519Simd Require Import Wide51.
 From Ed25519Simd.Pow2 Require Pow2Caller Linked Pow2Spec.
-From Ed25519Simd.Decode Require Import Kernels Power Limbs Unpack Decode Glue Caller.
+From Ed25519Simd.Decode Require Import Kernels Power.
+From Curve25519 Require Import Radix51Digits.
+From Ed25519Simd.Decode Require Import Unpack Decode Glue Caller.
 Local Open Scope Z_scope.
 Local Opaque Pow2Caller.execute8 Linked.chain.
 

@@ -1,5 +1,6 @@
 From Coq Require Import List NArith ZArith.
-From Ed25519Simd.Sha512Challenge Require Import Rounds Compression Image.
+From SHA512 Require Import Compression.
+From Ed25519Simd.Sha512Challenge Require Import Rounds Image.
 From Mutations Require Code.
 Local Open Scope nat_scope.
 

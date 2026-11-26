@@ -13,10 +13,10 @@ three linked dependency symbols to one ELF. [Public theorem](coq/Object.v) · [C
    points. RSI addresses consecutive 256-byte chunks of eight little-endian
    encodings. RDX is the chunk count. The caller must supply readable spans.
    The X, Y and Z limbs must be below 2⁵² and represent a curve point with
-   nonzero Z. T can be arbitrary. Check that `compress` uses canonical affine
+   nonzero Z. T can be arbitrary. Check that `compression` uses canonical affine
    y and the low bit of canonical affine x as bit 255. Compare the direction
    of the cofactor test and the mapping from chunk and lane to the result bit
-   with both queue flush routines. [Dalek caller](../../../src/wide/avx512ifma/dalek.S) · [ZIP-215 caller](../../../src/wide/avx512ifma/zip215.S) · [Encoding](coq/Encoding.v) · [Small-order theorem](../small_order/README.md)
+   with both queue flush routines. [Dalek caller](../../../src/wide/avx512ifma/dalek.S) · [ZIP-215 caller](../../../src/wide/avx512ifma/zip215.S) · [Canonical compression](../../curve25519/group/PointEncoding.v) · [Limb comparisons](coq/Encoding.v) · [Small-order theorem](../small_order/README.md)
 2. **Arithmetic and shortcuts.** The field checker evaluates the lifted IFMA
    instructions for the fused comparison, multiplication and squaring. It
    proves that the biased difference lies in the range where the digit test

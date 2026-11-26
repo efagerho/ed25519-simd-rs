@@ -1,9 +1,11 @@
+From Curve25519.group Require Import PointDecoding.
 From Coq Require Import ZArith Lia.
 From Machine Require Import execution.LinkedCalls execution.LinkedRun memory.ByteMemory memory.FlatMemory.
 From Curve25519 Require Import Edwards Radix51.
 From Curve25519.group Require Import PrimeField Affine Representation.
 From Ed25519Simd Require Import Wide51.
-From Ed25519Simd.Decode Require Import Limbs Decode.
+From Curve25519 Require Import Radix51Digits.
+From Ed25519Simd.Decode Require Import Decode.
 From Ed25519Simd.VerifyBatch Require Import Policy BatchDecode NativeScale RootValue.
 From Ed25519Simd.VerifyBatch Require ReturnedPoint.
 Local Open Scope Z_scope.
@@ -17,7 +19,7 @@ Context `{iteration:BatchWindow.t}.
 Definition encoded_y sig e (w:nat->Z) := forall j,(j<8)%nat ->
  let y:=coord w j 1 in BatchDecode.radix_digits y /\ limbs y=original_encoding sig e j mod 2^255.
 Definition geometry sig e (w:nat->Z):=cache_bounds false w /\ encoded_y sig e w /\ forall j P,(j<8)%nat ->
- Policy.decodes (original_encoding sig e j) P ->
+ PointEncoding.decodes (original_encoding sig e j) P ->
  represents_point true (point_values w j) P /\ value(coord w j 2)=1%fp.
 
 Lemma memory_coord sig e s c j i : coord (buffer sig e s) j c i=
@@ -45,7 +47,7 @@ Theorem returned sig pol bias e s q : ReturnedPoint.result sig pol bias e s q ->
  (forall j,(j<8)%nat ->
  let x0:=vectors(machine s) j in let y0:=row (machine s) (BatchDecode.point e sig+320) j in
  split_field x0 /\ BatchDecode.radix_digits y0 /\ limbs y0=original_encoding sig e j mod 2^255 /\
- forall P,Policy.decodes (original_encoding sig e j) P -> value x0=x P) ->
+ forall P,PointEncoding.decodes (original_encoding sig e j) P -> value x0=x P) ->
  geometry sig e (buffer sig e (machine q)).
 Proof.
  intros Out Inputs;destruct(ReturnedPoint.point_before_return _ _ _ _ _ _ Out) as [a [A M]].
@@ -71,9 +73,9 @@ Proof.
    { intros j J;destruct(Inputs j J) as [_ [Bound [Val _]]];destruct(Lane j J) as [_ [Y _]].
      split;[intros i I;rewrite Y by exact I;apply Bound,I|rewrite <-Val;apply limbs_ext,Y]. }
    intros j P J In;destruct (Inputs j J) as [BX [BY [YVal XVal]]];destruct (Lane j J) as [X [Y [Z T]]].
-   assert (YP:fy(original_encoding sig e j)=y P) by exact (eq_sym(proj1 In)).
+   assert (YP:PointDecoding.encoded_y(original_encoding sig e j)=y P) by exact (eq_sym(proj1 In)).
    pose proof(same_value _ _ X) as VX;rewrite (XVal P In) in VX.
-   assert (YField:value(row (machine s) (point e sig+320) j)=fy(original_encoding sig e j))
+   assert (YField:value(row (machine s) (point e sig+320) j)=PointDecoding.encoded_y(original_encoding sig e j))
      by (unfold value,pack;now rewrite YVal).
    pose proof(same_value _ _ Y) as VY;rewrite YField,YP in VY.
    pose proof(same_value _ _ Z) as VZ;change (value one) with 1%fp in VZ.

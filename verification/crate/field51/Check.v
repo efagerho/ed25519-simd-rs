@@ -2,7 +2,8 @@ From Coq Require Import List ZArith Lia Bool Ring.
 From ProofArithmetic Require Import Interval Polynomial.
 From Curve25519 Require Import Field Radix51.
 From Machine Require Import isa.Instructions execution.MaskTrace execution.CircuitFacts.
-From Ed25519Simd.field51 Require Import Arithmetic Zero.
+From Ed25519Simd.field51 Require Import Arithmetic.
+From Curve25519 Require Import Radix51Zero.
 Import ListNotations. Local Open Scope Z_scope.
 
 Definition slot (base i:nat) := (base + match i with O=>4 | S j=>j end)%nat.

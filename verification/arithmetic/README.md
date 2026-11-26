@@ -10,7 +10,9 @@ programs and can be built using only the Coq standard library.
 | [Polynomial.v](Polynomial.v) | Normalization preserves meaning; checked coefficient identities imply exact equality or congruence for an explicit nonzero modulus. |
 | [Ranges.v](Ranges.v) | Numeric bounds and their expression evaluator, with no exact-expression claim. Bound operations and positive-divisor checks are shared. |
 | [Interval.v](Interval.v) | Symbolic expressions paired with numeric bounds. Erasing the expression agrees with the bounds evaluator; remainder removal requires both endpoints in range. Refinement hints require proofs. |
-| [Radix.v](Radix.v) | Little-endian positional integers and a value bound for bounded digits. |
+| [Radix.v](Radix.v) | Little-endian positional integers, comparison by the most significant differing digit, the borrow-chain invariant, and conditional subtraction. |
+| [Montgomery.v](Montgomery.v) | Cancellation of a low digit, the carry after cancellation, and removal of Montgomery scaling under explicit inverse hypotheses. |
+| [AdditionChain.v](AdditionChain.v) | Multiplication and squaring chains preserve any relation respected by both operations, including across saved slots. |
 
 [Machine instruction translation](../machine/symbolic/Expressions.v) returns `None` for memory instructions.
 Its soundness theorem requires a successful translation and proves equality

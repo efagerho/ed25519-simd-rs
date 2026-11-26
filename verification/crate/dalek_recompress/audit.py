@@ -13,10 +13,10 @@ from crate.decompress_r import audit as decoder
 from crate.small_order import audit as small_order
 from elf import symbol_bytes, symbol_extent
 from evidence import write_evidence
-from proof_build import MASK_PROJECTS, check_object, compile_libraries, component_flags, write_symbol_bytes
+from proof_build import ED25519_FLAGS, check_object, compile_signature_equations, component_flags, write_symbol_bytes
 
 ENTRY = "ed25519_simd_dalek_recompress"
-FLAGS = component_flags("dalek_recompress") + [
+FLAGS = component_flags("dalek_recompress") + ED25519_FLAGS + [
     "-Q", "Decode", "Ed25519Simd.Decode", "-Q", "SmallOrder", "Ed25519Simd.SmallOrder"]
 DALEK_MODULES = ("FieldOps", "Encoding", "Masks", "Batch", "Caller", "Schedule", "Audit", "Object")
 
@@ -47,11 +47,11 @@ def replay(elf, work):
     entry = entry_bytes(elf, work / "Dalek")
     dec, helper = decoder.extract(elf, work / "Decode")
     small, _ = small_order.extract(elf, work / "SmallOrder")
-    compile_libraries(work, projects=MASK_PROJECTS)
+    compile_signature_equations(work)
     compile_modules(work, "SmallOrder", small_order.HERE / "coq",
                     ("Program", "EntryBytes", "HelperBytes", *small_order.MODULES))
     compile_modules(work, "Decode", decoder.HERE / "coq",
-                    ("Kernels", "Power", "Image", "Limbs", "Scale", "Unpack", "Decode", "Glue",
+                    ("Kernels", "Power", "Image", "Scale", "Unpack", "Decode", "Glue",
                      "Program", "DecoderBytes", "HelperBytes"))
     compile_modules(work, "Dalek", HERE / "coq", ("ObjectBytes", *DALEK_MODULES))
     checks = check_object(work, FLAGS, "dalek_recompress")

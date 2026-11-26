@@ -106,3 +106,12 @@ Proof.
 Qed.
 Lemma d_nonsquare (x:fp) : x*x <> d.
 Proof. apply nonsquare_by_euler; vm_compute; discriminate. Qed.
+
+Local Open Scope Z_scope.
+Lemma congruent_value a b : Field.represents a b <-> residue a=residue b.
+Proof.
+ split;[intro H;apply residue_eq,Field.represents_mod;exact H|].
+ intro H; apply (f_equal (GZnZ.val Field.prime)) in H. change (a mod Field.prime=b mod Field.prime) in H.
+ exists (a/Field.prime-b/Field.prime). pose proof (Z.div_mod a Field.prime ltac:(unfold Field.prime;lia)).
+ pose proof (Z.div_mod b Field.prime ltac:(unfold Field.prime;lia)). lia.
+Qed.

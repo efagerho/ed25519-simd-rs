@@ -40,20 +40,16 @@ Definition modulus_digit i := match i with O=>l0 | 1%nat=>l1 | 2%nat=>l2 | 3%nat
 Definition diff x i b := x i-modulus_digit i-b.
 Fixpoint borrow_at x n := match n with O=>0 | S i=>borrow(diff x i(borrow_at x i))end.
 Definition candidate x i := diff x i(borrow_at x i)mod B.
-Fixpoint low x n := match n with O=>0 | S i=>low x i+B^Z.of_nat i*x i end.
+Definition low := low_digits B.
 Lemma modulus_digits_bounded i : 0<=modulus_digit i<B.
 Proof. destruct i as[|[|[|[|i]]]];unfold modulus_digit,l0,l1,l2,l4,B;lia. Qed.
 Lemma borrow_chain x n : (forall i,(i<n)%nat->0<=x i<B) ->
  0<=borrow_at x n<=1 /\
  low x n-low modulus_digit n=low(candidate x)n-B^Z.of_nat n*borrow_at x n.
 Proof.
- intro X;induction n as[|n IH];[cbn;split;[lia|ring]|].
- destruct(IH ltac:(intros;apply X;lia))as[Bound Eq].
- pose proof(X n ltac:(lia));pose proof(modulus_digits_bounded n).
- destruct(borrow_correct(diff x n(borrow_at x n))ltac:(unfold diff;lia))as[A E].
- cbn [borrow_at];split;[exact A|].
- cbn [low];rewrite Nat2Z.inj_succ,Z.pow_succ_r by lia.
- unfold candidate at 2;unfold diff in E|-*;nia.
+ intro X. apply subtraction_chain; [reflexivity|].
+ intros i I Bound. specialize (X i I). pose proof (modulus_digits_bounded i).
+ apply (borrow_correct (diff x i (borrow_at x i))). unfold diff; lia.
 Qed.
 Lemma low_pack x : low x 5=number B(map x(seq 0 5)).
 Proof.
@@ -78,14 +74,6 @@ Proof.
  { rewrite !low_pack;cbn [seq map number];repeat rewrite Y by lia;
    destruct(borrow_at x 5=?0);reflexivity. }
  split.
- - rewrite Values;rewrite <-canonical by exact U.
-   destruct Choice as[E|E].
-   + rewrite E in Eq|-*;rewrite Z.mul_0_r,Z.sub_0_r in Eq.
-     change(low(candidate x)5=(if low x 5<?L then low x 5 else low x 5-L)).
-     destruct(low x 5<?L)eqn:T;[apply Z.ltb_lt in T|apply Z.ltb_ge in T];lia.
-   + rewrite E in Eq|-*;rewrite Z.mul_1_r in Eq.
-     change(low x 5=(if low x 5<?L then low x 5 else low x 5-L)).
-     change(0<=low(candidate x)5<B^5)in C.
-     destruct(low x 5<?L)eqn:T;[reflexivity|apply Z.ltb_ge in T;lia].
+ - rewrite Values. eapply conditional_subtraction; eauto using L_positive.
  - intros i I;rewrite Y by exact I;destruct(borrow_at x 5=?0);[apply Z.mod_pos_bound,B_positive|apply X,I].
 Qed.

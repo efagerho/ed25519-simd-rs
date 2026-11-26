@@ -2,7 +2,8 @@ From Coq Require Import List ZArith NArith Strings.Byte Bool Lia.
 From Machine Require Import isa.Instructions execution.LinkedCalls execution.WordSemantics
  execution.WordBounds abi.SysV memory.FlatMemory memory.ByteMemory.
 From SHA512 Require Import Spec.
-From Ed25519Simd.Sha512Challenge Require Import Compression Block Loader Lanes Frame Output Image Rows Control.
+From SHA512 Require Import Compression.
+From Ed25519Simd.Sha512Challenge Require Import Block Loader Lanes Frame Output Image Rows Control.
 Import ListNotations.
 Local Open Scope Z_scope.
 

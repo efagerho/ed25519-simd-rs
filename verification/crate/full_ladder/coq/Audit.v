@@ -3,7 +3,8 @@ From Machine Require Import execution.LinkedCalls memory.FlatMemory memory.Memor
 From Curve25519.group Require Import Affine Representation.
 From ProofArithmetic Require Import Radix.
 From Ed25519Simd Require Import Wide51.
-From Ed25519Simd.FullLadder Require Import LinkedBytes Program Operands ScalarAction Execution Native Composition.
+From Curve25519.group Require Import DoubleScalar.
+From Ed25519Simd.FullLadder Require Import LinkedBytes Program Operands Execution Native Composition.
 From Ed25519Simd.FullLadder Require StageEntry NativeSeed.
 From Machine Require Import memory.ByteMemory memory.WriteTrace.
 From Machine Require abi.SysV execution.MappedFetch.
